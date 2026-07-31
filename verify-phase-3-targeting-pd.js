@@ -240,8 +240,11 @@ let testShipCounter = 0;
     const decoy = { id: "d-priority", type: "decoy", ownerId: "p2", x: 110, y: 100, expiresAt: Infinity };
     room.bullets.push(missile, decoy);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    pdShip._pdThreatSet = null;
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
     const legacy = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
+    pdShip._pdThreatSet = null;
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     const shared = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
     PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
 

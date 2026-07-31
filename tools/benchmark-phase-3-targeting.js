@@ -1,25 +1,41 @@
 "use strict";
 
-// Short deterministic benchmark for Phase 3 targeting and Point Defence.
-// Compares the legacy path (all flags false) against the new paths.
+// Deterministic short benchmark for Phase 3 targeting and Point Defence.
+// Exercises the real ship and station weapon update loops with multiple mounts
+// and an updated spatial index each tick.
 
 const { performance } = require("perf_hooks");
 const { PARTS } = require("../src/server/components");
 const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { reallocateShipPower } = require("../src/server/componentPower");
-const { findPointDefenseTarget } = require("../src/server/combat");
+const { updateShipWeapons } = require("../src/server/combat");
+const { updateStationWeapons } = require("../src/server/stationCombat");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { getShipComponentIndexes } = require("../src/server/componentIndexes");
 const PerformanceFlags = require("../src/server/performanceFlags");
-const PointDefenceThreats = require("../src/server/pointDefenceThreats");
-const WiringRules = require("../public/src/shared/wiringRules");
+const RoomTelemetry = require("../src/server/roomTelemetry");
+const { stationModuleWorldPosition } = require("../src/server/stationTemplates");
 
-const WARMUP = 30;
+const WARMUP = 60;
 const MEASURE = 300;
+const DT = 1 / 30;
+const TICK_MS = DT * 1000;
+const MISSILES_PER_SCENE = 200;
 
-function makeShip(design, ownerId, id, x, y) {
+function makeShip(id, ownerId, x, y, pdCount = 4) {
+  const design = [
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 6, type: "reactor" },
+    { x: 7, y: 8, type: "engine" }
+  ];
+  for (let i = 0; i < pdCount; i += 1) {
+    design.push({ x: 8 + Math.floor(i / 5), y: 7 + (i % 5), type: "pointDefense" });
+  }
+  design.push({ x: 6, y: 7, type: "blaster" });
   let wiring;
   try {
-    wiring = WiringRules.createGeneratedPowerWiring(design, PARTS);
+    wiring = require("../public/src/shared/wiringRules").createGeneratedPowerWiring(design, PARTS);
   } catch (_) {
     wiring = { power: [], data: [] };
   }
@@ -33,6 +49,8 @@ function makeShip(design, ownerId, id, x, y) {
     angle: 0,
     vx: 0,
     vy: 0,
+    targetX: x,
+    targetY: y,
     design,
     wiring,
     stats,
@@ -45,22 +63,62 @@ function makeShip(design, ownerId, id, x, y) {
   };
   initComponentState(ship);
   reallocateShipPower(ship, "init");
-  ship.weaponAngles = design.map(() => 0);
-  ship.weaponCooldowns = design.map(() => 0);
+  const n = design.length;
+  ship.weaponAngles = new Array(n).fill(0);
+  ship.weaponCooldowns = new Array(n).fill(0);
+  ship.weaponDesiredAngles = new Array(n).fill(null);
+  ship.weaponAimTargetIds = new Array(n).fill(null);
+  ship.weaponFireTargetIds = new Array(n).fill(null);
+  ship.weaponComponentTargetIds = new Array(n).fill(-1);
+  ship.weaponComponentTargetIndices = new Array(n).fill(-1);
+  ship.weaponComponentRetargetAt = new Array(n).fill(0);
+  ship.weaponBeamContacts = new Array(n).fill(null);
   return ship;
 }
 
-function makeRoom(ships, missiles) {
+function makeStation(id, ownerTeam, x, y, weaponCount = 8) {
+  const design = [{ x: 7, y: 7, type: "core" }];
+  for (let i = 0; i < weaponCount; i += 1) {
+    design.push({ x: 7 + i % 5, y: 7 + Math.floor(i / 5), type: i % 3 === 0 ? "pointDefense" : "blaster" });
+  }
+  const station = {
+    id,
+    ownerId: null,
+    team: ownerTeam,
+    x,
+    y,
+    angle: 0,
+    design,
+    entityType: "station",
+    moduleScale: 59,
+    alive: true,
+    state: "operational",
+    hp: 1000,
+    maxHp: 1000,
+    componentHp: design.map(() => 1000),
+    componentMaxHp: design.map(() => 1000),
+    weaponCooldowns: new Array(design.length).fill(0),
+    weaponAngles: design.map(() => 0),
+    weaponAimTargetIds: new Array(design.length).fill(null),
+    weaponFireTargetIds: new Array(design.length).fill(null),
+    weaponDesiredAngles: new Array(design.length).fill(null)
+  };
+  getShipComponentIndexes(station);
+  return station;
+}
+
+function makeRoom(ship, missiles, stations = []) {
   const playerMap = new Map([
     ["p1", { id: "p1", team: "A" }],
     ["p2", { id: "p2", team: "B" }]
   ]);
   const shipMap = new Map();
-  for (const ship of ships) shipMap.set(ship.id, ship);
-  return {
+  if (ship) shipMap.set(ship.id, ship);
+  const room = {
     phase: "active",
     ships: shipMap,
     players: playerMap,
+    stations,
     drones: new Map(),
     bullets: missiles,
     points: [],
@@ -68,28 +126,21 @@ function makeRoom(ships, missiles) {
     map: { asteroids: [], safeZones: [] },
     world: { width: 4000, height: 4000 }
   };
+  return room;
 }
 
-function buildScene(pdCount, missileCount) {
-  const design = [{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }];
-  const pdShips = [];
-  for (let i = 0; i < pdCount; i += 1) {
-    const x = 100 + (i % 10) * 50;
-    const y = 100 + Math.floor(i / 10) * 50;
-    pdShips.push(makeShip(design, "p1", `pd-${i}`, x, y));
-  }
-
+function makeMissiles(pdShip, count) {
   const missiles = [];
-  for (let i = 0; i < missileCount; i += 1) {
-    const x = 250 + (i % 20) * 30;
-    const y = 100 + Math.floor(i / 20) * 60;
+  for (let i = 0; i < count; i += 1) {
+    const angle = (i / count) * Math.PI * 2;
+    const dist = 180 + (i % 60);
     missiles.push({
       id: `m-${i}`,
       type: "missile",
       ownerId: "p2",
-      targetId: pdShips[i % pdShips.length].id,
-      x,
-      y,
+      targetId: pdShip.id,
+      x: pdShip.x + Math.cos(angle) * dist,
+      y: pdShip.y + Math.sin(angle) * dist,
       vx: -100,
       vy: 0,
       life: 10,
@@ -97,63 +148,138 @@ function buildScene(pdCount, missileCount) {
       hp: 20
     });
   }
-
-  const room = makeRoom(pdShips, missiles);
-  return { room, pdShips };
+  return missiles;
 }
 
-function runScenario(pdCount, missileCount, shared) {
-  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(shared);
-  const { room, pdShips } = buildScene(pdCount, missileCount);
-  const weapon = PARTS.pointDefense.weapon;
-  let now = 1000;
+function runShipScenario(name, pdCount, missileCount, flags) {
+  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(flags.shared);
+  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(flags.cadence);
+  PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(flags.profile);
 
+  const ship = makeShip("pd-bench-1", "p1", 2000, 2000, pdCount);
+  const missiles = makeMissiles(ship, missileCount);
+  const room = makeRoom(ship, missiles);
+  const ships = [ship];
+
+  let now = 0;
   for (let i = 0; i < WARMUP; i += 1) {
-    for (const ship of pdShips) {
-      findPointDefenseTarget(room, ship.x, ship.y, ship.ownerId, weapon, [], ship.id, now);
-    }
-    if (shared) PointDefenceThreats.invalidateAllPointDefenceThreatSets(room);
+    now += TICK_MS;
+    buildRoomSpatialIndex(room, ships, now);
+    updateShipWeapons(room, ship, ships, DT, now);
   }
 
+  RoomTelemetry.resetRoomTelemetry(room);
   const start = performance.now();
-  let searches = 0;
   for (let i = 0; i < MEASURE; i += 1) {
-    now += 33.333;
-    for (const ship of pdShips) {
-      findPointDefenseTarget(room, ship.x, ship.y, ship.ownerId, weapon, [], ship.id, now);
-      searches += 1;
-    }
+    now += TICK_MS;
+    buildRoomSpatialIndex(room, ships, now);
+    updateShipWeapons(room, ship, ships, DT, now);
   }
   const totalMs = performance.now() - start;
 
-  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
-  return {
+  const t = RoomTelemetry.getRoomTelemetry(room);
+  const result = {
+    name,
     pdCount,
     missileCount,
-    shared,
-    searches,
+    flags,
+    ticks: MEASURE,
     totalMs: Number(totalMs.toFixed(3)),
-    perSearchUs: Number(((totalMs / searches) * 1000).toFixed(3))
+    perTickUs: Number(((totalMs / MEASURE) * 1000).toFixed(2)),
+    pointDefenceThreatSetBuilds: t.pointDefenceThreatSetBuilds || 0,
+    pointDefenceThreatSetReuses: t.pointDefenceThreatSetReuses || 0,
+    pointDefenceMountSelections: t.pointDefenceMountSelections || 0,
+    pointDefenceLegacyScansAvoided: t.pointDefenceLegacyScansAvoided || 0,
+    ordinaryTargetSearches: t.ordinaryTargetSearches || 0,
+    ordinaryTargetSearchDeferred: t.ordinaryTargetSearchDeferred || 0,
+    effectiveWeaponProfileBuilds: t.effectiveWeaponProfileBuilds || 0,
+    effectiveWeaponProfileCacheHits: t.effectiveWeaponProfileCacheHits || 0,
+    projectilesCreated: t.projectilesCreated || 0
   };
+
+  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+  PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
+  return result;
+}
+
+function runStationScenario(name, weaponCount, enemyShipCount, flags) {
+  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(flags.shared);
+  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(flags.cadence);
+
+  const station = makeStation("st-bench-1", "A", 2000, 2000, weaponCount);
+  const enemies = [];
+  for (let i = 0; i < enemyShipCount; i += 1) {
+    const enemy = makeShip(`enemy-${i}`, "p2", 1900 + (i % 10) * 30, 1900 + Math.floor(i / 10) * 40, 0);
+    enemies.push(enemy);
+  }
+  const missiles = makeMissiles(station, Math.min(50, enemyShipCount));
+  const room = makeRoom(null, missiles, [station]);
+  for (const enemy of enemies) room.ships.set(enemy.id, enemy);
+  const ships = [...room.ships.values()];
+
+  let now = 0;
+  for (let i = 0; i < WARMUP; i += 1) {
+    now += TICK_MS;
+    buildRoomSpatialIndex(room, ships, now);
+    updateStationWeapons(room, [station], ships, DT, now);
+  }
+
+  RoomTelemetry.resetRoomTelemetry(room);
+  const start = performance.now();
+  for (let i = 0; i < MEASURE; i += 1) {
+    now += TICK_MS;
+    buildRoomSpatialIndex(room, ships, now);
+    updateStationWeapons(room, [station], ships, DT, now);
+  }
+  const totalMs = performance.now() - start;
+
+  const t = RoomTelemetry.getRoomTelemetry(room);
+  const result = {
+    name,
+    weaponCount,
+    enemyShipCount,
+    flags,
+    ticks: MEASURE,
+    totalMs: Number(totalMs.toFixed(3)),
+    perTickUs: Number(((totalMs / MEASURE) * 1000).toFixed(2)),
+    pointDefenceThreatSetBuilds: t.pointDefenceThreatSetBuilds || 0,
+    pointDefenceThreatSetReuses: t.pointDefenceThreatSetReuses || 0,
+    pointDefenceMountSelections: t.pointDefenceMountSelections || 0,
+    stationTargetSearches: t.stationTargetSearches || 0,
+    stationTargetSearchDeferred: t.stationTargetSearchDeferred || 0,
+    projectilesCreated: t.projectilesCreated || 0
+  };
+
+  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+  PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
+  return result;
 }
 
 function main() {
-  const scenarios = [
-    { pd: 5, missiles: 50 },
-    { pd: 10, missiles: 100 },
-    { pd: 25, missiles: 250 }
-  ];
-
   const results = [];
-  for (const s of scenarios) {
-    results.push(runScenario(s.pd, s.missiles, false));
-    results.push(runScenario(s.pd, s.missiles, true));
-  }
+
+  const allOff = { shared: false, cadence: false, profile: false };
+  const sharedOnly = { shared: true, cadence: false, profile: false };
+  const cadenceOnly = { shared: false, cadence: true, profile: false };
+  const profileOnly = { shared: false, cadence: false, profile: true };
+  const allOn = { shared: true, cadence: true, profile: true };
+
+  results.push(runShipScenario("ship-4pd-200m-all-off", 4, MISSILES_PER_SCENE, allOff));
+  results.push(runShipScenario("ship-4pd-200m-shared-only", 4, MISSILES_PER_SCENE, sharedOnly));
+  results.push(runShipScenario("ship-4pd-200m-cadence-only", 4, MISSILES_PER_SCENE, cadenceOnly));
+  results.push(runShipScenario("ship-4pd-200m-profile-only", 4, MISSILES_PER_SCENE, profileOnly));
+  results.push(runShipScenario("ship-4pd-200m-all-on", 4, MISSILES_PER_SCENE, allOn));
+
+  results.push(runStationScenario("station-8weapons-50ships-all-off", 8, 50, allOff));
+  results.push(runStationScenario("station-8weapons-50ships-shared-cadence", 8, 50, { shared: true, cadence: true, profile: false }));
 
   const report = {
-    benchmark: "phase-3-point-defence",
+    benchmark: "phase-3-real-combat-loop",
     warmup: WARMUP,
     measure: MEASURE,
+    dt: DT,
     timestamp: new Date().toISOString(),
     results
   };

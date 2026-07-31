@@ -43,7 +43,8 @@ function _moduleCentreToLocal(module, scale) {
 
 function _entityModuleScale(entity) {
   // Stations use the station module scale; everything else uses ship scale.
-  return entity?.type === "station" ? STATION_MODULE_SCALE : SHIP_MODULE_SCALE;
+  if (entity?.moduleScale) return entity.moduleScale;
+  return entity?.entityType === "station" ? STATION_MODULE_SCALE : SHIP_MODULE_SCALE;
 }
 
 function _getPointDefenceMetadata(entity) {
@@ -81,7 +82,8 @@ function _buildCandidateList(room, entity, identity, queryRadius, now) {
   const viewerTeam = _viewerTeam(room, identity, entity.team);
 
   const spatial = room?.spatialIndex;
-  const scratch = room?._pdThreatScratch || { projectiles: [], drones: [], ships: [] };
+  if (!room._pdThreatScratch) room._pdThreatScratch = { projectiles: [], drones: [], ships: [] };
+  const scratch = room._pdThreatScratch;
 
   const projectiles = spatial && spatial.dynamicValid
     ? spatial.queryRangeUnordered("interceptableProjectiles", x, y, queryRadius, scratch.projectiles)
@@ -141,7 +143,6 @@ function _signature(room, entity, meta) {
   const rev = _entityRelevantRevisions(entity);
   return {
     stateEpoch: room?.stateEpoch || 1,
-    spatialBuiltAt: room?.spatialIndex?.builtAt || 0,
     pdIndices: meta.pdIndices,
     maxRange: meta.maxRange,
     maxOffset: meta.maxOffset,
@@ -196,7 +197,9 @@ function ensurePointDefenceThreatSet(room, entity, identity, now) {
   const force = _signatureChanged(entity._pdThreatSet, room, entity, now, meta);
 
   if (force) {
-    const candidates = _buildCandidateList(room, entity, identity, meta.queryRadius, now);
+    const candidates = TargetingTelemetry.withSampledDuration(room, now, entity, 0, "sampledPDSetBuildDuration", () =>
+      _buildCandidateList(room, entity, identity, meta.queryRadius, now)
+    );
 
     if (!entity._pdThreatSet) {
       entity._pdThreatSet = { candidates: [], maxRange: 0, x: 0, y: 0, nextRefreshAt: 0 };
@@ -215,7 +218,6 @@ function ensurePointDefenceThreatSet(room, entity, identity, now) {
     entity._pdThreatSet._candidatesLength = candidates.length;
 
     TargetingTelemetry.bump(room, "pointDefenceThreatSetBuilds");
-    TargetingTelemetry.setCounter(room, "pointDefenceThreatCandidates", candidates.length);
     TargetingTelemetry.bump(room, "pointDefenceThreatCandidates", candidates.length);
     return entity._pdThreatSet;
   }

@@ -993,13 +993,14 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
         const margin = cand.type === "ship" ? 8 : cand.type === "drone" ? 3 : 4;
         return !isLineBlocked(room, worldX, worldY, cand.entity.x, cand.entity.y, margin);
       };
-      const selected = PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations);
+      const selected = TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledPDSelectionDuration", () =>
+        PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations)
+      );
       TargetingTelemetry.bump(room, "pointDefenceLegacyScansAvoided");
       return selected;
     }
-    TargetingTelemetry.bump(room, "pointDefenceSharedFallbackNoDefender");
-  } else {
     TargetingTelemetry.bump(room, "pointDefenceSharedFallbacks");
+    TargetingTelemetry.bump(room, "pointDefenceSharedFallbackNoDefender");
   }
 
   const rangeSq = weapon.range * weapon.range;
@@ -1200,6 +1201,7 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
 
 
 
+  TargetingTelemetry.bump(room, "pointDefenceMountSelections");
   return best;
 
 }
@@ -1306,7 +1308,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
   const weaponIndices = getShipComponentIndexes(ship).weaponIndices;
 
   if (PerformanceFlags.WEAPON_PROFILE_REVISION_CACHE()) {
-    const cache = ensureEffectiveWeaponProfileCache(ship);
+    const cache = TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledProfileBuildDuration", () =>
+      ensureEffectiveWeaponProfileCache(ship)
+    );
     if (cache) {
       const prev = ship._effectiveWeaponProfileCacheRevision;
       if (prev !== cache.revision) {
@@ -4447,7 +4451,7 @@ function _updateWeaponTargetState(ship, i, weaponTarget, now, kind) {
   if (!ship._weaponTargetState) ship._weaponTargetState = [];
   let state = ship._weaponTargetState[i];
   if (!state) {
-    state = ship._weaponTargetState[i] = { id: null, category: null, nextSearchAt: 0, lastSearchAt: 0, profileRevision: 0, manualRevision: 0 };
+    state = ship._weaponTargetState[i] = { id: null, category: null, nextSearchAt: 0, lastSearchAt: 0, profileRevision: 0, manualRevision: 0, lastPrimaryId: null };
   }
   if (weaponTarget) {
     state.id = weaponTarget.id ?? null;
@@ -4466,10 +4470,11 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
   if (!ship._weaponTargetState) ship._weaponTargetState = [];
   let state = ship._weaponTargetState[i];
   if (!state) {
-    state = ship._weaponTargetState[i] = { id: null, category: null, nextSearchAt: 0, lastSearchAt: 0, profileRevision: 0, manualRevision: 0 };
+    state = ship._weaponTargetState[i] = { id: null, category: null, nextSearchAt: 0, lastSearchAt: 0, profileRevision: 0, manualRevision: 0, lastPrimaryId: null };
   }
 
-  const cached = state.id ? _getCachedTargetEntity(room, state.id, state.category) : null;
+  const hadCachedTarget = state.id !== null;
+  const cached = hadCachedTarget ? _getCachedTargetEntity(room, state.id, state.category) : null;
   let currentValid = false;
   if (cached) {
     currentValid = Targeting.isOrdinaryWeaponTargetValid(room, ship, cached, now, range, {
@@ -4484,11 +4489,11 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
   }
 
   const primaryId = primary?.id ?? null;
-  const primaryChanged = primaryId !== null && primaryId !== state.id;
-  const primaryIsCurrent = primaryId !== null && primaryId === state.id;
-  const force = primaryChanged || (cached && !currentValid);
+  const primaryChanged = primaryId !== state.lastPrimaryId;
+  state.lastPrimaryId = primaryId;
+  const force = (hadCachedTarget && (!cached || !currentValid)) || primaryChanged;
 
-  if (force && cached && !currentValid) {
+  if (hadCachedTarget && (!cached || !currentValid)) {
     state.id = null;
     state.category = null;
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
@@ -4498,18 +4503,20 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
 
   const due = TargetingCadence.isAcquisitionDue(ship, kind, i, now);
 
-  if (primaryIsCurrent && currentValid && !due) {
+  if (currentValid && !force && !due) {
     TargetingTelemetry.bump(room, "ordinaryTargetSearchDeferred");
     return cached;
   }
 
-  if (!primaryIsCurrent && currentValid && !force && !due) {
+  if (!currentValid && !force && !due) {
     TargetingTelemetry.bump(room, "ordinaryTargetSearchDeferred");
-    return cached;
+    return null;
   }
 
   TargetingTelemetry.bump(room, "ordinaryTargetSearches");
-  const picked = pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options);
+  const picked = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledOrdinaryAcquisitionDuration", () =>
+    pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options)
+  );
   if (picked) {
     picked._targetCategoryCache = _targetCategory(room, picked);
   }

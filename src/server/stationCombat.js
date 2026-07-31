@@ -246,7 +246,8 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
   const arcRadians = (weapon.arc || 360) * Math.PI / 180;
   const weaponAngle = weaponFacingAngle(station, i);
 
-  const cached = state.id ? (targets || []).find((t) => t && t.id === state.id) : null;
+  const hadCachedTarget = state.id !== null;
+  const cached = hadCachedTarget ? (targets || []).find((t) => t && t.id === state.id) : null;
   let currentValid = false;
   if (cached) {
     currentValid = Targeting.isStationWeaponTargetValid(room, station, cached, identity, now, range, {
@@ -260,20 +261,34 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
   }
 
   const due = TargetingCadence.isAcquisitionDue(station, "stationOrdinary", i, now);
-  const force = cached && !currentValid;
+  const force = hadCachedTarget && !currentValid;
+
+  if (hadCachedTarget && !cached) {
+    state.id = null;
+    TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
+  } else if (force) {
+    state.id = null;
+    TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
+  }
 
   if (currentValid && !due && !force) {
     TargetingTelemetry.bump(room, "stationTargetSearchDeferred");
     return cached;
   }
 
-  if (force) TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
+  if (!currentValid && !due && !force) {
+    TargetingTelemetry.bump(room, "stationTargetSearchDeferred");
+    return null;
+  }
+
   TargetingTelemetry.bump(room, "stationTargetSearches");
-  const picked = findStationWeaponTarget(room, station, i, targets, identity, now);
+  const picked = TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledStationAcquisitionDuration", () =>
+    findStationWeaponTarget(room, station, i, targets, identity, now)
+  );
   _updateStationTargetState(station, i, picked, now, "stationOrdinary");
   if (picked) {
     TargetingTelemetry.bump(room, "stationTargetCandidates");
-    if (picked) picked._targetCategoryCache = "ship";
+    picked._targetCategoryCache = "ship";
   }
   return picked;
 }
