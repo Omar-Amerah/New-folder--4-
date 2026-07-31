@@ -20,7 +20,7 @@ const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry"
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
-const { redundantFleetMapCollisionPass, FIXED_AUTHORITATIVE_TIMESTEP } = require("./performanceFlags");
+const { redundantFleetMapCollisionPass, FIXED_AUTHORITATIVE_TIMESTEP, INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { TICK_HZ } = require("./config");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
@@ -89,8 +89,12 @@ function tickRoom(room, dt, now) {
   recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
   // updated by their own systems before consumers that need their positions.
-  if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
-    room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
+    if (INCREMENTAL_SPATIAL_INDEX()) {
+      room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+    } else {
+      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+    }
   } else {
     buildRoomSpatialIndex(room, ships, now);
   }
@@ -108,8 +112,12 @@ function tickRoom(room, dt, now) {
   // Separation and map recovery mutate positions after the pre-collision
   // movement refresh. Publish the corrected coordinates without rebuilding
   // unrelated dynamic kinds.
-  if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
-    room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
+    if (INCREMENTAL_SPATIAL_INDEX()) {
+      room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+    } else {
+      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+    }
   }
   durations.movementSeparationMap = performanceNow() - startedAt;
   // Everything below this point sees one cached visibility generation. Combat

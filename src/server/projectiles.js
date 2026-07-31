@@ -6,7 +6,8 @@ const { bump, recordDuration, setCounter } = require("./roomTelemetry");
 const {
   PROJECTILE_FLAK_SINGLE_PASS,
   PROJECTILE_GUIDANCE_CADENCE,
-  PROJECTILE_GRID_COLLISION
+  PROJECTILE_GRID_COLLISION,
+  INCREMENTAL_SPATIAL_INDEX
 } = require("./performanceFlags");
 const {
   recordProjectileSpawn,
@@ -1161,10 +1162,20 @@ function updateBullets(room, dt, now) {
     });
   }
 
-  // Projectile positions and membership have now advanced beyond the index's
-  // build epoch. No later subsystem in this tick consumes it; clearing prevents
-  // accidental stale queries and the next authoritative tick rebuilds once.
-  room.spatialIndex?.invalidateDynamic?.();
+  // Incremental path: publish final projectile positions for the next tick.
+  // Fallback path: invalidate so the next tick performs a full rebuild.
+  if (room.spatialIndex && INCREMENTAL_SPATIAL_INDEX()) {
+    const liveProjectiles = [];
+    const liveInterceptable = [];
+    for (const bullet of room.bullets) {
+      liveProjectiles.push(bullet);
+      if (bullet.interceptable) liveInterceptable.push(bullet);
+    }
+    room.spatialIndex.updateLiveEntities("projectiles", liveProjectiles, () => 0);
+    room.spatialIndex.updateLiveEntities("interceptableProjectiles", liveInterceptable, () => 0);
+  } else {
+    room.spatialIndex?.invalidateDynamic?.();
+  }
   if (room.assertProjectileLookup || process.env.MFA_ASSERT_RUNTIME_CACHES === "1" || process.env.NODE_ENV === "test") {
     assertProjectileLookupConsistency(room);
   }
