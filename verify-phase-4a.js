@@ -73,7 +73,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     advanceRoomAuthoritative(room, t0 + i * FIXED_STEP_MS);
   }
   assert.strictEqual(room._simulationStep, callbacks, "steady cadence runs one fixed step per callback");
-  assert(Math.abs(room._authoritativeTimeMs - (t0 + callbacks * FIXED_STEP_MS)) < EPSILON, "authoritative time advances by exact fixed increments");
+  assert(Math.abs(room._authoritativeTimeMs - (t0 + (callbacks - 1) * FIXED_STEP_MS)) < EPSILON, "authoritative time advances by exact fixed increments");
   assert(Math.abs(room._simulationAccumulatorMs) < EPSILON, "steady cadence leaves no leftover backlog");
 }
 
@@ -109,7 +109,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     advanceRoomAuthoritative(steady, sT);
   }
 
+  const expectedAuth = t0 + (targetStep - 1) * FIXED_STEP_MS;
   assert.strictEqual(steady._simulationStep, targetStep, "steady and jittered rooms reach the same step count");
+  assert(Math.abs(steady._authoritativeTimeMs - expectedAuth) < EPSILON, "steady authoritative time lands exactly on its final step");
+  assert(Math.abs(jitter._authoritativeTimeMs - expectedAuth) < EPSILON, "jittered authoritative time lands exactly on its final step");
   assert(Math.abs(steady._authoritativeTimeMs - jitterAuth) < EPSILON, "steady and jittered rooms share the same authoritative time");
   assert.strictEqual(steady.bullets.length, jitter.bullets.length, "same number of bullets");
   for (let b = 0; b < steady.bullets.length; b += 1) {
@@ -132,7 +135,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   assert.strictEqual(room._simulationStep, 1 + MAX_CATCH_UP_STEPS, "delayed callback runs at most MAX_CATCH_UP_STEPS");
   assert.strictEqual(getRoomTelemetry(room).fixedStepMaxCatchUp, MAX_CATCH_UP_STEPS, "telemetry records the maximum catch-up reached");
   assert(Math.abs(getRoomTelemetry(room).fixedStepDiscardedBacklogMs - (delayedBySteps - MAX_CATCH_UP_STEPS) * FIXED_STEP_MS) < EPSILON, "discarded backlog recorded correctly");
-  assert(Math.abs(room._authoritativeTimeMs - (t0 + (1 + MAX_CATCH_UP_STEPS) * FIXED_STEP_MS)) < EPSILON, "authoritative time only advances by the executed fixed steps");
+  assert(Math.abs(room._authoritativeTimeMs - (t0 + MAX_CATCH_UP_STEPS * FIXED_STEP_MS)) < EPSILON, "authoritative time only advances by the executed fixed steps");
 }
 
 // 6. Gameplay systems never receive a giant delayed dt.
@@ -172,6 +175,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   let stepCalls = 0;
   room._advanceStepFn = (r, dt, now) => {
     stepCalls += 1;
+    assert.strictEqual(gameplayNow(r), now, "gameplayNow returns the current step timestamp inside tick");
     tickRoom(r, dt, now);
   };
 
@@ -271,13 +275,14 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     threw = true;
     assert.strictEqual(calls, 2, "failure happened during the second planned step");
     assert(Math.abs(room._simulationAccumulatorMs - 2 * FIXED_STEP_MS) < EPSILON, "remaining catch-up steps stay in the accumulator");
-    assert(Math.abs(room._authoritativeTimeMs - (t0 + 2 * FIXED_STEP_MS)) < EPSILON, "authoritative time does not advance past the failing step");
+    assert(Math.abs(room._authoritativeTimeMs - (t0 + FIXED_STEP_MS)) < EPSILON, "authoritative time does not advance past the failing step");
   }
   assert(threw, "injected step failure is propagated");
 
   room._advanceStepFn = null;
   advanceRoomAuthoritative(room, t0 + 5 * FIXED_STEP_MS);
-  assert.strictEqual(room._simulationStep, 4, "room recovers and runs the missing catch-up plus the new step");
+  assert.strictEqual(room._simulationStep, 5, "room recovers and runs the missing catch-up plus the new step");
+  assert(Math.abs(room._authoritativeTimeMs - (t0 + 4 * FIXED_STEP_MS)) < EPSILON, "authoritative time recovers to the final executed step");
 }
 
 // 16. gameplayNow returns authoritative time for gameplay input handlers.

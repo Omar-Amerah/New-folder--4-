@@ -114,7 +114,8 @@ function createRoom(code, options = {}) {
     _simulationStep: 0,
     _simulationLocked: false,
     _simulationReentries: 0,
-    _pendingFixedStepMetrics: null
+    _pendingFixedStepMetrics: null,
+    _currentAuthoritativeStepTimeMs: null
   };
 }
 
@@ -165,6 +166,7 @@ function bumpStateEpoch(room, reason = "state-reset") {
   room._simulationLocked = false;
   room._simulationReentries = 0;
   room._pendingFixedStepMetrics = null;
+  room._currentAuthoritativeStepTimeMs = null;
 }
 
 function setRoomRules(room, requester, updates) {

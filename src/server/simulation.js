@@ -223,9 +223,10 @@ function advanceRoomAuthoritative(room, wallNow) {
     const firstCallback = !room._lastSimulationCallbackMs;
 
     // First callback: there is no previous callback to compare. Seed the clock
-    // so the room begins at the current monotonic time and executes one step.
+    // so the first completed step lands exactly on the first wall time rather
+    // than simulating one step into the future.
     if (firstCallback) {
-      room._authoritativeTimeMs = safeWallNow;
+      room._authoritativeTimeMs = safeWallNow - FIXED_STEP_MS;
       room._lastSimulationCallbackMs = safeWallNow;
       room._simulationAccumulatorMs = FIXED_STEP_MS;
       room._simulationStep = 0;
@@ -253,7 +254,7 @@ function advanceRoomAuthoritative(room, wallNow) {
 
     room._simulationAccumulatorMs = (room._simulationAccumulatorMs || 0) + safeCallbackDeltaMs;
 
-    const fullSteps = Math.floor(room._simulationAccumulatorMs / FIXED_STEP_MS);
+    const fullSteps = Math.floor((room._simulationAccumulatorMs + 1e-9) / FIXED_STEP_MS);
     const steps = Math.min(fullSteps, MAX_CATCH_UP_STEPS);
     const overflowSteps = fullSteps - steps;
     let discardedMs = 0;
@@ -268,8 +269,13 @@ function advanceRoomAuthoritative(room, wallNow) {
     let totalStepDurationMs = 0;
     for (let i = 0; i < steps; i += 1) {
       const stepNow = room._authoritativeTimeMs + FIXED_STEP_MS;
+      room._currentAuthoritativeStepTimeMs = stepNow;
       const stepStart = performanceNow();
-      stepImpl(room, FIXED_STEP_S, stepNow);
+      try {
+        stepImpl(room, FIXED_STEP_S, stepNow);
+      } finally {
+        room._currentAuthoritativeStepTimeMs = null;
+      }
       // Only commit authoritative time and consume accumulator after a successful
       // step. If the step implementation throws, the failed step remains in the
       // accumulator for the next callback and the room does not skip past it.

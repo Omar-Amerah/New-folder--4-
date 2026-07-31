@@ -13,6 +13,10 @@ const { FIXED_AUTHORITATIVE_TIMESTEP } = require("./performanceFlags");
 // time.
 function gameplayNow(room, wallNow = performanceNow()) {
   if (FIXED_AUTHORITATIVE_TIMESTEP()) {
+    // During a fixed step, internal simulation systems see the step's own
+    // timestamp, not the one that was committed at the end of the previous step.
+    const activeStep = room && Number(room._currentAuthoritativeStepTimeMs);
+    if (Number.isFinite(activeStep) && activeStep > 0) return activeStep;
     const auth = room && Number(room._authoritativeTimeMs);
     return Number.isFinite(auth) && auth > 0 ? auth : wallNow;
   }
