@@ -5,7 +5,8 @@ import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { isCircleVisible, cullVisual } from "../viewportCulling.js";
-import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletRenderPosition, isFriendlyProjectile } from "../worldArt.js";
+import { getNebulaSprite, drawAsteroid, drawBulletVisual, isFriendlyProjectile } from "../worldArt.js";
+import { playerMap } from "../../ui/matchStatusUi.js";
 import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
@@ -14,6 +15,9 @@ import { updatePixiContacts } from "./pixiSensorContacts.js";
 import { updatePixiFog } from "./pixiFog.js";
 
 const LINE_EFFECT_TYPES = new Set(["beam", "repairbeam", "laserPdPulse", "laserpd", "droneshot", "dronerepair"]);
+
+const projectilePresentationById = new Map();
+let lastProjectileSnapshotSeq = -1;
 
 let gridCache = { width: 0, height: 0, zoom: 0 };
 let pixiMapStatics = null;
@@ -389,37 +393,171 @@ function createPixiBulletPool(env, layer) {
   return createPixiKeyedPool(layer, () => makeLeasedSpriteView(env));
 }
 
-function updatePixiBullets(env, players, bounds) {
+function updatePixiBullets(env, players, bounds, renderTime) {
   if (!pixiEnemyBulletPool) pixiEnemyBulletPool = createPixiBulletPool(env, env.layers.enemyBullets);
   if (!pixiFriendlyBulletPool) pixiFriendlyBulletPool = createPixiBulletPool(env, env.layers.friendlyBullets);
   pixiEnemyBulletPool.frameStart();
   pixiFriendlyBulletPool.frameStart();
   const snap = state.snapshot;
-  if (snap && snap.bullets) {
-    const now = performance.now();
-    const elapsed = Math.min(0.15, (now - (state.snapshotReceivedAt || now)) / 1000);
-    for (const bullet of snap.bullets) {
-      if (state.debugStats) state.debugStats.totalBullets++;
-      const { x: renderX, y: renderY } = bulletRenderPosition(bullet, elapsed);
-      if (bounds && !isCircleVisible(renderX, renderY, 20, bounds)) continue;
-      if (state.debugStats) state.debugStats.drawnBullets++;
+  const currentIds = new Set();
+  const snapshotChanged = snap && (snap.snapshotSeq || 0) !== lastProjectileSnapshotSeq;
+  if (snapshotChanged) lastProjectileSnapshotSeq = snap ? (snap.snapshotSeq || 0) : -1;
 
-      const owner = players.get(bullet.ownerId);
-      const color = owner?.color || "#ffffff";
-      const friendly = isFriendlyProjectile(bullet, players);
-      const view = (friendly ? pixiFriendlyBulletPool : pixiEnemyBulletPool).acquire(bullet.id);
-      const textureKey = `${getPixiBakeGeneration()}|${env.bakeScale}|${bulletArtKey(bullet, color)}`;
-      if (view.textureKey !== textureKey) {
-        const lease = acquireBulletLease(env, bullet, color);
-        swapTextureLease(view, lease, textureKey, (texture) => {
-          view.root.texture = texture;
-          view.root.scale.set(1 / env.bakeScale);
-        });
+  if (snap && snap.bullets) {
+    for (const bullet of snap.bullets) {
+      currentIds.add(bullet.id);
+      let p = projectilePresentationById.get(bullet.id);
+      if (!p) {
+        p = { id: bullet.id, type: bullet.type, subtype: bullet.subtype, ownerId: bullet.ownerId, previousSample: null, currentSample: null, renderedX: 0, renderedY: 0, renderedVx: 0, renderedVy: 0, terminal: null };
+        projectilePresentationById.set(bullet.id, p);
       }
-      view.root.position.set(renderX, renderY);
-      view.root.rotation = Number.isFinite(bullet.angle) ? bullet.angle : Math.atan2(bullet.vy, bullet.vx);
+      if (snapshotChanged) {
+        if (bullet.terminal) {
+          if (!p.terminal) {
+            let fromX = p.renderedX;
+            let fromY = p.renderedY;
+            const fromVx = p.renderedVx;
+            const fromVy = p.renderedVy;
+            if (fromX === 0 && fromY === 0 && !p.currentSample) {
+              fromX = bullet.x;
+              fromY = bullet.y;
+            }
+            const dx = bullet.x - fromX;
+            const dy = bullet.y - fromY;
+            const speed = Math.max(0.001, Math.hypot(fromVx, fromVy));
+            const distance = Math.hypot(dx, dy);
+            const travelMs = clamp(distance / speed * 1000, 25, 120);
+            const fadeMs = bullet.type === "missile" ? 300 : 180;
+            p.terminal = {
+              finalX: bullet.x,
+              finalY: bullet.y,
+              fromX,
+              fromY,
+              startTime: renderTime,
+              impactTime: renderTime + travelMs,
+              endTime: renderTime + travelMs + fadeMs,
+              type: bullet.type,
+              ownerId: bullet.ownerId
+            };
+          }
+        } else {
+          const newSample = { x: bullet.x, y: bullet.y, vx: bullet.vx, vy: bullet.vy, angle: bullet.angle, simulationTimeMs: bullet.simulationTimeMs };
+          if (!p.currentSample || newSample.simulationTimeMs > p.currentSample.simulationTimeMs) {
+            if (p.currentSample) p.previousSample = p.currentSample;
+            p.currentSample = newSample;
+            p.terminal = null;
+          } else if (!p.previousSample || newSample.simulationTimeMs > p.previousSample.simulationTimeMs) {
+            p.previousSample = newSample;
+          }
+        }
+      }
     }
   }
+
+  if (state.debugStats) state.debugStats.totalBullets = projectilePresentationById.size;
+
+  const toDelete = [];
+  for (const [id, p] of projectilePresentationById) {
+    if (!p.terminal && !currentIds.has(id)) {
+      toDelete.push(id);
+      continue;
+    }
+    if (p.terminal) {
+      if (renderTime < p.terminal.startTime) {
+        p.renderedX = p.terminal.fromX;
+        p.renderedY = p.terminal.fromY;
+        p.renderedVx = 0;
+        p.renderedVy = 0;
+      } else if (renderTime < p.terminal.impactTime) {
+        const span = Math.max(1, p.terminal.impactTime - p.terminal.startTime);
+        const t = (renderTime - p.terminal.startTime) / span;
+        p.renderedX = p.terminal.fromX + (p.terminal.finalX - p.terminal.fromX) * t;
+        p.renderedY = p.terminal.fromY + (p.terminal.finalY - p.terminal.fromY) * t;
+        const dtSec = span / 1000;
+        p.renderedVx = (p.terminal.finalX - p.terminal.fromX) / dtSec;
+        p.renderedVy = (p.terminal.finalY - p.terminal.fromY) / dtSec;
+      } else {
+        p.renderedX = p.terminal.finalX;
+        p.renderedY = p.terminal.finalY;
+        p.renderedVx = 0;
+        p.renderedVy = 0;
+      }
+      if (renderTime >= p.terminal.endTime && !currentIds.has(id)) {
+        toDelete.push(id);
+      }
+    } else if (p.type === "missile") {
+      if (p.previousSample && p.currentSample) {
+        const a = p.previousSample;
+        const b = p.currentSample;
+        if (renderTime >= a.simulationTimeMs && renderTime <= b.simulationTimeMs) {
+          const span = Math.max(1, b.simulationTimeMs - a.simulationTimeMs);
+          const t = clamp((renderTime - a.simulationTimeMs) / span, 0, 1);
+          p.renderedX = a.x + (b.x - a.x) * t;
+          p.renderedY = a.y + (b.y - a.y) * t;
+          p.renderedVx = a.vx + (b.vx - a.vx) * t;
+          p.renderedVy = a.vy + (b.vy - a.vy) * t;
+        } else if (renderTime < a.simulationTimeMs) {
+          p.renderedX = a.x;
+          p.renderedY = a.y;
+          p.renderedVx = a.vx;
+          p.renderedVy = a.vy;
+        } else {
+          const delta = (renderTime - b.simulationTimeMs) / 1000;
+          p.renderedX = b.x + b.vx * delta;
+          p.renderedY = b.y + b.vy * delta;
+          p.renderedVx = b.vx;
+          p.renderedVy = b.vy;
+        }
+      } else if (p.currentSample) {
+        const delta = Math.max(0, (renderTime - p.currentSample.simulationTimeMs) / 1000);
+        p.renderedX = p.currentSample.x + p.currentSample.vx * delta;
+        p.renderedY = p.currentSample.y + p.currentSample.vy * delta;
+        p.renderedVx = p.currentSample.vx;
+        p.renderedVy = p.currentSample.vy;
+      }
+    } else {
+      let sample = p.currentSample;
+      if (sample && renderTime < sample.simulationTimeMs && p.previousSample) {
+        sample = p.previousSample;
+      }
+      if (!sample) {
+        toDelete.push(id);
+        continue;
+      }
+      const delta = Math.max(0, (renderTime - sample.simulationTimeMs) / 1000);
+      p.renderedX = sample.x + sample.vx * delta;
+      p.renderedY = sample.y + sample.vy * delta;
+      p.renderedVx = sample.vx;
+      p.renderedVy = sample.vy;
+    }
+
+    if (p.terminal && renderTime >= p.terminal.impactTime) {
+      continue;
+    }
+    const x = p.renderedX;
+    const y = p.renderedY;
+    if (bounds && !isCircleVisible(x, y, 20, bounds)) continue;
+    if (state.debugStats) state.debugStats.drawnBullets++;
+
+    const owner = players.get(p.ownerId);
+    const color = owner?.color || "#ffffff";
+    const bullet = { id: p.id, type: p.type, subtype: p.subtype, ownerId: p.ownerId };
+    const friendly = isFriendlyProjectile(bullet, players);
+    const view = (friendly ? pixiFriendlyBulletPool : pixiEnemyBulletPool).acquire(p.id);
+    const textureKey = `${getPixiBakeGeneration()}|${env.bakeScale}|${bulletArtKey(bullet, color)}`;
+    if (view.textureKey !== textureKey) {
+      const lease = acquireBulletLease(env, bullet, color);
+      swapTextureLease(view, lease, textureKey, (texture) => {
+        view.root.texture = texture;
+        view.root.scale.set(1 / env.bakeScale);
+      });
+    }
+    view.root.position.set(x, y);
+    view.root.rotation = p.type === "missile" ? Math.atan2(p.renderedVy, p.renderedVx) : (Number.isFinite(sample?.angle) ? sample.angle : Math.atan2(p.renderedVy, p.renderedVx));
+  }
+
+  for (const id of toDelete) projectilePresentationById.delete(id);
+
   pixiEnemyBulletPool.frameEnd();
   pixiFriendlyBulletPool.frameEnd();
 }
@@ -430,7 +568,7 @@ function pixiEffectKey(effect) {
   return `${effect.type}|${effect.at ?? "?"}|${Math.round(effect.x)}|${Math.round(effect.y)}|${effect.x2 ?? ""}`;
 }
 
-function updatePixiEffects(env, now, bounds) {
+function updatePixiEffects(env, now, bounds, renderTime) {
   if (!pixiEffectsGfx) {
     pixiEffectsGfx = new env.PIXI.Graphics();
     env.layers.effects.addChild(pixiEffectsGfx);
@@ -450,6 +588,29 @@ function updatePixiEffects(env, now, bounds) {
   const snap = state.snapshot;
   const combatEffectsEnabled = getCombatEffectsEnabled();
   const zoom = state.camera.zoom;
+
+  // Terminal projectile impact flashes. These are driven by the renderer's own
+  // presentation map rather than per-snapshot state.
+  const players = playerMap();
+  for (const p of projectilePresentationById.values()) {
+    if (!p.terminal || renderTime < p.terminal.impactTime) continue;
+    const x = p.terminal.finalX;
+    const y = p.terminal.finalY;
+    if (bounds && !isCircleVisible(x, y, 40, bounds)) continue;
+    const t = Math.max(0, Math.min(1, (renderTime - p.terminal.impactTime) / Math.max(1, p.terminal.endTime - p.terminal.impactTime)));
+    const impactFade = 1 - t;
+    if (impactFade <= 0) continue;
+    const owner = players.get(p.terminal.ownerId);
+    const color = owner?.color || "#ffffff";
+    const maxRadius = p.terminal.type === "missile" ? 34 : 10;
+    const r = maxRadius * (0.4 + t * 0.6);
+    const alpha = impactFade;
+    gfx.circle(x, y, r);
+    gfx.fill({ color, alpha: alpha * 0.4 });
+    gfx.circle(x, y, r * 0.45);
+    gfx.fill({ color, alpha });
+  }
+
   // Decoys are persistent gameplay entities, so they remain visible even when
   // optional combat particles are disabled. Their noisy double image and
   // targeting brackets deliberately read as a false sensor contact.
@@ -746,13 +907,14 @@ function updatePixiSelectionBox(env) {
 }
 
 export function updatePixiWorld(env, now, players, bounds, rect) {
+  const renderTime = state.renderHistory?.renderSimulationTimeMs ?? now;
   updatePixiGrid(env);
   updatePixiMapFeatures(env, now, bounds);
   updatePixiRelays(env, now, players, bounds);
   updatePixiCommandTarget(env, now);
   updatePixiEngineSmoke(env, now, bounds);
-  updatePixiBullets(env, players, bounds);
-  updatePixiEffects(env, now, bounds);
+  updatePixiBullets(env, players, bounds, renderTime);
+  updatePixiEffects(env, now, bounds, renderTime);
   updatePixiSelectionBox(env);
   updatePixiContacts(env, now, bounds);
   updatePixiFog(env, now, bounds);
@@ -785,5 +947,7 @@ export function destroyPixiWorld() {
     pixiEffectsGfx.destroy();
     pixiEffectsGfx = null;
   }
+  projectilePresentationById.clear();
+  lastProjectileSnapshotSeq = -1;
   gridCache = { width: 0, height: 0, zoom: 0 };
 }

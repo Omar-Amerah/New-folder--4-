@@ -8,7 +8,7 @@ const VERSION = 1;
 
 const MAX_TOMBSTONES = 4096;
 const TOMBSTONE_WINDOW = 2048;
-const TERMINAL_LIFETIME_MS = 100;
+const TERMINAL_LIFETIME_MS = 300;
 
 let store = {
   version: VERSION,
@@ -95,13 +95,10 @@ function applyEvent(event, message) {
         subtype: existing.subtype,
         ownerId: existing.ownerId,
         angle: existing.angle,
-        fromX: existing.x,
-        fromY: existing.y,
         finalX: event.x,
         finalY: event.y,
         removeReason: event.reason,
-        removedSimulationTimeMs: simMs,
-        visualExpiresAt: simMs + TERMINAL_LIFETIME_MS
+        removedSimulationTimeMs: simMs
       };
       store.terminals.set(event.projectileId, terminal);
     }
@@ -198,18 +195,17 @@ export function getProjectilesForRender(now = null) {
   const out = [];
   const useNow = Number.isFinite(now);
   for (const p of store.projectiles.values()) {
-    const dt = (useNow && Number.isFinite(p.simulationTimeMs)) ? Math.max(0, (now - p.simulationTimeMs) / 1000) : 0;
     const render = {
       id: p.id,
       type: p.type,
       subtype: p.subtype,
       ownerId: p.ownerId,
-      x: p.x + p.vx * dt,
-      y: p.y + p.vy * dt,
+      x: p.x,
+      y: p.y,
       vx: p.vx,
       vy: p.vy,
-      age: p.age + dt,
-      remainingLife: Math.max(0, p.remainingLife - dt),
+      age: p.age,
+      remainingLife: p.remainingLife,
       simulationTimeMs: p.simulationTimeMs
     };
     if (p.angle !== undefined) render.angle = p.angle;
@@ -223,8 +219,7 @@ export function getProjectilesForRender(now = null) {
       expired.push(id);
       continue;
     }
-    const dt = (useNow && Number.isFinite(removed)) ? Math.max(0, (now - removed) / 1000) : 0;
-    const render = {
+    out.push({
       id: t.id,
       terminal: true,
       type: t.type,
@@ -234,15 +229,11 @@ export function getProjectilesForRender(now = null) {
       y: t.finalY,
       vx: 0,
       vy: 0,
-      age: dt,
+      age: 0,
       remainingLife: 0,
       removeReason: t.removeReason,
-      fromX: t.fromX,
-      fromY: t.fromY,
       simulationTimeMs: removed
-    };
-    if (t.angle !== undefined) render.angle = t.angle;
-    out.push(render);
+    });
   }
   for (const id of expired) store.terminals.delete(id);
 
