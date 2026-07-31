@@ -3,6 +3,7 @@
 
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
+import { INTERPOLATION_DELAY_MS } from "../renderInterpolation.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { isCircleVisible, cullVisual } from "../viewportCulling.js";
 import { getNebulaSprite, drawAsteroid, drawBulletVisual, isFriendlyProjectile } from "../worldArt.js";
@@ -402,6 +403,7 @@ function updatePixiBullets(env, players, bounds, renderTime) {
   const currentIds = new Set();
   const snapshotChanged = snap && (snap.snapshotSeq || 0) !== lastProjectileSnapshotSeq;
   if (snapshotChanged) lastProjectileSnapshotSeq = snap ? (snap.snapshotSeq || 0) : -1;
+  const missileRenderTime = renderTime + (INTERPOLATION_DELAY_MS - 30);
 
   if (snap && snap.bullets) {
     for (const bullet of snap.bullets) {
@@ -428,14 +430,15 @@ function updatePixiBullets(env, players, bounds, renderTime) {
             const distance = Math.hypot(dx, dy);
             const travelMs = clamp(distance / speed * 1000, 25, 120);
             const fadeMs = bullet.type === "missile" ? 300 : 180;
+            const pTime = bullet.type === "missile" ? missileRenderTime : renderTime;
             p.terminal = {
               finalX: bullet.x,
               finalY: bullet.y,
               fromX,
               fromY,
-              startTime: renderTime,
-              impactTime: renderTime + travelMs,
-              endTime: renderTime + travelMs + fadeMs,
+              startTime: pTime,
+              impactTime: pTime + travelMs,
+              endTime: pTime + travelMs + fadeMs,
               type: bullet.type,
               ownerId: bullet.ownerId
             };
@@ -462,16 +465,17 @@ function updatePixiBullets(env, players, bounds, renderTime) {
       toDelete.push(id);
       continue;
     }
+    const pTime = p.type === "missile" ? missileRenderTime : renderTime;
     let sample = null;
     if (p.terminal) {
-      if (renderTime < p.terminal.startTime) {
+      if (pTime < p.terminal.startTime) {
         p.renderedX = p.terminal.fromX;
         p.renderedY = p.terminal.fromY;
         p.renderedVx = 0;
         p.renderedVy = 0;
-      } else if (renderTime < p.terminal.impactTime) {
+      } else if (pTime < p.terminal.impactTime) {
         const span = Math.max(1, p.terminal.impactTime - p.terminal.startTime);
-        const t = (renderTime - p.terminal.startTime) / span;
+        const t = (pTime - p.terminal.startTime) / span;
         p.renderedX = p.terminal.fromX + (p.terminal.finalX - p.terminal.fromX) * t;
         p.renderedY = p.terminal.fromY + (p.terminal.finalY - p.terminal.fromY) * t;
         const dtSec = span / 1000;
@@ -483,34 +487,34 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         p.renderedVx = 0;
         p.renderedVy = 0;
       }
-      if (renderTime >= p.terminal.endTime && !currentIds.has(id)) {
+      if (pTime >= p.terminal.endTime && !currentIds.has(id)) {
         toDelete.push(id);
       }
     } else if (p.type === "missile") {
       if (p.previousSample && p.currentSample) {
         const a = p.previousSample;
         const b = p.currentSample;
-        if (renderTime >= a.simulationTimeMs && renderTime <= b.simulationTimeMs) {
+        if (pTime >= a.simulationTimeMs && pTime <= b.simulationTimeMs) {
           const span = Math.max(1, b.simulationTimeMs - a.simulationTimeMs);
-          const t = clamp((renderTime - a.simulationTimeMs) / span, 0, 1);
+          const t = clamp((pTime - a.simulationTimeMs) / span, 0, 1);
           p.renderedX = a.x + (b.x - a.x) * t;
           p.renderedY = a.y + (b.y - a.y) * t;
           p.renderedVx = a.vx + (b.vx - a.vx) * t;
           p.renderedVy = a.vy + (b.vy - a.vy) * t;
-        } else if (renderTime < a.simulationTimeMs) {
+        } else if (pTime < a.simulationTimeMs) {
           p.renderedX = a.x;
           p.renderedY = a.y;
           p.renderedVx = a.vx;
           p.renderedVy = a.vy;
         } else {
-          const delta = (renderTime - b.simulationTimeMs) / 1000;
+          const delta = (pTime - b.simulationTimeMs) / 1000;
           p.renderedX = b.x + b.vx * delta;
           p.renderedY = b.y + b.vy * delta;
           p.renderedVx = b.vx;
           p.renderedVy = b.vy;
         }
       } else if (p.currentSample) {
-        const delta = Math.max(0, (renderTime - p.currentSample.simulationTimeMs) / 1000);
+        const delta = Math.max(0, (pTime - p.currentSample.simulationTimeMs) / 1000);
         p.renderedX = p.currentSample.x + p.currentSample.vx * delta;
         p.renderedY = p.currentSample.y + p.currentSample.vy * delta;
         p.renderedVx = p.currentSample.vx;
@@ -518,21 +522,21 @@ function updatePixiBullets(env, players, bounds, renderTime) {
       }
     } else {
       sample = p.currentSample;
-      if (sample && renderTime < sample.simulationTimeMs && p.previousSample) {
+      if (sample && pTime < sample.simulationTimeMs && p.previousSample) {
         sample = p.previousSample;
       }
       if (!sample) {
         toDelete.push(id);
         continue;
       }
-      const delta = Math.max(0, (renderTime - sample.simulationTimeMs) / 1000);
+      const delta = Math.max(0, (pTime - sample.simulationTimeMs) / 1000);
       p.renderedX = sample.x + sample.vx * delta;
       p.renderedY = sample.y + sample.vy * delta;
       p.renderedVx = sample.vx;
       p.renderedVy = sample.vy;
     }
 
-    if (p.terminal && renderTime >= p.terminal.impactTime) {
+    if (p.terminal && pTime >= p.terminal.impactTime) {
       continue;
     }
     const x = p.renderedX;
@@ -593,12 +597,14 @@ function updatePixiEffects(env, now, bounds, renderTime) {
   // Terminal projectile impact flashes. These are driven by the renderer's own
   // presentation map rather than per-snapshot state.
   const players = playerMap();
+  const fxMissileRenderTime = renderTime + (INTERPOLATION_DELAY_MS - 30);
   for (const p of projectilePresentationById.values()) {
-    if (!p.terminal || renderTime < p.terminal.impactTime) continue;
+    const pTime = p.type === "missile" ? fxMissileRenderTime : renderTime;
+    if (!p.terminal || pTime < p.terminal.impactTime) continue;
     const x = p.terminal.finalX;
     const y = p.terminal.finalY;
     if (bounds && !isCircleVisible(x, y, 40, bounds)) continue;
-    const t = Math.max(0, Math.min(1, (renderTime - p.terminal.impactTime) / Math.max(1, p.terminal.endTime - p.terminal.impactTime)));
+    const t = Math.max(0, Math.min(1, (pTime - p.terminal.impactTime) / Math.max(1, p.terminal.endTime - p.terminal.impactTime)));
     const impactFade = 1 - t;
     if (impactFade <= 0) continue;
     const owner = players.get(p.terminal.ownerId);
