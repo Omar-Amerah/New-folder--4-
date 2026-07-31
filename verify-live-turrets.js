@@ -313,7 +313,7 @@ async function main() {
     // 4. Admin clears asteroids (they would randomly block line of sight and
     //    make target acquisition nondeterministic), starts design; both deploy
     //    real designs; the match starts.
-    await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none" } }));
+    await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none", visibilityMode: "full" } }));
     await until(() => enemy.state()?.rules?.asteroidDensity === "none"
       || enemy.latest.state?.rules?.asteroidDensity === "none", 10000, "asteroid-free map rules");
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));

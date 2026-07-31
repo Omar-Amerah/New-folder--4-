@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { clamp } from "../shared/math.js";
 import { ownLiveShips } from "./selection.js";
 
-export const CAMERA_MIN_ZOOM = 0.1;
+export const CAMERA_MIN_ZOOM = 0.22;
 export const CAMERA_MAX_ZOOM = 1.45;
 export const CAMERA_FOLLOW_HALF_LIFE_MS = 260;
 export const CAMERA_PAN_RANGE_SCALE = 2;

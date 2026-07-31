@@ -20,7 +20,7 @@ const { buildSharedSnapshot } = require("./src/server/snapshots");
 const { computeStats } = require("./src/server/shipStats");
 const { DEFAULT_ROOM_RULES, INFRASTRUCTURE } = require("./src/server/config");
 const { getShipComponentIndexes } = require("./src/server/componentIndexes");
-const { moduleCentreToLocal } = require("./src/server/stationTemplates");
+const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./src/server/stationTemplates");
 const { updateStationWeapons, stationModuleWorldPosition, damageStation } = require("./src/server/stationCombat");
 const { PARTS } = require("./src/server/components");
 const { areEnemies } = require("./src/server/combat");
@@ -116,7 +116,7 @@ function run() {
   );
 
   section("Station shield and hull hitboxes match the rendered station geometry");
-  const expectedHomeShieldRadius = Math.hypot(270, 270) * 1.06;
+  const expectedHomeShieldRadius = Math.hypot(7.5 * STATION_MODULE_SCALE, 7.5 * STATION_MODULE_SCALE) * 1.06;
   assert(
     Math.abs(home.shieldRadius - expectedHomeShieldRadius) < 0.001,
     `home shield wraps the rendered 540x540 footprint (${home.shieldRadius} vs ${expectedHomeShieldRadius})`
@@ -134,24 +134,25 @@ function run() {
       y: home.y + localX * sin + localY * cos
     };
   };
-  const emptyStart = worldPoint(600, 350);
-  const emptyEnd = worldPoint(-600, 350);
+  const emptyStart = worldPoint(1000, 700);
+  const emptyEnd = worldPoint(-1000, 700);
   assert(
     segmentStationHullHit(home, emptyStart.x, emptyStart.y, emptyEnd.x, emptyEnd.y) === null,
     "a shot outside the rendered station footprint does not hit the old enclosing circle"
   );
-  const flankStart = worldPoint(600, 198);
-  const flankEnd = worldPoint(-600, 198);
+  const flankStart = worldPoint(1000, 300);
+  const flankEnd = worldPoint(-1000, 300);
   const flankHit = segmentStationHullHit(home, flankStart.x, flankStart.y, flankEnd.x, flankEnd.y);
   assert(flankHit && flankHit.t > 0 && flankHit.t < 1, "a shot through rendered flank plating hits the compound hull");
-  const hangarStart = worldPoint(600, 0);
-  const hangarEnd = worldPoint(-250, 0);
+  const hangarStart = worldPoint(1000, 0);
+  const hangarEnd = worldPoint(-500, 0);
   const hangarHit = segmentStationHullHit(home, hangarStart.x, hangarStart.y, hangarEnd.x, hangarEnd.y);
   const hitDx = hangarHit.x - home.x;
   const hitDy = hangarHit.y - home.y;
   const hangarHitLocalX = hitDx * Math.cos(home.angle) + hitDy * Math.sin(home.angle);
+  const expectedRearWallX = 0.5 * STATION_MODULE_SCALE;
   assert(
-    Math.abs(hangarHitLocalX - 18) < 0.001,
+    Math.abs(hangarHitLocalX - expectedRearWallX) < 0.001,
     "shots pass through the visibly open hangar mouth and hit its rendered rear bulkhead"
   );
 
@@ -173,10 +174,10 @@ function run() {
     };
   };
   const fireAcross = (localY) => {
-    const start = targetPoint(600, localY);
+    const start = targetPoint(900, localY);
     // The red home faces inward from the arena edge. Stop just behind its rear
     // face so the verification remains inside the world boundary.
-    const end = targetPoint(-250, localY);
+    const end = targetPoint(-400, localY);
     addBullet(hitRoom, {
       type: "bolt",
       ownerId: "blue",
@@ -192,12 +193,12 @@ function run() {
     updateBullets(hitRoom, 1, 1000);
   };
   targetHome.shield = 0;
-  fireAcross(350);
+  fireAcross(700);
   assert(hitRoom.bullets.length === 1, "the live projectile path passes through empty space outside the station hull");
   hitRoom.bullets.length = 0;
   hitRoom.projectileById.clear();
   const hullBefore = targetHome.hp;
-  fireAcross(198);
+  fireAcross(300);
   assert(hitRoom.bullets.length === 0 && targetHome.hp < hullBefore, "the live projectile path damages rendered station plating");
   targetHome.shield = 100;
   targetHome.maxShield = Math.max(targetHome.maxShield, 100);

@@ -53,6 +53,17 @@ function assertFiniteEntity(room) {
   for (const b of room.bullets) { assert(!ids.has(b.id), `duplicate entity id ${b.id}`); ids.add(b.id); for (const f of ["x","y","vx","vy","life"]) assert(Number.isFinite(b[f]), `non-finite bullet ${b.id}.${f}`); assert(room.players.has(b.ownerId), `invalid bullet owner ${b.ownerId}`); }
   for (const e of room.effects) for (const f of ["x","y","x2","y2"]) if (e[f] !== undefined) assert(Number.isFinite(e[f]), `non-finite effect ${f}`);
 }
+function circularReplacer() {
+  const seen = new WeakSet();
+  return (key, value) => {
+    if (value && typeof value === "object") {
+      if (seen.has(value)) return undefined;
+      seen.add(value);
+    }
+    return value;
+  };
+}
+
 const memBefore = process.memoryUsage().heapUsed;
 const room = createRoom("SOAK"); room.phase = "active"; room.rules.gameMode = "teams"; room.combatRandom = seededRandom(SEED); room.map.asteroids = room.map.asteroids.slice(0, 20);
 for (let i=0;i<PLAYER_COUNT;i++) { const p = player(`${i%2?"bot":"human"}${i}`, i % 2, designs[i % designs.length]); room.players.set(p.id, p); }
@@ -62,7 +73,7 @@ for (const p of room.players.values()) for (let i=0;i<SHIPS_PER_PLAYER;i++) spaw
 let peakShips=0, peakBullets=0, peakEffects=0, worstTick=0, totalTick=0;
 const started = performance.now();
 for (let i=0;i<TICKS;i++) { const t0 = performance.now(); now += DT*1000; tick(room, DT, now); const elapsed = performance.now()-t0; totalTick += elapsed; worstTick = Math.max(worstTick, elapsed); peakShips = Math.max(peakShips, room.ships.size); peakBullets = Math.max(peakBullets, room.bullets.length); peakEffects = Math.max(peakEffects, room.effects.length); assert(room.bullets.length < 1500, "unbounded bullets"); assert(room.effects.length < 3000, "unbounded effects"); assertFiniteEntity(room); }
-const duration = performance.now()-started; const snapshotSize = Buffer.byteLength(JSON.stringify({ ships:[...room.ships.values()], bullets:room.bullets, effects:room.effects }));
+const duration = performance.now()-started; const snapshotSize = Buffer.byteLength(JSON.stringify({ ships:[...room.ships.values()], bullets:room.bullets, effects:room.effects }, circularReplacer()));
 const purchaseCachePeak = [...room.players.values()].reduce((m,p)=>Math.max(m,p.purchaseRequests?.size||0),0); assert(purchaseCachePeak < 20, "unbounded purchase cache");
 room.winner = { id:"human0" }; tick(room, DT, now+1000); resetMatch(room, "design"); assert.strictEqual(room.bullets.length,0,"rematch clears bullets"); assert(room.effects.length < peakEffects, "rematch leaves only bounded fresh setup effects");
 const cleanupStart = performance.now(); room.ships.clear(); room.players.clear(); room.clients.clear(); const cleanupDuration = performance.now()-cleanupStart; assert.strictEqual(room.ships.size,0,"room cleanup clears ships");

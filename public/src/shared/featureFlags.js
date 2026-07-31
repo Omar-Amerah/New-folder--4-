@@ -6,7 +6,7 @@
   return Object.freeze({
     // Temporary performance switch. Set to true to restore the existing Wiring
     // editor, analysis, infrastructure costs, and authoritative runtime solver.
-    WIRING_ENABLED: false,
+    WIRING_ENABLED: true,
     // Set to true to use the current split movement modules instead of the
     // legacy monolithic movement implementation.
     MODERN_MOVEMENT: true

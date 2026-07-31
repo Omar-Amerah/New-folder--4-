@@ -36,7 +36,7 @@ function validateGeneratedMap(map, world, options = {}) {
   if (generated) validateAsteroidArt(map.asteroids || []);
   validateClouds(map.clouds || [], ids.clouds);
   validateSafeZones(map.safeZones || []);
-  if (world.label !== "Testing") validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", clearances.relayToSafeZone);
+  if (generated && world.label !== "Testing") validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", clearances.relayToSafeZone);
   validateClearance(map.relays || [], "relay", map.relays || [], "relay", clearances.relayToRelay, true);
   if (generated) {
     validateClearance(map.asteroids || [], "asteroid", map.safeZones || [], "safe zone", clearances.asteroidToSafeZone);

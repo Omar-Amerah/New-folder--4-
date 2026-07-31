@@ -222,10 +222,10 @@ async function until(fn, what, timeoutMs = 15000) {
     diagnostics.playerId = myId;
 
     await bot.open();
-    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "red", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
+    bot.send({ type: "join", room: ROOM, name: "HeatBot", team: "blue", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
     await until(() => bot.latest.joined, "bot join");
     diagnostics.botPlayerId = bot.latest.joined.playerId || bot.latest.joined.id;
-    await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none" } }));
+    await page.evaluate(() => window.__mfaNetSend({ type: "setRules", rules: { asteroidDensity: "none", visibilityMode: "full" } }));
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));
     await until(() => bot.latest.state?.phase === "design", "design phase");
     diagnostics.phases.push({ phase: "design", at: Date.now() });

@@ -440,7 +440,8 @@ function planSpawnRegions(room, options = {}) {
     for (const s of group.spawns) radius = Math.max(radius, Math.hypot(s.x - cx, s.y - cy) + s.reservedRadius);
     // In station mode the home station is planted at this centre, so the region
     // has to be able to hold the structure as well as the starting hulls.
-    radius = Math.ceil(Math.max(radius, stationRegionRadius(room)));
+    radius = Math.max(radius, stationRegionRadius(room));
+    const world = room.world || { width: 5120, height: 3040 };
     const ownerPlayer = group.ownerId ? players.get(group.ownerId) : players.get(group.spawns[0].playerId);
     const borderColor = solo
       ? (ownerPlayer?.color || "#ffffff")
@@ -448,8 +449,8 @@ function planSpawnRegions(room, options = {}) {
     const fillColor = ownerPlayer?.color || borderColor;
     const zone = {
       id: group.ownerId ? `spawn-player-${group.ownerId}` : `spawn-team-${group.team}`,
-      x: round(cx),
-      y: round(cy),
+      x: clamp(round(cx), radius, world.width - radius),
+      y: clamp(round(cy), radius, world.height - radius),
       radius,
       color: hexToRgba(fillColor, 0.06),
       borderColor,
@@ -458,7 +459,7 @@ function planSpawnRegions(room, options = {}) {
     };
     if (group.ownerId) zone.ownerId = group.ownerId;
     if (group.team) zone.team = group.team;
-    if (!zoneInsideWorld(zone, room.world || { width: 5120, height: 3040 })) throw new Error(`Unable to plan legal spawn safe zone: ${zone.id} outside world bounds`);
+    if (!zoneInsideWorld(zone, room.world || { width: 5120, height: 3040 })) { console.log('zone outside', zone, world); throw new Error(`Unable to plan legal spawn safe zone: ${zone.id} outside world bounds`); }
     safeZones.push(zone);
   }
   for (let i = 0; i < safeZones.length; i += 1) for (let j = i + 1; j < safeZones.length; j += 1) {

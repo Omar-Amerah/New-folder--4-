@@ -439,7 +439,10 @@ function buildFallbackMap(map, world, context) {
   const safeZones = context.safeZones || generateSafeZones(world, context.gameMode || "teams");
   const clearances = resolveMapClearances(world);
   const central = searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 160)
-    || searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 110);
+    || searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 110)
+    || searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 80)
+    || searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 40)
+    || searchOpenCircle(world, safeZones, clearances.relayToSafeZone, 1);
   const fallback = {
     seed: (map?.seed ?? 0) >>> 0,
     name: "Fallback Arena",

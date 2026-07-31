@@ -109,11 +109,15 @@ function headerMarkup(type, model) {
     </header>`;
 }
 
+function isNoOpModifier(row) {
+  return row.kind === "modifier" && row.raw === 1;
+}
+
 function coreSpecMarkup(model) {
   if (!model.core.length) return "";
   return `
     <div class="part-core-specs" role="list" aria-label="Core specifications">
-      ${model.core.map((row) => `
+      ${model.core.filter((row) => !isNoOpModifier(row)).map((row) => `
         <div class="part-spec-cell${row.tone ? ` is-${row.tone}` : ""}" role="listitem">
           <span class="part-spec-label">${escapeHtml(row.label)}</span>
           <strong class="part-spec-value">${escapeHtml(row.value)}</strong>
@@ -127,7 +131,7 @@ function capabilityMarkup(model) {
     <section class="part-capability${model.type === "droneBay" ? " is-drone-bay" : ""}" aria-label="Primary capability">
       <h4 class="part-section-heading">Primary capability</h4>
       <div class="part-capability-grid">
-        ${model.capability.map((row) => `
+        ${model.capability.filter((row) => !isNoOpModifier(row)).map((row) => `
           <div class="part-capability-cell">
             <span class="part-spec-label">${escapeHtml(row.label)}</span>
             <strong class="part-spec-value">${escapeHtml(row.value)}</strong>
@@ -321,7 +325,7 @@ function commandAuraMarkup(model) {
     <section class="part-command-aura${section.inactive ? " is-inactive" : ""}" aria-label="${escapeHtml(section.title)}">
       <h4 class="part-section-heading">${escapeHtml(section.title)}</h4>
       <div class="part-detail-list">
-        ${section.rows.map((row) => `
+        ${section.rows.filter((row) => !isNoOpModifier(row)).map((row) => `
           <div class="part-detail-row${row.tone ? ` is-${row.tone}` : ""}">
             <span class="part-spec-label">${escapeHtml(row.label)}</span>
             <strong class="part-detail-value">${escapeHtml(row.value)}</strong>
@@ -345,7 +349,7 @@ function accordionMarkup(section, openState) {
       </button>
       <div class="part-accordion-panel" id="${panelId}" role="region" aria-labelledby="${triggerId}"${open ? "" : " hidden"}>
         <div class="part-detail-list">
-          ${section.rows.map((row) => `
+          ${section.rows.filter((row) => !isNoOpModifier(row)).map((row) => `
             <div class="part-detail-row${row.tone ? ` is-${row.tone}` : ""}">
               <span class="part-spec-label">${escapeHtml(row.label)}</span>
               <strong class="part-detail-value">${escapeHtml(row.value)}</strong>

@@ -193,6 +193,7 @@ export function isPalettePart(type) {
 
 export function partCategory(type) {
   const stat = PART_STATS[type] || {};
+  if (type === "droneBay") return "Command";
   if (stat.category) return stat.category === "Utility" ? "Support" : stat.category;
   if (type === "frame" || type === "armor") return "Structure";
   if (type === "reactor" || type === "battery") return "Power";

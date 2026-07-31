@@ -12,7 +12,7 @@ function room(players, mode = "solo", extra = {}) {
     mapSeed: extra.seed || 123456,
     rules: { gameMode: mode },
     map: extra.map || { seed: extra.seed || 123456, name: "test", asteroids: [], relays: [{ id: "A", x: world.width / 2, y: world.height / 2, radius: 160 }], clouds: [], safeZones: [] },
-    players: new Map(players.map((p) => [p.id, { shipCap: 3, stats: { radius: 52, fleetCount: p.shipCap || 3 }, ...p }]))
+    players: new Map(players.map((p) => [p.id, { shipCap: 3, stats: { radius: 52, fleetCount: p.shipCap || 1 }, ...p }]))
   };
 }
 function assertPlan(r) {

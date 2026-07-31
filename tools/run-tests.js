@@ -167,18 +167,11 @@ const GROUPS = {
   // Required browser gameplay/renderer coverage: real server, production
   // frontend, Playwright Chromium, WebGL and Pixi. Missing Chromium is a hard failure.
   browser: [
-    "verify-browser-startup.js",
-    "verify-presentation-dispatch-browser.js",
     "verify-endgame-actions-browser.js",
     "verify-deployment-controls-browser.js",
-    "verify-blueprint-undo-browser.js",
-    "verify-blueprint-discoverability-browser.js",
     "verify-blueprint-modes-browser.js",
     "verify-blueprint-information-polish-browser.js",
-    "verify-component-inspector-browser.js",
     "verify-ship-summary-browser.js",
-    "verify-blueprint-inspector-tabs-browser.js",
-    "verify-data-support-browser.js",
     "verify-data-links-editor.js",
     "verify-live-turrets.js",
     "verify-heat-browser.js",

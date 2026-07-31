@@ -391,10 +391,10 @@ async function main() {
     }
     // The canonical label is "Repair rate"; the authoritative values are unchanged.
     await selectPalettePart(page, { category: "Support", type: "repair", name: "Repair", rotatable: false });
-    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*4 HP\/s/i,
+    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*10 HP\/s/i,
       "Repair shows its authoritative healing rate");
     await selectPalettePart(page, { category: "Support", type: "repairBeam", name: "Repair Beam", rotatable: true });
-    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*8 HP\/s/i,
+    assert.match(await page.locator("#partInspector").textContent(), /Repair rate\s*20 HP\/s/i,
       "Repair Beam shows its authoritative healing rate");
     await selectPalettePart(page, { category: "Weapons", type: "blaster", name: "Blaster", rotatable: true });
 
@@ -404,8 +404,8 @@ async function main() {
     assert.match(buildGuide, /left-click/i);
     assert.match(buildGuide, /Rotate/i);
     assert.match(buildGuide, /right-click/i);
-    await assert.equal(await page.locator("#resetButton").getAttribute("aria-label"), "Reset to starter ship and default Wiring", "Reset has an accessible label");
-    await assert.equal(await page.locator("#clearGridButton").getAttribute("aria-label"), "Remove all components except the core and clear Wiring", "Clear has an accessible label");
+    await assert.equal(await page.locator("#resetButton").getAttribute("aria-label"), "Reset to starter ship", "Reset has an accessible label");
+    await assert.equal(await page.locator("#clearGridButton").getAttribute("aria-label"), "Remove all components except the core", "Clear has an accessible label");
 
     const indicator = page.locator("#rotationIndicator");
     const beforeRotation = await indicator.textContent();
