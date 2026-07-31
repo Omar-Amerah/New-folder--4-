@@ -174,6 +174,11 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
   // Snapshot construction is also used by immediate purchase/reconnect sends
   // outside the regular simulation cadence. Advance visibility once here so
   // those snapshots cannot reuse coverage from before an entity/state change.
+  //
+  // When the room has an authoritative simulation timestamp, use it for all
+  // gameplay state in the snapshot so effect ages, removal timers and projectile
+  // life remain consistent with the fixed timestep.
+  if (Number.isFinite(room.simulationTimeMs)) now = room.simulationTimeMs;
   if (room._visibilityFinalizedAt !== now) invalidateVisibility(room, "snapshot-build");
   const ships = [];
   for (const ship of room.ships.values()) {

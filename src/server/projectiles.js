@@ -1,6 +1,7 @@
 // Projectile creation, velocity updates, tracking missile adjustments, obstacle collisions, and damage delivery.
 
 const { clampNumber, rotateToward, fastHypot, compareIdStrings, performanceNow, round } = require("./utils");
+const { gameplayNow } = require("./gameplayTime");
 const { bump, recordDuration, setCounter } = require("./roomTelemetry");
 const {
   PROJECTILE_FLAK_SINGLE_PASS,
@@ -85,7 +86,7 @@ function addBullet(room, bullet) {
   bullet.id = `b${room.nextEntityId++}`;
   room.bullets.push(bullet);
   bump(room, "projectilesCreated");
-  bullet.bornAt = bullet.bornAt == null ? performanceNow() : bullet.bornAt;
+  bullet.bornAt = bullet.bornAt == null ? gameplayNow(room, performanceNow()) : bullet.bornAt;
   bullet.lastCorrectionAt = bullet.bornAt;
   recordProjectileSpawn(room, bullet, bullet.bornAt);
   ensureProjectileLookup(room).set(bullet.id, bullet);

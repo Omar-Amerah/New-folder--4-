@@ -20,7 +20,8 @@ const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry"
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
-const { redundantFleetMapCollisionPass } = require("./performanceFlags");
+const { redundantFleetMapCollisionPass, FIXED_AUTHORITATIVE_TIMESTEP } = require("./performanceFlags");
+const { TICK_HZ } = require("./config");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
 
@@ -178,7 +179,7 @@ function tickRoom(room, dt, now) {
   room._visibilityFinalizedAt = now;
   durations.objectives = performanceNow() - startedAt;
   recordRoomTick(durations);
-  recordRoomTelemetry(room);
+  if (!room._suppressRoomTelemetry) recordRoomTelemetry(room);
   const componentAssertionsEnabled = isComponentAssertionEnabled();
   if (componentAssertionsEnabled) {
     const sampleAll = now >= (Number(room._lastComponentAssertionSampleAt) || 0) + 1000;
@@ -191,4 +192,122 @@ function tickRoom(room, dt, now) {
     if (sampleAll) room._lastComponentAssertionSampleAt = now;
   }
 }
-module.exports = { tickRoom };
+
+// Phase Four: fixed authoritative timestep accumulator.
+const FIXED_STEP_MS = 1000 / TICK_HZ;
+const FIXED_STEP_S = FIXED_STEP_MS / 1000;
+const MAX_CATCH_UP_STEPS = 3;
+
+function advanceRoomAuthoritative(room, wallNow) {
+  // Non-active rooms do not need fixed-step advancement; preserve the existing
+  // effect expiry behaviour with a single zero-length tick.
+  if (room.phase !== "active") {
+    tickRoom(room, 0, wallNow);
+    return;
+  }
+
+  // Re-entry protection: a callback must never enter the same room tick while it
+  // is already being advanced. Record the attempt and return cleanly.
+  if (room._simulationLocked) {
+    room._simulationReentries = (room._simulationReentries || 0) + 1;
+    return;
+  }
+
+  room._simulationLocked = true;
+  room._suppressRoomTelemetry = true;
+
+  try {
+    // A non-finite wall time is always replaced with the current hrtime so the
+    // callback history stays monotonic and finite. Finite wall times pass through.
+    const safeWallNow = Number.isFinite(wallNow) ? wallNow : performanceNow();
+    const firstCallback = !room._lastSimulationCallbackMs;
+
+    // First callback: there is no previous callback to compare. Seed the clock
+    // so the first completed step lands exactly on the first wall time rather
+    // than simulating one step into the future.
+    if (firstCallback) {
+      room._authoritativeTimeMs = safeWallNow - FIXED_STEP_MS;
+      room._lastSimulationCallbackMs = safeWallNow;
+      room._simulationAccumulatorMs = FIXED_STEP_MS;
+      room._simulationStep = 0;
+    }
+
+    // Validate the candidate wall time before it can corrupt the callback history.
+    // Monotonic, finite wall times update history; anything else gets a single
+    // fallback step without rewriting the last seen timestamp. Compute the delta
+    // before updating the stored last-callback time.
+    const wallNowValid = Number.isFinite(wallNow) && wallNow >= room._lastSimulationCallbackMs;
+    const callbackDeltaMs = firstCallback
+      ? 0
+      : wallNowValid
+        ? wallNow - room._lastSimulationCallbackMs
+        : 0;
+    if (wallNowValid) {
+      room._lastSimulationCallbackMs = safeWallNow;
+    }
+
+    // Non-monotonic or non-finite callbacks contribute no elapsed time. The
+    // next valid callback will account for the real wall-clock interval.
+    const safeCallbackDeltaMs = Number.isFinite(callbackDeltaMs) && callbackDeltaMs >= 0
+      ? callbackDeltaMs
+      : 0;
+
+    room._simulationAccumulatorMs = (room._simulationAccumulatorMs || 0) + safeCallbackDeltaMs;
+
+    const fullSteps = Math.floor((room._simulationAccumulatorMs + 1e-9) / FIXED_STEP_MS);
+    const steps = Math.min(fullSteps, MAX_CATCH_UP_STEPS);
+    const overflowSteps = fullSteps - steps;
+    let discardedMs = 0;
+    if (overflowSteps > 0) {
+      discardedMs = overflowSteps * FIXED_STEP_MS;
+      room._simulationAccumulatorMs -= discardedMs;
+    }
+
+    // Allow tests to inject a custom step implementation; production uses tickRoom.
+    const stepImpl = room._advanceStepFn || tickRoom;
+
+    let totalStepDurationMs = 0;
+    for (let i = 0; i < steps; i += 1) {
+      const stepNow = room._authoritativeTimeMs + FIXED_STEP_MS;
+      room._currentAuthoritativeStepTimeMs = stepNow;
+      const stepStart = performanceNow();
+      try {
+        stepImpl(room, FIXED_STEP_S, stepNow);
+      } finally {
+        room._currentAuthoritativeStepTimeMs = null;
+      }
+      // Only commit authoritative time and consume accumulator after a successful
+      // step. If the step implementation throws, the failed step remains in the
+      // accumulator for the next callback and the room does not skip past it.
+      room._authoritativeTimeMs = stepNow;
+      room._simulationStep += 1;
+      room._simulationAccumulatorMs = Math.max(0, room._simulationAccumulatorMs - FIXED_STEP_MS);
+      totalStepDurationMs += performanceNow() - stepStart;
+    }
+
+    // If no fixed step was produced, the room still saw a callback. Record a
+    // zero-step callback so telemetry does not silently drop the event.
+    const metrics = {
+      fixedStepCallbacks: 1,
+      fixedSteps: steps,
+      fixedStepCatchUpCallbacks: steps > 1 ? 1 : 0,
+      fixedStepMaxCatchUp: steps,
+      fixedStepDiscardedBacklogMs: discardedMs,
+      fixedStepJitterMs: Math.max(0, safeCallbackDeltaMs - FIXED_STEP_MS),
+      fixedStepDurationMs: steps > 0 ? totalStepDurationMs / steps : 0,
+      fixedStepReentryAttempts: room._simulationReentries || 0,
+      fixedStepAccumulatorRemainingMs: room._simulationAccumulatorMs || 0
+    };
+
+    room._simulationReentries = 0;
+    room._suppressRoomTelemetry = false;
+    if (steps === 0) resetRoomTelemetry(room);
+    for (const [name, value] of Object.entries(metrics)) setCounter(room, name, value);
+    recordRoomTelemetry(room);
+  } finally {
+    room._simulationLocked = false;
+    room._suppressRoomTelemetry = false;
+  }
+}
+
+module.exports = { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS, FIXED_STEP_S, MAX_CATCH_UP_STEPS };

@@ -42,7 +42,13 @@ const DURATION_FIELDS = Object.freeze([
   "weaponFiringMs",
   "beamProcessingMs",
   // Retained for compatibility with early Phase Three diagnostics.
-  "weaponAimFiringMs"
+  "weaponAimFiringMs",
+
+  // Phase Four authoritative fixed-timestep telemetry
+  "fixedStepJitterMs",
+  "fixedStepDurationMs",
+  "fixedStepDiscardedBacklogMs",
+  "fixedStepAccumulatorRemainingMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -147,7 +153,14 @@ const COUNTER_FIELDS = Object.freeze([
   "effectiveWeaponProfileBuilds",
   "effectiveWeaponProfileCacheHits",
   "effectiveWeaponProfileCacheMisses",
-  "effectiveWeaponProfileInvalidations"
+  "effectiveWeaponProfileInvalidations",
+
+  // Phase Four fixed-timestep counters
+  "fixedStepCallbacks",
+  "fixedSteps",
+  "fixedStepCatchUpCallbacks",
+  "fixedStepMaxCatchUp",
+  "fixedStepReentryAttempts"
 ]);
 
 const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);
