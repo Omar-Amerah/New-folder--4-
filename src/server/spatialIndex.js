@@ -163,6 +163,21 @@ class RoomSpatialIndex {
     return this;
   }
 
+  resetTelemetry() {
+    this.spatialFullRebuilds = 0;
+    this.spatialPartialRebuilds = 0;
+    this.spatialRecoveryRebuilds = 0;
+    this.spatialIncrementalInserts = 0;
+    this.spatialIncrementalUpdates = 0;
+    this.spatialNoOpUpdates = 0;
+    this.spatialCellMembershipChanges = 0;
+    this.spatialRemovals = 0;
+    this.spatialCategoryChanges = 0;
+    this.spatialStaleDetections = 0;
+    this.spatialUpdateDurationMs = 0;
+    return this;
+  }
+
   _computeCellBounds(x, y, radius) {
     const r = Math.max(0, finite(radius));
     const minCellX = Math.floor((x - r) / this.cellSize);
@@ -307,7 +322,6 @@ class RoomSpatialIndex {
     record.maxCellY = bounds.maxCellY;
     this._addRecordToCells(state, record);
     state.nextOrder = Math.max(state.nextOrder, (Number.isFinite(Number(order)) ? Number(order) : 0) + 1);
-    this.spatialIncrementalInserts += 1;
     return record;
   }
 
@@ -319,7 +333,9 @@ class RoomSpatialIndex {
       this.update(kind, entity, radius);
       return state.recordsByEntity.get(entity);
     }
-    return this._putRecord(kind, entity, radius, order);
+    const record = this._putRecord(kind, entity, radius, order);
+    if (record) this.spatialIncrementalInserts += 1;
+    return record;
   }
 
   // Stable-order append (for live appends during a tick).
@@ -331,7 +347,9 @@ class RoomSpatialIndex {
       this.update(kind, entity, radius);
       return existing;
     }
-    return this._putRecord(kind, entity, radius, state.nextOrder++);
+    const record = this._putRecord(kind, entity, radius, state.nextOrder++);
+    if (record) this.spatialIncrementalInserts += 1;
+    return record;
   }
 
   // Public insert with idempotency. Semantically identical to append.
@@ -343,7 +361,9 @@ class RoomSpatialIndex {
       this.update(kind, entity, radius);
       return existing;
     }
-    return this._putRecord(kind, entity, radius, state.nextOrder++);
+    const record = this._putRecord(kind, entity, radius, state.nextOrder++);
+    if (record) this.spatialIncrementalInserts += 1;
+    return record;
   }
 
   update(kind, entity, radius = 0) {
@@ -783,31 +803,41 @@ class RoomSpatialIndex {
 
 function buildRoomSpatialIndex(room, ships, now = 0) {
   if (!room) return new RoomSpatialIndex(DEFAULT_CELL_SIZE).rebuild(null, ships, now);
-  let index = room.spatialIndex;
   const requestedCellSize = Math.max(32, finite(room.spatialCellSize, DEFAULT_CELL_SIZE));
-  if (!(index instanceof RoomSpatialIndex)) index = new RoomSpatialIndex(requestedCellSize);
-  room.spatialIndex = index;
+  const isNewIndex = !(room.spatialIndex instanceof RoomSpatialIndex);
+  let index = room.spatialIndex;
+  if (isNewIndex) {
+    index = new RoomSpatialIndex(requestedCellSize);
+    room.spatialIndex = index;
+  }
   const cellSizeChanged = requestedCellSize !== index.cellSize;
   const incremental = INCREMENTAL_SPATIAL_INDEX();
   if (cellSizeChanged) {
     index.reset({ includeAsteroids: true });
     index.cellSize = requestedCellSize;
+    index.resetTelemetry();
+    room._spatialTelemetrySnapshot = {};
+    room._spatialDurationSnapshot = 0;
+  } else if (isNewIndex) {
+    room._spatialTelemetrySnapshot = {};
+    room._spatialDurationSnapshot = 0;
   }
   if (!incremental || !index.dynamicValid || cellSizeChanged) {
     const start = performanceNow();
     index.rebuild(room, ships, now);
     index.spatialUpdateDurationMs += performanceNow() - start;
-    // Reset telemetry snapshots whenever a full rebuild resets the index.
-    room._spatialTelemetrySnapshot = {};
-    room._spatialDurationSnapshot = 0;
   }
   return room.spatialIndex;
 }
 
 function clearRoomSpatialIndex(room) {
   if (!room) return null;
-  if (room.spatialIndex instanceof RoomSpatialIndex) room.spatialIndex.reset({ includeAsteroids: true });
-  else room.spatialIndex = new RoomSpatialIndex(room.spatialCellSize || DEFAULT_CELL_SIZE);
+  if (room.spatialIndex instanceof RoomSpatialIndex) {
+    room.spatialIndex.reset({ includeAsteroids: true });
+    room.spatialIndex.resetTelemetry();
+  } else {
+    room.spatialIndex = new RoomSpatialIndex(room.spatialCellSize || DEFAULT_CELL_SIZE);
+  }
   room._spatialTelemetrySnapshot = {};
   room._spatialDurationSnapshot = 0;
   return room.spatialIndex;

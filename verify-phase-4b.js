@@ -10,10 +10,11 @@ const {
 } = require("./src/server/performanceFlags");
 const { createRoom, bumpStateEpoch } = require("./src/server/rooms");
 const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/server/simulation");
-const { RoomSpatialIndex, buildRoomSpatialIndex, shipBroadPhaseRadius, droneBroadPhaseRadius, stationBroadPhaseRadius } = require("./src/server/spatialIndex");
-const { addBullet } = require("./src/server/projectiles");
+const { RoomSpatialIndex, buildRoomSpatialIndex, publishSpatialTelemetry, shipBroadPhaseRadius, droneBroadPhaseRadius, stationBroadPhaseRadius } = require("./src/server/spatialIndex");
+const { addBullet, removeProjectileRuntime } = require("./src/server/projectiles");
 const { spawnShip } = require("./src/server/ships");
 const { spawnDrone } = require("./src/server/drones");
+const { destroyShip } = require("./src/server/combat");
 
 const EPSILON = 1e-6;
 
@@ -277,6 +278,68 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   buildRoomSpatialIndex(room, [ship], 1);
   assert.strictEqual(room.spatialIndex, first, "same index instance");
   assert.ok(room.spatialIndex.spatialFullRebuilds >= 2, "disabled path performs full rebuilds");
+}
+
+// 25. Ship destroyed in combat is removed from the spatial index immediately.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BDESTROY");
+  const { ship } = activeShipAndPlayer(room, "s1");
+  buildRoomSpatialIndex(room, [ship], 0);
+  assert.strictEqual(room.spatialIndex.queryRange("ships", ship.x, ship.y, 100).length, 1, "ship is initially queryable");
+  destroyShip(room, ship, null, 0);
+  assert.strictEqual(ship.alive, false, "ship is marked dead");
+  assert.deepStrictEqual(room.spatialIndex.queryRange("ships", ship.x, ship.y, 100), [], "destroyed ship is removed from index");
+  assert.strictEqual(room.spatialIndex.count("ships"), 0, "destroyed ship leaves no record");
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 26. Projectile removed through the runtime path is gone from the index.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BPROJREMOVE");
+  buildRoomSpatialIndex(room, [], 0);
+  addBullet(room, { type: "shot", ownerId: "p1", x: 100, y: 100, vx: 0, vy: 0, life: 5, damage: 1 });
+  const b = room.bullets[0];
+  assert.strictEqual(room.spatialIndex.count("projectiles"), 1, "projectile inserted by addBullet");
+  removeProjectileRuntime(room, b, "despawn", 100, 100);
+  assert.strictEqual(room.spatialIndex.count("projectiles"), 0, "projectile removed by runtime");
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 27. Recovery rebuild repairs deliberately corrupted state.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BRECOVER");
+  const { ship } = activeShipAndPlayer(room, "s1");
+  buildRoomSpatialIndex(room, [ship], 0);
+  // Corrupt the bucket state by manually inserting the same record twice.
+  const index = room.spatialIndex;
+  const record = index.recordsByEntity.ships.get(ship);
+  const bucket = index.kindState.ships.columns.get(record.minCellX).get(record.minCellY);
+  bucket.push(record);
+  const before = index.verifyIntegrity("ships");
+  assert.strictEqual(before.ok, false, "corrupted state is detected");
+  index.recoverFull(room, [ship], 1);
+  const after = index.verifyIntegrity("ships");
+  assert.strictEqual(after.ok, true, "recovery rebuild leaves valid state");
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 28. Full-rebuild telemetry reports per-tick, not cumulative, values.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+  const room = activeRoom("PH4BTELEM");
+  const { ship } = activeShipAndPlayer(room, "s1");
+  for (let tick = 0; tick < 3; tick += 1) {
+    buildRoomSpatialIndex(room, [ship], tick);
+    publishSpatialTelemetry(room);
+    const telemetry = room._roomTelemetry || {};
+    assert.strictEqual(telemetry.spatialFullRebuilds, 1, `tick ${tick}: one full rebuild`);
+    assert.strictEqual(telemetry.spatialIncrementalInserts, 0, `tick ${tick}: no incremental inserts during full rebuild`);
+    assert.ok(telemetry.spatialUpdateDurationMs >= 0, `tick ${tick}: duration reported`);
+  }
+  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 __setINCREMENTAL_SPATIAL_INDEX(false);

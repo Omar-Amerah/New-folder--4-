@@ -196,6 +196,7 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
     station.hp = 0;
     station.state = "destroyed";
     station.alive = false;
+    room.spatialIndex?.remove?.("stations", station);
     station.disabledAt = now;
     station.stateRevision = (station.stateRevision || 0) + 1;
     require("./objectives").finalizeHomeStationDestruction(room, station, attackerId, now);
