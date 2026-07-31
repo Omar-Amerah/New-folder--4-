@@ -175,7 +175,39 @@ function _buildCandidateList(room, entity, identity, queryRadius, now) {
     candidates.push({ type: "decoy", entity: decoy });
   }
 
+  candidates.sort(_threatComparator(candidates, entity, entity.id, viewerTeam || identity, ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"]));
   return candidates;
+}
+
+function _threatComparator(candidates, entity, protectedShipId, shipOwnerId, priorityList) {
+  const cx = entity.x || 0;
+  const cy = entity.y || 0;
+  const ranks = new WeakMap();
+  const distSqs = new WeakMap();
+  const protectedFlags = new WeakMap();
+  for (const c of candidates) {
+    ranks.set(c, Targeting.getCandidatePriorityIndex(c, priorityList));
+    const dx = (c.entity?.x || 0) - cx;
+    const dy = (c.entity?.y || 0) - cy;
+    distSqs.set(c, dx * dx + dy * dy);
+    protectedFlags.set(c, Targeting.isCandidateTargetingProtected(c, protectedShipId, null, shipOwnerId));
+  }
+  return (a, b) => {
+    const rA = ranks.get(a) ?? -1;
+    const rB = ranks.get(b) ?? -1;
+    if (rA !== rB) {
+      if (rA === -1) return 1;
+      if (rB === -1) return -1;
+      return rA - rB;
+    }
+    const pA = protectedFlags.get(a) ? 1 : 0;
+    const pB = protectedFlags.get(b) ? 1 : 0;
+    if (pA !== pB) return pB - pA;
+    const dA = distSqs.get(a) ?? Infinity;
+    const dB = distSqs.get(b) ?? Infinity;
+    if (dA !== dB) return dA - dB;
+    return Targeting.isStableIdBefore?.(a.entity, b.entity) ? -1 : 1;
+  };
 }
 
 function _entityRelevantRevisions(entity) {
@@ -377,16 +409,13 @@ function selectPointDefenceTarget(room, originX, originY, shipOwnerId, weapon, p
   }
 
   let best = null;
-  let bestDistSq = Infinity;
   TargetingTelemetry.bump(room, "pointDefenceMountSelections");
 
   for (const candidate of threatSet.candidates) {
     const distSq = _validateCandidate(room, candidate, originX, originY, shipOwnerId, weapon, now, priorityList, canSee, reservations);
     if (distSq === null) continue;
-    if (Targeting.isCandidateBetter(candidate, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
-      best = candidate;
-      bestDistSq = distSq;
-    }
+    best = candidate;
+    break;
   }
 
   if (state) {
