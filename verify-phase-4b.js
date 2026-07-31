@@ -13,8 +13,11 @@ const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/ser
 const { RoomSpatialIndex, buildRoomSpatialIndex, publishSpatialTelemetry, shipBroadPhaseRadius, droneBroadPhaseRadius, stationBroadPhaseRadius } = require("./src/server/spatialIndex");
 const { addBullet, removeProjectileRuntime } = require("./src/server/projectiles");
 const { spawnShip } = require("./src/server/ships");
-const { spawnDrone } = require("./src/server/drones");
+const { setDroneDestroyed } = require("./src/server/drones");
+const { spawnDrone } = require("./src/server/drones")._test;
 const { destroyShip } = require("./src/server/combat");
+const { createStationsForRoom, updateStations } = require("./src/server/stations");
+const { computeStats } = require("./src/server/shipStats");
 
 const EPSILON = 1e-6;
 
@@ -339,6 +342,171 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     assert.strictEqual(telemetry.spatialIncrementalInserts, 0, `tick ${tick}: no incremental inserts during full rebuild`);
     assert.ok(telemetry.spatialUpdateDurationMs >= 0, `tick ${tick}: duration reported`);
   }
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 29. Real spawnShip adds the new ship to the incremental index.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BSPA");
+  const design = [
+    { x: 7, y: 7, type: "core", rotation: 0 },
+    { x: 7, y: 9, type: "engine", rotation: 0 },
+    { x: 7, y: 5, type: "blaster", rotation: 0 }
+  ];
+  const wiring = { version: 1, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: null };
+  const stats = computeStats(design, wiring);
+  const player = {
+    id: "p1",
+    team: 1,
+    ready: true,
+    connected: true,
+    design,
+    wiring,
+    stats,
+    ships: [],
+    shipCap: 12,
+    money: 100000,
+    combatStyle: "hold",
+    movementToggles: {}
+  };
+  room.players.set("p1", player);
+  buildRoomSpatialIndex(room, [], 0);
+  const ship = spawnShip(room, player, 0, 0, { spawnPoint: { x: 500, y: 500, angle: 0 } });
+  assert.ok(ship, "spawnShip returns a ship");
+  assert.strictEqual(ship.alive, true, "spawned ship is alive");
+  assert.strictEqual(room.spatialIndex.queryRange("ships", 500, 500, 200).length, 1, "spawned ship is immediately queryable");
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 30. Real spawnDrone and setDroneDestroyed update the index.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BDRONE");
+  const { BALANCE } = require("./src/server/balanceConfig");
+  const droneTypes = Object.keys(BALANCE.drones?.types || {});
+  const droneType = droneTypes[0] || "combat";
+  const ship = {
+    id: "s1",
+    ownerId: "p1",
+    team: 1,
+    x: 400,
+    y: 400,
+    angle: 0,
+    design: [{ x: 7, y: 7, type: "droneBay", rotation: 0 }],
+    componentHp: [50],
+    droneBays: [{
+      droneType,
+      componentId: "db1",
+      componentIndex: 0,
+      mode: "deployed",
+      slots: [{ slot: 0, state: "ready", droneId: null }],
+      launchEdge: { centerX: 8, centerY: 7, dx: 0, dy: -1 }
+    }]
+  };
+  room.ships.set("s1", ship);
+  buildRoomSpatialIndex(room, [ship], 0);
+  const bay = ship.droneBays[0];
+  const slot = bay.slots[0];
+  const drone = spawnDrone(room, ship, bay, slot, 0);
+  assert.ok(drone, "spawnDrone returns a drone");
+  assert.strictEqual(room.spatialIndex.count("drones"), 1, "spawned drone is indexed");
+  setDroneDestroyed(room, drone, 0, "test");
+  assert.strictEqual(room.spatialIndex.count("drones"), 0, "destroyed drone is removed from index");
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 31. Station state change to disabled removes the station record.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BSTAT");
+  const player = {
+    id: "p1",
+    team: 1,
+    ready: true,
+    connected: true,
+    design: [],
+    wiring: { version: 1, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: null },
+    stats: { maxHp: 100, mass: 1, radius: 1 },
+    ships: [],
+    shipCap: 12,
+    money: 0,
+    combatStyle: "hold",
+    movementToggles: {}
+  };
+  room.players.set("p1", player);
+  room.rules = { ...room.rules, infrastructureMode: "stations" };
+  room.map = { ...room.map, safeZones: [{ x: 300, y: 300, ownerId: "p1", team: 1, reservedRadius: 180 }], relays: [], asteroids: [] };
+  createStationsForRoom(room, 0);
+  assert.ok(room.stations.length > 0, "home station created");
+  buildRoomSpatialIndex(room, [], 0);
+  const station = room.stations[0];
+  assert.strictEqual(room.spatialIndex.count("stations"), 1, "station is indexed");
+  station.state = "disabled";
+  station.alive = false;
+  updateStations(room, 16, 16);
+  assert.strictEqual(room.spatialIndex.count("stations"), 0, "disabled station is removed");
+  __setINCREMENTAL_SPATIAL_INDEX(false);
+}
+
+// 32. Ship separation corrects final positions and the index reflects them.
+{
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  const room = activeRoom("PH4BSEPARATE");
+  const shipA = {
+    id: "sa",
+    ownerId: "p1",
+    team: 1,
+    x: 500,
+    y: 500,
+    vx: 0,
+    vy: 0,
+    angle: 0,
+    alive: true,
+    removed: false,
+    radius: 40,
+    physicalRadius: 28,
+    stats: { mass: 100, maxHp: 100 },
+    design: [{ x: 7, y: 7, type: "core" }],
+    componentHp: [100],
+    componentMaxHp: [100],
+    hp: 100,
+    shield: 0
+  };
+  const shipB = {
+    id: "sb",
+    ownerId: "p2",
+    team: 2,
+    x: 520,
+    y: 500,
+    vx: 0,
+    vy: 0,
+    angle: 0,
+    alive: true,
+    removed: false,
+    radius: 40,
+    physicalRadius: 28,
+    stats: { mass: 100, maxHp: 100 },
+    design: [{ x: 7, y: 7, type: "core" }],
+    componentHp: [100],
+    componentMaxHp: [100],
+    hp: 100,
+    shield: 0
+  };
+  room.players.set("p1", { id: "p1", team: 1, ships: [shipA] });
+  room.players.set("p2", { id: "p2", team: 2, ships: [shipB] });
+  room.ships.set("sa", shipA);
+  room.ships.set("sb", shipB);
+  buildRoomSpatialIndex(room, [shipA, shipB], 0);
+  const { updateShipSeparation } = require("./src/server/movement");
+  updateShipSeparation(room, [shipA, shipB], 16.666, 0);
+  const dx = shipA.x - shipB.x;
+  const dy = shipA.y - shipB.y;
+  assert.ok(Math.hypot(dx, dy) > 50, "ships are separated");
+  const foundA = room.spatialIndex.queryRange("ships", shipA.x, shipA.y, 1).find((s) => s.id === "sa");
+  const foundB = room.spatialIndex.queryRange("ships", shipB.x, shipB.y, 1).find((s) => s.id === "sb");
+  assert.ok(foundA, "separated ship A is still queryable at its new position");
+  assert.ok(foundB, "separated ship B is still queryable at its new position");
   __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
