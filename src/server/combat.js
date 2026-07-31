@@ -2146,9 +2146,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const prevContact = ship.weaponBeamContacts[i];
 
-      const beamResult = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledBeamProcessingDuration", () => {
-        const charge = beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon);
-        return damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * charge.multiplier * dt, now, {
+      const charge = beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon);
+
+      const beamResult = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledBeamProcessingDuration", () =>
+        damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * charge.multiplier * dt, now, {
 
         shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
 
@@ -2162,9 +2163,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         weaponIndex: i
 
-      });
+      })
 
-    });
+    );
 
 
 
@@ -2343,7 +2344,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
             const targetEnt = currentPdTarget.entity;
 
-            if (!isLineBlocked(room, muzzle.x, muzzle.y, targetEnt.x, targetEnt.y, 4)) {
+            if (!TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () => isLineBlocked(room, muzzle.x, muzzle.y, targetEnt.x, targetEnt.y, 4))) {
 
                const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
@@ -4208,7 +4209,7 @@ function findTarget(room, ship, ships) {
     if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) return;
     if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) return;
     const distance = fastHypot(other.x - ship.x, other.y - ship.y);
-    if (distance > range || isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8)) return;
+    if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8))) return;
     const score = enemyShipThreatScore(ship, other, distance, range);
     if (score > bestScore || (score === bestScore && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))) {
       best = other;
@@ -4239,7 +4240,7 @@ function findTarget(room, ship, ships) {
     for (const drone of droneCandidates) {
       if (drone.destroyed || !areEnemies(room, ship.ownerId, drone.ownerId)) continue;
       const distance = fastHypot(drone.x - ship.x, drone.y - ship.y);
-      if (distance <= range && !isLineBlocked(room, ship.x, ship.y, drone.x, drone.y, 3)
+      if (distance <= range && !TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, drone.x, drone.y, 3))
         && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(drone, best))))) {
         best = drone;
         bestDistance = distance;

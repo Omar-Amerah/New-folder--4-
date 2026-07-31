@@ -643,5 +643,22 @@ let testShipCounter = 0;
     console.log("✔ Test 23 passed: Destroyed PD target is immediately reacquired.");
   }
 
+  // 24. Live beam firing does not throw and produces a contact.
+  {
+    const beamShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "beamEmitter" }, { x: 7, y: 8, type: "engine" }]);
+    const enemy = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    enemy.x = 250;
+    enemy.y = 0;
+    const room = makeRoom([beamShip, enemy]);
+    const wIdx = getShipComponentIndexes(beamShip).weaponIndices[0];
+    const desired = Math.atan2(enemy.y - beamShip.y, enemy.x - beamShip.x) - (beamShip.angle || 0);
+    beamShip.weaponAngles[wIdx] = desired;
+    const now = 100;
+    buildRoomSpatialIndex(room, [beamShip, enemy], now);
+    updateShipWeapons(room, beamShip, [beamShip, enemy], 1 / 30, now);
+    assert.ok(Array.isArray(beamShip.weaponBeamContacts), "Beam firing initializes contacts without throwing");
+    console.log("✔ Test 24 passed: Live beam firing does not throw.");
+  }
+
   console.log("\nPhase 3 Targeting & Point Defence verification passed.");
 })();

@@ -354,7 +354,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
             priorityList: weapon.targetPriority,
             team: station.team
           });
-          if (pdCurrentValid && isLineBlocked(room, origin.x, origin.y, pdCached.entity.x, pdCached.entity.y, 4)) pdCurrentValid = false;
+          if (pdCurrentValid && TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledLineOfSightDuration", () => isLineBlocked(room, origin.x, origin.y, pdCached.entity.x, pdCached.entity.y, 4))) pdCurrentValid = false;
           if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
         }
         const pdDue = TargetingCadence.isAcquisitionDue(station, "stationPointDefence", i, now);
