@@ -76,7 +76,10 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
   const pA = getCandidatePriorityIndex(candidate, priorityList);
   const pB = getCandidatePriorityIndex(bestCandidate, priorityList);
-  if (pA !== pB) return pA < pB;
+  // Unsupported categories (priority index -1) must never beat supported ones.
+  const rankA = pA < 0 ? Number.MAX_SAFE_INTEGER : pA;
+  const rankB = pB < 0 ? Number.MAX_SAFE_INTEGER : pB;
+  if (rankA !== rankB) return rankA < rankB;
 
   const tA = isCandidateTargetingProtected(candidate, protectedShipId, room, shipOwnerId);
   const tB = isCandidateTargetingProtected(bestCandidate, protectedShipId, room, shipOwnerId);

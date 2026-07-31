@@ -37,7 +37,13 @@ const TurretRules = require("../../public/src/shared/turretRules");
 
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 
-const { getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange } = require("./componentData");
+const {
+  getEffectiveWeaponStats,
+  getEffectiveWeaponStatsInternal,
+  getEffectiveWeaponStatsCached,
+  ensureEffectiveWeaponProfileCache,
+  getMaxEffectiveWeaponRange
+} = require("./componentData");
 
 const { getCommandAuraMultiplier } = require("./commandAuras");
 
@@ -49,6 +55,7 @@ const { segmentStationHullHit, nearestStationHullPoint } = require("./stationCol
 const TargetingTelemetry = require("./targetingTelemetry");
 const PointDefenceThreats = require("./pointDefenceThreats");
 const TargetingCadence = require("./targetingCadence");
+const Targeting = require("./targetingEligibility");
 const PerformanceFlags = require("./performanceFlags");
 
 const { getShipComponentIndexes } = require("./componentIndexes");
@@ -987,8 +994,12 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
         return !isLineBlocked(room, worldX, worldY, cand.entity.x, cand.entity.y, margin);
       };
       const selected = PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations);
-      if (selected) return selected;
+      TargetingTelemetry.bump(room, "pointDefenceLegacyScansAvoided");
+      return selected;
     }
+    TargetingTelemetry.bump(room, "pointDefenceSharedFallbackNoDefender");
+  } else {
+    TargetingTelemetry.bump(room, "pointDefenceSharedFallbacks");
   }
 
   const rangeSq = weapon.range * weapon.range;
@@ -1294,6 +1305,22 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   const weaponIndices = getShipComponentIndexes(ship).weaponIndices;
 
+  if (PerformanceFlags.WEAPON_PROFILE_REVISION_CACHE()) {
+    const cache = ensureEffectiveWeaponProfileCache(ship);
+    if (cache) {
+      const prev = ship._effectiveWeaponProfileCacheRevision;
+      if (prev !== cache.revision) {
+        TargetingTelemetry.bump(room, "effectiveWeaponProfileCacheMisses");
+        TargetingTelemetry.bump(room, "effectiveWeaponProfileBuilds");
+        ship._effectiveWeaponProfileCacheRevision = cache.revision;
+      } else {
+        TargetingTelemetry.bump(room, "effectiveWeaponProfileCacheHits");
+      }
+    } else {
+      TargetingTelemetry.bump(room, "effectiveWeaponProfileInvalidations");
+    }
+  }
+
   for (const i of weaponIndices) {
 
     ship.weaponCooldowns[i] = Math.max(0, ship.weaponCooldowns[i] - dt);
@@ -1384,7 +1411,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       ? { type: "beam", arc: 360, range: ship.stats?.repairRange || 400, aimSpeed: TurretRules.turnRateFor("beam") }
 
-      : (getEffectiveWeaponStatsInternal(ship, i) || part.weapon);
+      : (PerformanceFlags.WEAPON_PROFILE_REVISION_CACHE()
+        ? (getEffectiveWeaponStatsCached(ship, i) || part.weapon)
+        : (getEffectiveWeaponStatsInternal(ship, i) || part.weapon));
 
     const family = effectiveWeapon.type || part.weapon?.type || "beam";
 
@@ -1598,13 +1627,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (!ship.weaponPendingTargetIds) ship.weaponPendingTargetIds = new Array(wLen).fill(null);
       if (!ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt = new Array(wLen).fill(0);
 
-      weaponTarget = pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range, {
-
-        weapon: effectiveWeapon,
-
-        module
-
-      });
+      weaponTarget = PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()
+        ? getCadencedWeaponTarget(room, ship, ships, worldX, worldY, target, range, { weapon: effectiveWeapon, module }, i, now, "ordinaryShip")
+        : pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range, { weapon: effectiveWeapon, module });
 
       const newTargetId = weaponTarget ? (weaponTarget.id ?? null) : null;
       const acquiredId = ship.weaponAcquiredTargetIds[i] ?? null;
@@ -3654,6 +3679,12 @@ function destroyShip(room, ship, attackerId, now) {
   ship.weaponAcquiredTargetIds = null;
   ship.weaponPendingTargetIds = null;
   ship.weaponAcquireCompleteAt = null;
+  ship._weaponTargetState = null;
+  ship._targetAcquisitionSchedule = null;
+  ship._targetAcquisitionOffsets = null;
+  ship._effectiveWeaponProfileCacheRevision = null;
+  ship._pdThreatSet = null;
+  ship.effectiveWeaponProfileCache = null;
 
   ship.vx *= 0.25;
 
@@ -4386,6 +4417,105 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
   return shipTarget;
 
+}
+
+function _targetCategory(room, target) {
+  if (!target) return null;
+  if (target.id == null) return null;
+  if (room?.drones?.get?.(target.id) === target) return "drone";
+  if (room?.ships?.get?.(target.id) === target) return "ship";
+  if (room?.stations && room.stations.some((s) => s === target)) return "station";
+  if (room?.drones?.get?.(target.id)) return "drone";
+  if (room?.ships?.get?.(target.id)) return "ship";
+  return null;
+}
+
+function _getCachedTargetEntity(room, id, category) {
+  if (category === "drone") return room?.drones?.get?.(id) || null;
+  if (category === "station") return (room?.stations || []).find((s) => s.id === id) || null;
+  if (category === "ship") return room?.ships?.get?.(id) || null;
+  const ship = room?.ships?.get?.(id);
+  if (ship) return ship;
+  const drone = room?.drones?.get?.(id);
+  if (drone) return drone;
+  const station = (room?.stations || []).find((s) => s.id === id);
+  if (station) return station;
+  return null;
+}
+
+function _updateWeaponTargetState(ship, i, weaponTarget, now, kind) {
+  if (!ship._weaponTargetState) ship._weaponTargetState = [];
+  let state = ship._weaponTargetState[i];
+  if (!state) {
+    state = ship._weaponTargetState[i] = { id: null, category: null, nextSearchAt: 0, lastSearchAt: 0, profileRevision: 0, manualRevision: 0 };
+  }
+  if (weaponTarget) {
+    state.id = weaponTarget.id ?? null;
+    state.category = weaponTarget._targetCategoryCache || "ship";
+    state.lastSearchAt = now;
+  } else {
+    state.id = null;
+    state.category = null;
+  }
+  TargetingCadence.markAcquisitionCompleted(ship, kind, i, now);
+  state.nextSearchAt = TargetingCadence.nextAcquisitionAt(ship, kind, i, now);
+}
+
+function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, range, options, i, now, kind) {
+  TargetingTelemetry.bump(room, "ordinaryTargetValidationAttempts");
+  if (!ship._weaponTargetState) ship._weaponTargetState = [];
+  let state = ship._weaponTargetState[i];
+  if (!state) {
+    state = ship._weaponTargetState[i] = { id: null, category: null, nextSearchAt: 0, lastSearchAt: 0, profileRevision: 0, manualRevision: 0 };
+  }
+
+  const cached = state.id ? _getCachedTargetEntity(room, state.id, state.category) : null;
+  let currentValid = false;
+  if (cached) {
+    currentValid = Targeting.isOrdinaryWeaponTargetValid(room, ship, cached, now, range, {
+      originX: worldX,
+      originY: worldY,
+      ignoreDrones: !canWeaponDefensivelyTargetDrones(options.weapon)
+    });
+    if (currentValid && isLineBlocked(room, worldX, worldY, cached.x, cached.y, 8)) {
+      currentValid = false;
+    }
+    if (!currentValid) TargetingTelemetry.bump(room, "ordinaryTargetValidationFailures");
+  }
+
+  const primaryId = primary?.id ?? null;
+  const primaryChanged = primaryId !== null && primaryId !== state.id;
+  const primaryIsCurrent = primaryId !== null && primaryId === state.id;
+  const force = primaryChanged || (cached && !currentValid);
+
+  if (force && cached && !currentValid) {
+    state.id = null;
+    state.category = null;
+    TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
+  } else if (primaryChanged) {
+    TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
+  }
+
+  const due = TargetingCadence.isAcquisitionDue(ship, kind, i, now);
+
+  if (primaryIsCurrent && currentValid && !due) {
+    TargetingTelemetry.bump(room, "ordinaryTargetSearchDeferred");
+    return cached;
+  }
+
+  if (!primaryIsCurrent && currentValid && !force && !due) {
+    TargetingTelemetry.bump(room, "ordinaryTargetSearchDeferred");
+    return cached;
+  }
+
+  TargetingTelemetry.bump(room, "ordinaryTargetSearches");
+  const picked = pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range, options);
+  if (picked) {
+    picked._targetCategoryCache = _targetCategory(room, picked);
+  }
+  _updateWeaponTargetState(ship, i, picked, now, kind);
+  if (picked) TargetingTelemetry.bump(room, "ordinaryTargetSearchCandidates", 1);
+  return picked;
 }
 
 

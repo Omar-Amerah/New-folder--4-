@@ -1,6 +1,8 @@
 "use strict";
 const assert = require("assert");
 
+let testShipCounter = 0;
+
 (async () => {
   globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
   globalThis.window = globalThis;
@@ -30,7 +32,7 @@ const assert = require("assert");
     }
     const stats = computeStats(design, shipWiring);
     const ship = {
-      id: `test-ship-${Math.random().toString(36).substr(2, 5)}`,
+      id: `test-ship-${(testShipCounter += 1)}`,
       ownerId,
       team: ownerId === "p1" ? "A" : "B",
       x: 100,
@@ -166,8 +168,7 @@ const assert = require("assert");
   // 5. A removed projectile is not fired upon after threat-set construction.
   {
     const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
-    const enemyShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
-    const room = makeRoom([pdShip, enemyShip]);
+    const room = makeRoom([pdShip]);
 
     const missile = { id: "m2", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 150, y: 100, life: 5, interceptable: true, hp: 20 };
     room.bullets.push(missile);
@@ -229,6 +230,78 @@ const assert = require("assert");
     const cache3 = ComponentData.ensureEffectiveWeaponProfileCache(ship);
     assert.ok(cache3.revision > cache2.revision, "Destroyed component invalidates the profile cache");
     console.log("✔ Test 8 passed: Effective weapon profile cache is revision-based and invalidates on component destruction.");
+  }
+
+  // 9. Shared PD rejects unsupported target categories.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([pdShip]);
+    const missile = { id: "m-priority", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 120, y: 100, life: 5, interceptable: true, hp: 20 };
+    const decoy = { id: "d-priority", type: "decoy", ownerId: "p2", x: 110, y: 100, expiresAt: Infinity };
+    room.bullets.push(missile, decoy);
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    const legacy = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
+    const shared = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+
+    assert.ok(legacy, "Legacy path finds a missile");
+    assert.strictEqual(shared && shared.entity.id, missile.id, "Shared path also selects the supported missile");
+    console.log("✔ Test 9 passed: Shared PD rejects unsupported target categories.");
+  }
+
+  // 10. Shared PD works with room.ships as a Map (no spatial index).
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    const enemy = makeTestShip([{ x: 7, y: 7, type: "core" }], null, "p2");
+    enemy.x = 120;
+    enemy.y = 100;
+    enemy.alive = true;
+    const room = makeRoom([pdShip, enemy]);
+    const weapon = { ...PARTS.pointDefense.weapon, targetPriority: ["ship"] };
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    const selected = findPointDefenseTarget(room, 100, 100, "p1", weapon, [], pdShip.id, 0);
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+
+    assert.ok(selected, "Shared path finds the enemy ship from the Map fallback");
+    assert.strictEqual(selected.entity.id, enemy.id, "Selected entity is a ship, not a [id, ship] pair");
+    console.log("✔ Test 10 passed: Shared PD handles room.ships Map fallback.");
+  }
+
+  // 11. Shared PD does not fall through to a second legacy scan.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([pdShip]);
+    const t0 = RoomTelemetry.resetRoomTelemetry(room);
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    const selected = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+
+    const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.strictEqual(selected, null, "Empty shared set returns null");
+    assert.strictEqual(t.pointDefenceLegacyScansAvoided, 1, "Legacy scan is avoided when the shared set is valid");
+    console.log("✔ Test 11 passed: Shared PD does not fall through to a second legacy scan.");
+  }
+
+  // 12. Room reset clears all Phase 3 caches.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([pdShip]);
+    const PointDefenceThreats = require("./src/server/pointDefenceThreats");
+    PointDefenceThreats.ensurePointDefenceThreatSet(room, pdShip, "p1", 0);
+    pdShip._targetAcquisitionSchedule = { "ordinaryShip:0_start": 0 };
+    pdShip._weaponTargetState = [{ id: "x" }];
+    pdShip.effectiveWeaponProfileCache = { revision: 1 };
+
+    require("./src/server/rooms").bumpStateEpoch(room, "test");
+
+    assert.strictEqual(pdShip._pdThreatSet, null, "PD threat set cleared after state epoch");
+    assert.strictEqual(pdShip._targetAcquisitionSchedule, null, "Target acquisition schedule cleared");
+    assert.strictEqual(pdShip._weaponTargetState, null, "Weapon target state cleared");
+    assert.strictEqual(pdShip.effectiveWeaponProfileCache, null, "Effective profile cache cleared");
+    console.log("✔ Test 12 passed: Room reset clears all Phase 3 caches.");
   }
 
   console.log("\nPhase 3 Targeting & Point Defence verification passed.");

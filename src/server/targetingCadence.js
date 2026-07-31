@@ -15,38 +15,59 @@ const ACQUISITION_INTERVALS = Object.freeze({
 
 const STAGGER_BUCKETS = 32;
 
+function _hashString(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i += 1) {
+    h = ((h << 5) + h) + str.charCodeAt(i);
+  }
+  return Math.abs(h) % STAGGER_BUCKETS;
+}
+
 function _hashId(entity) {
   const id = entity?.id;
   if (typeof id === "string") {
-    return id.length ? id.charCodeAt(id.length - 1) : 0;
+    return _hashString(id);
   }
   return (Number.isFinite(Number(id)) ? Math.abs(Number(id)) % STAGGER_BUCKETS : 0) || 0;
 }
 
-function _staggerOffsetMs(entity, weaponIndex, interval) {
-  const bucket = (_hashId(entity) + (weaponIndex || 0)) % STAGGER_BUCKETS;
-  return bucket * (interval / STAGGER_BUCKETS);
+function _cachedStaggerOffset(entity, weaponIndex, interval) {
+  if (!entity._targetAcquisitionOffsets) entity._targetAcquisitionOffsets = {};
+  const key = `${interval}:${weaponIndex}`;
+  if (!(key in entity._targetAcquisitionOffsets)) {
+    const bucket = (_hashId(entity) + (weaponIndex || 0)) % STAGGER_BUCKETS;
+    entity._targetAcquisitionOffsets[key] = bucket * (interval / STAGGER_BUCKETS);
+  }
+  return entity._targetAcquisitionOffsets[key];
 }
 
-function _ensureSchedule(entity, kind, weaponIndex) {
+function _ensureSchedule(entity) {
   if (!entity) return null;
   if (!entity._targetAcquisitionSchedule) entity._targetAcquisitionSchedule = {};
-  const key = `${kind}:${weaponIndex}`;
-  return key;
+  return entity._targetAcquisitionSchedule;
+}
+
+function _startKey(kind, weaponIndex) {
+  return `${kind}:${weaponIndex}_start`;
+}
+
+function _atKey(kind, weaponIndex) {
+  return `${kind}:${weaponIndex}_at`;
 }
 
 function nextAcquisitionAt(entity, kind, weaponIndex, now) {
   const interval = ACQUISITION_INTERVALS[kind] || 1000 / 8;
-  const schedule = _ensureSchedule(entity, kind, weaponIndex);
+  const schedule = _ensureSchedule(entity);
   if (schedule === null) return now;
 
-  let start = entity._targetAcquisitionSchedule[`${schedule}_start`];
+  const startKey = _startKey(kind, weaponIndex);
+  let start = schedule[startKey];
   if (start === undefined) {
     start = now;
-    entity._targetAcquisitionSchedule[`${schedule}_start`] = start;
+    schedule[startKey] = start;
   }
 
-  const offset = _staggerOffsetMs(entity, weaponIndex, interval);
+  const offset = _cachedStaggerOffset(entity, weaponIndex, interval);
   const elapsed = now - start;
   const phases = Math.floor((elapsed - offset) / interval);
   const nextDue = start + offset + (phases + 1) * interval;
@@ -55,42 +76,61 @@ function nextAcquisitionAt(entity, kind, weaponIndex, now) {
 
 function isAcquisitionDue(entity, kind, weaponIndex, now) {
   if (!PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()) return true;
-  const schedule = _ensureSchedule(entity, kind, weaponIndex);
+  const schedule = _ensureSchedule(entity);
   if (schedule === null) return true;
 
-  const key = `${schedule}_at`;
-  const dueAt = entity._targetAcquisitionSchedule[key] || 0;
+  const atKey = _atKey(kind, weaponIndex);
+  const dueAt = schedule[atKey] || 0;
   return now >= dueAt;
 }
 
 function markAcquisitionCompleted(entity, kind, weaponIndex, now) {
   const interval = ACQUISITION_INTERVALS[kind] || 1000 / 8;
-  const schedule = _ensureSchedule(entity, kind, weaponIndex);
+  const schedule = _ensureSchedule(entity);
   if (schedule === null) return;
 
-  const startKey = `${schedule}_start`;
-  if (entity._targetAcquisitionSchedule[startKey] === undefined) {
-    entity._targetAcquisitionSchedule[startKey] = now;
+  const startKey = _startKey(kind, weaponIndex);
+  if (schedule[startKey] === undefined) {
+    schedule[startKey] = now;
   }
 
-  const offset = _staggerOffsetMs(entity, weaponIndex, interval);
-  const start = entity._targetAcquisitionSchedule[startKey];
+  const offset = _cachedStaggerOffset(entity, weaponIndex, interval);
+  const start = schedule[startKey];
   const elapsed = now - start;
   const phases = Math.max(0, Math.floor((elapsed - offset) / interval));
   const nextDue = start + offset + (phases + 1) * interval;
-  entity._targetAcquisitionSchedule[`${schedule}_at`] = nextDue;
+  schedule[_atKey(kind, weaponIndex)] = nextDue;
+}
+
+function forceAcquisitionNow(entity, kind, weaponIndex, now) {
+  const schedule = _ensureSchedule(entity);
+  if (schedule === null) return;
+  schedule[_atKey(kind, weaponIndex)] = 0;
 }
 
 function invalidateAcquisitionSchedule(entity, weaponIndex) {
   if (!entity?._targetAcquisitionSchedule) return;
-  if (weaponIndex !== undefined) {
-    for (const key of Object.keys(entity._targetAcquisitionSchedule)) {
-      if (key.startsWith(`${weaponIndex}:`) || key.includes(`:${weaponIndex}_`)) {
-        delete entity._targetAcquisitionSchedule[key];
-      }
-    }
-  } else {
+  if (weaponIndex === undefined) {
     entity._targetAcquisitionSchedule = {};
+    if (entity._targetAcquisitionOffsets) entity._targetAcquisitionOffsets = {};
+    return;
+  }
+  const prefix = `:${weaponIndex}_`;
+  for (const key of Object.keys(entity._targetAcquisitionSchedule)) {
+    const col = key.indexOf(":");
+    if (col >= 0 && key.slice(col).startsWith(prefix)) {
+      delete entity._targetAcquisitionSchedule[key];
+    }
+  }
+}
+
+function invalidateAllAcquisitionSchedules(room) {
+  if (!room) return;
+  for (const ship of room?.ships ? [...room.ships.values()] : []) {
+    invalidateAcquisitionSchedule(ship);
+  }
+  for (const station of room?.stations || []) {
+    invalidateAcquisitionSchedule(station);
   }
 }
 
@@ -100,5 +140,7 @@ module.exports = {
   nextAcquisitionAt,
   isAcquisitionDue,
   markAcquisitionCompleted,
-  invalidateAcquisitionSchedule
+  forceAcquisitionNow,
+  invalidateAcquisitionSchedule,
+  invalidateAllAcquisitionSchedules
 };

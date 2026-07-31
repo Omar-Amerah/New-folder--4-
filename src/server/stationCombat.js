@@ -14,6 +14,10 @@ const RotationRules = require("../../public/src/shared/rotationRules");
 const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./stationTemplates");
 const { isInSafeZone, areEnemies, weaponReloadSeconds, findPointDefenseTarget } = require("./combat");
 const { canTeamTargetEntity } = require("./visibility");
+const PerformanceFlags = require("./performanceFlags");
+const Targeting = require("./targetingEligibility");
+const TargetingCadence = require("./targetingCadence");
+const TargetingTelemetry = require("./targetingTelemetry");
 
 const SHIELD_ABSORPTION = 0.95;
 
@@ -211,6 +215,69 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
   return applied;
 }
 
+function _updateStationTargetState(station, i, target, now, kind) {
+  if (!station._weaponTargetState) station._weaponTargetState = [];
+  let state = station._weaponTargetState[i];
+  if (!state) {
+    state = station._weaponTargetState[i] = { id: null, category: "ship", nextSearchAt: 0, lastSearchAt: 0 };
+  }
+  state.id = target?.id ?? null;
+  state.category = "ship";
+  state.lastSearchAt = now;
+  TargetingCadence.markAcquisitionCompleted(station, kind, i, now);
+  state.nextSearchAt = TargetingCadence.nextAcquisitionAt(station, kind, i, now);
+}
+
+function getCadencedStationWeaponTarget(room, station, i, targets, identity, now) {
+  TargetingTelemetry.bump(room, "stationTargetValidationAttempts");
+  if (!station._weaponTargetState) station._weaponTargetState = [];
+  let state = station._weaponTargetState[i];
+  if (!state) {
+    state = station._weaponTargetState[i] = { id: null, category: "ship", nextSearchAt: 0, lastSearchAt: 0 };
+  }
+
+  const module = station.design[i];
+  const part = PARTS[module.type] || PARTS.frame;
+  const weapon = part.weapon;
+  if (!weapon) return null;
+
+  const origin = stationModuleWorldPosition(station, i);
+  const range = weapon.range || 0;
+  const arcRadians = (weapon.arc || 360) * Math.PI / 180;
+  const weaponAngle = weaponFacingAngle(station, i);
+
+  const cached = state.id ? (targets || []).find((t) => t && t.id === state.id) : null;
+  let currentValid = false;
+  if (cached) {
+    currentValid = Targeting.isStationWeaponTargetValid(room, station, cached, identity, now, range, {
+      originX: origin.x,
+      originY: origin.y,
+      arcRadians,
+      weaponAngle
+    });
+    if (currentValid && isInSafeZone(room, cached.x, cached.y, cached)) currentValid = false;
+    if (!currentValid) TargetingTelemetry.bump(room, "ordinaryTargetValidationFailures");
+  }
+
+  const due = TargetingCadence.isAcquisitionDue(station, "stationOrdinary", i, now);
+  const force = cached && !currentValid;
+
+  if (currentValid && !due && !force) {
+    TargetingTelemetry.bump(room, "stationTargetSearchDeferred");
+    return cached;
+  }
+
+  if (force) TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
+  TargetingTelemetry.bump(room, "stationTargetSearches");
+  const picked = findStationWeaponTarget(room, station, i, targets, identity, now);
+  _updateStationTargetState(station, i, picked, now, "stationOrdinary");
+  if (picked) {
+    TargetingTelemetry.bump(room, "stationTargetCandidates");
+    if (picked) picked._targetCategoryCache = "ship";
+  }
+  return picked;
+}
+
 function updateStationWeapons(room, stations, ships, dt, now) {
   if (!Array.isArray(stations) || stations.length === 0) return;
   const targets = (ships || []).filter((s) => s && s.alive !== false);
@@ -256,7 +323,10 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       const pdTarget = isPointDefense
         ? findPointDefenseTarget(room, origin.x, origin.y, identity, weapon, targets, station.id, now)
         : null;
-      const target = pdTarget ? pdTarget.entity : findStationWeaponTarget(room, station, i, targets, identity, now);
+      const target = pdTarget ? pdTarget.entity
+        : (PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()
+            ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now)
+            : findStationWeaponTarget(room, station, i, targets, identity, now));
       const defaultRelative = moduleRotationToRadians(module.rotation || 0);
       let desiredRelative = defaultRelative;
       let isTracking = false;
