@@ -132,7 +132,8 @@ const GROUPS = {
     "verify-shield-cache.js",
     "verify-projectile-event-replication.js",
     "verify-phase-3-targeting-pd.js",
-    "verify-phase-4a.js"
+    "verify-phase-4a.js",
+    "verify-phase-4b.js"
   ],
 
   // Browser-free module/room/input lifecycle integration. These may use fake

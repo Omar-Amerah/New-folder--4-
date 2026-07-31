@@ -2,6 +2,7 @@
 
 const { clampNumber, fastHypot, hashString, compareEntityIds, compareNaturalIds, performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
+const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
@@ -327,12 +328,16 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
     }
     recordDuration(room, "separationMapCollisionMs", mapStart);
     if (overlaps === 0) break;
-    if (room.spatialIndex?.rebuildKind) {
+    if (room.spatialIndex?.updateLiveEntities) {
       const rebuildStart = performanceNow();
       const { shipBroadPhaseRadius } = require("./spatialIndex");
-      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
-      bump(room, "separationShipIndexRebuilds");
-      recordDuration(room, "separationSpatialRebuildMs", rebuildStart);
+      if (INCREMENTAL_SPATIAL_INDEX()) {
+        room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+      } else {
+        room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+        bump(room, "separationShipIndexRebuilds");
+        recordDuration(room, "separationSpatialRebuildMs", rebuildStart);
+      }
     }
   }
   if (unresolved.length) {

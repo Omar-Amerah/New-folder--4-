@@ -8,6 +8,7 @@ const HeatRules = require("../../public/src/shared/heatRules");
 const { getShipRepairCache } = require("./repairCache");
 const { ensureProjectileLookup, removeProjectileRuntime, segmentCircleHit } = require("./projectiles");
 const { droneBroadPhaseRadius } = require("./spatialIndex");
+const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { areEnemies, damageShip, shipRepairNeed, areAllies } = require("./combat");
 const { getComponentPowerMultiplier } = require("./componentPower");
 const { repairShipComponents } = require("./componentHealth");
@@ -1011,6 +1012,9 @@ function updateDroneBays(room, ships, dt, now) {
     movementCount += 1;
   }
   movement.length = movementCount;
+  if (room.spatialIndex?.updateLiveEntities && INCREMENTAL_SPATIAL_INDEX()) {
+    room.spatialIndex.updateLiveEntities("drones", room.drones.values(), droneBroadPhaseRadius);
+  }
   resolveDroneSeparation(
     room.drones.values(),
     room._droneSeparationScratch || (room._droneSeparationScratch = []),
@@ -1042,6 +1046,9 @@ function updateDroneBays(room, ships, dt, now) {
     if (drone && room.drones.get(drone.id) === drone) {
       resolveDroneMapCollision(room, drone);
     }
+  }
+  if (room.spatialIndex?.updateLiveEntities && INCREMENTAL_SPATIAL_INDEX()) {
+    room.spatialIndex.updateLiveEntities("drones", room.drones.values(), droneBroadPhaseRadius);
   }
 }
 

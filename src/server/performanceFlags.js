@@ -68,6 +68,18 @@ function FIXED_AUTHORITATIVE_TIMESTEP() {
 function __setFIXED_AUTHORITATIVE_TIMESTEP(value) {
   _fixedAuthoritativeTimestep = Boolean(value);
 }
+
+// --- Phase 4B incremental spatial-index updates flag ---
+
+let _incrementalSpatialIndex = false;
+
+function INCREMENTAL_SPATIAL_INDEX() {
+  return _incrementalSpatialIndex;
+}
+
+function __setINCREMENTAL_SPATIAL_INDEX(value) {
+  _incrementalSpatialIndex = Boolean(value);
+}
 let _pointDefenceSharedThreats = false;
 let _weaponProfileRevisionCache = false;
 
@@ -113,5 +125,7 @@ module.exports = {
   __setPOINT_DEFENCE_SHARED_THREATS,
   __setWEAPON_PROFILE_REVISION_CACHE,
   FIXED_AUTHORITATIVE_TIMESTEP,
-  __setFIXED_AUTHORITATIVE_TIMESTEP
+  __setFIXED_AUTHORITATIVE_TIMESTEP,
+  INCREMENTAL_SPATIAL_INDEX,
+  __setINCREMENTAL_SPATIAL_INDEX
 };

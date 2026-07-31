@@ -12,7 +12,7 @@ const { updateShipPowerProtection } = require("./powerProtection");
 const { assertComponentHpConsistency, isComponentAssertionEnabled } = require("./componentHealth");
 const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
-const { buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./spatialIndex");
+const { buildRoomSpatialIndex, shipBroadPhaseRadius, publishSpatialTelemetry } = require("./spatialIndex");
 const { updateStationWeapons } = require("./stationCombat");
 const { updateCommandAuras } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
@@ -20,7 +20,7 @@ const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry"
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
-const { redundantFleetMapCollisionPass, FIXED_AUTHORITATIVE_TIMESTEP } = require("./performanceFlags");
+const { redundantFleetMapCollisionPass, FIXED_AUTHORITATIVE_TIMESTEP, INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { TICK_HZ } = require("./config");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
@@ -68,9 +68,7 @@ function tickRoom(room, dt, now) {
   if (WIRING_ENABLED) for (const ship of ships) updateShipPowerProtection(ship, dt);
   durations.powerDemandProtection = performanceNow() - startedAt;
   // Build spatial index before movement and drone updates to ensure static asteroid data is available
-  startedAt = performanceNow();
   buildRoomSpatialIndex(room, ships, now);
-  durations.spatialIndex = performanceNow() - startedAt;
   // Command auras are authoritative and rely on the spatial index; update before
   // any gameplay system consumes the per-ship aura multipliers this tick.
   startedAt = performanceNow();
@@ -89,8 +87,12 @@ function tickRoom(room, dt, now) {
   recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
   // updated by their own systems before consumers that need their positions.
-  if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
-    room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
+    if (INCREMENTAL_SPATIAL_INDEX()) {
+      room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+    } else {
+      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+    }
   } else {
     buildRoomSpatialIndex(room, ships, now);
   }
@@ -108,8 +110,12 @@ function tickRoom(room, dt, now) {
   // Separation and map recovery mutate positions after the pre-collision
   // movement refresh. Publish the corrected coordinates without rebuilding
   // unrelated dynamic kinds.
-  if (room.spatialIndex && typeof room.spatialIndex.rebuildKind === "function") {
-    room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
+    if (INCREMENTAL_SPATIAL_INDEX()) {
+      room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+    } else {
+      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+    }
   }
   durations.movementSeparationMap = performanceNow() - startedAt;
   // Everything below this point sees one cached visibility generation. Combat
@@ -178,6 +184,7 @@ function tickRoom(room, dt, now) {
   invalidateVisibility(room, "post-combat");
   room._visibilityFinalizedAt = now;
   durations.objectives = performanceNow() - startedAt;
+  durations.spatialIndex = publishSpatialTelemetry(room);
   recordRoomTick(durations);
   if (!room._suppressRoomTelemetry) recordRoomTelemetry(room);
   const componentAssertionsEnabled = isComponentAssertionEnabled();

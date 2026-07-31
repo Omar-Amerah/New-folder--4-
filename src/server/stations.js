@@ -15,6 +15,8 @@ const { initStationCombatRuntime, stationModuleWorldPosition } = require("./stat
 const TurretRules = require("../../public/src/shared/turretRules");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { computeStationShieldCollisionRadius } = require("./stationCollision");
+const { stationBroadPhaseRadius } = require("./spatialIndex");
+const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 
 const {
   SHIP_MODULE_SCALE,
@@ -890,6 +892,9 @@ function updateStations(room, dt, now) {
     updateStationRepair(room, station, dt, now);
     updateStationRepairBeams(room, station, dt, now);
     processStationProduction(room, station, dt, now);
+  }
+  if (room.spatialIndex?.updateLiveEntities && INCREMENTAL_SPATIAL_INDEX()) {
+    room.spatialIndex.updateLiveEntities("stations", room.stations, stationBroadPhaseRadius);
   }
 }
 

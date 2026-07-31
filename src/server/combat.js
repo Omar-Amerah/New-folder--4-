@@ -3790,6 +3790,8 @@ function destroyShip(room, ship, attackerId, now) {
 
   ship.hp = 0;
 
+  room.spatialIndex?.remove?.("ships", ship);
+
   zeroAllComponents(ship);
 
   ship.shield = 0;
@@ -3982,6 +3984,8 @@ function detonateSelfDestruct(room, ship, now) {
   ship.alive = false;
 
   ship.hp = 0;
+
+  room.spatialIndex?.remove?.("ships", ship);
 
   zeroAllComponents(ship);
 
