@@ -126,7 +126,7 @@ async function until(read, label, timeoutMs = 15000) {
     await until(() => a.latest.joined, "join a");
     b.send({ type: "join", room: ROOM, name: "B", team: "red", ...protocol });
     await until(() => b.latest.joined, "join b");
-    a.send({ type: "setRules", rules: { asteroidDensity: "none", startingMoney: 100000 } });
+    a.send({ type: "setRules", rules: { asteroidDensity: "none", startingMoney: 100000, visibilityMode: "full" } });
     a.send({ type: "startDesign" });
     await until(() => a.latest.state?.phase === "design", "design");
     a.send({ type: "deploy", design: DESIGN, combatStyle: "sentry" });

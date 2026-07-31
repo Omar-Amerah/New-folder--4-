@@ -71,7 +71,7 @@ async function main() {
       throw new Error("first player was not room admin");
     }
 
-    alpha.send({ type: "setRules", rules: { startingMoney: 1100 } });
+    alpha.send({ type: "setRules", rules: { startingMoney: 1100, visibilityMode: "full" } });
     await alpha.waitFor(
       (message) => message.type === "state" && message.phase === "lobby" && message.rules?.startingMoney === 1100,
       "starting money rule was not applied"

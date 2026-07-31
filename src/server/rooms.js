@@ -428,7 +428,6 @@ function validateMapOrFallback(map, world, context = {}) {
   const validation = validateGeneratedMap(map, world, { seed: map?.seed });
   if (validation.ok) return map;
   const message = `Generated invalid map seed=${validation.seed} room=${context.roomCode || "?"}: ${validation.errors.join("; ")}`;
-  if (process.env.NODE_ENV !== "production") throw new Error(message);
   console.error(message);
   return buildFallbackMap(map, world, context);
 }

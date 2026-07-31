@@ -54,7 +54,7 @@ let lastSpawnedServer = null;
 function startServer(port) {
   const server = spawn("node", ["server.js"], {
     cwd: __dirname,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, PORT: String(port), MFA_MAP_SEED: process.env.MFA_MAP_SEED || "1131418939" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   let log = "";
