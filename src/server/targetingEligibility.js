@@ -128,8 +128,11 @@ function isOrdinaryWeaponTargetValid(room, attacker, target, now, range, options
 
   TargetingTelemetry.bump(room, "targetVisibilityChecks");
   const viewerTeam = _viewerTeam(room, ownerId, attacker?.team);
-  if (Visibility.usesSensorVisibility(room) && viewerTeam && !Visibility.canTeamTargetEntity(room, viewerTeam, target, now)) {
-    return false;
+  if (Visibility.usesSensorVisibility(room) && viewerTeam) {
+    const visible = TargetingTelemetry.withSampledDuration(room, now, attacker, 0, "sampledVisibilityDuration", () =>
+      Visibility.canTeamTargetEntity(room, viewerTeam, target, now)
+    );
+    if (!visible) return false;
   }
 
   TargetingTelemetry.bump(room, "targetRangeChecks");
@@ -207,7 +210,12 @@ function isStationWeaponTargetValid(room, station, target, identity, now, range,
   if (!target || target.id === station?.id) return false;
   if (!_isLiving(target)) return false;
   if (!Relationships.areEnemies(room, identity, target.ownerId)) return false;
-  if (Visibility.usesSensorVisibility(room) && identity && !Visibility.canTeamTargetEntity(room, identity, target, now)) return false;
+  if (Visibility.usesSensorVisibility(room) && identity) {
+    const visible = TargetingTelemetry.withSampledDuration(room, now, station, 0, "sampledVisibilityDuration", () =>
+      Visibility.canTeamTargetEntity(room, identity, target, now)
+    );
+    if (!visible) return false;
+  }
 
   const pos = _targetPosition(target);
   const dist = fastHypot(pos.x - options.originX, pos.y - options.originY);

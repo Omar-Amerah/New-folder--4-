@@ -390,7 +390,9 @@ function updateStationWeapons(room, stations, ships, dt, now) {
 
       const turnRate = TurretRules.turnRateFor(weapon);
       const currentRelative = Number.isFinite(station.weaponAngles[i]) ? station.weaponAngles[i] : defaultRelative;
-      station.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
+      station.weaponAngles[i] = TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponAimDuration", () =>
+        rotateToward(currentRelative, desiredRelative, turnRate * dt)
+      );
       station.weaponDesiredAngles[i] = desiredRelative;
       station.weaponAimTargetIds[i] = isTracking && target ? target.id : null;
       station.weaponFireTargetIds[i] = null;
@@ -439,7 +441,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           entity.y + (entity.vy || 0) * flightTime - muzzleY,
           entity.x + (entity.vx || 0) * flightTime - muzzleX
         ) + spread;
-        addBullet(room, {
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => addBullet(room, {
           type: "pdShot",
           subtype: module.type,
           ownerId: identity,
@@ -457,7 +459,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           life: range / speed,
           bornAt: now,
           armorInteractionSeconds: pdTarget.type === "ship" ? Math.min(1, reload) : undefined
-        });
+        }));
         station.weaponCooldowns[i] = reload;
         continue;
       }

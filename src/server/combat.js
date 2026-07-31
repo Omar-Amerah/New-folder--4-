@@ -987,10 +987,10 @@ function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships
     const defender = room?.ships?.get?.(protectedShipId) || (room?.stations || []).find((s) => s.id === protectedShipId);
     if (defender) {
       const threatSet = PointDefenceThreats.ensurePointDefenceThreatSet(room, defender, shipOwnerId, now);
-      const canSee = (cand) => {
+      const canSee = (cand) => TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledLineOfSightDuration", () => {
         const margin = cand.type === "ship" ? 8 : cand.type === "drone" ? 3 : 4;
         return !isLineBlocked(room, worldX, worldY, cand.entity.x, cand.entity.y, margin);
-      };
+      });
       const selected = TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledPDSelectionDuration", () =>
         PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations)
       );
@@ -1886,7 +1886,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
 
-    ship.weaponAngles[i] = rotateToward(currentRelative, desiredRelative, turnRate * dt);
+    ship.weaponAngles[i] = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponAimDuration", () =>
+      rotateToward(currentRelative, desiredRelative, turnRate * dt)
+    );
 
 
 
@@ -2138,7 +2140,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const prevContact = ship.weaponBeamContacts[i];
 
-      const charge = beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon);
+      const charge = TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledBeamProcessingDuration", () =>
+        beamContactCharge(prevContact, weaponTarget?.id, worldWeaponAngle, effectiveWeapon)
+      );
 
       const beamResult = damageBeamTargets(room, ship, ships, muzzle.x, muzzle.y, beamEnd.x, beamEnd.y, beamRadius, effectiveWeapon.damage * dataFireRateFactor * beamPerformance * charge.multiplier * dt, now, {
 

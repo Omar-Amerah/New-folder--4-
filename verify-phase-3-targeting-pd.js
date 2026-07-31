@@ -333,8 +333,10 @@ let testShipCounter = 0;
 
     PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
-    assert.ok(t.ordinaryTargetSearchDeferred >= 3, "No-target searches are deferred between cadence windows");
-    assert.ok(t.ordinaryTargetSearches <= 2, "No-target searches happen at cadence due times only");
+    assert.ok(t.ordinaryTargetSearchDeferred >= 3, "Per-weapon no-target searches are deferred between cadence windows");
+    assert.ok(t.ordinaryTargetSearches <= 2, "Per-weapon no-target searches happen at cadence due times only");
+    assert.ok(t.shipCombatTargetSearchDeferred >= 3, "Ship-level no-target searches are deferred between cadence windows");
+    assert.ok(t.shipCombatTargetSearches <= 2, "Ship-level no-target searches happen at 4 Hz due times only");
     console.log("✔ Test 13 passed: Ship cadence defers no-target searches.");
   }
 
@@ -436,7 +438,8 @@ let testShipCounter = 0;
 
     PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
-    assert.ok(t.effectiveWeaponProfileBuilds >= 1 || t.effectiveWeaponProfileCacheHits >= 1, "Profile cache is built or reused");
+    assert.strictEqual(t.effectiveWeaponProfileBuilds, 1, "Profile cache is built exactly once");
+    assert.ok(t.effectiveWeaponProfileCacheHits >= 3, "Profile cache is reused for subsequent ticks");
     console.log("✔ Test 17 passed: Effective weapon profile cache is reused across updateShipWeapons.");
   }
 
@@ -527,7 +530,9 @@ let testShipCounter = 0;
     PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
 
     const t = RoomTelemetry.getRoomTelemetry(room);
+    assert.ok(t.pointDefenceSharedSetHits >= 1, "Edge-mounted station PD selects the shared candidate");
     assert.ok(t.pointDefenceMountSelections >= 1, "Edge-mounted station PD can select a target");
+    assert.strictEqual(station.weaponAimTargetIds[1], missile.id, "Edge-mounted station PD tracks the intended missile");
     console.log("✔ Test 19 passed: Edge-mounted station PD uses the correct module scale.");
   }
 
@@ -571,6 +576,35 @@ let testShipCounter = 0;
     const afterRepair = getEffectiveWeaponStatsCached(ship, 1);
     assert.deepStrictEqual(afterRepair, getEffectiveWeaponStatsInternal(ship, 1), "Cached and internal profiles match after repair");
     console.log("✔ Test 21 passed: Profile cache invalidates and stays consistent through destruction and repair.");
+  }
+
+  // 22. Shared PD respects each weapon's individual target priority.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "pointDefense" }, { x: 7, y: 8, type: "engine" }]);
+    const flakShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "flakCannon" }, { x: 7, y: 8, type: "engine" }]);
+    const podShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "interceptorPod" }, { x: 7, y: 8, type: "engine" }]);
+    const room = makeRoom([pdShip, flakShip, podShip]);
+    room.bullets = [
+      { id: "m1", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 100, y: 0, life: 5, interceptable: true, hp: 20 },
+      { id: "t1", type: "torpedo", ownerId: "p2", targetId: pdShip.id, x: 100, y: 0, life: 5, interceptable: true, hp: 20 }
+    ];
+    room.drones = new Map();
+    room.drones.set("f1", { id: "f1", type: "fighter", ownerId: "p2", targetId: pdShip.id, x: 100, y: 0, hull: 10, x: 100, y: 0, alive: true });
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+
+    const pd = findPointDefenseTarget(room, pdShip.x, pdShip.y, pdShip.ownerId, PARTS.pointDefense.weapon, [pdShip], pdShip.id, 33);
+    const flak = findPointDefenseTarget(room, flakShip.x, flakShip.y, flakShip.ownerId, PARTS.flakCannon.weapon, [flakShip], flakShip.id, 33);
+    const pod = findPointDefenseTarget(room, podShip.x, podShip.y, podShip.ownerId, PARTS.interceptorPod.weapon, [podShip], podShip.id, 33);
+
+    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+
+    assert.strictEqual(pd?.entity?.id, "f1", "pointDefense prefers drones before missiles");
+    assert.strictEqual(flak?.entity?.id, "m1", "flakCannon prefers missiles before drones");
+    assert.strictEqual(pod?.entity?.id, "t1", "interceptorPod prefers torpedoes before missiles");
+    console.log("✔ Test 22 passed: Shared PD respects individual weapon target priorities.");
   }
 
   console.log("\nPhase 3 Targeting & Point Defence verification passed.");

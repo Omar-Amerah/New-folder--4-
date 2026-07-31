@@ -18,7 +18,12 @@ const DURATION_FIELD_ALIASES = Object.freeze({
   sampledPDSetBuildDuration: "pointDefenceThreatSetMs",
   sampledPDSelectionDuration: "pointDefenceMountSelectionMs",
   sampledStationAcquisitionDuration: "stationTargetAcquisitionMs",
-  sampledProfileBuildDuration: "effectiveWeaponProfileMs"
+  sampledProfileBuildDuration: "effectiveWeaponProfileMs",
+  sampledLineOfSightDuration: "targetLineOfSightMs",
+  sampledVisibilityDuration: "targetVisibilityMs",
+  sampledWeaponAimDuration: "weaponAimMs",
+  sampledWeaponFiringDuration: "weaponFiringMs",
+  sampledBeamProcessingDuration: "beamProcessingMs"
 });
 
 function canonicalDurationField(name) {
