@@ -1236,6 +1236,66 @@ function isInSafeZone(room, x, y, shipOrPlayer = null) {
 
 
 
+function getCadencedShipCombatTarget(room, ship, ships, now) {
+  if (!PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()) {
+    const t = findTarget(room, ship, ships);
+    ship.combatTargetId = t ? t.id : null;
+    return t;
+  }
+
+  if (!ship._combatTargetState) ship._combatTargetState = { id: null, focusId: null, nextSearchAt: 0 };
+  const state = ship._combatTargetState;
+  const focusId = ship.focusTargetId || null;
+  const focusChanged = state.focusId !== focusId;
+  state.focusId = focusId;
+
+  const maxRange = maxShipWeaponAcquisitionRange(ship);
+  const allTargets = (ships || []).concat((room?.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled"));
+
+  let current = null;
+  let currentValid = false;
+  const cachedId = ship.combatTargetId || null;
+  if (cachedId) {
+    current = allTargets.find((e) => e && e.id === cachedId) || room.ships?.get?.(cachedId) || null;
+    if (current) {
+      currentValid = Targeting.isOrdinaryWeaponTargetValid(room, ship, current, now, maxRange, {
+        originX: ship.x,
+        originY: ship.y
+      });
+      if (currentValid && isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8)) currentValid = false;
+      if (!currentValid) TargetingTelemetry.bump(room, "shipCombatTargetInvalidations");
+    }
+  }
+
+  if (focusId) {
+    const focused = allTargets.find((e) => e && e.id === focusId);
+    if (focused && Targeting.isOrdinaryWeaponTargetValid(room, ship, focused, now, maxRange, { originX: ship.x, originY: ship.y })) {
+      ship.combatTargetId = focused.id;
+      return focused;
+    }
+  }
+
+  const force = focusChanged || !currentValid;
+  const due = TargetingCadence.isAcquisitionDue(ship, "shipCombat", 0, now);
+
+  if (currentValid && !force && !due) {
+    TargetingTelemetry.bump(room, "shipCombatTargetCacheHits");
+    return current;
+  }
+
+  if (!currentValid && !force && !due) {
+    TargetingTelemetry.bump(room, "shipCombatTargetSearchDeferred");
+    ship.combatTargetId = null;
+    return null;
+  }
+
+  TargetingTelemetry.bump(room, "shipCombatTargetSearches");
+  const target = findTarget(room, ship, ships);
+  ship.combatTargetId = target ? target.id : null;
+  TargetingCadence.markAcquisitionCompleted(ship, "shipCombat", 0, now);
+  return target;
+}
+
 function updateShipWeapons(room, ship, ships, dt, now) {
 
   if (!ship.weaponCooldowns) {
@@ -1345,9 +1405,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-  const target = findTarget(room, ship, ships);
-
-  ship.combatTargetId = target ? target.id : null;
+  const target = getCadencedShipCombatTarget(room, ship, ships, now);
 
 
 
