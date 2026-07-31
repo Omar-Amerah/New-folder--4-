@@ -70,8 +70,7 @@ function nextAcquisitionAt(entity, kind, weaponIndex, now) {
   const offset = _cachedStaggerOffset(entity, weaponIndex, interval);
   const elapsed = now - start;
   const phases = Math.floor((elapsed - offset) / interval);
-  const nextDue = start + offset + (phases + 1) * interval;
-  return nextDue;
+  return start + offset + (phases + 1) * interval;
 }
 
 function isAcquisitionDue(entity, kind, weaponIndex, now) {
@@ -79,8 +78,7 @@ function isAcquisitionDue(entity, kind, weaponIndex, now) {
   const schedule = _ensureSchedule(entity);
   if (schedule === null) return true;
 
-  const atKey = _atKey(kind, weaponIndex);
-  const dueAt = schedule[atKey] || 0;
+  const dueAt = schedule[_atKey(kind, weaponIndex)] || 0;
   return now >= dueAt;
 }
 
@@ -90,19 +88,19 @@ function markAcquisitionCompleted(entity, kind, weaponIndex, now) {
   if (schedule === null) return;
 
   const startKey = _startKey(kind, weaponIndex);
-  if (schedule[startKey] === undefined) {
-    schedule[startKey] = now;
-  }
+  if (schedule[startKey] === undefined) schedule[startKey] = now;
 
   const offset = _cachedStaggerOffset(entity, weaponIndex, interval);
   const start = schedule[startKey];
   const elapsed = now - start;
-  const phases = Math.max(0, Math.floor((elapsed - offset) / interval));
-  const nextDue = start + offset + (phases + 1) * interval;
-  schedule[_atKey(kind, weaponIndex)] = nextDue;
+  // Preserve the initial stagger. Clamping the phase to zero delayed mounts
+  // with a non-zero offset by an extra complete interval after their first
+  // search, producing an avoidable ~160 ms worst case for 12 Hz PD.
+  const phases = Math.floor((elapsed - offset) / interval);
+  schedule[_atKey(kind, weaponIndex)] = start + offset + (phases + 1) * interval;
 }
 
-function forceAcquisitionNow(entity, kind, weaponIndex, now) {
+function forceAcquisitionNow(entity, kind, weaponIndex) {
   const schedule = _ensureSchedule(entity);
   if (schedule === null) return;
   schedule[_atKey(kind, weaponIndex)] = 0;
@@ -115,10 +113,10 @@ function invalidateAcquisitionSchedule(entity, weaponIndex) {
     if (entity._targetAcquisitionOffsets) entity._targetAcquisitionOffsets = {};
     return;
   }
-  const prefix = `:${weaponIndex}_`;
+  const suffix = `:${weaponIndex}_`;
   for (const key of Object.keys(entity._targetAcquisitionSchedule)) {
-    const col = key.indexOf(":");
-    if (col >= 0 && key.slice(col).startsWith(prefix)) {
+    const separator = key.indexOf(":");
+    if (separator >= 0 && key.slice(separator).startsWith(suffix)) {
       delete entity._targetAcquisitionSchedule[key];
     }
   }
