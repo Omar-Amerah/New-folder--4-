@@ -23,6 +23,8 @@ let testShipCounter = 0;
   const { updateShipWeapons } = require("./src/server/combat");
   const { updateStationWeapons } = require("./src/server/stationCombat");
   const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+  const { getShipComponentIndexes } = require("./src/server/componentIndexes");
+  const { getEffectiveWeaponStatsCached, getEffectiveWeaponStatsInternal, ensureEffectiveWeaponProfileCache } = require("./src/server/componentData");
 
   function makeTestShip(design, wiring = null, ownerId = "p1") {
     let shipWiring = wiring;
@@ -527,6 +529,48 @@ let testShipCounter = 0;
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.pointDefenceMountSelections >= 1, "Edge-mounted station PD can select a target");
     console.log("✔ Test 19 passed: Edge-mounted station PD uses the correct module scale.");
+  }
+
+  // 20. Cached and internal effective weapon profiles match for all weapon families.
+  {
+    const design = [
+      { x: 7, y: 7, type: "core" },
+      { x: 6, y: 6, type: "blaster" },
+      { x: 8, y: 6, type: "missile" },
+      { x: 6, y: 8, type: "railgun" },
+      { x: 8, y: 8, type: "beamEmitter" },
+      { x: 7, y: 8, type: "engine" }
+    ];
+    const ship = makeTestShip(design);
+    ensureEffectiveWeaponProfileCache(ship);
+    const indexes = getShipComponentIndexes(ship).weaponIndices;
+    assert.ok(indexes.length >= 4, "Ship has at least one module per weapon family");
+    for (const i of indexes) {
+      const cached = getEffectiveWeaponStatsCached(ship, i);
+      const internal = getEffectiveWeaponStatsInternal(ship, i);
+      assert.deepStrictEqual(cached, internal, `Cached and internal profiles match for ${ship.design[i].type}`);
+    }
+    console.log("✔ Test 20 passed: Cached and internal effective weapon profiles match for all families.");
+  }
+
+  // 21. Profile cache invalidates on component destruction and is consistent after repair.
+  {
+    const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
+    ensureEffectiveWeaponProfileCache(ship);
+    const before = getEffectiveWeaponStatsCached(ship, 1);
+    assert.ok(before, "Blaster has a cached profile before destruction");
+    ship.componentHp[1] = 0;
+    ship.componentAliveRevision = (ship.componentAliveRevision || 0) + 1;
+    ensureEffectiveWeaponProfileCache(ship);
+    const afterDestroy = getEffectiveWeaponStatsInternal(ship, 1);
+    assert.ok(afterDestroy, "Blaster internal profile is still computable after destruction");
+    assert.deepStrictEqual(getEffectiveWeaponStatsCached(ship, 1), afterDestroy, "Cached and internal profiles match after destruction");
+    ship.componentHp[1] = ship.componentMaxHp[1];
+    ship.componentAliveRevision = (ship.componentAliveRevision || 0) + 1;
+    ensureEffectiveWeaponProfileCache(ship);
+    const afterRepair = getEffectiveWeaponStatsCached(ship, 1);
+    assert.deepStrictEqual(afterRepair, getEffectiveWeaponStatsInternal(ship, 1), "Cached and internal profiles match after repair");
+    console.log("✔ Test 21 passed: Profile cache invalidates and stays consistent through destruction and repair.");
   }
 
   console.log("\nPhase 3 Targeting & Point Defence verification passed.");
