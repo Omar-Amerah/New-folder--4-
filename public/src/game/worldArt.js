@@ -131,9 +131,13 @@ export function drawAsteroid(asteroid, now) {
 // Where to draw a bullet this frame. Ships render slightly behind the server
 // (exponential smoothing), so extrapolating bullets forward by the raw snapshot
 // age makes a freshly fired bolt appear detached ahead of the barrel. Render
-// bullets with the same small visual lag, and never behind their muzzle origin.
+// non-guided bullets with the same small visual lag, and never behind their
+// muzzle origin. Guided missiles use their own blended visual state and should
+// not have an extra 50 ms offset applied on top.
 const BULLET_VISUAL_LAG = 0.05;
 export function bulletRenderPosition(bullet, elapsed) {
+  if (bullet.terminal) return { x: bullet.x, y: bullet.y };
+  if (bullet.type === "missile") return { x: bullet.x + bullet.vx * elapsed, y: bullet.y + bullet.vy * elapsed };
   const age = Number.isFinite(bullet.age) ? bullet.age : 1;
   const t = Math.max(-age, elapsed - BULLET_VISUAL_LAG);
   return { x: bullet.x + bullet.vx * t, y: bullet.y + bullet.vy * t };
