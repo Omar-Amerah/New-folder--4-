@@ -28,7 +28,6 @@ function __setRedundantFleetMapCollisionPass(value) {
 let _projectileFlakSinglePass = false;
 let _projectileGuidanceCadence = false;
 let _projectileGridCollision = false;
-let _projectileEventReplication = false;
 
 function PROJECTILE_FLAK_SINGLE_PASS() {
   return _projectileFlakSinglePass;
@@ -40,10 +39,6 @@ function PROJECTILE_GUIDANCE_CADENCE() {
 
 function PROJECTILE_GRID_COLLISION() {
   return _projectileGridCollision;
-}
-
-function PROJECTILE_EVENT_REPLICATION() {
-  return _projectileEventReplication;
 }
 
 function __setPROJECTILE_FLAK_SINGLE_PASS(value) {
@@ -58,21 +53,15 @@ function __setPROJECTILE_GRID_COLLISION(value) {
   _projectileGridCollision = Boolean(value);
 }
 
-function __setPROJECTILE_EVENT_REPLICATION(value) {
-  _projectileEventReplication = Boolean(value);
-}
-
 module.exports = {
   circularShipSeparation,
   redundantFleetMapCollisionPass,
   PROJECTILE_FLAK_SINGLE_PASS,
   PROJECTILE_GUIDANCE_CADENCE,
   PROJECTILE_GRID_COLLISION,
-  PROJECTILE_EVENT_REPLICATION,
   __setCircularShipSeparation,
   __setRedundantFleetMapCollisionPass,
   __setPROJECTILE_FLAK_SINGLE_PASS,
   __setPROJECTILE_GUIDANCE_CADENCE,
-  __setPROJECTILE_GRID_COLLISION,
-  __setPROJECTILE_EVENT_REPLICATION
+  __setPROJECTILE_GRID_COLLISION
 };

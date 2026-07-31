@@ -5,8 +5,7 @@ const { bump, recordDuration, setCounter } = require("./roomTelemetry");
 const {
   PROJECTILE_FLAK_SINGLE_PASS,
   PROJECTILE_GUIDANCE_CADENCE,
-  PROJECTILE_GRID_COLLISION,
-  PROJECTILE_EVENT_REPLICATION
+  PROJECTILE_GRID_COLLISION
 } = require("./performanceFlags");
 const {
   recordProjectileSpawn,
@@ -82,20 +81,13 @@ function removeProjectilesByOwner(room, ownerId) {
   room._projectileSpare = source;
 }
 
-function emitProjectileEvent(_room, _event) {
-  // Replaced by projectileReplication lifecycle records; kept as a no-op to
-  // avoid breaking any remaining callers until the flag is enabled.
-}
-
 function addBullet(room, bullet) {
   bullet.id = `b${room.nextEntityId++}`;
   room.bullets.push(bullet);
   bump(room, "projectilesCreated");
-  if (PROJECTILE_EVENT_REPLICATION()) {
-    bullet.bornAt = bullet.bornAt == null ? performanceNow() : bullet.bornAt;
-    bullet.lastCorrectionAt = bullet.bornAt;
-    recordProjectileSpawn(room, bullet, bullet.bornAt);
-  }
+  bullet.bornAt = bullet.bornAt == null ? performanceNow() : bullet.bornAt;
+  bullet.lastCorrectionAt = bullet.bornAt;
+  recordProjectileSpawn(room, bullet, bullet.bornAt);
   ensureProjectileLookup(room).set(bullet.id, bullet);
   const spatialIndex = room.spatialIndex;
   if (spatialIndex?.dynamicValid && typeof spatialIndex.append === "function" && bullet.life > 0) {
@@ -111,7 +103,7 @@ function addBullet(room, bullet) {
 function discardBullet(room, lookup, bullet) {
   if (bullet?.id) lookup.delete(bullet.id);
   bump(room, "projectilesRemoved");
-  if (PROJECTILE_EVENT_REPLICATION() && bullet && bullet.id && !bullet._removeEventEmitted) {
+  if (bullet && bullet.id && !bullet._removeEventEmitted) {
     bullet._removeEventEmitted = true;
     const reason = bullet._removeReason || "despawn";
     const x = Number.isFinite(bullet._removeX) ? bullet._removeX : bullet.x;

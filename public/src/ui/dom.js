@@ -220,6 +220,7 @@ export const dom = {
   mobileTestingToggle: document.getElementById("mobileTestingToggle"),
   fogOpacitySlider: document.getElementById("fogOpacitySlider"),
   fogOpacityValue: document.getElementById("fogOpacityValue"),
+  resetFogOpacityButton: document.getElementById("resetFogOpacityButton"),
   debugOverlay: document.getElementById("debugOverlay"),
   mainMenuButton: document.getElementById("mainMenuButton"),
   lobbyManagementButton: document.getElementById("lobbyManagementButton"),

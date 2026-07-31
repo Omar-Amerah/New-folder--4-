@@ -205,7 +205,7 @@ export function updateRulesControls(interaction = getLobbyInteractionState()) {
     if (editable) {
       setRuleControlValue(dom.gameModeSelect, rules.gameMode);
       setRuleControlValue(dom.startingMoneyInput, rules.startingMoney);
-      setRuleControlValue(dom.maxPlayersInput, String(Math.min(Number(rules.maxPlayers) || 8, 8)));
+      setRuleControlValue(dom.maxPlayersInput, String(Math.min(Number(rules.maxPlayers) || 6, 6)));
       setRuleControlValue(dom.mapSizeSelect, rules.mapSize);
       setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity);
       setRuleControlValue(dom.infrastructureModeSelect, rules.infrastructureMode || "stations");
@@ -220,7 +220,7 @@ export function updateRulesControls(interaction = getLobbyInteractionState()) {
   }
 
   if (dom.maxPlayersInput) {
-    dom.maxPlayersInput.max = "8";
+    dom.maxPlayersInput.max = "6";
     dom.maxPlayersInput.min = String(Math.max(2, playerCount || 1));
   }
 }
@@ -457,7 +457,7 @@ export function renderPlayerList() {
   dom.playerList.textContent = "";
   if (!players.length) return;
 
-  const max = state.rules?.maxPlayers || 8;
+  const max = state.rules?.maxPlayers || 6;
   const total = players.length;
   const ready = players.filter((p) => p.ready).length;
 
@@ -541,7 +541,7 @@ export function updateLobbyPlayerStatus() {
   }
   const total = players.length;
   const ready = players.filter((player) => player.ready).length;
-  const max = state.rules?.maxPlayers || 8;
+  const max = state.rules?.maxPlayers || 6;
   const blueCount = players.filter((player) => player.team !== "red").length;
   const redCount = total - blueCount;
   const summary = `Players: ${total} / ${max} | Ready: ${ready} / ${total}`;
@@ -874,7 +874,7 @@ export function clearServerSetting() {
 export function sendRulesUpdate() {
   if (!state.room || !isAdmin() || state.phase !== "lobby") return;
   const startingMoney = Number(dom.startingMoneyInput?.value) || state.rules.startingMoney;
-  const maxPlayers = Math.min(Math.max(Number(dom.maxPlayersInput?.value) || 8, 2), 8);
+  const maxPlayers = Math.min(Math.max(Number(dom.maxPlayersInput?.value) || 6, 2), 6);
   const mapSize = dom.mapSizeSelect?.value || "auto";
   const gameMode = dom.gameModeSelect?.value || "teams";
   const asteroidDensity = dom.asteroidDensitySelect?.value || "medium";
@@ -1027,6 +1027,14 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
       dom.fogOpacitySlider.addEventListener("input", (e) => {
         setFogOpacity(e.target.value);
         if (dom.fogOpacityValue) dom.fogOpacityValue.textContent = `${Math.round(getFogOpacity() * 100)}%`;
+      });
+    }
+    if (dom.resetFogOpacityButton) {
+      dom.resetFogOpacityButton.addEventListener("click", () => {
+        const defaultOpacity = 0.76;
+        if (dom.fogOpacitySlider) dom.fogOpacitySlider.value = String(defaultOpacity);
+        setFogOpacity(defaultOpacity);
+        if (dom.fogOpacityValue) dom.fogOpacityValue.textContent = `${Math.round(defaultOpacity * 100)}%`;
       });
     }
     if (dom.teamSelect) {

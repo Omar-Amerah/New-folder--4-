@@ -2,7 +2,6 @@
 
 const { round, roundAngle, clampNumber, performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
-const { PROJECTILE_EVENT_REPLICATION } = require("./performanceFlags");
 const { applyClientProjectiles } = require("./projectileReplication");
 const { teamLabel } = require("./players");
 const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./buildInfo");
@@ -976,7 +975,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
   // Per-client projectile lifecycle overlay.  This is intentionally applied
   // after the shared snapshot is built but before player-specific filtering,
   // so visibility-filtered fallback clients are not affected.
-  if (client && PROJECTILE_EVENT_REPLICATION()) {
+  if (client) {
     const { setPendingDelivery } = require("./projectileReplication");
     const delivery = applyClientProjectiles(room, client, now, sendStatic, snapshot);
     if (delivery) setPendingDelivery(client, room, delivery);

@@ -538,7 +538,8 @@ function preferredSlots(world, solo, player, players, seed, radius, edgeRadius =
   const count = group.length;
   if (!solo && (teamKey === "blue" || teamKey === "red")) {
     const left = teamKey === "blue";
-    const x = left ? edgeRadius + 80 : world.width - edgeRadius - 80;
+    const groupRadius = Math.max(edgeRadius, count * radius + 20 * (count - 1));
+    const x = left ? groupRadius + 80 : world.width - groupRadius - 80;
     const minY = edgeRadius + 80;
     const maxY = world.height - edgeRadius - 80;
     // Team-mates cluster around one base rather than being strung out along the

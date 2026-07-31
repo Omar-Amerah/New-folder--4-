@@ -208,30 +208,36 @@ function resolveStationCollision(room, ship, shipRadius) {
 }
 
 // World-space hangar geometry for a placed home station. All of it is derived
-// from the authored template, transformed by the station's pose.
+// from the authored template, transformed by the station's pose. Home stations
+// carry one bay per team member, up to three.
 function buildHangarGeometry(station) {
   const geometry = homeStationGeometry;
   const envelope = maximumShipEnvelope();
-  const interiorSpawn = stationLocalToWorld(station, geometry.interiorSpawn.x, geometry.interiorSpawn.y);
-  const mouth = stationLocalToWorld(station, geometry.aperture.x, 0);
-  const rearWall = stationLocalToWorld(station, geometry.corridor.rearWallX, 0);
-  const exitPoint = stationLocalToWorld(station, geometry.releasePlaneX, 0);
-  return {
-    angle: station.angle,
-    interiorSpawn,
-    mouth,
-    rearWall,
-    exitPoint,
-    // Distance from the station centre at which a launching ship is clear.
-    releaseDistance: geometry.releasePlaneX,
-    corridorHalfWidth: geometry.corridor.halfWidth,
-    corridorLength: geometry.corridor.length,
-    apertureHalfWidth: geometry.aperture.halfWidth,
-    maximumShipWidth: envelope.width,
-    maximumShipHeight: envelope.height,
-    clearance: geometry.clearance,
-    clearanceCells: geometry.clearanceCells
-  };
+  const bays = [];
+  for (let i = 0; i < (geometry.bays || []).length; i += 1) {
+    const bay = geometry.bays[i];
+    const interiorSpawn = stationLocalToWorld(station, bay.interiorSpawn.x, bay.interiorSpawn.y);
+    const mouth = stationLocalToWorld(station, bay.mouthX, bay.centreY);
+    const rearWall = stationLocalToWorld(station, bay.rearWallX, bay.centreY);
+    const exitPoint = stationLocalToWorld(station, bay.releasePlaneX, bay.centreY);
+    bays.push({
+      index: i,
+      angle: station.angle,
+      interiorSpawn,
+      mouth,
+      rearWall,
+      exitPoint,
+      // Distance from the station centre at which a launching ship is clear.
+      releaseDistance: bay.releasePlaneX,
+      corridorHalfWidth: bay.halfWidth,
+      corridorLength: bay.corridor.length,
+      apertureHalfWidth: bay.halfWidth,
+      maximumShipWidth: envelope.width,
+      maximumShipHeight: envelope.height,
+      clearance: geometry.clearance
+    });
+  }
+  return bays;
 }
 
 // Where each weapon module physically sits, in structure-local space.
@@ -333,7 +339,11 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
   // Stations are laid out on the ship grid but drawn and collided at their own
   // larger module scale; the client needs it to size the structure correctly.
   station.moduleScale = stationModuleScale(stationType);
-  if (stationType === "home") station.hangar = buildHangarGeometry(station);
+  if (stationType === "home") {
+    station.hangars = buildHangarGeometry(station);
+    station.hangar = station.hangars[0] || null;
+    station.bayPlayerSlots = new Map();
+  }
   station.collisionPieces = stationCollisionPieces(station);
   station.shieldRadius = computeStationShieldCollisionRadius(station);
   // Broad-phase radius covering every solid piece, for spatial-index queries.
@@ -506,22 +516,14 @@ function spawnQueuedShip(room, station, queueItem, now) {
   if (!player || !player.ready) return null;
   const active = player.ships.filter((s) => s.alive).length;
   if (active >= player.shipCap) return null;
-  const hangar = station.hangar;
-  if (!hangar) return null;
-  // One corridor, one launch at a time: two ships completing on the same tick
-  // must not occupy it together.
-  if (station.launchReservation) {
-    bumpCounter(room, "stationLaunchBlockedCount");
-    return null;
-  }
+  const hangars = station.hangars;
+  if (!hangars || hangars.length === 0) return null;
+  const bayIndex = station.bayPlayerSlots && station.bayPlayerSlots.has(queueItem.playerId)
+    ? station.bayPlayerSlots.get(queueItem.playerId)
+    : 0;
+  const hangar = hangars[bayIndex] || hangars[0];
   bumpCounter(room, "stationLaunchAttemptCount");
   const physicalRadius = computeDesignCollisionRadius(queueItem.template.design, queueItem.template.stats);
-  if (!corridorIsClear(room, station)) {
-    queueItem.blocked = true;
-    station.productionRevision += 1;
-    bumpCounter(room, "stationLaunchBlockedCount");
-    return null;
-  }
   const spawn = hangar.interiorSpawn;
   const ship = spawnShip(room, player, now, active, {
     template: queueItem.template,
@@ -542,11 +544,11 @@ function spawnQueuedShip(room, station, queueItem, now) {
   // cannot manoeuvre or shoot through the structure it is still inside.
   ship.launchPhase = {
     stationId: station.id,
+    bayIndex,
     startedAt: now,
     angle: station.angle,
     releaseDistance: hangar.releaseDistance + physicalRadius
   };
-  station.launchReservation = { shipId: ship.id, startedAt: now };
   station.activeLaunches.push({ shipId: ship.id, releasedAt: null, releasePlane: hangar.exitPoint });
   bumpCounter(room, "stationLaunchSuccessCount");
   // No launch notice: the hangar's build bar and the ship itself flying out of
@@ -564,24 +566,17 @@ function bumpCounter(room, name) {
 
 function processStationProduction(room, station, dt, now) {
   if (station.state !== "operational" || !station.productionQueue.length) return;
-  const item = station.productionQueue[0];
-  if (item.state === "queued") {
-    item.state = "building";
-    item.buildStartedAt = now;
-  }
-  if (item.state === "building") {
-    if (now - item.buildStartedAt >= item.buildDurationSeconds * 1000) {
+  while (station.productionQueue.length > 0) {
+    const item = station.productionQueue[0];
+    if (item.state === "queued") {
       item.state = "complete-waiting-launch";
       station.productionRevision += 1;
     }
-  }
-  if (item.state === "complete-waiting-launch") {
     const ship = spawnQueuedShip(room, station, item, now);
-    if (ship) {
-      item.quantityRemaining -= 1;
-      if (item.quantityRemaining <= 0) station.productionQueue.shift();
-      station.productionRevision += 1;
-    }
+    if (!ship) break; // blocked by fleet cap or spawn failure; retry next tick
+    item.quantityRemaining -= 1;
+    station.productionRevision += 1;
+    if (item.quantityRemaining <= 0) station.productionQueue.shift();
   }
 }
 
@@ -845,6 +840,13 @@ function createStationsForRoom(room, now) {
     const toCenter = Math.atan2(room.world.height / 2 - y, room.world.width / 2 - x);
     const angle = toCenter;
     const station = createStationEntity(room, homeStationTemplate, x, y, angle, "home", zone.team || zone.ownerId, zone.ownerId, now);
+    // Hand out one bay per player on the team, up to the number of bays.
+    const teamPlayers = [...room.players.values()]
+      .filter((p) => !p.removed && (room.rules?.gameMode === "solo" ? p.id === zone.ownerId : p.team === zone.team))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    for (let i = 0; i < teamPlayers.length; i += 1) {
+      station.bayPlayerSlots.set(teamPlayers[i].id, i % station.hangars.length);
+    }
     room.stations.push(station);
     room.stationsById.set(station.id, station);
   }

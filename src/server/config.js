@@ -22,7 +22,7 @@ const TICK_HZ = 30;
 // encoding/IO cost while the simulation continues at full tick rate.
 const SNAPSHOT_HZ = 20;
 const MAX_MESSAGE_BYTES = 64 * 1024;
-const MAX_PLAYERS_PER_ROOM = 8;
+const MAX_PLAYERS_PER_ROOM = 6;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 const ECONOMY = Object.freeze({ ...BALANCE.economy, ...BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...BALANCE.shipPricing.weaponPremiums }) });

@@ -1135,7 +1135,15 @@ export function updatePixiShips(env, now, players, bounds) {
         renderShipObj.angle = vis.angle;
         renderShip = renderShipObj;
       }
-      if (bounds && !isCircleVisible(renderShip.x, renderShip.y, renderShip.radius || 60, bounds)) continue;
+      if (bounds) {
+        const selected = state.selectedShipIds.has(ship.id);
+        let cullRadius = renderShip.radius || 60;
+        if (selected) {
+          const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
+          cullRadius = Math.max(cullRadius, maxRange, ship.commandAuraActive ? COMMAND_AURA_RANGE : 0);
+        }
+        if (!isCircleVisible(renderShip.x, renderShip.y, cullRadius, bounds)) continue;
+      }
       const player = players.get(ship.ownerId);
       if (!player) continue;
       if (state.debugStats) state.debugStats.drawnShips++;
@@ -1226,9 +1234,14 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     const view = pixiShipPool.peek(ship.id);
     if (!view) continue;
 
-    const visible = !bounds || isCircleVisible(vis.x, vis.y, ship.radius || 60, bounds);
-    view.root.visible = visible;
-    if (!visible) continue;
+    view.root.visible = !bounds || isCircleVisible(vis.x, vis.y, ship.radius || 60, bounds);
+    let cullRadius = ship.radius || 60;
+    if (state.selectedShipIds.has(ship.id)) {
+      const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
+      cullRadius = Math.max(cullRadius, maxRange, ship.commandAuraActive ? COMMAND_AURA_RANGE : 0);
+    }
+    const inView = !bounds || isCircleVisible(vis.x, vis.y, cullRadius, bounds);
+    if (!inView) continue;
 
     const player = players.get(ship.ownerId);
     const design = ship.design || player?.design || [];

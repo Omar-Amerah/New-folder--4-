@@ -1829,7 +1829,7 @@
       "maximumShipGridHeight": 15,
       "hangarClearanceCells": 1.4,
       "hangarCorridorLength": 320,
-      "launchSpeed": 130,
+      "launchSpeed": 320,
       "releaseDistance": 120,
       "repairRadius": 520,
       "repairRatePerSecond": 22.5,

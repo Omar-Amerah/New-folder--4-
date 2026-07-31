@@ -16,7 +16,6 @@
 "use strict";
 
 const { round, performanceNow } = require("./utils");
-const { PROJECTILE_EVENT_REPLICATION } = require("./performanceFlags");
 const {
   usesSensorVisibility,
   ensureTeamVisibility,
@@ -54,13 +53,8 @@ const REMOVE_REASONS = Object.freeze([
   "roomReset"
 ]);
 
-function isEventReplicationEnabled() {
-  return PROJECTILE_EVENT_REPLICATION();
-}
-
 function clientSupportsProjectileEvents(client) {
-  return PROJECTILE_EVENT_REPLICATION()
-    && Array.isArray(client?.protocol?.capabilities)
+  return Array.isArray(client?.protocol?.capabilities)
     && client.protocol.capabilities.includes(PROJECTILE_EVENTS_CAPABILITY);
 }
 
@@ -103,7 +97,7 @@ function ensureReplication(room) {
     }
   };
   room.projectileReplication = rep;
-  room.projectileEventsV1 = { enabled: isEventReplicationEnabled() };
+  room.projectileEventsV1 = { enabled: true };
   return rep;
 }
 
@@ -220,7 +214,7 @@ function pruneLogIfNeeded(room) {
 }
 
 function recordProjectileSpawn(room, bullet, now) {
-  if (!isEventReplicationEnabled() || !room || !bullet) return;
+  if (!room || !bullet) return;
   const rep = ensureReplication(room);
   if (bullet._replicationSpawned) return;
   if (rep.stateEpoch !== (room.stateEpoch || 1)) {
@@ -301,7 +295,7 @@ function computeVisibleTeams(room, bullet, now) {
 }
 
 function recordProjectileRemove(room, bullet, reason, now, finalX, finalY) {
-  if (!isEventReplicationEnabled() || !room || !bullet) return;
+  if (!room || !bullet) return;
   const rep = ensureReplication(room);
   if (bullet._replicationRemoveSeq) return;
   if (!bullet._replicationSpawned) return;
@@ -671,7 +665,7 @@ function buildClientBatch(room, client, now, fullBaseline) {
 
 function applyClientProjectiles(room, client, now, sendStatic, snapshot) {
   if (!room || !client || !snapshot) return null;
-  if (!isEventReplicationEnabled() || !clientSupportsProjectileEvents(client)) return null;
+  if (!clientSupportsProjectileEvents(client)) return null;
   const rep = ensureReplication(room);
   const ps = getClientProjectileState(client, room);
 
@@ -770,7 +764,6 @@ module.exports = {
   LIFECYCLE_EVENT_TYPES,
   REMOVE_REASONS,
   DEFAULTS,
-  isEventReplicationEnabled,
   clientSupportsProjectileEvents,
   ensureReplication,
   initializeClient,

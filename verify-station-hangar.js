@@ -76,6 +76,27 @@ function irregularCorners() {
   return makeDesign(cells);
 }
 
+function assertConnected(design) {
+  if (design.length <= 1) return;
+  const cells = new Map();
+  for (const module of design) cells.set(`${module.x},${module.y}`, module);
+  const start = design[0];
+  const visited = new Set([`${start.x},${start.y}`]);
+  const queue = [start];
+  const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  while (queue.length) {
+    const module = queue.pop();
+    for (const [dx, dy] of neighbors) {
+      const key = `${module.x + dx},${module.y + dy}`;
+      if (cells.has(key) && !visited.has(key)) {
+        visited.add(key);
+        queue.push(cells.get(key));
+      }
+    }
+  }
+  assert.strictEqual(visited.size, cells.size, "design cells are connected");
+}
+
 const CASES = [
   ["full solid 15x15", fullGrid()],
   ["long 15x1", rowDesign()],
