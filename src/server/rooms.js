@@ -25,6 +25,8 @@ const {
 const { sanitizeRoomCode } = require("./validation");
 const { validateGeneratedMap } = require("./mapValidation");
 const { getSpawnRegionPlan, invalidateSpawnPlan } = require("./spawnPlanner");
+const PointDefenceThreats = require("./pointDefenceThreats");
+const TargetingCadence = require("./targetingCadence");
 
 const rooms = new Map();
 const closedRoomCodes = new Map();
@@ -115,12 +117,28 @@ function bumpStateEpoch(room, reason = "state-reset") {
   require("./projectileReplication").resetProjectileReplication(room, room.stateEpoch);
   room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;
   room.lastEpochReason = reason;
+  PointDefenceThreats.invalidateAllPointDefenceThreatSets(room);
+  TargetingCadence.invalidateAllAcquisitionSchedules(room);
   for (const ship of room.ships?.values?.() || []) {
     ship.designSent = false;
     ship.dirtyComponents?.clear?.();
     ship.dirtyHeat?.clear?.();
     ship.dirtyPower = false;
     ship.dirtyPowerProtection = false;
+    ship._pdThreatSet = null;
+    ship._targetAcquisitionSchedule = null;
+    ship._targetAcquisitionOffsets = null;
+    ship._weaponTargetState = null;
+    ship._effectiveWeaponProfileCacheRevision = null;
+    ship.effectiveWeaponProfileCache = null;
+  }
+  for (const station of room.stations || []) {
+    station._pdThreatSet = null;
+    station._targetAcquisitionSchedule = null;
+    station._targetAcquisitionOffsets = null;
+    station._weaponTargetState = null;
+    station._effectiveWeaponProfileCacheRevision = null;
+    station.effectiveWeaponProfileCache = null;
   }
   for (const client of room.clients || []) {
     if (client.snapshotBaseline) {

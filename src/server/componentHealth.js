@@ -246,6 +246,10 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
 function onComponentDestroyed(room, ship, index, now) {
   markShipRepairCacheDirty(ship);
   bumpComponentAliveRevision(ship);
+  ship._pdThreatSet = null;
+  ship._targetAcquisitionSchedule = null;
+  ship._weaponTargetState = null;
+  ship._effectiveWeaponProfileCacheRevision = null;
   const module = ship.design[index];
   if (ship.componentMeltdown && (PARTS[module.type]?.powerGeneration || 0) > 0) ship.componentMeltdown[index] = 0;
   if (PARTS[module.type]?.proximityCharge && !(ship.proximityChargeDetonated?.[index] ?? 0)) {
@@ -469,6 +473,10 @@ function repairShipComponents(room, ship, amount, now, emitterShip) {
     healed += heal;
     if (wasDestroyed && ship.componentHp[idx] > 0) {
       bumpComponentAliveRevision(ship);
+      ship._pdThreatSet = null;
+      ship._targetAcquisitionSchedule = null;
+      ship._weaponTargetState = null;
+      ship._effectiveWeaponProfileCacheRevision = null;
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       const heat = require("./heat");
       requestComponentLifecycleRefresh(ship, { thermalCapacity: true,

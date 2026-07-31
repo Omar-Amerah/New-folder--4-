@@ -12,6 +12,15 @@ const TurretRules = require("../../public/src/shared/turretRules");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 const ZERO_SUPPORT = Object.freeze({ rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0, sourceIndices: Object.freeze([]), contributions: Object.freeze([]), status: "disconnected" });
+const WEAPON_AURA_KEYS = Object.freeze([
+  "weaponAccuracyMultiplier",
+  "weaponTrackingMultiplier",
+  "turretAimSpeedMultiplier",
+  "targetAcquisitionMultiplier",
+  "pointDefenceTrackingMultiplier",
+  "flakTrackingMultiplier",
+  "interceptionReactionMultiplier"
+]);
 const numericSort = (a, b) => a - b;
 const stable = (value) => JSON.stringify(value, (_key, item) => (item instanceof Set ? [...item].sort() : item));
 const perf = () => global.__mfaDataSupportPerf || null;
@@ -165,57 +174,19 @@ function dataRelevantHeatSignature(ship) {
     return null;
   }).filter(Boolean).join(",");
 }
+function weaponAuraSignature(ship) {
+  const values = WEAPON_AURA_KEYS.map((key) => getCommandAuraMultiplier(ship, key));
+  return `${ship?.commandState || "mainCore"}:${values.join(":")}`;
+}
 function cacheSignature(ship) {
   const state = ship?.runtimeDataSupport;
   const power = ship?.powerRevision || 0;
   const heatRevision = ship?.heatStateRevision || 0;
   const hpRevision = ship?.componentAliveRevision || 1;
-  return `${state?.topologyRevision || 0}:${state?.allocationRevision || 0}:${power}:${heatRevision}:${hpRevision}:${ship?.designRevision || 1}`;
+  return `${state?.topologyRevision || 0}:${state?.allocationRevision || 0}:${power}:${heatRevision}:${hpRevision}:${ship?.designRevision || 1}:${weaponAuraSignature(ship)}`;
 }
-function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
-  ensureShipDataSupport(ship);
-  const design = Array.isArray(ship?.design) ? ship.design : [];
-  const profiles = new Array(design.length).fill(null);
-  const familyRanges = { blaster: 0, missile: 0, railgun: 0, beam: 0 };
-  let maxRange = 420;
-  for (let i = 0; i < design.length; i += 1) {
-    const baseWeapon = PARTS[design[i]?.type]?.weapon;
-    if (!baseWeapon) continue;
-    const support = ship.runtimeDataSupport?.weaponBonusByIndex?.[i] || ZERO_SUPPORT;
-    profiles[i] = DataSupportRules.effectiveWeaponProfile(baseWeapon, support);
-    if (isAlive(ship, i)) {
-      const range = Number(profiles[i].range) || 0;
-      maxRange = Math.max(maxRange, range);
-      if (Object.hasOwn(familyRanges, baseWeapon.type)) {
-        familyRanges[baseWeapon.type] = Math.max(familyRanges[baseWeapon.type], range);
-      }
-    }
-  }
-  for (let i = 0; i < design.length; i += 1) {
-    if (!PARTS[design[i]?.type]?.proximityCharge) continue;
-    profiles[i] = { type: "charge", range: 0, dps: 0, accuracy: 1, arc: 360 };
-  }
-  bump("profileBuildCount");
-  const prev = ship.effectiveWeaponProfileCache || {};
-  ship.effectiveWeaponProfileCache = { version: 1, signature: cacheSignature(ship), revision: (prev.revision || 0) + 1, reason, profiles, familyRanges, maxRange };
-  return ship.effectiveWeaponProfileCache;
-}
-function ensureEffectiveWeaponProfileCache(ship) {
-  if (!ship || typeof ship !== "object") return null;
-  bump("effectiveWeaponSignatureCalculations");
-  const sig = cacheSignature(ship);
-  if (!ship.effectiveWeaponProfileCache || ship.effectiveWeaponProfileCache.signature !== sig) return rebuildEffectiveWeaponProfileCache(ship);
-  return ship.effectiveWeaponProfileCache;
-}
-function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
-  if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return null;
-  const cache = ensureEffectiveWeaponProfileCache(ship);
-  const profile = cache?.profiles?.[weaponIndex] || null;
-  if (!profile) return null;
-  bump("profileCacheHitCount");
+function applyEffectiveWeaponCommandAuras(profile, ship) {
   const modified = { ...profile };
-  // If no explicit aimSpeed is configured, fall back to the shared turret
-  // default for this weapon family so command auras can scale turret traverse.
   if (!Number.isFinite(modified.aimSpeed)) {
     modified.aimSpeed = TurretRules.turnRateFor({ type: modified.type });
   }
@@ -246,6 +217,72 @@ function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
     if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
   }
   return modified;
+}
+function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
+  ensureShipDataSupport(ship);
+  const design = Array.isArray(ship?.design) ? ship.design : [];
+  const baseProfiles = new Array(design.length).fill(null);
+  const profiles = new Array(design.length).fill(null);
+  const familyRanges = { blaster: 0, missile: 0, railgun: 0, beam: 0 };
+  let maxRange = 420;
+  for (let i = 0; i < design.length; i += 1) {
+    const baseWeapon = PARTS[design[i]?.type]?.weapon;
+    if (!baseWeapon) continue;
+    const support = ship.runtimeDataSupport?.weaponBonusByIndex?.[i] || ZERO_SUPPORT;
+    const baseProfile = DataSupportRules.effectiveWeaponProfile(baseWeapon, support);
+    baseProfiles[i] = baseProfile;
+    profiles[i] = Object.freeze(applyEffectiveWeaponCommandAuras(baseProfile, ship));
+    if (isAlive(ship, i)) {
+      const range = Number(baseProfile.range) || 0;
+      maxRange = Math.max(maxRange, range);
+      if (Object.hasOwn(familyRanges, baseWeapon.type)) {
+        familyRanges[baseWeapon.type] = Math.max(familyRanges[baseWeapon.type], range);
+      }
+    }
+  }
+  for (let i = 0; i < design.length; i += 1) {
+    if (!PARTS[design[i]?.type]?.proximityCharge) continue;
+    const charge = { type: "charge", range: 0, dps: 0, accuracy: 1, arc: 360 };
+    baseProfiles[i] = charge;
+    profiles[i] = Object.freeze({ ...charge });
+  }
+  bump("profileBuildCount");
+  const prev = ship.effectiveWeaponProfileCache || {};
+  ship.effectiveWeaponProfileCache = {
+    version: 2,
+    signature: cacheSignature(ship),
+    revision: (prev.revision || 0) + 1,
+    reason,
+    baseProfiles,
+    profiles,
+    familyRanges,
+    maxRange
+  };
+  return ship.effectiveWeaponProfileCache;
+}
+function ensureEffectiveWeaponProfileCache(ship) {
+  if (!ship || typeof ship !== "object") return null;
+  bump("effectiveWeaponSignatureCalculations");
+  const sig = cacheSignature(ship);
+  if (!ship.effectiveWeaponProfileCache || ship.effectiveWeaponProfileCache.signature !== sig) return rebuildEffectiveWeaponProfileCache(ship);
+  return ship.effectiveWeaponProfileCache;
+}
+
+function getEffectiveWeaponStatsInternal(ship, weaponIndex) {
+  if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return null;
+  const cache = ensureEffectiveWeaponProfileCache(ship);
+  const profile = cache?.baseProfiles?.[weaponIndex] || cache?.profiles?.[weaponIndex] || null;
+  if (!profile) return null;
+  bump("profileCacheHitCount");
+  return applyEffectiveWeaponCommandAuras(profile, ship);
+}
+
+function getEffectiveWeaponStatsCached(ship, weaponIndex) {
+  if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return null;
+  const profile = ship?.effectiveWeaponProfileCache?.profiles?.[weaponIndex] || null;
+  if (!profile) return null;
+  bump("profileCacheHitCount");
+  return profile;
 }
 function getMaxEffectiveWeaponRange(ship) { return ensureEffectiveWeaponProfileCache(ship)?.maxRange || 420; }
 function getEffectiveWeaponRanges(ship) {
@@ -282,4 +319,4 @@ function shipHasArmedProximityCharge(ship) {
 function getWeaponDataSupport(ship, weaponIndex) { if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return cloneSupport(null, weaponIndex); const state = ensureShipDataSupport(ship); return cloneSupport(state?.weaponBonusByIndex?.[weaponIndex], weaponIndex); }
 function getEffectiveWeaponStats(ship, weaponIndex) { const profile = getEffectiveWeaponStatsInternal(ship, weaponIndex); return profile ? { ...profile } : null; }
 function getSourceDataAllocation(ship, sourceIndex) { if (!Number.isInteger(sourceIndex) || sourceIndex < 0) return null; const state = ensureShipDataSupport(ship); return cloneAllocation(state?.sourceAllocationByIndex?.[sourceIndex], sourceIndex); }
-module.exports = { shipHasArmedProximityCharge, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };
+module.exports = { shipHasArmedProximityCharge, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getEffectiveWeaponStatsCached, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };

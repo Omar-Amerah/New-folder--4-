@@ -53,15 +53,51 @@ function __setPROJECTILE_GRID_COLLISION(value) {
   _projectileGridCollision = Boolean(value);
 }
 
+// --- Phase Three weapon targeting and profile performance flags ---
+
+let _weaponTargetAcquisitionCadence = false;
+let _pointDefenceSharedThreats = false;
+let _weaponProfileRevisionCache = false;
+
+function WEAPON_TARGET_ACQUISITION_CADENCE() {
+  return _weaponTargetAcquisitionCadence;
+}
+
+function POINT_DEFENCE_SHARED_THREATS() {
+  return _pointDefenceSharedThreats;
+}
+
+function WEAPON_PROFILE_REVISION_CACHE() {
+  return _weaponProfileRevisionCache;
+}
+
+function __setWEAPON_TARGET_ACQUISITION_CADENCE(value) {
+  _weaponTargetAcquisitionCadence = Boolean(value);
+}
+
+function __setPOINT_DEFENCE_SHARED_THREATS(value) {
+  _pointDefenceSharedThreats = Boolean(value);
+}
+
+function __setWEAPON_PROFILE_REVISION_CACHE(value) {
+  _weaponProfileRevisionCache = Boolean(value);
+}
+
 module.exports = {
   circularShipSeparation,
   redundantFleetMapCollisionPass,
   PROJECTILE_FLAK_SINGLE_PASS,
   PROJECTILE_GUIDANCE_CADENCE,
   PROJECTILE_GRID_COLLISION,
+  WEAPON_TARGET_ACQUISITION_CADENCE,
+  POINT_DEFENCE_SHARED_THREATS,
+  WEAPON_PROFILE_REVISION_CACHE,
   __setCircularShipSeparation,
   __setRedundantFleetMapCollisionPass,
   __setPROJECTILE_FLAK_SINGLE_PASS,
   __setPROJECTILE_GUIDANCE_CADENCE,
-  __setPROJECTILE_GRID_COLLISION
+  __setPROJECTILE_GRID_COLLISION,
+  __setWEAPON_TARGET_ACQUISITION_CADENCE,
+  __setPOINT_DEFENCE_SHARED_THREATS,
+  __setWEAPON_PROFILE_REVISION_CACHE
 };

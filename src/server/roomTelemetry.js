@@ -1,6 +1,6 @@
 "use strict";
 
-// Per-room reusable tick telemetry.  All counters are plain numbers on a single
+// Per-room reusable tick telemetry. All counters are plain numbers on a single
 // room-scoped object that is reset deterministically at the start of every tick.
 // No per-entity, per-candidate or per-projectile allocations are made for
 // telemetry; callers bump counters and record stage durations using the helpers
@@ -28,7 +28,21 @@ const DURATION_FIELDS = Object.freeze([
   "flakExplosionMs",
   "projectileCleanupMs",
   "projectileSnapshotConstructionMs",
-  "projectileSnapshotEncodingMs"
+  "projectileSnapshotEncodingMs",
+
+  // Phase Three targeting sampled timing
+  "ordinaryTargetAcquisitionMs",
+  "pointDefenceThreatSetMs",
+  "pointDefenceMountSelectionMs",
+  "stationTargetAcquisitionMs",
+  "effectiveWeaponProfileMs",
+  "targetLineOfSightMs",
+  "targetVisibilityMs",
+  "weaponAimMs",
+  "weaponFiringMs",
+  "beamProcessingMs",
+  // Retained for compatibility with early Phase Three diagnostics.
+  "weaponAimFiringMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -92,7 +106,48 @@ const COUNTER_FIELDS = Object.freeze([
   "projectileRemoveMessages",
   "projectileCorrectionMessages",
   "projectileFullBaselineEntries",
-  "projectileCompactEntries"
+  "projectileCompactEntries",
+
+  // Phase Three targeting telemetry counters
+  "ordinaryTargetValidationAttempts",
+  "ordinaryTargetValidationFailures",
+  "ordinaryTargetSearches",
+  "ordinaryTargetSearchCandidates",
+  "ordinaryTargetSearchCacheHits",
+  "ordinaryTargetSearchDeferred",
+  "ordinaryTargetImmediateReacquisitions",
+  "shipCombatTargetSearches",
+  "shipCombatTargetCacheHits",
+  "shipCombatTargetSearchDeferred",
+  "shipCombatTargetInvalidations",
+  "pointDefenceTargetSearches",
+  "pointDefenceTargetSearchDeferred",
+  "pointDefenceImmediateReacquisitions",
+  "pointDefenceThreatSetBuilds",
+  "pointDefenceThreatSetReuses",
+  "pointDefenceThreatCandidates",
+  "pointDefenceMountSelections",
+  "pointDefenceSharedSetHits",
+  "pointDefenceSharedSetMisses",
+  "pointDefenceCandidatesRevalidated",
+  "pointDefenceCandidatesRejectedStale",
+  "pointDefenceLegacyScansAvoided",
+  "pointDefenceSharedFallbacks",
+  "pointDefenceSharedFallbackNoDefender",
+  "stationTargetValidationAttempts",
+  "stationTargetSearches",
+  "stationTargetCandidates",
+  "stationTargetSearchDeferred",
+  "targetVisibilityChecks",
+  "targetRelationshipChecks",
+  "targetRangeChecks",
+  "targetArcChecks",
+  "targetTieBreaks",
+  "targetInvalidations",
+  "effectiveWeaponProfileBuilds",
+  "effectiveWeaponProfileCacheHits",
+  "effectiveWeaponProfileCacheMisses",
+  "effectiveWeaponProfileInvalidations"
 ]);
 
 const ALL_FIELDS = Object.freeze([...DURATION_FIELDS, ...COUNTER_FIELDS]);
