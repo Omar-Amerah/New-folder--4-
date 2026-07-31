@@ -908,7 +908,11 @@ function updatePixiSelectionBox(env) {
 }
 
 export function updatePixiWorld(env, now, players, bounds, rect) {
-  const renderTime = state.renderHistory?.renderSimulationTimeMs ?? now;
+  const baseRenderTime = state.renderHistory?.renderSimulationTimeMs ?? now;
+  const snap = state.snapshot;
+  const snapTime = snap?.simulationTimeMs ?? baseRenderTime;
+  const projectileSnapTime = snap?.projectileSimulationTimeMs ?? snapTime;
+  const renderTime = baseRenderTime + (projectileSnapTime - snapTime);
   updatePixiGrid(env);
   updatePixiMapFeatures(env, now, bounds);
   updatePixiRelays(env, now, players, bounds);
