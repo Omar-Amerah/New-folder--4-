@@ -4,6 +4,7 @@ const { initComponentState, applyHullDamage } = require('./src/server/componentH
 const { damageShip, updateShipWeapons, weaponReloadSeconds } = require('./src/server/combat');
 const { updateBullets } = require('./src/server/projectiles');
 const HeatRules = require('./public/src/shared/heatRules');
+const { BALANCE } = require('./src/server/balanceConfig');
 
 const EPS = 1e-6;
 function close(actual, expected, msg, eps = EPS) {
@@ -77,6 +78,7 @@ close(damageOnce(target('armor'), 20, { armorInteractionSeconds: 0.25 }), 18.75,
   const r = room(); const shooter = { id: 's', ownerId: 1, x: 430, y: 500, vx: 0, vy: 0, angle: 0, radius: 20, alive: true, shield: 0, stats: { maxHp: 1000 }, design: [{ type: 'autocannon', x: 7, y: 7, rotation: 0 }] }; initComponentState(shooter);
   const victim = target('armor'); r.ships.set(shooter.id, shooter); r.ships.set(victim.id, victim);
   updateShipWeapons(r, shooter, [shooter, victim], 1 / 30, 0);
+  updateShipWeapons(r, shooter, [shooter, victim], 1 / 30, BALANCE.fireControl.baseReacquisitionDelayMs);
   assert.strictEqual(r.bullets.length, 1, 'autocannon spawned one projectile');
   close(r.bullets[0].armorInteractionSeconds, Math.min(1, shooter.weaponCooldowns[0]), 'projectile interval matches cooldown');
 }
@@ -98,6 +100,7 @@ close(damageOnce(target('armor'), 20, { armorInteractionSeconds: 0.25 }), 18.75,
   initComponentState(shooter);
   const victim = target('armor'); r.ships.set(shooter.id, shooter); r.ships.set(victim.id, victim);
   updateShipWeapons(r, shooter, [shooter, victim], dt, 0);
+  updateShipWeapons(r, shooter, [shooter, victim], dt, BALANCE.fireControl.baseReacquisitionDelayMs);
   close(9000 - victim.hp, w.damage * w.hullDamageMultiplier * dt - armor * dt, 'beam firing branch forwards dt');
 }
 console.log('verify-armor-delivery passed');

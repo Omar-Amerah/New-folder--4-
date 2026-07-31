@@ -131,12 +131,16 @@ async function main() {
     await check("changing one design only re-textures that ship", async () => {
       const before = await diag(page);
       const beforeHull = cacheEntry(before, "shipHull");
-      await page.evaluate(() => {
-        const ship = window.__mfaState.snapshot.ships.find((s) => s.id === "ship-0");
+      const newDesign = [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 8, y: 7, type: "blaster", rotation: 0 }];
+      await page.evaluate((design) => {
+        const state = window.__mfaState;
+        const snapshot = JSON.parse(JSON.stringify(state.snapshot));
+        const ship = snapshot.ships.find((s) => s.id === "ship-0");
         // Swap the railgun for a second blaster (distinct design signature).
-        ship.design = [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 8, y: 7, type: "blaster", rotation: 0 }];
+        ship.design = design;
         ship.weaponAngles = [0, 0];
-      });
+        window.__mfaTest.setSnapshot(snapshot);
+      }, newDesign);
       await page.evaluate(() => window.__mfaTest.frames(4));
       const d = await diag(page);
       const hull = cacheEntry(d, "shipHull");

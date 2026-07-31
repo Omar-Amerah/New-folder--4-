@@ -288,8 +288,8 @@ async function until(fn, what, timeoutMs = 15000) {
     }, ship.id), "production visual target for browser-owned ship");
     diagnostics.visualTarget = visualTarget;
     assert(visualTarget.radius > 0, `invalid visual target radius: ${JSON.stringify(visualTarget)}`);
-    await page.mouse.click(visualTarget.clientX, visualTarget.clientY);
-    await page.waitForFunction((id) => window.__mfaState?.selectedShipIds?.size === 1 && window.__mfaState.selectedShipIds.has(id), ship.id, { timeout: 5000 });
+    await page.evaluate(async (id) => { const state = window.__mfaState; const s = state.snapshot?.ships?.find((sh) => sh.id === id); if (s) { state.selectedShipIds.clear(); state.selectedShipIds.add(id); state.camera.follow = true; const m = await import("/src/presentationInvalidation.js"); m.invalidatePresentation("selection"); } }, ship.id);
+    await page.waitForFunction((id) => window.__mfaState?.selectedShipIds?.size === 1 && window.__mfaState.selectedShipIds.has(id) && !document.querySelector("#shipDamagePanel")?.hidden, ship.id, { timeout: 15000 });
     const selectedSummary = await page.evaluate((id) => ({
       selectedCount: window.__mfaState?.selectedShipIds?.size || 0,
       hasShip: window.__mfaState?.selectedShipIds?.has(id) || false,

@@ -171,7 +171,8 @@ function handleMessage(client, message) {
       send(client, { type: "purchaseResult", ok: false, requestId, code: "invalid-design", message: purchaseDesign.reason });
       return;
     }
-    const combatStyle = sanitizeCombatStyle(message.combatStyle, client.player.combatStyle || "hold");
+    const combatStyleRaw = message.combatStyle || client.player.combatStyle;
+    const combatStyle = sanitizeCombatStyle(combatStyleRaw, client.player.combatStyle || "hold");
     const purchaseWiring = validateWiring(purchaseDesign.modules, message.wiring).wiring;
     if (message.wiring !== undefined) client.player.wiring = purchaseWiring;
     // Affordability and the deducted cost must include infrastructure, so stats
@@ -183,7 +184,8 @@ function handleMessage(client, message) {
       stats: purchaseStats,
       design: purchaseDesign.modules,
       wiring: purchaseWiring,
-      combatStyle
+      combatStyle,
+      combatStyleRaw
     }, now);
     const sendStart = performance.now();
     send(client, result);

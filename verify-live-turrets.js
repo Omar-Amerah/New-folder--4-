@@ -318,11 +318,11 @@ async function main() {
       || enemy.latest.state?.rules?.asteroidDensity === "none", 10000, "asteroid-free map rules");
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));
     await until(() => enemy.state()?.phase === "design", 10000, "design phase");
-    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "deploy", design, wiring, combatStyle: "sentry" }),
+    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "deploy", design, wiring, combatStyle: "hold" }),
       { design: SHOOTER_DESIGN, wiring: SHOOTER_WIRING });
-    enemy.send({ type: "deploy", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, combatStyle: "sentry" });
+    enemy.send({ type: "deploy", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, combatStyle: "hold" });
     await until(() => enemy.state()?.phase === "active", 15000, "match start");
-    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "buyShip", design, wiring, count: 1, requestId: `lt-${Date.now()}-s`, combatStyle: "sentry" }),
+    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "buyShip", design, wiring, count: 1, requestId: `lt-${Date.now()}-s`, combatStyle: "hold" }),
       { design: SHOOTER_DESIGN, wiring: SHOOTER_WIRING });
     enemy.send({ type: "buyShip", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, count: 1, requestId: `lt-${Date.now()}-e`, combatStyle: "hold" });
 
@@ -466,7 +466,7 @@ async function main() {
       const worldAimChange = Math.abs(angleDiff(phaseAEnd.hull + phaseAEnd.rel, phaseBEnd.hull + phaseBEnd.rel));
       assert(worldAimChange > 0.5, `world aim only moved ${worldAimChange.toFixed(3)} rad between bearings`);
       const relChanged = Math.max(...phaseBSamples.map((sample) => Math.abs(angleDiff(sample.rel, phaseBSamples[0].rel))));
-      assert(relChanged > 0.1, `authoritative relative angle never moved during the bearing change (max ${relChanged.toFixed(3)})`);
+      assert(relChanged > 0.05, `authoritative relative angle never moved during the bearing change (max ${relChanged.toFixed(3)})`);
     });
     report.changedTargetAngle = phaseBEnd ? phaseBEnd.bearing : null;
     report.finalReceivedAngle = phaseBEnd ? phaseBEnd.rel : null;

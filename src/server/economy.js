@@ -93,7 +93,7 @@ function buyShip(room, player, now, options = {}) {
   const reservations = createSpawnReservations(room, player.id, requestId, plan.placements, now);
   let ship;
   try {
-    ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle, spawnPoint: plan.placements[0], requestId });
+    ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle, combatStyleRaw: request.combatStyleRaw, spawnPoint: plan.placements[0], requestId });
     if (process.env.NODE_ENV !== "production") assertNoShipOverlap(room, ship);
     applyRallySlots(room, player, [ship]);
   } catch (error) {

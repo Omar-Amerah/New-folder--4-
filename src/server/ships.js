@@ -84,8 +84,9 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     vy: 0,
     angle: spawn.angle,
     combatStyle: options.combatStyle || "hold",
-    // A new hull inherits its owner's standing movement instructions, the same
-    // way it inherits their combat stance.
+    combatStyleRaw: options.combatStyleRaw || options.combatStyle || "hold",
+    // A new hull inherits its owner' standing movement instructions, the same
+    // way it inherits its combat stance.
     movementToggles: sanitizeMovementToggles(options.movementToggles || player?.movementToggles),
     targetX: spawnPoint.x,
     targetY: spawnPoint.y,

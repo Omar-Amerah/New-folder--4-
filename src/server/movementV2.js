@@ -1338,10 +1338,12 @@ function bearingTo(ship, point) {
 // moved across it was tracked only if something else put the ship back under way.
 function stationaryHeading(room, ship, runtime, command) {
   if (Number.isFinite(command?.finalFacing)) return command.finalFacing;
-  const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
-  if (engaged) {
-    const distance = fastHypot(engaged.target.x - (ship.x || 0), engaged.target.y - (ship.y || 0));
-    if (distance > BEARING_MIN_DISTANCE) return bearingTo(ship, engaged.target);
+  if (combatStance(ship) !== "sentry") {
+    const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
+    if (engaged) {
+      const distance = fastHypot(engaged.target.x - (ship.x || 0), engaged.target.y - (ship.y || 0));
+      if (distance > BEARING_MIN_DISTANCE) return bearingTo(ship, engaged.target);
+    }
   }
   return restingHeading(ship, command);
 }
@@ -1385,7 +1387,9 @@ function targetIsBreakingAway(ship, target, distance) {
 // has already been resolved to Hold by sanitizeCombatStyle, so this only ever
 // returns something there is code for.
 function combatStance(ship) {
-  return sanitizeCombatStyle(ship?.combatStyle);
+  const raw = ship?.combatStyleRaw || ship?.combatStyle;
+  if (raw === "sentry") return "sentry";
+  return sanitizeCombatStyle(raw);
 }
 
 // The player's standing instructions for this hull. Absent means all of them,
@@ -1483,7 +1487,7 @@ function planMovement(room, ship, runtime, stats, route) {
   // acquired automatically, and it is reached the moment the stance decides the
   // ship is close enough -- there is nothing else Hold does once established.
   if (!destination) {
-    const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
+    const engaged = combatStance(ship) !== "sentry" && movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
     if (engaged) {
       const distance = fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y);
       return {

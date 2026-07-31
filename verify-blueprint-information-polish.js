@@ -7,7 +7,9 @@ const heatRules = require("./public/src/shared/heatRules.js");
 const engineExhaustRules = require("./public/src/shared/engineExhaust.js");
 const dataSupportRules = require("./public/src/shared/dataSupportRules.js");
 const turretRules = require("./public/src/shared/turretRules.js");
+const mfaFeatureFlags = require("./public/src/shared/featureFlags.js");
 
+globalThis.MfaFeatureFlags = mfaFeatureFlags;
 globalThis.WiringRules = wiringRules;
 globalThis.HeatRules = heatRules;
 globalThis.EngineExhaustRules = engineExhaustRules;
@@ -76,7 +78,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   state.loadedEditorBlueprintId = null;
   savedUi.refreshLoadedBlueprintPresentation();
   savedUi.renderSavedDesigns();
-  assert.equal(capacityEl.textContent, "0 / 12", "capacity counter shows 0 / 12 when empty");
+  assert.equal(capacityEl.textContent, "0 / 24", "capacity counter shows 0 / 24 when empty");
   assert.equal(loadedName.textContent, "Unsaved design", "unsaved context names the current design");
   assert.equal(saveButton.disabled, false, "unsaved context enables Save Changes button");
 
@@ -84,7 +86,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   state.loadedEditorBlueprintId = "loaded";
   savedUi.refreshLoadedBlueprintPresentation();
   savedUi.renderSavedDesigns();
-  assert.equal(capacityEl.textContent, "2 / 12", "capacity counter shows 2 / 12 with two designs");
+  assert.equal(capacityEl.textContent, "2 / 24", "capacity counter shows 2 / 24 with two designs");
   assert.equal(loadedName.textContent, "Alpha");
   assert.equal(saveButton.disabled, true, "saved design disables Save Changes button");
   assert.equal(loadedState.textContent, "Saved");
@@ -197,7 +199,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   assert.equal(purchaseUi.purchaseStatusText(notReady), "Complete your starting ship first");
 
   state.mine.ready = true;
-  const invalidOption = { ...option, id: "invalid", blueprint: [], stats: componentStats.computeStats([]) };
+  const invalidOption = { ...option, id: "invalid", blueprint: [], stats: componentStats.computeStats([]), validation: { ok: false, reason: "Design invalid — no components" } };
   const invalid = purchaseUi.getPurchaseOptionState(invalidOption, 1);
   assert.equal(invalid.canBuy, false);
   assert.ok(invalid.reason, "authoritative invalid reason is preserved");
