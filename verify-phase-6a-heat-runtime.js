@@ -196,5 +196,17 @@ assert((templateTelemetryRoom._roomTelemetry?.heatTopologySharedShips || 0) >= 2
 assert((templateTelemetryRoom._roomTelemetry?.heatTopologyCacheHits || 0) >= 2, "template topology cache hits are reported");
 assert.strictEqual(templateTelemetryRoom._roomTelemetry?.heatTransferObjectsAllocated || 0, 0, "optimized template solve allocates no transfer objects");
 
+// A stable ship with retained Heat must wake when a live radiator Power
+// multiplier changes, because the next thermal boundary must apply the new
+// active-cooling rate.
+const radiatorWake = makeShip([m("frame", 0, 0), m("radiator", 1, 0)]);
+Heat.addComponentHeat(radiatorWake, 1, 12);
+Flags.__setOPTIMIZED_HEAT_RUNTIME(true);
+Heat.updateShipHeat(radiatorWake, 0.2, {}, 0);
+radiatorWake.componentPower.byComponentIndex[1].operationalMultiplier = 0;
+radiatorWake._thermalRuntime.stable = true;
+reallocateShipPower(radiatorWake, "phase-6a-radiator-power-wake");
+assert.strictEqual(radiatorWake._thermalRuntime.stable, false, "radiator Power change wakes retained Heat runtime");
+
 Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
 console.log("Phase 6A Heat runtime verifier passed: boundary parity, lifecycle, routing, telemetry, meltdown, and topology sharing.");

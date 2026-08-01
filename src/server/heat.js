@@ -1653,6 +1653,7 @@ module.exports = {
   STATE,
   initShipHeat,
   ensureThermalRuntime,
+  wakeHeatRuntime,
   rebuildRuntimeExposure,
   rebuildThermalNetworks,
   recalculateEffectiveThermalCapacities,

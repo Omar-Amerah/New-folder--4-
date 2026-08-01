@@ -176,6 +176,23 @@ function emptyRuntimeKind() {
   };
 }
 
+function wakeHeatForRadiatorPowerChange(ship, previousPower, nextPower) {
+  const runtime = ship?._thermalRuntime;
+  if (!runtime || runtime.heatBearingComponents.length === 0) return;
+  const previousEntries = previousPower?.byComponentIndex || [];
+  const nextEntries = nextPower?.byComponentIndex || [];
+  for (const index of runtime.topology.radiatorIndices) {
+    const previous = Number(previousEntries[index]?.operationalMultiplier);
+    const next = Number(nextEntries[index]?.operationalMultiplier);
+    const previousValue = Number.isFinite(previous) ? previous : 1;
+    const nextValue = Number.isFinite(next) ? next : 1;
+    if (previousValue !== nextValue || previousEntries[index]?.state !== nextEntries[index]?.state) {
+      require("./heat").wakeHeatRuntime?.(ship);
+      return;
+    }
+  }
+}
+
 function installUniversalPowerAllocation(ship, options = {}) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const byComponentIndex = design.map((module, index) => {
@@ -238,7 +255,9 @@ function installUniversalPowerAllocation(ship, options = {}) {
       spareGenerationMw: 0
     }
   };
+  const previousPower = ship.componentPower;
   ship.componentPower = { byComponentIndex };
+  wakeHeatForRadiatorPowerChange(ship, previousPower, ship.componentPower);
   ship.powerFlow = result;
   ship.powerAnalysis = result;
   ship.powerStatus = summarizePower(byComponentIndex);
@@ -461,7 +480,9 @@ function applyShipPowerAllocation(ship, options = {}) {
     ship.powerFlowRevision = (ship.powerFlowRevision || 0) + 1;
   }
 
+  const previousPower = ship.componentPower;
   ship.componentPower = { byComponentIndex };
+  wakeHeatForRadiatorPowerChange(ship, previousPower, ship.componentPower);
   // Complete authoritative solver result kept server-local for diagnostics.
   ship.powerFlow = result;
   ship.powerAnalysis = result;
