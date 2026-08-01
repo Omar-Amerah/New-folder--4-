@@ -9,6 +9,7 @@ const { performance } = require("perf_hooks");
 const HeatRules = require("./public/src/shared/heatRules");
 const WiringRules = require("./public/src/shared/wiringRules");
 const { PARTS } = require("./src/server/components");
+const { getOccupiedCells } = require("./src/server/footprint");
 const { initComponentState } = require("./src/server/componentHealth");
 const { computeStats } = require("./src/server/shipStats");
 const { initializeComponentPower } = require("./src/server/componentPower");
@@ -44,20 +45,34 @@ function stats(values) {
 
 function designFor(componentCount, scenario, shipIndex) {
   const design = [];
-  // 225 single-cell components fill the blueprint exactly.  Use the larger
-  // catalogue footprints only below that size so benchmark fixtures stay
-  // physically non-overlapping and still exercise multi-cell topology.
+  const occupied = new Set();
+  // 225 single-cell components fill the blueprint exactly.  Use larger
+  // catalogue footprints only below that size, placing each component in the
+  // first deterministic free footprint so benchmark fixtures do not silently
+  // overlap multi-cell parts.
   const supportsMultiCell = componentCount < 225;
   for (let i = 0; i < componentCount; i += 1) {
-    const x = i % 15;
-    const y = Math.floor(i / 15);
     let type = "frame";
     if (supportsMultiCell && scenario === "cold-idle-reactor" && i === 0) type = "reactor";
     else if (supportsMultiCell && scenario === "one-active-engine" && i === 0) type = "engine";
     else if (scenario === "sparse-weapon-combat" && i === 0) type = "blaster";
     else if (supportsMultiCell && scenario === "cable-heat-heavy" && i === 0) type = "reactor";
     else if (i === componentCount - 1) type = "radiator";
-    design.push({ x, y, type, rotation: (shipIndex + i) % 4 * 90 });
+    const rotation = (shipIndex + i) % 4 * 90;
+    const part = PARTS[type] || PARTS.frame;
+    const footprint = part.footprint || { width: 1, height: 1 };
+    let placed = false;
+    for (let y = 0; y < 15 && !placed; y += 1) {
+      for (let x = 0; x < 15 && !placed; x += 1) {
+        const cells = getOccupiedCells(x, y, footprint, rotation);
+        if (cells.some((cell) => cell.x < 0 || cell.y < 0 || cell.x >= 15 || cell.y >= 15)) continue;
+        if (cells.some((cell) => occupied.has(`${cell.x},${cell.y}`))) continue;
+        design.push({ x, y, type, rotation });
+        for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
+        placed = true;
+      }
+    }
+    if (!placed) throw new Error(`Unable to place benchmark component ${i} (${type}) in ${componentCount}-component design`);
   }
   return design;
 }
@@ -355,7 +370,7 @@ function fixtureDefinitions() {
     ];
   }
   return [
-    ["cold-idle-reactor", 100, 15], ["cold-idle-reactor", 250, 75], ["cold-idle-reactor", 500, 150], ["cold-idle-reactor", 1000, 225],
+    ["cold-idle-reactor", 100, 15], ["cold-idle-reactor", 250, 75], ["cold-idle-reactor", 500, 150], ["cold-idle-reactor", 1000, 150],
     ["cold-no-reactors", 100, 15], ["cold-no-reactors", 250, 75], ["cold-no-reactors", 500, 150], ["cold-no-reactors", 1000, 225],
     ["one-active-engine", 100, 15], ["one-active-engine", 250, 75], ["one-active-engine", 500, 150],
     ["sparse-weapon-combat", 100, 15], ["sparse-weapon-combat", 250, 75], ["sparse-weapon-combat", 500, 150],
