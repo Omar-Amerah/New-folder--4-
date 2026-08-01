@@ -496,7 +496,13 @@ function prepareRoomCorrections(room, now) {
     if (!bullet || bullet.life <= 0) continue;
     if (shouldCorrect(bullet, now)) {
       bullet._lastCorrectionAt = now;
-      rep.corrections.set(bullet.id, buildCorrectionFor(bullet, rep, simMs));
+      const correction = buildCorrectionFor(bullet, rep, simMs);
+      // Authorise a correction at the time it was generated.  Current
+      // visibility alone is insufficient for a teammate that was not sent the
+      // hidden frame: otherwise a correction created outside coverage could be
+      // replayed when the projectile later becomes visible.
+      correction._visibleTeams = computeVisibleTeams(room, bullet, simMs);
+      rep.corrections.set(bullet.id, correction);
       rep.diagnostics.projectileCorrectionRecordsCreated += 1;
     }
   }
@@ -638,14 +644,18 @@ function buildClientBatch(room, client, now, fullBaseline) {
     rep.diagnostics.projectileHideEventsCreated += 1;
   }
 
-  // Append corrections that are relevant to this client.  They were generated
-  // once per room update in prepareRoomCorrections().
-  for (const id of visible) {
-    if (!projectedKnown.has(id)) continue;
-    const c = rep.corrections.get(id);
-    if (!c) continue;
-    events.push(c);
+  // Advance through every correction sequence examined for this frame, even
+  // when the correction belongs to a hidden projectile.  Only the event
+  // payload remains visibility-authorised.  Otherwise a hidden correction
+  // leaves a permanent cursor gap that can be mistaken for a later visible
+  // correction or replayed after a visibility transition.
+  for (const c of rep.corrections.values()) {
+    if (!c || c.correctionSeq <= baseCorrectionSeq) continue;
     newCorrectionSeq = Math.max(newCorrectionSeq, c.correctionSeq);
+    if (!visible.has(c.projectileId)
+      || !projectedKnown.has(c.projectileId)
+      || (c._visibleTeams && !c._visibleTeams.has(teamId))) continue;
+    pushWire(c);
   }
 
   // The client must advance through every sequence that has been examined,

@@ -11,6 +11,7 @@ const { BALANCE } = require("./balanceConfig");
 const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
 const { angleDifference } = require("./utils");
 const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
+const { bump } = require("./roomTelemetry");
 
 const VISIBILITY_BALANCE = BALANCE.visibility || {};
 const DETECTION_LINGER_MS = Math.max(0, Number(VISIBILITY_BALANCE.detectionLingerSeconds) || 0.25) * 1000;
@@ -215,13 +216,18 @@ function addDetectedShips(room, teamId, generation, sourceRecord, current, shipS
   const source = sourceRecord.entity;
   const range = sourceRecord.range;
   const spatial = room.spatialIndex?.dynamicValid === false ? null : room.spatialIndex;
+  bump(room, "visibilityShipQueries");
   const ships = spatial?.queryRangeUnordered
     ? spatial.queryRangeUnordered("ships", source.x, source.y, range, shipScratch)
     : (room.ships?.values?.() || []);
 
   for (const target of ships) {
+    bump(room, "visibilityShipCandidates");
     if (!target?.alive || target.removed || cachedTeamOfEntity(room, target, generation) === teamId) continue;
-    if (inSensorRange(sourceRecord, target)) current.add(target.id);
+    if (inSensorRange(sourceRecord, target)) {
+      if (!current.has(target.id)) bump(room, "visibilityEntitiesDetected");
+      current.add(target.id);
+    }
   }
 }
 
@@ -240,17 +246,23 @@ function coverageSeesPoint(coverage, count, x, y, padding) {
 // and stops at the first source that sees it.
 function addDetectedStructures(room, teamId, generation, coverage, coverageCount, current) {
   if (coverageCount === 0) return;
+  bump(room, "visibilityStationQueries");
   for (const station of room.stations || []) {
+    bump(room, "visibilityStationCandidates");
     if (!station || station.alive === false || station.state === "destroyed") continue;
     if (cachedTeamOfEntity(room, station, generation) === teamId) continue;
     if (coverageSeesPoint(coverage, coverageCount, station.x, station.y, targetRadius(station))) {
+      if (!current.has(station.id)) bump(room, "visibilityEntitiesDetected");
       current.add(station.id);
     }
   }
+  bump(room, "visibilityDroneQueries");
   for (const drone of room.drones?.values?.() || []) {
+    bump(room, "visibilityDroneCandidates");
     if (!drone || drone.destroyed || drone.removed) continue;
     if (cachedTeamOfEntity(room, drone, generation) === teamId) continue;
     if (coverageSeesPoint(coverage, coverageCount, drone.x, drone.y, targetRadius(drone))) {
+      if (!current.has(drone.id)) bump(room, "visibilityEntitiesDetected");
       current.add(drone.id);
     }
   }
@@ -272,6 +284,15 @@ function rememberedEntity(room, id) {
   // Ships leave a last-known tactical contact. Station locations are permanent
   // map knowledge and short-lived drones disappear without a stale hull marker.
   return room.ships?.get?.(id) || null;
+}
+
+function recordVisibilityCompute(room, computedAt) {
+  room._visibilityComputeCount = (Number(room._visibilityComputeCount) || 0) + 1;
+  if (room._visibilityFinalizationInvalidated) {
+    bump(room, "visibilityComputesAfterFinalization");
+    room._visibilityFinalizationInvalidated = false;
+  }
+  room._lastVisibilityComputeAt = computedAt;
 }
 
 function computeTeamVisibilityLegacy(room, teamOrOwnerId, now) {
@@ -349,8 +370,7 @@ function computeTeamVisibilityLegacy(room, teamOrOwnerId, now) {
   state.computedAt = computedAt;
   state.computedGeneration = roomVisibilityGeneration(room);
   state.revision += 1;
-  room._lastVisibilityComputeAt = computedAt;
-  room._visibilityComputeCount = (Number(room._visibilityComputeCount) || 0) + 1;
+  recordVisibilityCompute(room, computedAt);
   return state;
 }
 
@@ -480,6 +500,10 @@ function clearVisibilityForRoom(room) {
   room._visibilityComputeCount = 0;
   room._visibilitySnapshotFilterBuilds = 0;
   room._visibilitySnapshotFilterCacheHits = 0;
+  room._visibilityInvalidationCount = 0;
+  room._visibilityFinalizationInvalidated = false;
+  room._visibilityLastInvalidationStepKey = null;
+  room._visibilityInvalidationCountsByReason = Object.create(null);
   room._visibilitySourceScratch = null;
   room._visibilityQueryScratch = null;
   if (room._visibilityInvalidations) room._visibilityInvalidations.length = 0;
@@ -496,6 +520,19 @@ function invalidateVisibility(room, reason = "unknown") {
   }
   room._visibilityGeneration = next;
   room._visibilityInvalidationCount = (Number(room._visibilityInvalidationCount) || 0) + 1;
+  bump(room, "visibilityInvalidations");
+  bump(room, "visibilityGenerationAdvances");
+  const stepKey = `${String(room.simulationTimeMs ?? "unknown")}:${reasonText}`;
+  if (room._visibilityLastInvalidationStepKey === stepKey) bump(room, "visibilityDuplicateInvalidations");
+  room._visibilityLastInvalidationStepKey = stepKey;
+  const reasonCounts = room._visibilityInvalidationCountsByReason
+    || (room._visibilityInvalidationCountsByReason = Object.create(null));
+  reasonCounts[reasonText] = (Number(reasonCounts[reasonText]) || 0) + 1;
+  if (room._visibilityFinalizedAt !== null
+    && room._visibilityFinalizedAt !== undefined
+    && Number(room._visibilityFinalizedAt) === Number(room.simulationTimeMs)) {
+    room._visibilityFinalizationInvalidated = true;
+  }
   if (OPTIMIZED_VISIBILITY_RUNTIME()) {
     require("./visibilityRuntime").invalidateVisibility(room, options);
   }

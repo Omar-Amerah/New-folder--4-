@@ -21,6 +21,7 @@ const {
 const VISIBILITY_BALANCE = BALANCE.visibility || {};
 const DETECTION_LINGER_MS = Math.max(0, Number(VISIBILITY_BALANCE.detectionLingerSeconds) || 0.25) * 1000;
 const REMEMBERED_CONTACT_MS = Math.max(0, Number(VISIBILITY_BALANCE.rememberedContactSeconds) || 12) * 1000;
+const RECONCILE_INTERVAL_GENERATIONS = 60;
 
 const CONTACT_CLASS_BY_MASS = Object.freeze({
   light: "Light Contact",
@@ -176,7 +177,10 @@ function createRuntime(room) {
     stationQueryScratch: [],
     collectionStamp: null,
     bootstrapped: false,
-    lastMaintenanceAt: 0
+    lastMaintenanceAt: 0,
+    lastMaintenanceGeneration: 0,
+    lastReconciledGeneration: 0,
+    reconcileRequested: false
   };
 }
 
@@ -601,6 +605,8 @@ function bootstrapRuntime(room, runtime) {
   registerRoomEntities(room, runtime);
   runtime.collectionStamp = collectionStamp(room);
   runtime.bootstrapped = true;
+  runtime.lastReconciledGeneration = runtime.generation;
+  runtime.reconcileRequested = false;
   runtime.allTeamsDirty = true;
   runtime.fullInvalidationGeneration = runtime.generation;
   runtime.dirtyTeams.clear();
@@ -628,11 +634,56 @@ function synchronizeCollections(room, runtime) {
   recordDuration(room, "visibilitySourceMaintenanceMs", startedAt);
 }
 
+// Collection identity/size stamps catch normal lifecycle mutations cheaply.
+// A bounded periodic reconciliation also catches uncommon direct map/array
+// replacement paths (including same-size replacement) without making every
+// team computation rediscover every entity.
+function reconcileVisibilityRuntime(room) {
+  const runtime = ensureVisibilityRuntime(room);
+  if (!runtime || !usesSensorVisibility(room)) return runtime;
+  runtime.generation = roomVisibilityGeneration(room);
+  const startedAt = performanceNow();
+  const beforeSourceRevision = runtime.sourceRevision;
+  const beforeEntityRevision = runtime.entityRevision;
+  const beforeSourceCount = runtime.sourceByEntityId.size;
+  const beforeEntityCount = runtime.entityTeamCache.size;
+  registerRoomEntities(room, runtime);
+  removeMissingEntities(room, runtime);
+  runtime.collectionStamp = collectionStamp(room);
+  runtime.lastReconciledGeneration = runtime.generation;
+  runtime.reconcileRequested = false;
+  const changed = beforeSourceRevision !== runtime.sourceRevision
+    || beforeEntityRevision !== runtime.entityRevision
+    || beforeSourceCount !== runtime.sourceByEntityId.size
+    || beforeEntityCount !== runtime.entityTeamCache.size;
+  if (changed) {
+    runtime.entityRevision += 1;
+    runtime.allTeamsDirty = true;
+    runtime.fullInvalidationGeneration = runtime.generation;
+    for (const teamId of runtime.teamStates.keys()) runtime.dirtyTeams.add(teamId);
+    for (const state of runtime.teamStates.values()) state.computedGeneration = 0;
+    bump(room, "visibilityFullInvalidations");
+  }
+  bump(room, "visibilityReconciliations");
+  recordDuration(room, "visibilitySourceMaintenanceMs", startedAt);
+  return runtime;
+}
+
 function maintainVisibilityRuntime(room) {
   const runtime = ensureVisibilityRuntime(room);
   if (!runtime || !usesSensorVisibility(room)) return runtime;
+  runtime.generation = roomVisibilityGeneration(room);
+  if (runtime.lastMaintenanceGeneration === runtime.generation && !runtime.reconcileRequested) {
+    setCounter(room, "visibilitySourcesTotal", runtime.sourceByEntityId.size);
+    return runtime;
+  }
   const startedAt = performanceNow();
   synchronizeCollections(room, runtime);
+  if (runtime.reconcileRequested
+    || runtime.lastReconciledGeneration <= 0
+    || runtime.generation - runtime.lastReconciledGeneration >= RECONCILE_INTERVAL_GENERATIONS) {
+    reconcileVisibilityRuntime(room);
+  }
   for (const record of Array.from(runtime.sourceByEntityId.values())) {
     if (!sourceStillInRoom(room, record)) {
       const oldTeam = record.teamId;
@@ -660,6 +711,7 @@ function maintainVisibilityRuntime(room) {
     registerEntityMembership(room, runtime, drone, "drone");
   }
   pruneEmptyTeamContainers(room, runtime);
+  runtime.lastMaintenanceGeneration = runtime.generation;
   runtime.lastMaintenanceAt = performanceNow();
   setCounter(room, "visibilitySourcesTotal", runtime.sourceByEntityId.size);
   recordDuration(room, "visibilitySourceMaintenanceMs", startedAt);
@@ -993,7 +1045,14 @@ function computeTeamVisibilityInternal(room, teamOrOwnerId, now, force = false) 
   const fullDirty = runtime.allTeamsDirty
     && runtime.fullInvalidationGeneration === generation
     && state.computedGeneration !== generation;
-  const dirty = force || runtime.dirtyTeams.has(teamId) || fullDirty;
+  // Remembered contacts have time-based linger/expiry semantics even when no
+  // source or target geometry changed. Revisit those teams as simulation time
+  // advances so a scoped source invalidation cannot leave stale contacts alive.
+  const generationChanged = state.computedGeneration !== generation;
+  const rememberedTimeChanged = generationChanged
+    && state.remembered.size > 0
+    && computedAt > (Number(state.computedAt) || Number.NEGATIVE_INFINITY);
+  const dirty = force || runtime.dirtyTeams.has(teamId) || fullDirty || rememberedTimeChanged;
   bump(room, "visibilityTeamsConsidered");
   if (!dirty) {
     // A scoped invalidation can advance the room generation without touching
@@ -1025,6 +1084,10 @@ function computeTeamVisibilityInternal(room, teamOrOwnerId, now, force = false) 
   runtime.dirtyTeams.delete(teamId);
   room._lastVisibilityComputeAt = computedAt;
   room._visibilityComputeCount = (Number(room._visibilityComputeCount) || 0) + 1;
+  if (room._visibilityFinalizationInvalidated) {
+    bump(room, "visibilityComputesAfterFinalization");
+    room._visibilityFinalizationInvalidated = false;
+  }
   bump(room, "visibilityTeamsComputed");
   recordDuration(room, "visibilityRuntimeMs", runtimeStartedAt);
   return state;
@@ -1039,7 +1102,12 @@ function ensureTeamVisibility(room, teamOrOwnerId, now) {
   const fullDirty = runtime.allTeamsDirty
     && runtime.fullInvalidationGeneration === generation
     && state.computedGeneration !== generation;
-  if (runtime.dirtyTeams.has(teamId) || fullDirty || state.computedGeneration === 0) {
+  const computedAt = Number.isFinite(Number(now)) ? Number(now) : 0;
+  const generationChanged = state.computedGeneration !== generation;
+  const rememberedTimeChanged = generationChanged
+    && state.remembered.size > 0
+    && computedAt > (Number(state.computedAt) || Number.NEGATIVE_INFINITY);
+  if (runtime.dirtyTeams.has(teamId) || fullDirty || state.computedGeneration === 0 || rememberedTimeChanged) {
     return computeTeamVisibilityInternal(room, teamId, now, false);
   }
   if (state.computedGeneration !== generation) state.computedGeneration = generation;
@@ -1152,6 +1220,7 @@ module.exports = {
   teamOfEntity,
   ensureVisibilityRuntime,
   maintainVisibilityRuntime,
+  reconcileVisibilityRuntime,
   registerSensorSource,
   registerEntityMembership,
   unregisterEntity,

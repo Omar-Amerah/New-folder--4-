@@ -316,6 +316,11 @@ const COUNTER_FIELDS = Object.freeze([
   "visibilityFullCollectionFallbacks",
   "visibilityFullInvalidations",
   "visibilityTeamScopedInvalidations",
+  "visibilityGenerationAdvances",
+  "visibilityInvalidations",
+  "visibilityDuplicateInvalidations",
+  "visibilityComputesAfterFinalization",
+  "visibilityReconciliations",
 
   // Phase 4B incremental spatial-index counters
   "spatialFullRebuilds",

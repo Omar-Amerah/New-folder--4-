@@ -115,8 +115,23 @@ function filterSharedTacticalEntitiesOptimized(room, teamId, snapshot, state) {
   const stationsSource = publicSource.stations || snapshot.stations || [];
   const shipsSource = publicSource.ships || snapshot.ships || [];
   const revision = Number(state.resultRevision || state.revision || state.computedGeneration) || 0;
+  const stateEpoch = snapshot.stateEpoch ?? sharedIdentity.stateEpoch ?? room.stateEpoch ?? 1;
+  const snapshotSeq = snapshot.snapshotSeq ?? sharedIdentity.snapshotSeq ?? 0;
+  const staticRevision = snapshot.staticRevision ?? sharedIdentity.staticRevision ?? room.staticRevision ?? 1;
+  const entityDeltaGeneration = snapshot.entityDeltaGeneration
+    ?? sharedIdentity.entityDeltaGeneration
+    ?? snapshot.baseSnapshotSeq
+    ?? sharedIdentity.baseSnapshotSeq
+    ?? 0;
+  const projectileEventMode = snapshot.projectileEvents !== undefined;
   const cached = state.snapshotFilterCache;
   if (cached
+    && cached.teamId === teamId
+    && cached.stateEpoch === stateEpoch
+    && cached.snapshotSeq === snapshotSeq
+    && cached.staticRevision === staticRevision
+    && cached.entityDeltaGeneration === entityDeltaGeneration
+    && cached.projectileEventMode === projectileEventMode
     && cached.sharedIdentity === sharedIdentity
     && cached.visibilityRevision === revision
     && cached.dronesSource === dronesSource
@@ -167,6 +182,12 @@ function filterSharedTacticalEntitiesOptimized(room, teamId, snapshot, state) {
   }
 
   const next = {
+    teamId,
+    stateEpoch,
+    snapshotSeq,
+    staticRevision,
+    entityDeltaGeneration,
+    projectileEventMode,
     sharedIdentity,
     visibilityRevision: revision,
     shipsSource,
@@ -198,7 +219,12 @@ function filterSharedTacticalEntitiesOptimized(room, teamId, snapshot, state) {
         mapKnown: true
       };
     }),
-    rememberedContacts: [...state.remembered.values()].map(buildRememberedContactSnapshot),
+    // The remembered map also holds the short detection-linger interval.  A
+    // lingered contact is still delivered as a live entity, so it must not be
+    // duplicated as a stale contact in the same snapshot.
+    rememberedContacts: [...state.remembered.values()]
+      .filter((contact) => !visibleSet.has(contact.id))
+      .map(buildRememberedContactSnapshot),
     drones,
     decoys,
     bullets,
