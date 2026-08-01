@@ -14,7 +14,7 @@ const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
 const { buildRoomSpatialIndex, shipBroadPhaseRadius, publishSpatialTelemetry } = require("./spatialIndex");
 const { updateStationWeapons } = require("./stationCombat");
-const { updateCommandAuras } = require("./commandAuras");
+const { updateCommandAuras, invalidateCommandAuraMovement } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry");
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
@@ -102,7 +102,17 @@ function tickRoom(room, dt, now) {
   durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
   let movementStart = performanceNow();
+  const movedForCommandAuras = room._commandAuraMovementScratch || (room._commandAuraMovementScratch = []);
+  movedForCommandAuras.length = 0;
   for (const ship of ships) updateShipMovement(room, ship, dt, now);
+  for (const ship of ships) {
+    if (Math.abs(Number(ship._integratedMovementX) || 0) > 0.001
+      || Math.abs(Number(ship._integratedMovementY) || 0) > 0.001
+      || Math.abs(Number(ship._collisionCorrectionX) || 0) > 0.001
+      || Math.abs(Number(ship._collisionCorrectionY) || 0) > 0.001) {
+      movedForCommandAuras.push(ship.id);
+    }
+  }
   recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
   // updated by their own systems before consumers that need their positions.
@@ -138,6 +148,8 @@ function tickRoom(room, dt, now) {
     { sharedMovementContactPairs }
   );
   modifiedShipIds = movementSafety.modifiedShipIds;
+  invalidateCommandAuraMovement(room, movedForCommandAuras);
+  invalidateCommandAuraMovement(room, modifiedShipIds);
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
   if (sharedMovementContactPairs && shouldRunMovementContactDiagnostics(room)) {
     const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });

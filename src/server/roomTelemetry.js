@@ -87,7 +87,16 @@ const DURATION_FIELDS = Object.freeze([
   "visibilityStationQueriesMs",
   "visibilityRememberedMs",
   "visibilitySnapshotFilterMs",
-  "visibilityAuditMs"
+  "visibilityAuditMs",
+
+  // Phase 6D incremental Command Aura runtime timing
+  "commandAuraRuntimeMs",
+  "commandAuraSourceMaintenanceMs",
+  "commandAuraMembershipMs",
+  "commandAuraWinnerResolutionMs",
+  "commandAuraRecipientPublishMs",
+  "commandAuraReconciliationMs",
+  "commandAuraFallbackMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -321,6 +330,34 @@ const COUNTER_FIELDS = Object.freeze([
   "visibilityDuplicateInvalidations",
   "visibilityComputesAfterFinalization",
   "visibilityReconciliations",
+
+  // Phase 6D incremental Command Aura runtime counters
+  "commandAuraShipsConsidered",
+  "commandAuraActiveSourceShips",
+  "commandAuraActiveComponents",
+  "commandAuraSourceCacheHits",
+  "commandAuraSourceRebuilds",
+  "commandAuraSourceActivations",
+  "commandAuraSourceDeactivations",
+  "commandAuraMembershipQueries",
+  "commandAuraMembershipCacheHits",
+  "commandAuraMembershipAdds",
+  "commandAuraMembershipRemoves",
+  "commandAuraCandidatesVisited",
+  "commandAuraRecipientMovesProcessed",
+  "commandAuraSourceMovesProcessed",
+  "commandAuraRecipientsDirty",
+  "commandAuraRecipientsPublished",
+  "commandAuraRecipientsUnchanged",
+  "commandAuraWinnerChanges",
+  "commandAuraWinnerRescans",
+  "commandAuraPriorityComparisons",
+  "commandAuraSortsPerformed",
+  "commandAuraFullScanFallbacks",
+  "commandAuraReconciliations",
+  "commandAuraReconciliationRepairs",
+  "commandAuraStaleSourcesRemoved",
+  "commandAuraStaleRecipientsRemoved",
 
   // Phase 4B incremental spatial-index counters
   "spatialFullRebuilds",

@@ -181,6 +181,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
     const applied = Math.max(0, damage);
     ship.hp -= applied;
     if (applied > 0) markShipRepairCacheDirty(ship);
+    if (applied > 0) require("./commandAuras").invalidateCommandAuraSource(room, ship, "component-damage");
     return applied;
   }
 
@@ -240,12 +241,14 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
 
   if (ship.hp < 0) ship.hp = 0;
   if (applied > 0) markShipRepairCacheDirty(ship);
+  if (applied > 0) require("./commandAuras").invalidateCommandAuraSource(room, ship, "component-damage");
   return applied;
 }
 
 function onComponentDestroyed(room, ship, index, now) {
   markShipRepairCacheDirty(ship);
   bumpComponentAliveRevision(ship);
+  require("./commandAuras").invalidateCommandAuraSource(room, ship, "component-destroyed");
   ship._pdThreatSet = null;
   ship._targetAcquisitionSchedule = null;
   ship._weaponTargetState = null;
@@ -386,6 +389,7 @@ function detonateComponent(room, ship, index, radius, damage, now) {
   if (ship.hp < 0) ship.hp = 0;
   markShipRepairCacheDirty(ship);
   endComponentLifecycleBatch(ship);
+  if (ship.componentDamageRevision) require("./commandAuras").invalidateCommandAuraSource(room, ship, "component-detonation");
   if (room) {
     const cos = Math.cos(ship.angle);
     const sin = Math.sin(ship.angle);
@@ -486,6 +490,7 @@ function repairShipComponents(room, ship, amount, now, emitterShip) {
   }
   endComponentLifecycleBatch(ship);
   if (healed > 0) markShipRepairCacheDirty(ship);
+  if (healed > 0) require("./commandAuras").invalidateCommandAuraSource(room, ship, "component-repair");
   return healed;
 }
 

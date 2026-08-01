@@ -3788,6 +3788,8 @@ function destroyShip(room, ship, attackerId, now) {
 
   ship.alive = false;
 
+  require("./commandAuras").invalidateCommandAuraSource(room, ship, "destroyed");
+
   ship.hp = 0;
 
   room.spatialIndex?.remove?.("ships", ship);
@@ -3983,6 +3985,8 @@ function detonateSelfDestruct(room, ship, now) {
   ship.selfDestructAt = 0;
 
   ship.alive = false;
+
+  require("./commandAuras").invalidateCommandAuraSource(room, ship, "self-destruct");
 
   ship.hp = 0;
 

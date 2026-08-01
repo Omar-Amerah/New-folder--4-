@@ -788,7 +788,13 @@ function updateShipPowerDemand(ship, room, now) {
   ship._powerDemandLastSolvedAt = Number(now);
   ship.powerDemandRevision = (ship.powerDemandRevision || 0) + 1;
   bump("powerDemandSolveCount");
+  const previousAuraPowerRevision = Number(ship.powerRevision) || 0;
+  const previousAuraFlowRevision = Number(ship.powerFlowRevision) || 0;
   reallocateShipPower(ship, "activity-demand", { skipRuntimeStats: true });
+  if (previousAuraPowerRevision !== (Number(ship.powerRevision) || 0)
+    || previousAuraFlowRevision !== (Number(ship.powerFlowRevision) || 0)) {
+    require("./commandAuras").invalidateCommandAuraSource(room, ship, "power-allocation");
+  }
 }
 
 function buildShipPowerConsumerMetadata(ship) {
