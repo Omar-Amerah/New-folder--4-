@@ -15,12 +15,18 @@ const { initializeComponentPower } = require("./src/server/componentPower");
 const Heat = require("./src/server/heat");
 const Flags = require("./src/server/performanceFlags");
 const RoomTelemetry = require("./src/server/roomTelemetry");
+const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
+const { spawnShip } = require("./src/server/ships");
 
-const SHIP_COUNTS = [100, 250, 500, 1000];
-const COMPONENT_COUNTS = [15, 75, 150, 225];
-const DEFAULT_STEPS = 12;
-const WARMUP_STEPS = 2;
 const OUTPUT_PATH = path.join(__dirname, "test-artifacts", "performance", "benchmark-phase-6a.json");
+const args = new Set(process.argv.slice(2));
+if (args.has("--quick") && args.has("--full")) throw new Error("Choose either --quick or --full");
+const mode = args.has("--full") ? "full" : "quick";
+const DEFAULT_STEPS = mode === "full" ? 12 : 5;
+const WARMUP_STEPS = mode === "full" ? 2 : 1;
+
+// Template spawning is intentionally quiet for this server-local benchmark.
+process.env.NODE_ENV = "production";
 
 function percentile(values, p) {
   if (!values.length) return 0;
@@ -29,19 +35,27 @@ function percentile(values, p) {
 }
 
 function stats(values) {
-  return { p50: percentile(values, 0.5), p95: percentile(values, 0.95), average: values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length) };
+  return {
+    p50: percentile(values, 0.5),
+    p95: percentile(values, 0.95),
+    average: values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length)
+  };
 }
 
 function designFor(componentCount, scenario, shipIndex) {
   const design = [];
+  // 225 single-cell components fill the blueprint exactly.  Use the larger
+  // catalogue footprints only below that size so benchmark fixtures stay
+  // physically non-overlapping and still exercise multi-cell topology.
+  const supportsMultiCell = componentCount < 225;
   for (let i = 0; i < componentCount; i += 1) {
     const x = i % 15;
     const y = Math.floor(i / 15);
     let type = "frame";
-    if (scenario === "cold-idle-reactor" && i === 0) type = "reactor";
-    else if (scenario === "one-active-engine" && i === 0) type = "engine";
+    if (supportsMultiCell && scenario === "cold-idle-reactor" && i === 0) type = "reactor";
+    else if (supportsMultiCell && scenario === "one-active-engine" && i === 0) type = "engine";
     else if (scenario === "sparse-weapon-combat" && i === 0) type = "blaster";
-    else if (scenario === "cable-heat-heavy" && i === 0) type = "reactor";
+    else if (supportsMultiCell && scenario === "cable-heat-heavy" && i === 0) type = "reactor";
     else if (i === componentCount - 1) type = "radiator";
     design.push({ x, y, type, rotation: (shipIndex + i) % 4 * 90 });
   }
@@ -68,10 +82,58 @@ function makeShip(design, shipIndex) {
   return ship;
 }
 
-function makeFleet(shipCount, componentCount, scenario) {
+function templateRoom(player) {
+  return {
+    nextEntityId: 1,
+    mapSeed: 1,
+    world: { width: 100000, height: 100000 },
+    map: { asteroids: [], safeZones: [] },
+    players: new Map([[player.id, player]]),
+    ships: new Map(),
+    effects: [],
+    drones: new Map(),
+    stations: []
+  };
+}
+
+function makeTemplateFleet(shipCount, componentCount, scenario) {
+  const design = designFor(componentCount, scenario, 0);
+  const wiring = WiringRules.emptyWiring();
+  const stats = computeStats(design, wiring);
+  const template = createImmutableShipTemplate(design, wiring, stats);
+  const player = {
+    id: `benchmark-template-${scenario}-${componentCount}`,
+    team: "blue",
+    shipCap: shipCount,
+    ships: [],
+    design,
+    wiring,
+    stats,
+    rallyPoint: null
+  };
+  const room = templateRoom(player);
   const fleet = [];
-  for (let shipIndex = 0; shipIndex < shipCount; shipIndex += 1) fleet.push(makeShip(designFor(componentCount, scenario, shipIndex), shipIndex));
-  return fleet;
+  for (let shipIndex = 0; shipIndex < shipCount; shipIndex += 1) {
+    fleet.push(spawnShip(room, player, 0, shipIndex, {
+      template,
+      // Explicit points avoid spawn-planner work; this benchmark measures the
+      // thermal stage after construction, not fleet deployment placement.
+      spawnPoint: { x: 0, y: 0, angle: 0 }
+    }));
+  }
+  const shared = fleet.every((ship) => ship.thermalTopology === template.thermalTopology);
+  const localArrays = fleet.slice(1).every((ship) => ship.componentHeat !== fleet[0].componentHeat && ship._thermalRuntime !== fleet[0]._thermalRuntime);
+  if (!shared || !localArrays) throw new Error("Template topology/state isolation invariant failed");
+  return { fleet, template, templateRoom: room };
+}
+
+function makeFleet(shipCount, componentCount, scenario, templateShared) {
+  if (templateShared) return makeTemplateFleet(shipCount, componentCount, scenario);
+  const fleet = [];
+  for (let shipIndex = 0; shipIndex < shipCount; shipIndex += 1) {
+    fleet.push(makeShip(designFor(componentCount, scenario, shipIndex), shipIndex));
+  }
+  return { fleet, template: null, templateRoom: null };
 }
 
 function cableRates(ship) {
@@ -79,11 +141,9 @@ function cableRates(ship) {
   const total = rates.reduce((sum, value) => sum + value, 0);
   ship.componentPowerCableHeatRate = rates;
   ship.powerCableHeatRate = total;
-  // The checked-in server currently has WIRING_ENABLED=false, so the normal
-  // cable-analysis authority intentionally clears physical cable rates.  Keep
-  // this synthetic benchmark fixture in the disabled-analysis mode after
-  // injecting deterministic rates; that exercises the Heat runtime's cable
-  // list without changing the production feature flag or cable formula.
+  // WIRING_ENABLED is false in this checkout.  Keep this synthetic fixture in
+  // disabled-analysis mode after injecting deterministic rates so the benchmark
+  // exercises the Heat cable list without replacing the cable authority.
   ship.powerCableThermalAnalysis = { mode: "disabled", sections: [], components: [], summary: { totalPowerCableHeatPerSecond: total, hottestSectionId: null } };
   ship._powerCableThermalFlowRevision = ship.powerFlowRevision || 0;
   Heat.refreshHeatRuntimeCableComponents(ship, rates, total);
@@ -121,9 +181,6 @@ function applyScenarioInput(fleet, scenario, step) {
     if (scenario === "sparse-weapon-combat" && active) Heat.addComponentHeat(ship, 0, 8);
     if (scenario === "mixed-idle-active" && active) Heat.addComponentHeat(ship, 0, 5);
     if (scenario === "damage-repair-churn" && active) {
-      // Keep the legacy compatibility wake hint asserted while this fixture
-      // models ongoing lifecycle churn.  Phase 6A itself tracks every finite
-      // positive retained-Heat value, including a sub-threshold cooling tail.
       ship.hasActiveHeat = true;
       const index = shipIndex % ship.componentHp.length;
       ship.componentHp[index] = step % 2 === 0 ? Math.max(1, ship.componentMaxHp[index] * 0.6) : ship.componentMaxHp[index];
@@ -147,42 +204,92 @@ function checksum(fleet) {
 
 function approximateRuntimeBytes(ship) {
   const n = ship.componentHeat.length;
-  const arrays = 19 * n * 8;
-  const runtime = (ship._thermalRuntime?.transferEdgeIds?.length || 0) * 4
-    + (ship._thermalRuntime?.transferAmounts?.length || 0) * 8
-    + (ship._thermalRuntime?.telemetryValues?.length || 0) * 8
-    + n * 4 * 8;
-  return arrays + runtime;
+  const typedArrays = [
+    ship._thermalRuntime?.heatBearingMembership,
+    ship._thermalRuntime?.heatBearingPositions,
+    ship._thermalRuntime?.hotMembership,
+    ship._thermalRuntime?.hotPositions,
+    ship._thermalRuntime?.pendingInputMembership,
+    ship._thermalRuntime?.cableMembership,
+    ship._thermalRuntime?.loadedGeneratorMembership,
+    ship._thermalRuntime?.powerSourceMembership,
+    ship._thermalRuntime?.dataSourceMembership,
+    ship._thermalRuntime?.lifecycleMembership,
+    ship._thermalRuntime?.workMembership,
+    ship._thermalRuntime?.touchedMembership,
+    ship._thermalRuntime?.edgeVisitStamps,
+    ship._thermalRuntime?.transferEdgeIds,
+    ship._thermalRuntime?.telemetryCandidateStamps
+  ];
+  const typedBytes = typedArrays.reduce((sum, value) => sum + (value?.byteLength || 0), 0)
+    + (ship._thermalRuntime?.transferAmounts?.byteLength || 0)
+    + (ship._thermalRuntime?.delta?.byteLength || 0)
+    + (ship._thermalRuntime?.workingHeat?.byteLength || 0)
+    + (ship._thermalRuntime?.outflow?.byteLength || 0)
+    + (ship._thermalRuntime?.lastHeatValues?.byteLength || 0)
+    + (ship._thermalRuntime?.telemetryValues?.byteLength || 0);
+  const publicArrays = [
+    "componentHeat", "componentHeatCapacity", "componentHeatState", "componentHeatGenerated",
+    "componentHeatReceived", "componentHeatRemoved", "componentHeatTransferredOut",
+    "componentHeatCooled", "componentHeatSentThroughFrame", "componentHeatRadiated",
+    "componentVentedOverflowHeatThisTick", "componentTotalVentedOverflowHeat", "componentHeatInput",
+    "componentMeltdown", "componentPowerCableHeatRate", "componentPowerCableHeatGenerated"
+  ].reduce((sum, field) => sum + ((ship[field]?.length || 0) * 8), 0);
+  const reusableLists = [
+    "heatBearingComponents", "hotComponents", "pendingInputComponents", "cableComponents",
+    "loadedGeneratorComponents", "lifecycleComponents", "workComponents", "touchedComponents",
+    "candidateEdgeIds", "telemetryComponents", "telemetrySpareComponents"
+  ].reduce((sum, field) => sum + ((ship._thermalRuntime?.[field]?.length || 0) * 8), 0);
+  return typedBytes + publicArrays + reusableLists + n * 32;
+}
+
+// This is an estimate, not a V8 heap snapshot.  It explicitly includes the
+// mutable compatibility object graph when legacy mode materializes it, which
+// the previous benchmark omitted.
+function approximateCompatibilityAdjacencyBytes(ship) {
+  const adjacency = ship._componentAdjacencyValue;
+  if (!adjacency) return 0;
+  const edgeCount = adjacency.reduce((sum, edges) => sum + edges.length, 0);
+  return adjacency.length * 24 + edgeCount * 56;
 }
 
 function approximateTopologyBytes(topology) {
+  if (!topology) return 0;
   const edges = topology.edgeA.length;
-  return edges * (4 + 4 + 4 + 8 + 8 + 1) + topology.incidentEdgeIds.length * 4 + topology.incidentEdgeOffsets.length * 4;
+  const scalarArrays = [
+    topology.edgeA, topology.edgeB, topology.edgeSharedEdges, topology.edgeBaseConductivity,
+    topology.edgeRouteMultiplier, topology.edgeThroughFrame, topology.incidentEdgeIds,
+    topology.incidentEdgeOffsets, topology.legacyTransferOrder, topology.legacyTransferRank,
+    topology.powerSourceIndices, topology.dataSourceIndices, topology.radiatorIndices,
+    topology.heatSinkIndices, topology.thermalRouteIndices
+  ];
+  const packedBytes = scalarArrays.reduce((sum, values) => sum + values.length * 8, 0);
+  const immutableAdjacencyBytes = topology.componentAdjacency.reduce((sum, values) => sum + values.length * 48, 0) + topology.componentAdjacency.length * 24;
+  return packedBytes + immutableAdjacencyBytes + edges * 32;
 }
 
-function runMode({ shipCount, componentCount, scenario, optimized }) {
+function runMode({ shipCount, componentCount, scenario, optimized, templateShared }) {
   Flags.__setOPTIMIZED_HEAT_RUNTIME(optimized);
   const heapBeforeRun = process.memoryUsage().heapUsed;
-  const fleet = makeFleet(shipCount, componentCount, scenario);
+  const { fleet, template } = makeFleet(shipCount, componentCount, scenario, templateShared);
   prepareFleet(fleet, scenario);
   const room = {};
   const stepDurations = [];
-  const fullDurations = [];
   const visitedComponents = [];
   const visitedEdges = [];
   const transfers = [];
   const transferAllocations = [];
   const stableSkipped = [];
   const wakeups = [];
-  for (let step = 0; step < WARMUP_STEPS + DEFAULT_STEPS; step += 1) {
+
+  const advance = (step, collect) => {
     applyScenarioInput(fleet, scenario, step);
     RoomTelemetry.resetRoomTelemetry(room);
     const started = performance.now();
     for (const ship of fleet) Heat.updateShipHeat(ship, HeatRules.TICK_SECONDS, room, step * HeatRules.TICK_SECONDS);
     const elapsed = performance.now() - started;
-    if (step >= WARMUP_STEPS) {
+    if (collect) {
       stepDurations.push(elapsed);
-      fullDurations.push(elapsed);
       visitedComponents.push(room._roomTelemetry.heatComponentsVisited || 0);
       visitedEdges.push(room._roomTelemetry.heatEdgesVisited || 0);
       transfers.push(room._roomTelemetry.heatTransfersApplied || 0);
@@ -190,28 +297,42 @@ function runMode({ shipCount, componentCount, scenario, optimized }) {
       stableSkipped.push(room._roomTelemetry.heatShipsStableSkipped || 0);
       wakeups.push(room._roomTelemetry.heatShipWakeups || 0);
     }
-  }
+  };
+
+  for (let step = 0; step < WARMUP_STEPS + DEFAULT_STEPS; step += 1) advance(step, step >= WARMUP_STEPS);
+  const heapBeforeRepeatedRun = process.memoryUsage().heapUsed;
+  for (let step = 0; step < DEFAULT_STEPS; step += 1) advance(WARMUP_STEPS + DEFAULT_STEPS + step, false);
+  const heapAfterRepeatedRun = process.memoryUsage().heapUsed;
+
   const first = fleet[0];
+  const topologyBytes = approximateTopologyBytes(first.thermalTopology);
+  const compatibilityBytes = approximateCompatibilityAdjacencyBytes(first);
   return {
     mode: optimized ? "optimized" : "legacy",
+    fixtureKind: templateShared ? "template-shared" : "direct",
     heatStageMs: stats(stepDurations),
-    fullSimulationStepMs: stats(fullDurations),
+    // This benchmark deliberately does not call this value a full simulation
+    // step: it measures only the authoritative Heat stage over a fleet.
+    fullSimulationStepMeasured: false,
     componentsVisited: stats(visitedComponents),
     edgesVisited: stats(visitedEdges),
     transfersApplied: stats(transfers),
     transferObjectsAllocated: transferAllocations.reduce((sum, value) => sum + value, 0),
     stableStepsSkipped: stableSkipped.reduce((sum, value) => sum + value, 0),
     wakeups: wakeups.reduce((sum, value) => sum + value, 0),
-    // Topology lifecycle counters are per-ship initialization facts and may
-    // have been reported during warm-up, so read the persistent runtime state
-    // instead of the last reset room sample.
-    topologyBuilds: fleet.reduce((sum, ship) => sum + (ship._thermalRuntime?.topologyBuilds || 0), 0),
+    topologyBuilds: templateShared ? 1 : fleet.reduce((sum, ship) => sum + (ship._thermalRuntime?.topologyBuilds || 0), 0),
     topologyCacheHits: fleet.reduce((sum, ship) => sum + (ship._thermalRuntime?.topologyCacheHits || 0), 0),
     topologySharedShips: fleet.reduce((sum, ship) => sum + (ship._thermalRuntime?.topologyShared ? 1 : 0), 0),
-    approximateMemoryPerShipBytes: approximateRuntimeBytes(first),
-    sharedTopologyMemoryBytes: approximateTopologyBytes(first.thermalTopology),
-    heapUsedAfterRunBytes: process.memoryUsage().heapUsed,
-    heapGrowthOverRepeatedRunBytes: process.memoryUsage().heapUsed - heapBeforeRun,
+    templateTopologyIdentityVerified: templateShared
+      ? fleet.every((ship) => ship.thermalTopology === template.thermalTopology)
+      : false,
+    approximateMemoryPerShipBytes: approximateRuntimeBytes(first) + compatibilityBytes,
+    approximateRuntimeOnlyBytes: approximateRuntimeBytes(first),
+    approximateLegacyCompatibilityAdjacencyBytes: compatibilityBytes,
+    sharedTopologyMemoryBytes: templateShared ? topologyBytes : 0,
+    topologyMemoryPerShipBytes: templateShared ? topologyBytes / Math.max(1, shipCount) : topologyBytes,
+    heapGrowthOverRepeatedRunBytes: heapAfterRepeatedRun - heapBeforeRepeatedRun,
+    heapGrowthIncludingConstructionBytes: process.memoryUsage().heapUsed - heapBeforeRun,
     outcomeChecksum: checksum(fleet),
     ships: shipCount,
     components: componentCount,
@@ -219,28 +340,79 @@ function runMode({ shipCount, componentCount, scenario, optimized }) {
   };
 }
 
-const scenarios = [
-  "cold-idle-reactor", "cold-no-reactors", "one-active-engine", "sparse-weapon-combat",
-  "mixed-idle-active", "fully-warm-hot", "cable-heat-heavy", "damage-repair-churn"
-];
-const fixtures = [];
-for (const scenario of scenarios) {
-  const sizes = scenario === "fully-warm-hot" || scenario === "cable-heat-heavy" ? [[100, 75], [250, 150]] : [[100, 15], [250, 75], [500, 150], [1000, 225]];
-  for (const [shipCount, componentCount] of sizes) {
-    const legacy = runMode({ shipCount, componentCount, scenario, optimized: false });
-    const optimized = runMode({ shipCount, componentCount, scenario, optimized: true });
-    fixtures.push({ scenario, shipCount, componentCount, legacy, optimized, equivalentOutcome: legacy.outcomeChecksum === optimized.outcomeChecksum });
+function fixtureDefinitions() {
+  if (mode === "quick") {
+    return [
+      ["cold-idle-reactor", 100, 15],
+      ["cold-no-reactors", 250, 75],
+      ["one-active-engine", 100, 15],
+      ["sparse-weapon-combat", 250, 75],
+      ["mixed-idle-active", 500, 150],
+      ["fully-warm-hot", 250, 150],
+      ["cable-heat-heavy", 250, 150],
+      ["damage-repair-churn", 250, 150],
+      ["mixed-idle-active", 100, 225]
+    ];
   }
+  return [
+    ["cold-idle-reactor", 100, 15], ["cold-idle-reactor", 250, 75], ["cold-idle-reactor", 500, 150], ["cold-idle-reactor", 1000, 225],
+    ["cold-no-reactors", 100, 15], ["cold-no-reactors", 250, 75], ["cold-no-reactors", 500, 150], ["cold-no-reactors", 1000, 225],
+    ["one-active-engine", 100, 15], ["one-active-engine", 250, 75], ["one-active-engine", 500, 150],
+    ["sparse-weapon-combat", 100, 15], ["sparse-weapon-combat", 250, 75], ["sparse-weapon-combat", 500, 150],
+    ["mixed-idle-active", 250, 75], ["mixed-idle-active", 500, 150], ["mixed-idle-active", 1000, 225],
+    ["fully-warm-hot", 100, 75], ["fully-warm-hot", 250, 150], ["fully-warm-hot", 500, 225],
+    ["cable-heat-heavy", 100, 75], ["cable-heat-heavy", 250, 150], ["cable-heat-heavy", 500, 225],
+    ["damage-repair-churn", 100, 75], ["damage-repair-churn", 250, 150], ["damage-repair-churn", 500, 225],
+    ["mixed-idle-active", 100, 225]
+  ];
 }
+
+const fixtures = [];
+for (const [scenario, shipCount, componentCount] of fixtureDefinitions()) {
+  const legacy = runMode({ shipCount, componentCount, scenario, optimized: false, templateShared: false });
+  const optimized = runMode({ shipCount, componentCount, scenario, optimized: true, templateShared: false });
+  fixtures.push({ scenario, shipCount, componentCount, fixtureKind: "direct", legacy, optimized, equivalentOutcome: legacy.outcomeChecksum === optimized.outcomeChecksum });
+}
+
+// Hundreds of template-spawned ships are a separate fixture so shared-topology
+// identity and the legacy compatibility-view memory cost are visible in the
+// machine-readable result instead of being inferred from direct construction.
+const templateCount = mode === "full" ? 500 : 250;
+const templateComponents = mode === "full" ? 150 : 75;
+const templateScenario = "mixed-idle-active";
+const templateLegacy = runMode({ shipCount: templateCount, componentCount: templateComponents, scenario: templateScenario, optimized: false, templateShared: true });
+const templateOptimized = runMode({ shipCount: templateCount, componentCount: templateComponents, scenario: templateScenario, optimized: true, templateShared: true });
+fixtures.push({
+  scenario: templateScenario,
+  shipCount: templateCount,
+  componentCount: templateComponents,
+  fixtureKind: "template-shared",
+  legacy: templateLegacy,
+  optimized: templateOptimized,
+  equivalentOutcome: templateLegacy.outcomeChecksum === templateOptimized.outcomeChecksum,
+  topologyIdentityVerified: templateLegacy.templateTopologyIdentityVerified && templateOptimized.templateTopologyIdentityVerified
+});
+
 Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
 const output = {
   generatedAt: new Date().toISOString(),
   node: process.version,
+  mode,
   heatTickSeconds: HeatRules.TICK_SECONDS,
   flagDefaultAfterRun: Flags.OPTIMIZED_HEAT_RUNTIME(),
-  methodology: { warmupSteps: WARMUP_STEPS, measuredSteps: DEFAULT_STEPS, timing: "performance.now wall-clock per fleet thermal stage", checksum: "rounded component Heat at 1e-6 units" },
-  fixtures
+  methodology: {
+    warmupSteps: WARMUP_STEPS,
+    measuredSteps: DEFAULT_STEPS,
+    timing: "performance.now wall-clock for Heat.updateShipHeat across the fleet",
+    fullSimulationStepMeasured: false,
+    fullSimulationStepNote: "A production whole-simulation boundary is not measured by this server-local Heat benchmark; heatStageMs must not be presented as whole-server speedup.",
+    checksum: "rounded component Heat at 1e-6 units",
+    memoryNote: "Approximate field-size estimate; legacyCompatibilityAdjacency includes the mutable compatibility object graph when materialized, while shared topology is counted once for template fixtures."
+  },
+  fixtures,
+  allEquivalent: fixtures.every((fixture) => fixture.equivalentOutcome),
+  allTemplateTopologyIdentityVerified: fixtures.filter((fixture) => fixture.fixtureKind === "template-shared").every((fixture) => fixture.topologyIdentityVerified)
 };
 fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
 fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
-console.log(JSON.stringify({ outputPath: OUTPUT_PATH, fixtures: fixtures.length, allEquivalent: fixtures.every((fixture) => fixture.equivalentOutcome) }, null, 2));
+console.log(JSON.stringify({ outputPath: OUTPUT_PATH, mode, fixtures: fixtures.length, allEquivalent: output.allEquivalent, templateTopologyIdentityVerified: output.allTemplateTopologyIdentityVerified }, null, 2));
