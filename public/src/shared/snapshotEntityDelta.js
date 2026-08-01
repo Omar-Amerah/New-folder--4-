@@ -41,6 +41,13 @@
     "droneBays", "decoyLaunchers", "engBlocked"
   ]);
 
+  // chpVisual is deliberately omitted on ordinary compact frames and is
+  // refreshed by componentDamageRevision when it changes.  Keep it out of the
+  // state comparison signature so omission is not mistaken for deletion.
+  const SHIP_STATE_SIGNATURE_FIELDS = Object.freeze(
+    SHIP_STATE_FIELDS.filter((field) => field !== "chpVisual")
+  );
+
   // Shared privacy authority.  A public/detail downgrade must clear every
   // field here, including fields added by later Power/Heat revisions.
   const PRIVATE_SHIP_FIELDS = Object.freeze([
@@ -101,6 +108,7 @@
     SHIP_MOTION,
     SHIP_MOTION_STRIDE: SHIP_MOTION.STRIDE,
     SHIP_STATE_FIELDS,
+    SHIP_STATE_SIGNATURE_FIELDS,
     PRIVATE_SHIP_FIELDS,
     GENERIC_MOTION_FIELDS,
     cleanNumber,

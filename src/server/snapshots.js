@@ -25,7 +25,7 @@ const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapabi
 const { ensureTeamVisibility, invalidateVisibility, usesSensorVisibility } = require("./visibility");
 const { INFRASTRUCTURE } = require("./config");
 const {
-  SHIP_STATE_FIELDS,
+  SHIP_STATE_SIGNATURE_FIELDS,
   PRIVATE_SHIP_FIELDS
 } = require("../../public/src/shared/snapshotEntityDelta");
 const { signature: snapshotEntitySignature } = require("./snapshotEntityDelta");
@@ -39,6 +39,36 @@ const COMPONENT_HEAT_STATE = 1;
 const COMPONENT_HEAT_RATIO = 2;
 const COMPONENT_HEAT_CAPACITY = 3;
 const COMPONENT_HEAT_DELTA_STRIDE = 5;
+
+const ENTITY_DELTA_POWER_PRIVATE_FIELDS = Object.freeze(PRIVATE_SHIP_FIELDS.filter((field) => ![
+  "chp", "chpD", "componentHeat", "componentHeatD", "storageCharge"
+].includes(field)));
+
+function entityDeltaClearStateFields(ship) {
+  const clear = [];
+  if (!(ship.selfDestructAt && ship.alive)) clear.push("destructProgress");
+  if (!ship.droneBays?.length) clear.push("droneBays");
+  if (!ship.decoyLaunchers?.length) clear.push("decoyLaunchers");
+  if (!ship.blockedEngineIndices?.size) clear.push("engBlocked");
+  return clear;
+}
+
+// Compact private telemetry is intentionally omitted while unchanged.  These
+// lists therefore describe only authoritative source disappearance, not every
+// field absent from the current sparse row.
+function entityDeltaClearPrivateFields(entry, ship) {
+  const clear = [];
+  const hasPower = Boolean(ship.componentPower?.byComponentIndex);
+  if (!hasPower) {
+    for (const field of ENTITY_DELTA_POWER_PRIVATE_FIELDS) {
+      if (entry[field] === undefined) clear.push(field);
+    }
+  }
+  if (!Array.isArray(ship.componentHp) && entry.chp === undefined) clear.push("chp");
+  if (!Array.isArray(ship.componentHeat) && entry.componentHeat === undefined) clear.push("componentHeat");
+  if (!Array.isArray(ship.componentStorageCharge) && entry.storageCharge === undefined) clear.push("storageCharge");
+  return clear;
+}
 
 function buildComponentHeatTuple(ship, index) {
   const capacity = Math.round((ship.componentThermals?.[index]?.capacity || 0) * 10) / 10;
@@ -290,7 +320,17 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       // lets the v2 patch builder compare public state without rebuilding and
       // recursively signing the same row once per viewer.
       Object.defineProperty(entry, "__entityDeltaStateSignature", {
-        value: SHIP_STATE_FIELDS.map((field) => `${field}=${snapshotEntitySignature(entry[field])}`).join("|"),
+        value: SHIP_STATE_SIGNATURE_FIELDS.map((field) => `${field}=${snapshotEntitySignature(entry[field])}`).join("|"),
+        enumerable: false,
+        configurable: true
+      });
+      Object.defineProperty(entry, "__entityDeltaClearStateFields", {
+        value: entityDeltaClearStateFields(ship),
+        enumerable: false,
+        configurable: true
+      });
+      Object.defineProperty(entry, "__entityDeltaClearPrivateFields", {
+        value: entityDeltaClearPrivateFields(entry, ship),
         enumerable: false,
         configurable: true
       });
@@ -711,9 +751,14 @@ function appendPublicShipVisual(entry, ship, includeDesign) {
 
 function materializeClientShipEntry(base, detail) {
   const entry = { ...base, detail };
-  if (base?.__entityDeltaStateSignature !== undefined) {
-    Object.defineProperty(entry, "__entityDeltaStateSignature", {
-      value: base.__entityDeltaStateSignature,
+  for (const key of [
+    "__entityDeltaStateSignature",
+    "__entityDeltaClearStateFields",
+    "__entityDeltaClearPrivateFields"
+  ]) {
+    if (base?.[key] === undefined) continue;
+    Object.defineProperty(entry, key, {
+      value: base[key],
       enumerable: false,
       configurable: true
     });

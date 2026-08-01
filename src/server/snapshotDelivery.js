@@ -62,15 +62,34 @@ function phase5MetricsForBuilt(wireSnapshot, payloadBytes, formatVersion, full, 
         effects: wireSnapshot.effectsPatch?.motion || []
       };
       const sparse = {
-        players: wireSnapshot.playersPatch?.upsert || [],
+        players: [
+          ...(wireSnapshot.playersPatch?.upsert || []),
+          ...(wireSnapshot.playersPatch?.state || [])
+        ],
         ships: wireSnapshot.shipsPatch?.state || [],
         drones: wireSnapshot.dronesPatch?.state || [],
         decoys: wireSnapshot.decoysPatch?.state || [],
         stations: wireSnapshot.stationsPatch?.dynamic || [],
-        points: wireSnapshot.pointsPatch?.upsert || [],
-        effects: wireSnapshot.effectsPatch?.state || []
+        points: [
+          ...(wireSnapshot.pointsPatch?.upsert || []),
+          ...(wireSnapshot.pointsPatch?.state || [])
+        ],
+        effects: wireSnapshot.effectsPatch?.state || [],
+        supplementary: [
+          ...(wireSnapshot.dronesPatch?.remaining || []),
+          ...(wireSnapshot.decoysPatch?.remaining || []),
+          ...(wireSnapshot.effectsPatch?.remaining || [])
+        ]
+      };
+      const clears = {
+        players: wireSnapshot.playersPatch?.clearStateFields || [],
+        ships: wireSnapshot.shipsPatch?.clearStateFields || [],
+        drones: wireSnapshot.dronesPatch?.clearStateFields || [],
+        decoys: wireSnapshot.decoysPatch?.clearStateFields || [],
+        effects: wireSnapshot.effectsPatch?.clearStateFields || []
       };
       const privatePart = { ships: wireSnapshot.shipsPatch?.private || [] };
+      const privateClears = { ships: wireSnapshot.shipsPatch?.clearPrivateFields || [] };
       const removals = {
         ships: wireSnapshot.shipsPatch?.remove || [],
         drones: wireSnapshot.dronesPatch?.remove || [],
@@ -88,7 +107,9 @@ function phase5MetricsForBuilt(wireSnapshot, payloadBytes, formatVersion, full, 
       };
       metrics.snapshotMotionBytes = patchSectionBytes(motion);
       metrics.snapshotSparseStateBytes = patchSectionBytes(sparse);
+      metrics.snapshotStateClearBytes = patchSectionBytes(clears);
       metrics.snapshotPrivateBytes = patchSectionBytes(privatePart);
+      metrics.snapshotPrivateClearBytes = patchSectionBytes(privateClears);
       metrics.snapshotRemovalBytes = patchSectionBytes(removals);
       metrics.snapshotDictionaryBytes = patchSectionBytes(dictionary);
     } else {
@@ -101,13 +122,24 @@ function phase5MetricsForBuilt(wireSnapshot, payloadBytes, formatVersion, full, 
         + patchRowCount(wireSnapshot.decoysPatch, "motion")
         + patchRowCount(wireSnapshot.effectsPatch, "motion");
       const sparseCount = patchRowCount(wireSnapshot.playersPatch, "upsert")
+        + patchRowCount(wireSnapshot.playersPatch, "state")
         + patchRowCount(wireSnapshot.shipsPatch, "state")
         + patchRowCount(wireSnapshot.dronesPatch, "state")
         + patchRowCount(wireSnapshot.decoysPatch, "state")
         + patchRowCount(wireSnapshot.stationsPatch, "dynamic")
         + patchRowCount(wireSnapshot.pointsPatch, "upsert")
-        + patchRowCount(wireSnapshot.effectsPatch, "state");
+        + patchRowCount(wireSnapshot.pointsPatch, "state")
+        + patchRowCount(wireSnapshot.effectsPatch, "state")
+        + patchRowCount(wireSnapshot.dronesPatch, "remaining")
+        + patchRowCount(wireSnapshot.decoysPatch, "remaining")
+        + patchRowCount(wireSnapshot.effectsPatch, "remaining");
+      const stateClearCount = patchRowCount(wireSnapshot.playersPatch, "clearStateFields")
+        + patchRowCount(wireSnapshot.shipsPatch, "clearStateFields")
+        + patchRowCount(wireSnapshot.dronesPatch, "clearStateFields")
+        + patchRowCount(wireSnapshot.decoysPatch, "clearStateFields")
+        + patchRowCount(wireSnapshot.effectsPatch, "clearStateFields");
       const privateCount = patchRowCount(wireSnapshot.shipsPatch, "private");
+      const privateClearCount = patchRowCount(wireSnapshot.shipsPatch, "clearPrivateFields");
       const removalCount = patchRowCount(wireSnapshot.shipsPatch, "remove")
         + patchRowCount(wireSnapshot.dronesPatch, "remove")
         + patchRowCount(wireSnapshot.decoysPatch, "remove")
@@ -119,10 +151,12 @@ function phase5MetricsForBuilt(wireSnapshot, payloadBytes, formatVersion, full, 
         + patchRowCount(wireSnapshot.decoysPatch, "upsert")
         + patchRowCount(wireSnapshot.stationsPatch, "upsert")
         + patchRowCount(wireSnapshot.effectsPatch, "upsert");
-      const total = Math.max(1, motionCount + sparseCount + privateCount + removalCount + dictionaryCount);
+      const total = Math.max(1, motionCount + sparseCount + stateClearCount + privateCount + privateClearCount + removalCount + dictionaryCount);
       metrics.snapshotMotionBytes = Math.round(payloadBytes * motionCount / total);
       metrics.snapshotSparseStateBytes = Math.round(payloadBytes * sparseCount / total);
+      metrics.snapshotStateClearBytes = Math.round(payloadBytes * stateClearCount / total);
       metrics.snapshotPrivateBytes = Math.round(payloadBytes * privateCount / total);
+      metrics.snapshotPrivateClearBytes = Math.round(payloadBytes * privateClearCount / total);
       metrics.snapshotRemovalBytes = Math.round(payloadBytes * removalCount / total);
       metrics.snapshotDictionaryBytes = Math.round(payloadBytes * dictionaryCount / total);
     }
@@ -376,7 +410,16 @@ function stableEntityStateSignature(state) {
     const map = state[kind];
     if (!(map instanceof Map)) continue;
     const rows = [];
-    for (const [id, record] of map) rows.push([String(id), record?.detail || "", record?.designRevision || 0, record?.motionSignature || record?.stateSignature || record?.entrySignature || ""]);
+    for (const [id, record] of map) rows.push([
+      String(id),
+      record?.detail || "",
+      record?.designRevision || 0,
+      record?.motionSignature || "",
+      record?.stateSignature || "",
+      record?.privateSignature || "",
+      record?.remainingSignature || "",
+      record?.entrySignature || ""
+    ]);
     rows.sort((a, b) => a[0].localeCompare(b[0]));
     parts.push(`${kind}:${rows.map((row) => row.join(":")).join(",")}`);
   }
@@ -519,9 +562,12 @@ function broadcastSnapshot(room, now, forceStatic = false) {
     groups: groups.size,
     recipients: room.clients.size,
     constructionMs,
+    sharedConstructionMs,
+    viewerConstructionMs: Math.max(0, constructionMs - sharedConstructionMs),
     encodingMs,
     aggregatePayloadBytes: payloadBytes,
-    maxClientBytes
+    maxClientBytes,
+    totalBroadcastMs: performanceNow() - startedAt
   };
   addPhase5("snapshotConstructionSharedMs", sharedConstructionMs);
   addPhase5("snapshotRecipients", room.clients.size);

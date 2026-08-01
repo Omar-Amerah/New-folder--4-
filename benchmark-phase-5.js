@@ -222,18 +222,21 @@ async function mergeWrittenPackets(packets) {
   let state = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
   const decodeSamples = [];
   const mergeSamples = [];
+  const combinedSamples = [];
   let accepted = 0;
   for (const packet of packets) {
+    const combinedStart = performanceNow();
     const decodeStart = performanceNow();
-    const decoded = packet;
+    const decoded = decode(packet);
     decodeSamples.push(performanceNow() - decodeStart);
     const mergeStart = performanceNow();
     const result = merge.mergeSnapshotTransaction(snapshot, state, decoded);
     mergeSamples.push(performanceNow() - mergeStart);
+    combinedSamples.push(performanceNow() - combinedStart);
     if (!result.ok) break;
     accepted += 1; snapshot = result.snapshot; state = result.networkState;
   }
-  return { accepted, decodeSamples, mergeSamples };
+  return { accepted, decodeSamples, mergeSamples, combinedSamples };
 }
 
 function runOne(mode, count, clients, projectileCount, scenario, seed) {
@@ -244,13 +247,18 @@ function runOne(mode, count, clients, projectileCount, scenario, seed) {
   const beforeWasted = performanceSnapshot().snapshot.phase5.totals.snapshotBuiltThenReplacedBytes || 0;
   const construction = [];
   const sharedConstruction = [];
+  const viewerConstruction = [];
+  const totalBroadcast = [];
   const encoding = [];
   const payloadByClient = [];
   const writesBefore = new Map([...room.clients].map((client) => [client.id, 0]));
   outbound.configureOutbound({
     writeFrame(socket, payload) {
       socket.rawBytes += payload.length;
-      socket.packets.push(decode(payload));
+      // Retain the exact wire bytes. Client decode timing is measured later
+      // against these raw MessagePack frames, not against an already decoded
+      // test object.
+      socket.packets.push(Buffer.from(payload));
       if (socket.blocked) return false;
       return true;
     }
@@ -263,13 +271,14 @@ function runOne(mode, count, clients, projectileCount, scenario, seed) {
     const metrics = room._lastSnapshotDeliveryMetrics || {};
     construction.push(finite(metrics.constructionMs));
     encoding.push(finite(metrics.encodingMs));
-    sharedConstruction.push(finite(metrics.constructionMs) / Math.max(1, finite(metrics.groups, 1)));
+    sharedConstruction.push(finite(metrics.sharedConstructionMs));
+    viewerConstruction.push(finite(metrics.viewerConstructionMs));
+    // Keep end-to-end broadcast wall time separate from the authoritative
+    // construction counter; drain handling is intentionally outside it.
+    totalBroadcast.push(performanceNow() - started);
     if (scenario === "one-blocked-client" || scenario === "snapshot-replacement") {
       for (const client of room.clients) if (client.socket.blocked) client.socket.emit("drain");
     }
-    // Keep an actual production-path wall-clock sample as a secondary sanity
-    // measure; the authoritative metrics above are the delivery counters.
-    construction.push(performanceNow() - started);
   }
   for (const client of room.clients) {
     const previous = writesBefore.get(client.id) || 0;
@@ -285,6 +294,8 @@ function runOne(mode, count, clients, projectileCount, scenario, seed) {
       mode, count, clients, projectileCount, scenario, seed,
       snapshotConstruction: summarize(construction),
       sharedConstruction: summarize(sharedConstruction),
+      viewerConstruction: summarize(viewerConstruction),
+      totalBroadcast: summarize(totalBroadcast),
       encoding: summarize(encoding),
       payloadBytesPerClient: summarize(payloadByClient.map((value) => value.bytes)),
       aggregateBytes: totalBytes,
@@ -294,11 +305,13 @@ function runOne(mode, count, clients, projectileCount, scenario, seed) {
       resyncs: mergeResult.accepted < (sampleClient?.socket.packets.length || 0) ? 1 : 0,
       clientDecode: summarize(mergeResult.decodeSamples),
       clientMerge: summarize(mergeResult.mergeSamples),
+      clientCombined: summarize(mergeResult.combinedSamples),
       acceptedMerges: mergeResult.accepted,
       memoryGrowthBytes: afterHeap - beforeHeap,
       wastedBuiltThenReplacedBytes: afterWasted - beforeWasted,
       delivery: room._lastSnapshotDeliveryMetrics || {},
-      wallClockConstructionSamples: construction.length
+      constructionMetricSamples: construction.length,
+      rawWireBytesMeasured: true
     };
   });
 }
@@ -344,10 +357,20 @@ async function main() {
       payloadReductionPercent: legacy.aggregateBytes ? (1 - entity.aggregateBytes / legacy.aggregateBytes) * 100 : 0,
       legacyConstructionP95: legacy.snapshotConstruction.p95,
       entityConstructionP95: entity.snapshotConstruction.p95,
+      legacySharedConstructionP95: legacy.sharedConstruction.p95,
+      entitySharedConstructionP95: entity.sharedConstruction.p95,
+      legacyViewerConstructionP95: legacy.viewerConstruction.p95,
+      entityViewerConstructionP95: entity.viewerConstruction.p95,
+      legacyTotalBroadcastP95: legacy.totalBroadcast.p95,
+      entityTotalBroadcastP95: entity.totalBroadcast.p95,
       legacyEncodingP95: legacy.encoding.p95,
       entityEncodingP95: entity.encoding.p95,
+      legacyClientDecodeP95: legacy.clientDecode.p95,
+      entityClientDecodeP95: entity.clientDecode.p95,
       legacyClientMergeP95: legacy.clientMerge.p95,
       entityClientMergeP95: entity.clientMerge.p95,
+      legacyClientCombinedP95: legacy.clientCombined.p95,
+      entityClientCombinedP95: entity.clientCombined.p95,
       legacyFullPromotions: legacy.fullPromotions,
       entityFullPromotions: entity.fullPromotions,
       legacyResyncs: legacy.resyncs,
@@ -362,7 +385,14 @@ async function main() {
     startedAt, completedAt: new Date().toISOString(),
     cadence: { tickHz: 30, snapshotHz: 20 },
     fixtureNote: FAST ? "Reduced sample matrix selected with MFA_PHASE5_FAST=1; values are workload samples, not a full soak." : "Workload benchmark; no target is hidden or used to alter cadence.",
-    dimensions: { counts: COUNTS, clients: CLIENT_COUNTS, projectiles: PROJECTILES, scenarios: SCENARIOS, frames: FRAMES },
+    dimensions: {
+      counts: COUNTS,
+      clients: CLIENT_COUNTS,
+      projectiles: PROJECTILES,
+      scenarios: SCENARIOS,
+      frames: FRAMES,
+      selection: FAST ? "every third case from the representative matrix" : "16 count/client representatives plus scenario coverage; not the full count x client x projectile x scenario Cartesian product"
+    },
     results,
     comparisons: pairs,
     numericHandles: benchmarkNumericHandles(),
@@ -375,6 +405,9 @@ async function main() {
     },
     honestLimitations: [
       "The production snapshot builders and delivery lifecycle are exercised, but this is not a browser GPU/render benchmark.",
+      "Server construction is reported as shared construction plus viewer-specific construction; end-to-end broadcast wall time is reported separately and is not folded into either construction metric.",
+      "Client decode timing decodes the raw MessagePack Buffer retained by the fake socket, then measures merge separately and combined; blocked fixtures record attempted writes even when backpressure rejects them.",
+      "Heap growth is process-level and GC-sensitive; no forced collection is assumed. The benchmark covers representative dimension combinations rather than the full Cartesian matrix, and writes its JSON result to the ignored test-artifacts/performance directory.",
       "Numeric entity handles were benchmarked with a 600-entity repeated-ID patch and deferred below the declared 25% savings threshold; adding dictionary state would otherwise expand reconnect and privacy validation paths."
     ]
   };

@@ -34,6 +34,7 @@ const GROUPS = {
     "verify-blueprint-storage.js",
     "verify-snapshot-merge.js",
     "verify-snapshot-timeline.js",
+    "verify-phase-5.js",
     "verify-phase-transition.js",
     "verify-presentation-matrix.js",
     "verify-hot-path-correctness.js",

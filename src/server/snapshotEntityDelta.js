@@ -8,6 +8,7 @@
 const {
   ENTITY_DELTA_FORMAT_VERSION,
   SHIP_STATE_FIELDS,
+  SHIP_STATE_SIGNATURE_FIELDS,
   PRIVATE_SHIP_FIELDS,
   GENERIC_MOTION_FIELDS,
   packShipMotion,
@@ -30,6 +31,12 @@ const STATION_SIGNATURE_FIELDS = Object.freeze([
   "componentDamageRevision", "stateRevision", "productionRevision", "captureProgress", "captureContested", "captureTeam",
   "weaponAngles", "weaponAnglePairs", "conditionKnown", "productionQueue"
 ]);
+const GENERIC_KNOWN_FIELDS = Object.freeze(Object.fromEntries(
+  Object.keys(GENERIC_STATE_FIELDS).map((kind) => [
+    kind,
+    new Set(["id", ...(GENERIC_MOTION_FIELDS[kind] || []), ...(GENERIC_STATE_FIELDS[kind] || [])])
+  ])
+));
 
 function sortedIds(values) {
   return [...values].sort((a, b) => String(a).localeCompare(String(b)));
@@ -105,6 +112,7 @@ function shipPrivateSignature(entry) {
     entry?.heatTelemetryRevision || 0,
     entry?.chpD,
     entry?.componentHeatD,
+    entry?.__entityDeltaClearPrivateFields || [],
     // Full baselines contain complete HP/Heat arrays while compact packets
     // intentionally omit them when unchanged.  Their revision/delta fields,
     // not presence of the carried baseline arrays, determine the signature.
@@ -113,6 +121,8 @@ function shipPrivateSignature(entry) {
 
 function makeShipRecord(entry) {
   const motion = packShipMotion(entry);
+  const stateKeys = SHIP_STATE_FIELDS.filter((field) => hasOwn(entry, field));
+  const privateKeys = PRIVATE_SHIP_FIELDS.filter((field) => hasOwn(entry, field));
   const sharedStateSignature = entry?.__entityDeltaStateSignature;
   return {
     detail: entry?.detail || "full",
@@ -123,7 +133,13 @@ function makeShipRecord(entry) {
     // object and sorting its keys for every ship on every compact frame.
     stateSignature: sharedStateSignature !== undefined
       ? sharedStateSignature
-      : SHIP_STATE_FIELDS.map((field) => `${field}=${signature(entry?.[field])}`).join("|"),
+      : SHIP_STATE_SIGNATURE_FIELDS.map((field) => `${field}=${signature(entry?.[field])}`).join("|"),
+    stateKeys,
+    statePresentFields: stateKeys,
+    privateKeys,
+    privatePresentFields: privateKeys,
+    clearStateFields: Array.isArray(entry?.__entityDeltaClearStateFields) ? entry.__entityDeltaClearStateFields.slice() : [],
+    clearPrivateFields: Array.isArray(entry?.__entityDeltaClearPrivateFields) ? entry.__entityDeltaClearPrivateFields.slice() : [],
     privateSignature: shipPrivateSignature(entry)
   };
 }
@@ -136,13 +152,30 @@ function genericState(entry, kind) {
   return copyFields(entry, GENERIC_STATE_FIELDS[kind]);
 }
 
+function genericRemaining(entry, kind) {
+  const known = GENERIC_KNOWN_FIELDS[kind] || new Set(["id"]);
+  const result = {};
+  for (const key of Object.keys(entry || {})) {
+    if (!known.has(key)) result[key] = entry[key];
+  }
+  return result;
+}
+
 function genericRecord(entry, kind) {
   const state = genericState(entry, kind);
+  const motion = genericMotion(entry, kind);
+  const remaining = genericRemaining(entry, kind);
+  const stateKeys = Object.keys(state);
+  const remainingKeys = Object.keys(remaining);
   return {
-    motion: genericMotion(entry, kind),
-    motionSignature: signature(genericMotion(entry, kind).slice(1)),
+    motion,
+    motionSignature: signature(motion.slice(1)),
     stateSignature: signature(state),
-    entrySignature: signature(entry)
+    remainingSignature: signature(remaining),
+    remaining,
+    stateKeys,
+    remainingKeys,
+    publicFields: [...stateKeys, ...remainingKeys]
   };
 }
 
@@ -155,11 +188,7 @@ function pointRecord(entry) {
 }
 
 function effectRecord(entry) {
-  return {
-    motion: genericMotion(entry, "effects"),
-    motionSignature: signature(genericMotion(entry, "effects").slice(1)),
-    stateSignature: signature(genericState(entry, "effects"))
-  };
+  return genericRecord(entry, "effects");
 }
 
 function mapEntries(entries) {
@@ -190,6 +219,8 @@ function buildShipPatch(entries, previous, options = {}) {
   const state = [];
   const privatePatch = [];
   const clearPrivate = [];
+  const clearStateFields = [];
+  const clearPrivateFields = [];
   const next = new Map();
   const baselineIds = options.baselineIds instanceof Set ? options.baselineIds : new Set();
 
@@ -197,17 +228,36 @@ function buildShipPatch(entries, previous, options = {}) {
     const entry = current.get(id);
     const old = previous.get(id);
     const record = makeShipRecord(entry);
-    next.set(id, record);
     const baseline = !old || baselineIds.has(id) || old.detail !== record.detail || old.designRevision !== record.designRevision;
     if (baseline) {
       if (old?.detail === "full" && record.detail === "public") clearPrivate.push(id);
+      record.statePresentFields = record.stateKeys.slice();
+      record.privatePresentFields = record.privateKeys.slice();
       upsert.push(entry);
+      next.set(id, record);
       continue;
     }
     if (old.motionSignature !== record.motionSignature) motion.push(record.motion);
-    if (old.stateSignature !== record.stateSignature) state.push([id, shipState(entry)]);
+    const oldStateFields = new Set(old.statePresentFields || old.stateKeys || []);
+    const stateClears = record.clearStateFields.filter((field) => oldStateFields.has(field));
+    if (stateClears.length) clearStateFields.push([id, stateClears]);
+    const stateValue = shipState(entry);
+    if (old.stateSignature !== record.stateSignature && Object.keys(stateValue).length) state.push([id, stateValue]);
     const focusedRefresh = options.telemetryFocusShipId === id && hasOwn(entry, "powerThermal");
-    if (focusedRefresh || old.privateSignature !== record.privateSignature) privatePatch.push([id, shipPrivate(entry)]);
+    const oldPrivateFields = new Set(old.privatePresentFields || old.privateKeys || []);
+    const privateClears = record.clearPrivateFields.filter((field) => oldPrivateFields.has(field));
+    if (privateClears.length) clearPrivateFields.push([id, privateClears]);
+    const privateValue = shipPrivate(entry);
+    if ((focusedRefresh || old.privateSignature !== record.privateSignature) && Object.keys(privateValue).length) privatePatch.push([id, privateValue]);
+    const statePresent = new Set(oldStateFields);
+    for (const field of record.stateKeys) statePresent.add(field);
+    for (const field of stateClears) statePresent.delete(field);
+    record.statePresentFields = [...statePresent];
+    const privatePresent = new Set(oldPrivateFields);
+    for (const field of record.privateKeys) privatePresent.add(field);
+    for (const field of privateClears) privatePresent.delete(field);
+    record.privatePresentFields = [...privatePresent];
+    next.set(id, record);
   }
 
   return {
@@ -217,7 +267,9 @@ function buildShipPatch(entries, previous, options = {}) {
       private: privatePatch,
       upsert,
       remove: entityIdsForRemoval(previous, current),
-      clearPrivate: sortedIds(clearPrivate)
+      clearPrivate: sortedIds(clearPrivate),
+      clearStateFields,
+      clearPrivateFields
     },
     next
   };
@@ -228,30 +280,43 @@ function buildGenericPatch(entries, previous, kind, options = {}) {
   const upsert = [];
   const motion = [];
   const state = [];
+  const remaining = [];
+  const clearStateFields = [];
   const next = new Map();
   const baselineIds = options.baselineIds instanceof Set ? options.baselineIds : new Set();
   for (const id of sortedIds(current.keys())) {
     const entry = current.get(id);
     const old = previous.get(id);
     const record = kind === "effects" ? effectRecord(entry) : genericRecord(entry, kind);
-    next.set(id, record);
     if (!old || baselineIds.has(id)) {
       upsert.push(entry);
+      record.publicFields = record.publicFields || [];
+      next.set(id, record);
       continue;
     }
     if (old.motionSignature !== record.motionSignature) motion.push(record.motion);
-    if (old.stateSignature !== record.stateSignature) state.push([id, genericState(entry, kind)]);
-    if (kind !== "effects" && old.entrySignature !== record.entrySignature && old.motionSignature === record.motionSignature && old.stateSignature === record.stateSignature) {
-      // A newly added public field must not be silently lost by an older
-      // state-field list.  It is still sparse because this branch is rare.
-      upsert.push(entry);
+    const currentState = genericState(entry, kind);
+    if (old.stateSignature !== record.stateSignature && Object.keys(currentState).length) state.push([id, currentState]);
+    const oldPublicFields = new Set(old.publicFields || [...(old.stateKeys || []), ...(old.remainingKeys || [])]);
+    const currentPublicFields = new Set(record.publicFields || []);
+    const missingFields = [...oldPublicFields].filter((field) => !currentPublicFields.has(field));
+    if (missingFields.length) clearStateFields.push([id, missingFields]);
+    if (old.remainingSignature !== record.remainingSignature && Object.keys(record.remaining).length) {
+      // Unknown public fields are a supplementary sparse operation.  It can
+      // safely accompany motion/state changes without reintroducing a full
+      // upsert conflict.
+      remaining.push([id, record.remaining]);
     }
+    record.publicFields = [...currentPublicFields];
+    next.set(id, record);
   }
   const patch = {
     motion,
     state,
+    remaining,
     upsert,
-    remove: entityIdsForRemoval(previous, current)
+    remove: entityIdsForRemoval(previous, current),
+    clearStateFields
   };
   return { patch, next };
 }
@@ -270,24 +335,37 @@ function buildStationPatch(entries, previous, options = {}) {
     if (!old || baselineIds.has(id)) upsert.push(entry);
     else if (old.entrySignature !== record.entrySignature) dynamic.push(entry);
   }
-  return { patch: { upsert, dynamic, state: [], remove: entityIdsForRemoval(previous, current) }, next };
+  return { patch: { upsert, dynamic, state: [], clearStateFields: [], remove: entityIdsForRemoval(previous, current) }, next };
 }
 
 function buildSimplePatch(entries, previous, kind, options = {}) {
   const current = mapEntries(entries);
   const upsert = [];
+  const state = [];
+  const clearStateFields = [];
   const next = new Map();
   const baselineIds = options.baselineIds instanceof Set ? options.baselineIds : new Set();
   for (const id of sortedIds(current.keys())) {
     const entry = current.get(id);
     const old = previous.get(id);
-    const record = kind === "players"
-      ? { entrySignature: signature(genericState(entry, "players")) }
-      : pointRecord(entry);
+    const stateKind = kind === "players" ? "players" : "points";
+    const stateValue = genericState(entry, stateKind);
+    const stateKeys = Object.keys(stateValue);
+    const record = { entrySignature: signature(stateValue), stateKeys };
+    if (!old || baselineIds.has(id)) {
+      upsert.push(entry);
+      next.set(id, record);
+      continue;
+    }
+    if (old.entrySignature !== record.entrySignature) {
+      if (Object.keys(stateValue).length) state.push([id, stateValue]);
+      const oldKeys = new Set(old.stateKeys || []);
+      const missing = [...oldKeys].filter((field) => !stateKeys.includes(field));
+      if (missing.length) clearStateFields.push([id, missing]);
+    }
     next.set(id, record);
-    if (!old || baselineIds.has(id) || old.entrySignature !== record.entrySignature) upsert.push(entry);
   }
-  return { patch: { upsert, remove: entityIdsForRemoval(previous, current) }, next };
+  return { patch: { upsert, state, clearStateFields, remove: entityIdsForRemoval(previous, current) }, next };
 }
 
 function buildStateFromSnapshot(snapshot, stateEpoch) {
@@ -298,8 +376,14 @@ function buildStateFromSnapshot(snapshot, stateEpoch) {
   for (const entry of snapshot?.stations || []) next.stations.set(idOf(entry), stationRecord(entry));
   // Player design/stats are static baseline fields; compact player changes are
   // compared against the same sparse public state used after the baseline.
-  for (const entry of snapshot?.players || []) next.players.set(idOf(entry), { entrySignature: signature(genericState(entry, "players")) });
-  for (const entry of snapshot?.points || []) next.points.set(idOf(entry), pointRecord(entry));
+  for (const entry of snapshot?.players || []) {
+    const state = genericState(entry, "players");
+    next.players.set(idOf(entry), { entrySignature: signature(state), stateKeys: Object.keys(state) });
+  }
+  for (const entry of snapshot?.points || []) {
+    const state = genericState(entry, "points");
+    next.points.set(idOf(entry), { entrySignature: signature(state), stateKeys: Object.keys(state) });
+  }
   for (const entry of snapshot?.effects || []) next.effects.set(idOf(entry), effectRecord(entry));
   return next;
 }
@@ -323,7 +407,7 @@ function patchStats(patches, currentCounts) {
   let patched = 0;
   let removals = 0;
   for (const section of Object.values(patches)) {
-    for (const key of ["upsert", "dynamic", "motion", "state", "private", "clearPrivate"]) patched += Array.isArray(section?.[key]) ? section[key].length : 0;
+    for (const key of ["upsert", "dynamic", "motion", "state", "private", "remaining", "clearPrivate", "clearStateFields", "clearPrivateFields"]) patched += Array.isArray(section?.[key]) ? section[key].length : 0;
     removals += Array.isArray(section?.remove) ? section.remove.length : 0;
   }
   const considered = Object.values(currentCounts).reduce((sum, value) => sum + value, 0);

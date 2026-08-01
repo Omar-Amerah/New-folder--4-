@@ -24,6 +24,7 @@ export const SNAPSHOT_REJECTION = Object.freeze({
   INVALID_PATCH_STRIDE: "invalid-patch-stride",
   DUPLICATE_PATCH_ENTRY: "duplicate-patch-entry",
   PATCH_FOR_REMOVED_ENTITY: "patch-for-removed-entity",
+  PATCH_OPERATION_CONFLICT: "patch-operation-conflict",
   INVALID_DETAIL_TRANSITION: "invalid-detail-transition",
   INCOMPATIBLE_SNAPSHOT: "incompatible-snapshot"
 });
@@ -232,7 +233,7 @@ function patchError(reason, message) {
 function validatePatchSection(patch, previousEntries, spec) {
   if (!isPlainObject(patch)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name} patch is not an object`);
   if (!finiteTree(patch)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name} patch contains a non-finite value`);
-  for (const key of ["upsert", "remove", "motion", "state", "private", "dynamic", "clearPrivate"]) {
+  for (const key of ["upsert", "remove", "motion", "state", "private", "remaining", "dynamic", "clearPrivate", "clearStateFields", "clearPrivateFields"]) {
     if (patch[key] !== undefined && !Array.isArray(patch[key])) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.${key} is not an array`);
   }
   const previousIds = new Set((previousEntries || []).map((entry) => entry?.id));
@@ -295,6 +296,76 @@ function validatePatchSection(patch, previousEntries, spec) {
       if (error) return error;
     }
   }
+  const checkFieldClearRows = (rows, operation) => {
+    if (rows === undefined) return null;
+    if (!Array.isArray(rows)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.${operation} is not an array`);
+    const seen = new Set();
+    for (const row of rows) {
+      if (!Array.isArray(row) || row.length !== 2 || !Array.isArray(row[1])) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.${operation} has an invalid tuple`);
+      const [id, fields] = row;
+      if (seen.has(id)) return patchError(SNAPSHOT_REJECTION.DUPLICATE_PATCH_ENTRY, `${spec.name}.${operation} repeats an entity`);
+      seen.add(id);
+      const error = checkId(id, operation);
+      if (error) return error;
+      const fieldSet = new Set();
+      for (const field of fields) {
+        if (typeof field !== "string" || !field || fieldSet.has(field)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.${operation} has invalid fields`);
+        fieldSet.add(field);
+      }
+    }
+    return null;
+  };
+  const remainingError = checkRows(patch.remaining, "remaining", 2);
+  if (remainingError) return remainingError;
+  if (patch.remaining !== undefined) {
+    for (const row of patch.remaining) if (!isPlainObject(row[1])) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.remaining has an invalid tuple`);
+  }
+  const clearStateError = checkFieldClearRows(patch.clearStateFields, "clearStateFields");
+  if (clearStateError) return clearStateError;
+  const clearPrivateFieldsError = checkFieldClearRows(patch.clearPrivateFields, "clearPrivateFields");
+  if (clearPrivateFieldsError) return clearPrivateFieldsError;
+
+  const idsFor = (rows) => new Set((rows || []).map((row) => Array.isArray(row) ? row[0] : row?.id ?? row));
+  const operationIds = {
+    upsert: new Set(upsertRows.map((entry) => entry.id)),
+    remove: new Set(remove),
+    motion: idsFor(patch.motion),
+    state: idsFor(patch.state),
+    private: idsFor(patch.private),
+    remaining: idsFor(patch.remaining),
+    dynamic: idsFor(patch.dynamic),
+    clearStateFields: idsFor(patch.clearStateFields),
+    clearPrivateFields: idsFor(patch.clearPrivateFields),
+    clearPrivate: new Set(patch.clearPrivate || [])
+  };
+  const intersects = (left, right) => [...left].some((id) => right.has(id));
+  const conflict = (message) => patchError(SNAPSHOT_REJECTION.PATCH_OPERATION_CONFLICT, `${spec.name} ${message}`);
+  const exclusiveOperations = ["motion", "state", "private", "remaining", "dynamic", "clearStateFields", "clearPrivateFields", "clearPrivate"];
+  for (const id of operationIds.remove) {
+    if (exclusiveOperations.some((operation) => operationIds[operation].has(id)) || operationIds.upsert.has(id)) return conflict(`remove conflicts for ${String(id)}`);
+  }
+  for (const id of operationIds.upsert) {
+    const publicUpsert = upsertRows.find((entry) => entry.id === id)?.detail === "public";
+    for (const operation of ["motion", "state", "private", "remaining", "dynamic", "clearStateFields", "clearPrivateFields"]) {
+      if (operationIds[operation].has(id)) return conflict(`upsert conflicts with ${operation} for ${String(id)}`);
+    }
+    if (operationIds.clearPrivate.has(id) && !publicUpsert) return conflict(`clearPrivate requires a public upsert for ${String(id)}`);
+  }
+  if (intersects(operationIds.dynamic, operationIds.motion)
+    || intersects(operationIds.dynamic, operationIds.state)
+    || intersects(operationIds.dynamic, operationIds.private)
+    || intersects(operationIds.dynamic, operationIds.remaining)
+    || intersects(operationIds.dynamic, operationIds.clearStateFields)
+    || intersects(operationIds.dynamic, operationIds.clearPrivateFields)) {
+    return conflict("dynamic cannot be combined with another field operation");
+  }
+  for (const id of operationIds.private) {
+    const upsert = upsertRows.find((entry) => entry.id === id);
+    const old = (previousEntries || []).find((entry) => entry?.id === id);
+    if (spec.name === "ships" && (upsert?.detail === "public" || (!upsert && old?.detail === "public"))) {
+      return patchError(SNAPSHOT_REJECTION.INVALID_DETAIL_TRANSITION, "private patch targets a public ship");
+    }
+  }
   return { ok: true, previousIds, upsertIds, removedIds };
 }
 
@@ -333,6 +404,12 @@ function applyGenericMotion(entity, row, fields) {
 function clearPrivateFields(entity) {
   const next = { ...entity };
   for (const key of PRIVATE_SHIP_FIELDS) delete next[key];
+  return next;
+}
+
+function clearEntityFields(entity, fields) {
+  const next = { ...entity };
+  for (const field of fields || []) delete next[field];
   return next;
 }
 
@@ -375,6 +452,18 @@ function applyEntityPatch(previousEntries, patch, kind) {
       : { ...old, ...entry };
     map.set(entry.id, merged || old);
   }
+  for (const [id, value] of patch.remaining || []) {
+    const old = map.get(id);
+    if (old) map.set(id, { ...old, ...value });
+  }
+  for (const [id, fields] of patch.clearStateFields || []) {
+    const old = map.get(id);
+    if (old) map.set(id, clearEntityFields(old, fields));
+  }
+  for (const [id, fields] of patch.clearPrivateFields || []) {
+    const old = map.get(id);
+    if (old) map.set(id, clearEntityFields(old, fields));
+  }
   for (const [id, value] of patch.state || []) {
     const old = map.get(id);
     if (old) map.set(id, { ...old, ...value });
@@ -401,6 +490,14 @@ function applySimplePatch(previousEntries, patch) {
   const map = new Map((previousEntries || []).map((entry) => [entry.id, entry]));
   for (const id of patch.remove || []) map.delete(id);
   for (const entry of patch.upsert || []) map.set(entry.id, { ...(map.get(entry.id) || {}), ...entry });
+  for (const [id, fields] of patch.clearStateFields || []) {
+    const old = map.get(id);
+    if (old) map.set(id, clearEntityFields(old, fields));
+  }
+  for (const [id, value] of patch.state || []) {
+    const old = map.get(id);
+    if (old) map.set(id, { ...old, ...value });
+  }
   return [...map.values()];
 }
 
