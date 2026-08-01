@@ -26,7 +26,7 @@ const QUICK = process.argv.includes("--quick") || !process.argv.includes("--full
 const REPEATS = QUICK ? 1 : 2;
 const WARMUP_FRAMES = QUICK ? 5 : 8;
 const MEASURED_FRAMES = QUICK ? 30 : 30;
-const SMALL_REGRESSION_THRESHOLD = Object.freeze({ ratio: 0.5, absoluteMs: 0.5 });
+const SMALL_REGRESSION_THRESHOLD = Object.freeze({ ratio: 0.15, absoluteMs: 0.5 });
 
 // Every scenario is executed against the same freshly-built deterministic room
 // in both modes.  A scenario's mutation profile is deliberately explicit so a
