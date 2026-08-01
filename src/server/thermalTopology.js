@@ -119,6 +119,8 @@ function buildThermalTopology(design = []) {
   }
 
   const incidentEdgeOffsets = new Array(componentCount + 1).fill(0);
+  const legacyTransferOrder = [];
+  const legacyTransferRank = new Array(edges.length).fill(-1);
   for (let i = 0; i < componentCount; i += 1) incidentEdgeOffsets[i + 1] = incidentEdgeOffsets[i] + incident[i].length;
   const incidentEdgeIds = new Array(incidentEdgeOffsets[componentCount]);
   for (let i = 0; i < componentCount; i += 1) {
@@ -130,6 +132,17 @@ function buildThermalTopology(design = []) {
     }
     componentAdjacency[i] = componentAdjacency[i].map((edge) => Object.freeze(edge));
     Object.freeze(componentAdjacency[i]);
+
+    // The legacy solver walks component indices in ascending order and then
+    // walks this compatibility adjacency in its original insertion order.
+    // Only the lower endpoint processes a unique edge (`j > i`).  Preserve
+    // that exact edge sequence so the allocation-free solver has the same
+    // floating-point accumulation order without scanning the whole graph.
+    for (const edge of componentAdjacency[i]) {
+      if (edge.index <= i || edge.edgeId < 0) continue;
+      legacyTransferRank[edge.edgeId] = legacyTransferOrder.length;
+      legacyTransferOrder.push(edge.edgeId);
+    }
   }
 
   const powerSourceIndices = [];
@@ -156,6 +169,8 @@ function buildThermalTopology(design = []) {
     edgeBaseConductivity,
     edgeRouteMultiplier,
     edgeThroughFrame,
+    legacyTransferOrder,
+    legacyTransferRank,
     incidentEdgeOffsets,
     incidentEdgeIds,
     powerSourceIndices,
@@ -180,4 +195,72 @@ function createComponentAdjacency(topology) {
   })));
 }
 
-module.exports = { buildThermalTopology, createComponentAdjacency, isThermalRouteType, topologyMetrics };
+// The old Heat implementation exposed a mutable per-ship adjacency view and a
+// few diagnostics/tests still use that contract.  Keep the view available, but
+// do not pay for a clone on every optimized ship.  The accessor materializes a
+// compatibility copy only when a legacy loop or an explicit diagnostic asks
+// for it.  The immutable topology remains the normal optimized source.
+function installLazyComponentAdjacency(ship, topology) {
+  if (!ship || !topology) return ship;
+  const existingDescriptor = Object.getOwnPropertyDescriptor(ship, "componentAdjacency");
+  if (existingDescriptor?.get?.__thermalLazyAdjacency && ship._componentAdjacencyTopology === topology) return ship;
+
+  let materialized = ship._componentAdjacencyTopology === topology
+    ? (ship._componentAdjacencyValue || null)
+    : null;
+  if (!materialized && existingDescriptor && !existingDescriptor.get && Array.isArray(existingDescriptor.value)) {
+    materialized = existingDescriptor.value;
+  }
+
+  Object.defineProperty(ship, "_componentAdjacencyValue", {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: materialized
+  });
+  Object.defineProperty(ship, "_componentAdjacencyTopology", {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: topology
+  });
+
+  const getter = function getComponentAdjacency() {
+    if (!materialized) materialized = createComponentAdjacency(topology);
+    ship._componentAdjacencyValue = materialized;
+    return materialized;
+  };
+  getter.__thermalLazyAdjacency = true;
+  Object.defineProperty(ship, "componentAdjacency", {
+    configurable: true,
+    enumerable: true,
+    get: getter,
+    set(value) {
+      materialized = value;
+      ship._componentAdjacencyValue = value;
+    }
+  });
+  return ship;
+}
+
+function ensureComponentAdjacency(ship) {
+  if (!ship) return null;
+  const topology = ship.thermalTopology || buildThermalTopology(ship.design || []);
+  ship.thermalTopology = topology;
+  installLazyComponentAdjacency(ship, topology);
+  return ship.componentAdjacency;
+}
+
+function getMaterializedComponentAdjacency(ship) {
+  return ship?._componentAdjacencyValue || null;
+}
+
+module.exports = {
+  buildThermalTopology,
+  createComponentAdjacency,
+  ensureComponentAdjacency,
+  getMaterializedComponentAdjacency,
+  installLazyComponentAdjacency,
+  isThermalRouteType,
+  topologyMetrics
+};

@@ -7,7 +7,13 @@ const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrast
 const { BALANCE } = require("./balanceConfig");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const { OPTIMIZED_HEAT_RUNTIME } = require("./performanceFlags");
-const { buildThermalTopology, createComponentAdjacency, isThermalRouteType } = require("./thermalTopology");
+const {
+  buildThermalTopology,
+  ensureComponentAdjacency,
+  getMaterializedComponentAdjacency,
+  installLazyComponentAdjacency,
+  isThermalRouteType
+} = require("./thermalTopology");
 const { performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
 
@@ -130,9 +136,12 @@ function ensureThermalRuntime(ship) {
   const topology = ship.thermalTopology || buildThermalTopology(ship.design || []);
   if (!hadTopology) {
     ship.thermalTopology = topology;
-    ship.componentAdjacency = createComponentAdjacency(topology);
     ship.thermalTopologyBuilds = (ship.thermalTopologyBuilds || 0) + 1;
   }
+  // Legacy adjacency remains a lazy compatibility/debug view.  Optimized Heat
+  // reads only packed immutable topology arrays unless a caller has explicitly
+  // materialized or mutated the old view.
+  installLazyComponentAdjacency(ship, topology);
   if (!ship._thermalRuntime || ship._thermalRuntime.topology !== topology || ship._thermalRuntime.topology.componentCount !== topology.componentCount) {
     ship._thermalRuntime = createThermalRuntime(ship, topology);
     ship._thermalRuntime.topologyBuilds = hadTopology ? 0 : (ship.thermalTopologyBuilds || 1);
@@ -410,7 +419,7 @@ function initShipHeat(ship) {
   const hadTopology = Boolean(ship.thermalTopology);
   const topology = ship.thermalTopology || buildThermalTopology(design);
   ship.thermalTopology = topology;
-  ship.componentAdjacency = createComponentAdjacency(topology);
+  installLazyComponentAdjacency(ship, topology);
   ship.thermalTopologyBuilds = (ship.thermalTopologyBuilds || 0) + (hadTopology ? 0 : 1);
   const runtime = createThermalRuntime(ship, topology);
   runtime.topologyBuilds = hadTopology ? 0 : (ship.thermalTopologyBuilds || 1);
@@ -517,14 +526,15 @@ function initShipHeat(ship) {
 function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
   if (!ship.componentThermals) return;
   const design = ship.design || [];
+  const adjacency = ship.thermalTopology?.componentAdjacency || ensureComponentAdjacency(ship);
   if (!ship.componentBaseHeatCapacity || ship.componentBaseHeatCapacity.length !== design.length) {
     ship.componentBaseHeatCapacity = ship.componentThermals.map((thermal, index) => profile(design[index]?.type, PARTS[design[index]?.type] || {}).capacity || thermal.capacity || 0);
   }
   const affected = changedSinkIndex === null ? design.map((_, i) => i)
-    : [changedSinkIndex, ...(ship.componentAdjacency?.[changedSinkIndex] || []).map(edge => edge.index)];
+    : [changedSinkIndex, ...(adjacency?.[changedSinkIndex] || []).map(edge => edge.index)];
   for (const i of new Set(affected)) {
     let adjacencyBonus = 0;
-    for (const edge of ship.componentAdjacency?.[i] || []) {
+    for (const edge of adjacency?.[i] || []) {
       const index = edge.index;
       if (design[index]?.type === "heatSink") {
         const max = Math.max(0, ship.componentMaxHp?.[index] || 0);
@@ -573,7 +583,8 @@ function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
 }
 
 function rebuildThermalNetworks(ship) {
-  if (!ship.componentAdjacency) return;
+  const adjacency = ship.thermalTopology?.componentAdjacency;
+  if (!adjacency) return;
   const design = ship.design || [];
   const aliveFrames = new Set();
   for (let i = 0; i < design.length; i += 1) if (isThermalRouteType(design[i].type) && (ship.componentHp?.[i] ?? 1) > 0) aliveFrames.add(i);
@@ -588,7 +599,7 @@ function rebuildThermalNetworks(ship) {
     const queue = [start]; visited.add(start);
     for (let cursor = 0; cursor < queue.length; cursor += 1) {
       const index = queue[cursor]; frames.push(index);
-      for (const edge of ship.componentAdjacency[index]) {
+      for (const edge of adjacency[index]) {
         const neighbour = edge.index;
         if (aliveFrames.has(neighbour)) {
           if (!visited.has(neighbour)) { visited.add(neighbour); queue.push(neighbour); }
@@ -611,13 +622,13 @@ function rebuildThermalNetworks(ship) {
     const coolers = new Set([...sinks, ...radiators]);
     const distanceQueue = [];
     for (const frame of frames) {
-      const touchesCooling = ship.componentAdjacency[frame].some(edge => coolers.has(edge.index));
+      const touchesCooling = adjacency[frame].some(edge => coolers.has(edge.index));
       if (touchesCooling) { ship.frameCoolingDistance[frame] = 0; distanceQueue.push(frame); }
     }
     for (let cursor = 0; cursor < distanceQueue.length; cursor += 1) {
       const frame = distanceQueue[cursor];
       const nextDistance = ship.frameCoolingDistance[frame] + 1;
-      for (const edge of ship.componentAdjacency[frame]) {
+      for (const edge of adjacency[frame]) {
         const neighbour = edge.index;
         if (!frames.includes(neighbour) || nextDistance >= ship.frameCoolingDistance[neighbour]) continue;
         ship.frameCoolingDistance[neighbour] = nextDistance;
@@ -738,6 +749,7 @@ const { REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DA
 
 function updateShipHeatLegacy(ship, dt, room, now) {
   if (!ship.alive || !ship.componentHeat) return;
+  const adjacency = ensureComponentAdjacency(ship);
   const pending = ship.hasPendingHeatInput;
   if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending && !(ship.powerCableHeatRate > 0)) return;
   ship.hasPendingHeatInput = false;
@@ -852,7 +864,7 @@ function updateShipHeatLegacy(ship, dt, room, now) {
     workingHeat[i] = Math.max(0, heat[i] + delta[i]);
   }
   for (let i = 0; i < heat.length; i += 1) {
-    for (const edge of ship.componentAdjacency[i]) {
+    for (const edge of adjacency[i]) {
       const j = edge.index;
       if (j <= i) continue;
       const aliveI = (ship.componentHp?.[i] ?? 1) > 0;
@@ -1345,7 +1357,10 @@ function updateShipHeatOptimized(ship, dt, room, now) {
       runtime.candidateEdgeIds.push(edgeId);
     }
   }
-  runtime.candidateEdgeIds.sort(compareNumbers);
+  const legacyTransferRank = topology.legacyTransferRank;
+  runtime.candidateEdgeIds.sort((left, right) =>
+    legacyTransferRank[left] - legacyTransferRank[right] || left - right
+  );
 
   let transferStart = performanceNow();
   let transferCount = 0;
@@ -1364,7 +1379,7 @@ function updateShipHeatOptimized(ship, dt, room, now) {
     // few server-side diagnostics.  Honour an explicit per-ship override while
     // retaining the immutable topology as the normal source of truth.
     if (aliveI && aliveJ) {
-      const compatibilityEdges = ship.componentAdjacency?.[i] || [];
+      const compatibilityEdges = getMaterializedComponentAdjacency(ship)?.[i] || [];
       for (let edgeIndex = 0; edgeIndex < compatibilityEdges.length; edgeIndex += 1) {
         if (compatibilityEdges[edgeIndex].edgeId === edgeId) {
           conductivity = compatibilityEdges[edgeIndex].conductivity;
@@ -1593,6 +1608,7 @@ function updateShipHeat(ship, dt, room, now) {
 
 function buildHeatDebug(ship) {
   const dt = Math.max(0.001, ship.lastHeatTickDelta || TICK_SECONDS);
+  const adjacency = getMaterializedComponentAdjacency(ship) || ship.thermalTopology?.componentAdjacency || [];
   return {
     shipId: ship.id,
     currentHeat: ship.currentHeat,
@@ -1615,7 +1631,7 @@ function buildHeatDebug(ship) {
       thermalNetworkIds: (ship.componentThermalNetworks?.[index] || []).slice(),
       exposedEdges: ship.componentThermals?.[index]?.exposedEdges || 0,
       routeType: isThermalRouteType(module.type) ? (module.type === "heatPipe" ? "heatPipe" : "frame") : "attached",
-      adjacentHeatPipeEdges: (ship.componentAdjacency?.[index] || []).filter(e => ship.design?.[e.index]?.type === "heatPipe").reduce((sum, e) => sum + e.sharedEdges, 0)
+      adjacentHeatPipeEdges: (adjacency[index] || []).filter(e => ship.design?.[e.index]?.type === "heatPipe").reduce((sum, e) => sum + e.sharedEdges, 0)
     })),
     networks: (ship.thermalNetworks || []).map(network => ({
       id: network.id,

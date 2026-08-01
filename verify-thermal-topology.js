@@ -4,6 +4,7 @@ const { initShipHeat, rebuildThermalNetworks, isThermalRouteType } = require("./
 const { repairShipComponents } = require("./src/server/componentHealth");
 const { PARTS } = require("./src/server/components");
 const { getOccupiedCells } = require("./src/server/footprint");
+const { buildThermalTopology } = require("./src/server/thermalTopology");
 function shipFor(design){ const hp=design.map(m=>PARTS[m.type]?.hp||40); const ship={alive:true,design,componentHp:hp.slice(),componentMaxHp:hp.slice(),stats:{powerUse:0,powerGeneration:1},dirtyComponents:new Set()}; initShipHeat(ship); return ship; }
 function edges(s,a,b){ return s.componentAdjacency[a].find(e=>e.index===b)?.sharedEdges||0; }
 function exposed(s,i){ return s.componentThermals[i].exposedEdges; }
@@ -20,6 +21,19 @@ const ring = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]].map(([x,y])
 let sealed=shipFor(ring); assert.strictEqual(sealed.componentThermals.reduce((n,t)=>n+t.exposedEdges,0),12,"sealed cavity should not add exposed edges");
 let opened=shipFor(ring.filter(m => !(m.x === 0 && m.y === -1))); assert.strictEqual(opened.componentThermals.reduce((n,t)=>n+t.exposedEdges,0),16,"opened cavity should expose inward edges");
 let irregular=shipFor([{x:0,y:0,type:"repairBeam"},{x:2,y:0,type:"engine"},{x:2,y:2,type:"aegisProjector"},{x:1,y:3,type:"frame"},{x:0,y:2,type:"heatSink"}]); assert(irregular.componentAdjacency.every((list,i)=>list.every(e=>edges(irregular,e.index,i)===e.sharedEdges)),"irregular adjacency must be symmetric by immutable design index");
+const orderTopology = buildThermalTopology(irregular.design);
+const expectedLegacyOrder = [];
+for (let i = 0; i < orderTopology.componentAdjacency.length; i += 1) {
+  for (const edge of orderTopology.componentAdjacency[i]) if (edge.index > i) expectedLegacyOrder.push(edge.edgeId);
+}
+assert.deepStrictEqual(orderTopology.legacyTransferOrder, expectedLegacyOrder, "legacy transfer order reproduces adjacency insertion traversal");
+assert.strictEqual(new Set(orderTopology.legacyTransferOrder).size, orderTopology.edgeA.length, "legacy transfer order visits each physical edge exactly once");
+for (let rank = 0; rank < orderTopology.legacyTransferOrder.length; rank += 1) assert.strictEqual(orderTopology.legacyTransferRank[orderTopology.legacyTransferOrder[rank]], rank, "legacy transfer ranks are deterministic");
+for (let edgeId = 1; edgeId < orderTopology.edgeA.length; edgeId += 1) {
+  const previous = edgeId - 1;
+  assert(orderTopology.edgeA[previous] < orderTopology.edgeA[edgeId]
+    || (orderTopology.edgeA[previous] === orderTopology.edgeA[edgeId] && orderTopology.edgeB[previous] <= orderTopology.edgeB[edgeId]), "physical edges are canonical sorted");
+}
 assert(isThermalRouteType("frame")&&isThermalRouteType("lightFrame")&&isThermalRouteType("heavyFrame")&&isThermalRouteType("heatPipe")&&!isThermalRouteType("armor"),"thermal route helper recognition");
 let route=shipFor([{x:0,y:0,type:"blaster"},{x:1,y:0,type:"heatPipe"},{x:2,y:0,type:"radiator"}]); const builds=route.thermalNetworkBuilds; route.componentHp[0]-=1; assert.strictEqual(route.thermalNetworkBuilds,builds,"ordinary component damage does not rebuild networks unnecessarily"); route.componentHp[1]=0; rebuildThermalNetworks(route); assert.strictEqual(route.thermalNetworks.length,0,"destroyed heat pipe breaks route"); repairShipComponents(null,route,route.componentMaxHp[1],0); assert.strictEqual(route.thermalNetworks.length,1,"repaired heat pipe rebuilds route"); assert(Number.isFinite(route.frameCoolingDistance[1]),"cooling distance updates after repair");
 let split=shipFor([{x:0,y:0,type:"frame"},{x:2,y:0,type:"frame"},{x:0,y:1,type:"radiator"},{x:2,y:1,type:"radiator"}]); assert.strictEqual(split.thermalNetworks.length,2,"disconnected networks remain separate");
