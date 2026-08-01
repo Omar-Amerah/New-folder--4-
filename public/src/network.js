@@ -32,7 +32,7 @@ const CONNECTION_TIMEOUT_MS = 12000;
 const HEALTH_TIMEOUT_MS = 2500;
 function netDiag() {
   if (typeof globalThis === "undefined") return null;
-  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], connectionFailures: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null, acceptedSnapshotCount: 0, rejectedSnapshotCount: 0, lastSnapshotSequence: null, lastSnapshotAt: 0 };
+  return globalThis.__mfaNetworkDiagnostics ||= { websocketCreated: false, websocketOpened: false, helloReceived: false, protocolAccepted: false, joinPacketSent: false, joinedReceived: false, firstFullSnapshotReceived: false, sentTypes: [], receivedTypes: [], latestErrors: [], latestNotices: [], socketCloses: [], connectionFailures: [], reconnectAttempts: 0, latestJoinedPlayerId: null, latestAcceptedStateEpoch: null, latestAcceptedSnapshotSequence: null, latestAcceptedSnapshotKind: null, latestSnapshotRejectionReason: null, snapshotEvents: [], snapshotEventId: 0, acceptedFullEventCount: 0, latestCompletedResyncEventId: null, unresolvedRejectionCount: 0, lastSnapshotRejection: null, lastRecoveredRejection: null, acceptedSnapshotCount: 0, rejectedSnapshotCount: 0, lastSnapshotSequence: null, lastSnapshotAt: 0, clientSnapshotDecodeMs: 0, clientSnapshotMergeMs: 0 };
 }
 function markSentType(type) {
   const diag = netDiag();
@@ -53,6 +53,10 @@ export function recordNetworkEvent(kind, value) {
       diag.lastSnapshotAt = Date.now();
     } else if (kind === "snapshotRejected") {
       diag.rejectedSnapshotCount = (diag.rejectedSnapshotCount || 0) + 1;
+    } else if (kind === "snapshotDecode") {
+      diag.clientSnapshotDecodeMs = Number(value?.durationMs) || 0;
+    } else if (kind === "snapshotMerge") {
+      diag.clientSnapshotMergeMs = Number(value?.durationMs) || 0;
     }
     return;
   }
@@ -63,6 +67,8 @@ export function recordNetworkEvent(kind, value) {
   if (["acceptedSnapshot","snapshotRejected","resyncRequested"].includes(kind)) { diag.snapshotEvents ||= []; const event = { id: ++diag.snapshotEventId, kind, ...value, timestamp: Date.now() }; diag.snapshotEvents.push(event); while (diag.snapshotEvents.length > 100) diag.snapshotEvents.shift(); if (kind === "acceptedSnapshot" && value?.snapshotKind === "full") { diag.acceptedFullEventCount = (diag.acceptedFullEventCount || 0) + 1; diag.latestCompletedResyncEventId = event.id; diag.lastRecoveredRejection = diag.lastSnapshotRejection || null; diag.unresolvedRejectionCount = 0; } if (kind === "snapshotRejected") { diag.unresolvedRejectionCount = (diag.unresolvedRejectionCount || 0) + 1; diag.lastSnapshotRejection = event; } }
   if (kind === "acceptedSnapshot") { diag.latestAcceptedStateEpoch = value?.stateEpoch ?? null; diag.latestAcceptedSnapshotSequence = value?.snapshotSeq ?? null; diag.latestAcceptedSnapshotKind = value?.snapshotKind ?? null; }
   if (kind === "snapshotRejected") diag.latestSnapshotRejectionReason = value?.reason || null;
+  if (kind === "snapshotDecode") diag.clientSnapshotDecodeMs = Number(value?.durationMs) || 0;
+  if (kind === "snapshotMerge") diag.clientSnapshotMergeMs = Number(value?.durationMs) || 0;
 }
 function markReceivedType(type) {
   const diag = netDiag();
@@ -280,7 +286,9 @@ export function connect(url, onOpenCallback, options = {}) {
   socket.addEventListener("message", (event) => {
     if (state.connectionGeneration !== generation || state.socket !== socket) return;
     try {
+      const decodeStartedAt = performance.now();
       const message = wsDecode(event.data);
+      recordNetworkEvent("snapshotDecode", { durationMs: performance.now() - decodeStartedAt });
       markReceivedType(message?.type);
       if (message?.type === "hello") attempt.helloReceived = true;
       if (message?.type === "joined") attempt.joinedReceived = true;
@@ -390,7 +398,9 @@ export function withClientProtocol(message) {
     minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 5,
     maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 5,
     frontendBuildSha: globalThis.MFA_FRONTEND_BUILD_SHA || "dev",
-    capabilities: ["messagepack", "resume-v1", "heartbeat-v1", "telemetry-focus-v1", "projectileEventsV1"],
+    // The server still gates the format by ENTITY_DELTA_SNAPSHOTS; advertising
+    // this capability explicitly is what lets old clients stay on v1.
+    capabilities: ["messagepack", "resume-v1", "heartbeat-v1", "telemetry-focus-v1", "projectileEventsV1", "entityDeltaSnapshotsV1"],
     ...message
   };
 }

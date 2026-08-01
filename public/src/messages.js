@@ -364,7 +364,9 @@ export function handleServerMessage(message) {
     const previousSnapshot = state.snapshot;
     const previousIndex = state.snapshotIndex;
     const previousLocalState = captureLocalPresentationState(state);
+    const mergeStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     const result = mergeSnapshotTransaction(state.snapshot, state.snapshotNetwork, message, state?.renderHistory?.renderSimulationTimeMs);
+    recordNetworkEvent("snapshotMerge", { durationMs: (typeof performance !== "undefined" ? performance.now() : Date.now()) - mergeStartedAt });
     if (!result.ok) {
       const wireReason = mapSnapshotRejectionToResyncReason(result.reason);
       recordNetworkEvent("snapshotRejected", { reason: result.reason, wireReason });

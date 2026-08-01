@@ -24,6 +24,11 @@ const { filterSnapshotForPlayer } = require("./visibilitySnapshots");
 const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
 const { ensureTeamVisibility, invalidateVisibility, usesSensorVisibility } = require("./visibility");
 const { INFRASTRUCTURE } = require("./config");
+const {
+  SHIP_STATE_SIGNATURE_FIELDS,
+  PRIVATE_SHIP_FIELDS
+} = require("../../public/src/shared/snapshotEntityDelta");
+const { signature: snapshotEntitySignature } = require("./snapshotEntityDelta");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -34,6 +39,36 @@ const COMPONENT_HEAT_STATE = 1;
 const COMPONENT_HEAT_RATIO = 2;
 const COMPONENT_HEAT_CAPACITY = 3;
 const COMPONENT_HEAT_DELTA_STRIDE = 5;
+
+const ENTITY_DELTA_POWER_PRIVATE_FIELDS = Object.freeze(PRIVATE_SHIP_FIELDS.filter((field) => ![
+  "chp", "chpD", "componentHeat", "componentHeatD", "storageCharge"
+].includes(field)));
+
+function entityDeltaClearStateFields(ship) {
+  const clear = [];
+  if (!(ship.selfDestructAt && ship.alive)) clear.push("destructProgress");
+  if (!ship.droneBays?.length) clear.push("droneBays");
+  if (!ship.decoyLaunchers?.length) clear.push("decoyLaunchers");
+  if (!ship.blockedEngineIndices?.size) clear.push("engBlocked");
+  return clear;
+}
+
+// Compact private telemetry is intentionally omitted while unchanged.  These
+// lists therefore describe only authoritative source disappearance, not every
+// field absent from the current sparse row.
+function entityDeltaClearPrivateFields(entry, ship) {
+  const clear = [];
+  const hasPower = Boolean(ship.componentPower?.byComponentIndex);
+  if (!hasPower) {
+    for (const field of ENTITY_DELTA_POWER_PRIVATE_FIELDS) {
+      if (entry[field] === undefined) clear.push(field);
+    }
+  }
+  if (!Array.isArray(ship.componentHp) && entry.chp === undefined) clear.push("chp");
+  if (!Array.isArray(ship.componentHeat) && entry.componentHeat === undefined) clear.push("componentHeat");
+  if (!Array.isArray(ship.componentStorageCharge) && entry.storageCharge === undefined) clear.push("storageCharge");
+  return clear;
+}
 
 function buildComponentHeatTuple(ship, index) {
   const capacity = Math.round((ship.componentThermals?.[index]?.capacity || 0) * 10) / 10;
@@ -170,7 +205,21 @@ function buildStationSnapshots(room, now, sendStatic) {
   return room.stations.map((station) => buildStationSnapshot(room, station, now, sendStatic));
 }
 
-function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false, buildBullets = true) {
+function snapshotEffectId(room, effect, index) {
+  if (effect?.id !== undefined && effect?.id !== null) return effect.id;
+  if (effect?._snapshotEntityId) return effect._snapshotEntityId;
+  const next = `effect-${(Number(room._nextSnapshotEffectId) || 0) + 1}`;
+  room._nextSnapshotEffectId = (Number(room._nextSnapshotEffectId) || 0) + 1;
+  try {
+    Object.defineProperty(effect, "_snapshotEntityId", { value: next, writable: true, configurable: true, enumerable: false });
+  } catch {
+    // A frozen test fixture still gets a deterministic per-build fallback;
+    // normal runtime effects are mutable and retain the stable id above.
+  }
+  return effect?._snapshotEntityId || `${next}-${index}`;
+}
+
+function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false, buildBullets = true, buildEntityDeltaKeys = false) {
   // Snapshot construction is also used by immediate purchase/reconnect sends
   // outside the regular simulation cadence. Advance visibility once here so
   // those snapshots cannot reuse coverage from before an entity/state change.
@@ -265,6 +314,26 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       appendFullShipBaseline(entry, ship);
     } else if (!suppressCompactDeltas) {
       appendShipDeltas(entry, ship);
+    }
+    if (buildEntityDeltaKeys) {
+      // This key is internal metadata on the shared row, not a wire field. It
+      // lets the v2 patch builder compare public state without rebuilding and
+      // recursively signing the same row once per viewer.
+      Object.defineProperty(entry, "__entityDeltaStateSignature", {
+        value: SHIP_STATE_SIGNATURE_FIELDS.map((field) => `${field}=${snapshotEntitySignature(entry[field])}`).join("|"),
+        enumerable: false,
+        configurable: true
+      });
+      Object.defineProperty(entry, "__entityDeltaClearStateFields", {
+        value: entityDeltaClearStateFields(ship),
+        enumerable: false,
+        configurable: true
+      });
+      Object.defineProperty(entry, "__entityDeltaClearPrivateFields", {
+        value: entityDeltaClearPrivateFields(entry, ship),
+        enumerable: false,
+        configurable: true
+      });
     }
     ships.push(entry);
   }
@@ -373,7 +442,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       contested: point.contested,
       progress: round(point.progress)
     })),
-    effects: room.effects.map((effect) => ({ ...effect, age: Math.max(0, round(now - effect.at)), subtype: effect.subtype })),
+    effects: room.effects.map((effect, index) => ({ ...effect, id: snapshotEffectId(room, effect, index), age: Math.max(0, round(now - effect.at)), subtype: effect.subtype })),
     objectiveControl
   };
   return shared;
@@ -664,18 +733,6 @@ function canViewShipInternals(viewer, ship, room) {
   return Boolean(owner && viewer.team !== undefined && viewer.team === owner.team);
 }
 
-// Every private per-ship field. Enemy entries must never carry any of these,
-// and the client merge (public/src/snapshotMerge.js) keeps an identical list so
-// cached copies are discarded when a ship becomes public.
-const PRIVATE_SHIP_FIELDS = [
-  "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
-  "powerRuntimeRevision",
-  "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
-  "powerWiring", "powerWiringRevision", "powerWiringRuntime",
-  "chp", "chpD", "componentHeat", "componentHeatD",
-  "componentHeatRevision", "heatTelemetryRevision"
-];
-
 // Enemy ships: attach only a safe public visual representation. This is the raw
 // design geometry (module types/positions/rotations) required to render the
 // hull and weapon mounts — it carries NO per-component HP, Heat, Power, wiring,
@@ -692,16 +749,39 @@ function appendPublicShipVisual(entry, ship, includeDesign) {
   for (const key of PRIVATE_SHIP_FIELDS) delete entry[key];
 }
 
-function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusShipId, visibilityState = null) {
+function materializeClientShipEntry(base, detail) {
+  const entry = { ...base, detail };
+  for (const key of [
+    "__entityDeltaStateSignature",
+    "__entityDeltaClearStateFields",
+    "__entityDeltaClearPrivateFields"
+  ]) {
+    if (base?.[key] === undefined) continue;
+    Object.defineProperty(entry, key, {
+      value: base[key],
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return entry;
+}
+
+function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusShipId, visibilityState = null, options = null) {
   const known = getKnownShipDesigns(client);
   const knownVisible = client?.knownVisibleShipIds;
   const sensorVisibility = usesSensorVisibility(room);
   const viewer = client?.player || null;
   const legacyTelemetry = telemetryFocusShipId === undefined;
+  const sparseEntityDelta = options?.entityDeltaSparse === true && !sendStatic;
+  const forcedBaselineIds = options?.baselineShipIds instanceof Set ? options.baselineShipIds : null;
   const entries = [];
   for (const base of sharedShips) {
     if (sensorVisibility && !sendStatic && visibilityState && !visibilityState.visibleEntityIds.has(base.id)) continue;
-    const entry = { ...base };
+    // v2 only needs a complete materialized row for an upsert.  An unchanged
+    // row can inherit the shared snapshot's viewer-independent fields and
+    // carry only its detail marker/private overlay through the delta builder.
+    let entry = sparseEntityDelta ? Object.create(base) : { ...base };
+    let detail = "full";
     const ship = room.ships.get(entry.id);
     if (!ship || ship.removed) {
       entries.push(entry);
@@ -719,26 +799,38 @@ function buildClientShips(room, sharedShips, client, sendStatic, telemetryFocusS
     const visibilityBaselineMissing = sensorVisibility
       && (!(knownVisible instanceof Set) || !knownVisible.has(ship.id));
     const needBaseline = visibleInSensorSnapshot
-      && (sendStatic || known.get(ship.id) !== revision || visibilityBaselineMissing);
+      && (sendStatic || known.get(ship.id) !== revision || visibilityBaselineMissing || forcedBaselineIds?.has(ship.id));
     if (canViewShipInternals(viewer, ship, room)) {
-      entry.detail = "full";
+      detail = "full";
+      entry.detail = detail;
       const focusedTelemetry = telemetryFocusShipId === ship.id;
       const includeTelemetry = legacyTelemetry || focusedTelemetry;
-      if (needBaseline) appendFullShipBaseline(entry, ship, includeTelemetry);
+      if (needBaseline) {
+        entry = materializeClientShipEntry(base, detail);
+        appendFullShipBaseline(entry, ship, includeTelemetry);
+      }
       else appendShipDeltas(entry, ship, client, { includeTelemetry, forceTelemetry: focusedTelemetry && !legacyTelemetry });
     } else {
-      appendPublicShipVisual(entry, ship, needBaseline);
+      detail = "public";
+      entry.detail = detail;
+      if (needBaseline) {
+        entry = materializeClientShipEntry(base, detail);
+        appendPublicShipVisual(entry, ship, true);
+      } else {
+        appendPublicShipVisual(entry, ship, false);
+      }
     }
     entries.push(entry);
   }
   return entries;
 }
 
-function buildClientStations(room, sharedStations, client, sendStatic) {
+function buildClientStations(room, sharedStations, client, sendStatic, options = null) {
   if (!Array.isArray(sharedStations)) return sharedStations;
   const knownStatic = getKnownStationStaticRevisions(client);
   const knownComponents = getKnownStationComponentRevisions(client);
   const knownCondition = client?.knownConditionStationIds;
+  const forcedBaselineIds = options?.baselineStationIds instanceof Set ? options.baselineStationIds : null;
   return sharedStations.map((base) => {
     const station = room.stationsById?.get?.(base.id)
       || room.stations?.find?.((entry) => entry.id === base.id);
@@ -747,6 +839,7 @@ function buildClientStations(room, sharedStations, client, sendStatic) {
     const staticRevision = station.revision || 1;
     const componentRevision = station.componentDamageRevision || 0;
     const needsStatic = sendStatic
+      || forcedBaselineIds?.has(station.id)
       || (client && knownStatic.get(station.id) !== staticRevision);
     const needsHealth = sendStatic
       || (client && (
@@ -914,7 +1007,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       shipsBuilt: player.shipsBuilt || 0,
       lostFleetCost: Math.floor(player.lostFleetCost || 0)
     };
-    if (sendStatic) {
+    if (sendStatic || options?.baselinePlayerIds instanceof Set && options.baselinePlayerIds.has(player.id)) {
       packet.design = player.design;
       packet.stats = summarizeStats(player.stats || computeStats(player.design, player.wiring));
     }
@@ -936,6 +1029,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     stateEpoch: room.stateEpoch || 1,
     snapshotSeq: room._buildingSnapshotSeq || room.snapshotSeq || 0,
     snapshotKind: sendStatic ? "full" : "compact",
+    snapshotFormatVersion: 1,
     baseSnapshotSeq: sendStatic ? null : (room._buildingBaseSnapshotSeq ?? Math.max(0, (room._buildingSnapshotSeq || room.snapshotSeq || 1) - 1)),
     staticRevision: room.staticRevision || 1,
     staticRevisions: { world: room.staticRevision || 1, map: room.staticRevision || 1, rules: room.staticRevision || 1, playerDesign: room.staticRevision || 1, shipDesign: room.staticRevision || 1, componentCatalogue: room.componentCatalogueRevision || 1 },
@@ -948,12 +1042,12 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     phase: room.phase,
     adminId: room.adminId,
     players,
-    ships: buildClientShips(room, shared.ships, client, sendStatic, telemetryFocusShipId, visibilityState),
+    ships: buildClientShips(room, shared.ships, client, sendStatic, telemetryFocusShipId, visibilityState, options),
     drones: shared.drones,
     decoys: shared.decoys,
     bullets: shared.bullets,
     effects: shared.effects,
-    stations: buildClientStations(room, shared.stations, client, sendStatic),
+    stations: buildClientStations(room, shared.stations, client, sendStatic, options),
     points: shared.points,
     winner: room.winner,
     matchStartedAt: room.matchStartedAt,
@@ -1034,6 +1128,41 @@ function canViewPlayerEconomy(viewer, player) {
   return viewer.team === player.team;
 }
 
+// The v2 builder must know which entries need a fresh permitted baseline before
+// snapshotRoom applies the existing revision-guarded field omission.  This is
+// derived from the same visibility and ownership policy as the normal builder;
+// it does not create a second visibility implementation.
+function collectEntityDeltaBaselineIds(room, client, shared, entityState, now) {
+  const result = {
+    ships: new Set(),
+    stations: new Set(),
+    players: new Set()
+  };
+  const knownShips = entityState?.ships instanceof Map ? entityState.ships : new Map();
+  const knownStations = entityState?.stations instanceof Map ? entityState.stations : new Map();
+  const knownPlayers = entityState?.players instanceof Map ? entityState.players : new Map();
+  const viewer = client?.player || null;
+  const visibilityState = viewer && usesSensorVisibility(room)
+    ? ensureTeamVisibility(room, viewer.team ?? viewer.id, now)
+    : null;
+  for (const base of shared?.ships || []) {
+    const ship = room.ships?.get?.(base.id);
+    if (!ship || ship.removed) continue;
+    const visible = !visibilityState || visibilityState.visibleEntityIds.has(ship.id);
+    if (!visible) continue;
+    const detail = canViewShipInternals(viewer, ship, room) ? "full" : "public";
+    const old = knownShips.get(ship.id);
+    if (!old || old.detail !== detail || old.designRevision !== (ship.designRevision || 1)) result.ships.add(ship.id);
+  }
+  for (const station of shared?.stations || []) {
+    if (!knownStations.has(station.id)) result.stations.add(station.id);
+  }
+  for (const player of room.players?.values?.() || []) {
+    if (!knownPlayers.has(player.id)) result.players.add(player.id);
+  }
+  return result;
+}
+
 module.exports = {
   pruneClientKnownShips,
   pruneClientKnownStations,
@@ -1057,6 +1186,8 @@ module.exports = {
   markSnapshotStationStaticWritten,
   markSnapshotStationComponentWritten,
   markSnapshotConditionStationsWritten,
+  collectEntityDeltaBaselineIds,
+  canViewShipInternals,
   canViewPlayerEconomy,
   _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, finiteOrNull }
 };

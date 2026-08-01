@@ -245,6 +245,7 @@ function leaveRoom(client, explicitLeave = false) {
     if (!current) {
       client.room = null;
       client.player = null;
+      require("./snapshotDelivery").resetSnapshotClientState(client);
       return;
     }
     const { setManualRotation } = require("./movementRuntime");
@@ -312,6 +313,7 @@ function leaveRoom(client, explicitLeave = false) {
   client.room = null;
   client.player = null;
   client.attachmentId = 0;
+  require("./snapshotDelivery").resetSnapshotClientState(client);
   client.telemetryFocusShipId = null;
   client.telemetryLastWrittenFocusId = null;
   client.telemetryLastWrittenAt = 0;

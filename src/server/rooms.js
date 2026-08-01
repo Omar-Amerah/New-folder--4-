@@ -157,8 +157,14 @@ function bumpStateEpoch(room, reason = "state-reset") {
       client.snapshotBaseline.fullRequired = true;
       client.snapshotBaseline.stateEpoch = room.stateEpoch;
       client.snapshotBaseline.lastSentSeq = 0;
-      client.snapshotBaseline.lastFullSeq = 0;
+      client.snapshotBaseline.lastWrittenSeq = 0;
+      client.snapshotBaseline.lastWrittenFullSeq = 0;
+      client.snapshotBaseline.lastQueuedSeq = 0;
+      client.snapshotBaseline.queuedSnapshotKind = null;
+      client.snapshotBaseline.lastWrittenFormatVersion = 0;
     }
+    client.snapshotEntityState = null;
+    client._knownSignature = null;
   }
   // Phase Four: timing state is not part of the persistent game state; clear it
   // on a state reset so authoritative time cannot leak across room epochs.
