@@ -67,6 +67,7 @@
     "test:sensor-fog": "node verify-sensor-fog.js",
     "test:sensor-fog-performance": "node verify-sensor-fog-performance.js",
     "test:sensor-fog-browser": "node verify-sensor-fog-browser.js",
+    "test:partial-visibility": "node verify-partial-visibility-mask.js",
     "test:station-snapshot-performance": "node verify-station-snapshot-performance.js",
     "test:projectiles": "node verify-combat-catchup.js",
     "test:point-defense": "node verify-combat-catchup.js",

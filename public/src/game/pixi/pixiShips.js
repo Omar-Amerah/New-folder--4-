@@ -36,6 +36,12 @@ import {
 } from "../shipDynamics.js";
 import { createPixiKeyedPool, getPixiBakeGeneration, pixiTextureDiagnostics } from "./pixiBake.js";
 import {
+  getAlliedSensorSources,
+  buildPixiVisibilityMaskGeometry,
+  isPointVisible,
+  usesSensorVisibility
+} from "./pixiFog.js";
+import {
   SHIP_SCALE,
   createPixiShipView,
   rebuildPixiShipStatic,
@@ -1104,15 +1110,57 @@ function drawPixiFocusLine(gfx, ship, zoom, players) {
   gfx.stroke({ width: 1.5 / zoom, color });
 }
 
+let _visibilityMaskStats = {
+  enabled: false,
+  maskBuilds: 0,
+  sourceCount: 0,
+  omniSourceCount: 0,
+  directedSourceCount: 0,
+  lastBuildMs: 0,
+  maskRevision: 0,
+  maskedEnemyShipCount: 0
+};
+
+function syncEnemyVisibilityMask(env) {
+  const enabled = usesSensorVisibility();
+  const start = performance.now();
+  const sources = enabled ? getAlliedSensorSources() : [];
+  buildPixiVisibilityMaskGeometry(env, env.layers.enemyVisibilityMask, sources);
+  env.layers.enemyShipBodiesMasked.mask = enabled ? env.layers.enemyVisibilityMask : null;
+  const lastBuildMs = performance.now() - start;
+  _visibilityMaskStats = {
+    enabled,
+    maskBuilds: _visibilityMaskStats.maskBuilds + 1,
+    sourceCount: sources.length,
+    omniSourceCount: sources.filter((s) => s.shape === "circle").length,
+    directedSourceCount: sources.filter((s) => s.shape === "cone").length,
+    lastBuildMs,
+    maskRevision: _visibilityMaskStats.maskBuilds + 1,
+    maskedEnemyShipCount: _visibilityMaskStats.maskedEnemyShipCount
+  };
+  return sources;
+}
+
+function ensureShipBodyLayer(view, isEnemy, env) {
+  const target = isEnemy ? env.layers.enemyShipBodiesMasked : env.layers.friendlyShipBodies;
+  if (view.root.parent !== target) target.addChild(view.root);
+}
+
 export function updatePixiShips(env, now, players, bounds) {
-  if (!pixiShipPool) pixiShipPool = createPixiKeyedPool(env.layers.ships, () => createPixiShipView(env));
+  if (!pixiShipPool) pixiShipPool = createPixiKeyedPool(env.layers.shipBodyStaging, () => createPixiShipView(env));
   pixiShipPool.frameStart();
 
   const snap = state.snapshot;
   const zoom = state.camera.zoom;
   const overlay = env.layers.overlay;
+  const shipOverlays = env.layers.shipOverlays;
+  const shipOverlaysCleared = shipOverlays.children.length > 0;
+  if (shipOverlaysCleared) shipOverlays.removeChildren();
   const debug = turretDebugEnabled();
   const visibleShipIds = new Set();
+  const sources = syncEnemyVisibilityMask(env);
+  const sensorMode = usesSensorVisibility();
+  let maskedEnemyCount = 0;
   let tExhaust = 0, tTurrets = 0, tHud = 0, tEffects = 0;
   const tShipsStart = performance.now();
 
@@ -1148,6 +1196,9 @@ export function updatePixiShips(env, now, players, bounds) {
       if (!player) continue;
       if (state.debugStats) state.debugStats.drawnShips++;
 
+      const relation = playerTeamRelation(player);
+      const isEnemy = relation === "enemy";
+      const friendly = !isEnemy;
       const view = pixiShipPool.acquire(ship.id);
       const design = ship.design || player.design || [];
       const staticKey = pixiStaticSignature(pixiDesignSignature(design), player.color, ship.radius || 0, env.bakeScale);
@@ -1158,9 +1209,19 @@ export function updatePixiShips(env, now, players, bounds) {
         view.boundShipId = null; // force turret angle re-seed for the new static content
       }
 
+      ensureShipBodyLayer(view, isEnemy, env);
+      shipOverlays.addChild(view.overlayRoot);
+
       view.root.position.set(renderShip.x, renderShip.y);
+      view.overlayRoot.position.set(renderShip.x, renderShip.y);
       setHullFrameRotation(view, renderShip.angle);
       view.hullContainer.alpha = ship.alive ? 1 : 0.32;
+
+      const centreVisible = friendly || !sensorMode || isPointVisible(renderShip.x, renderShip.y, sources);
+      view.root.visible = true;
+      view.overlayRoot.visible = centreVisible;
+      if (isEnemy && view.root.visible) maskedEnemyCount++;
+
       const shipHud = updateShipHud(ship, now);
 
       let _t = performance.now();
@@ -1189,16 +1250,19 @@ export function updatePixiShips(env, now, players, bounds) {
         view.debugText.visible = false;
       }
 
-      if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
+      if (state.selectedShipIds.has(ship.id) && (friendly || isPointVisible(renderShip.x, renderShip.y, sources))) {
+        drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
+      }
       if (ship.commandAuraActive) drawPixiCommandAura(env, overlay, renderShip, zoom, players);
       if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
-      if (ship.destructProgress != null && ship.alive) {
+      if (ship.destructProgress != null && ship.alive && (friendly || isPointVisible(renderShip.x, renderShip.y, sources))) {
         drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
       }
       tEffects += performance.now() - _t;
     }
   }
 
+  _visibilityMaskStats.maskedEnemyShipCount = maskedEnemyCount;
   pixiShipPool.frameEnd();
 
   for (const id of state.shipHud.keys()) {
@@ -1225,7 +1289,11 @@ export function updatePixiShipPoses(env, now, players, bounds) {
   if (!snap || !snap.ships) return;
 
   const overlay = env.layers.overlay;
+  const shipOverlays = env.layers.shipOverlays;
   const zoom = state.camera.zoom;
+  const sources = syncEnemyVisibilityMask(env);
+  const sensorMode = usesSensorVisibility();
+  let maskedEnemyCount = 0;
 
   for (const ship of snap.ships) {
     const vis = state.visualShips ? state.visualShips.get(ship.id) : null;
@@ -1245,10 +1313,21 @@ export function updatePixiShipPoses(env, now, players, bounds) {
 
     const player = players.get(ship.ownerId);
     const design = ship.design || player?.design || [];
+    const relation = playerTeamRelation(player);
+    const isEnemy = relation === "enemy";
+    const friendly = !isEnemy;
+
+    ensureShipBodyLayer(view, isEnemy, env);
+    if (!view.overlayRoot.parent) shipOverlays.addChild(view.overlayRoot);
 
     view.root.position.set(vis.x, vis.y);
+    view.overlayRoot.position.set(vis.x, vis.y);
     setHullFrameRotation(view, vis.angle);
     view.hullContainer.alpha = ship.alive ? 1 : 0.32;
+    view.root.visible = true;
+    view.overlayRoot.visible = friendly || !sensorMode || isPointVisible(vis.x, vis.y, sources);
+    if (isEnemy && view.root.visible) maskedEnemyCount++;
+
     updatePixiTurrets(env, view, ship, design);
 
     let renderShip = renderShipCache.get(ship);
@@ -1260,16 +1339,22 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     renderShip.y = vis.y;
     renderShip.angle = vis.angle;
 
-    if (state.selectedShipIds.has(ship.id)) drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
+    if (state.selectedShipIds.has(ship.id) && (friendly || isPointVisible(vis.x, vis.y, sources))) {
+      drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
+    }
     if (ship.commandAuraActive) drawPixiCommandAura(env, overlay, renderShip, zoom, players);
     if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
-    if (ship.destructProgress != null && ship.alive) drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
+    if (ship.destructProgress != null && ship.alive && (friendly || isPointVisible(vis.x, vis.y, sources))) {
+      drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
+    }
 
     if (state.debugStats) {
       state.debugStats.totalShips++;
       state.debugStats.drawnShips++;
     }
   }
+
+  _visibilityMaskStats.maskedEnemyShipCount = maskedEnemyCount;
 }
 
 export function destroyPixiShipPool() {
@@ -1384,8 +1469,13 @@ export function pixiTextureDiagnosticsSnapshot() {
 // (and manual debugging) can read real rendered rotations/world transforms and
 // texture lifecycle state. Works in both the ES-module dev build and the
 // concatenated production bundle.
+function visibilityMaskDiagnosticsSnapshot() {
+  return { ..._visibilityMaskStats };
+}
+
 if (typeof window !== "undefined") {
   window.__mfaTurretDebugInfo = __pixiTurretDebugInfo;
   window.__mfaLiveTurretDiagnostics = __pixiLiveTurretDiagnostics;
   window.__mfaPixiTextureDiagnostics = pixiTextureDiagnosticsSnapshot;
+  window.__mfaVisibilityMaskDiagnostics = visibilityMaskDiagnosticsSnapshot;
 }

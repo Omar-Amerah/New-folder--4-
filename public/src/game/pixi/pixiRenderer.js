@@ -80,6 +80,12 @@ export async function initPixiRenderer() {
   // Layer order defines the arena draw order (back to front).
   const backdropRoot = new PIXI.Container();
   const worldRoot = new PIXI.Container();
+  const enemyVisibilityMask = new PIXI.Graphics();
+  enemyVisibilityMask.label = "EnemyVisibilityMask";
+  const enemyShipBodiesMasked = new PIXI.Container();
+  enemyShipBodiesMasked.label = "EnemyShipBodiesMasked";
+  enemyShipBodiesMasked.addChild(enemyVisibilityMask);
+  enemyShipBodiesMasked.mask = enemyVisibilityMask;
   const layers = {
     backdropRoot,
     worldRoot,
@@ -92,13 +98,19 @@ export async function initPixiRenderer() {
     command: new PIXI.Graphics(),
     engineSmoke: new PIXI.Graphics(),
     enemyBullets: new PIXI.Container(),
-    ships: new PIXI.Container(),
+    // The body pool is an off-screen staging container; views are reparented
+    // into friendly or masked enemy layers each frame.
+    shipBodyStaging: new PIXI.Container(),
+    friendlyShipBodies: new PIXI.Container(),
+    enemyShipBodiesMasked,
+    enemyVisibilityMask,
+    shipOverlays: new PIXI.Container(),
     drones: new PIXI.Container(),
     friendlyBullets: new PIXI.Container(),
     effects: new PIXI.Container(),
     effectText: new PIXI.Container(),
-    contacts: new PIXI.Container(),
     fog: new PIXI.Container(),
+    contacts: new PIXI.Container(),
     overlay: new PIXI.Graphics(),
     screenUiRoot: new PIXI.Container()
   };
@@ -109,15 +121,18 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.command);
   worldRoot.addChild(layers.engineSmoke);
   worldRoot.addChild(layers.enemyBullets);
-  worldRoot.addChild(layers.ships);
+  // Fog presentation sits behind ship bodies; the visibility mask (not fog
+  // opacity) determines which pixels of enemy hulls are actually drawn.
+  worldRoot.addChild(layers.fog);
+  worldRoot.addChild(layers.friendlyShipBodies);
+  worldRoot.addChild(layers.enemyShipBodiesMasked);
+  worldRoot.addChild(layers.shipOverlays);
   worldRoot.addChild(layers.drones);
   worldRoot.addChild(layers.friendlyBullets);
   worldRoot.addChild(layers.effects);
   worldRoot.addChild(layers.effectText);
-  worldRoot.addChild(layers.fog);
   // Remembered contacts are tactical UI and remain legible over unexplored
-  // space; live world entities stay beneath the fog so sensor softness and
-  // opacity control how strongly they fade in and out.
+  // space; ship overlays and selection graphics sit on top of the fog layer.
   worldRoot.addChild(layers.contacts);
   worldRoot.addChild(layers.overlay);
   app.stage.addChild(backdropRoot);

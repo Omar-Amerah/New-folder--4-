@@ -248,10 +248,17 @@ export function createPixiShipView(env) {
   // root — outside the hull rotation.
   root.addChild(shieldRing);
   root.addChild(hullContainer);
-  root.addChild(worldLabels);
+
+  // Overlay root carries the screen-aligned HUD labels. It is kept in a
+  // dedicated overlay layer so enemy hulls can be masked without clipping
+  // health bars, names or selection text.
+  const overlayRoot = new PIXI.Container();
+  overlayRoot.label = "ShipOverlayRoot";
+  overlayRoot.addChild(worldLabels);
 
   return {
     root,
+    overlayRoot,
     // Effects
     effectsBelow,
     effectsAbove,
@@ -302,6 +309,12 @@ export function createPixiShipView(env) {
     // Pool reset: wipe every scrap of per-ship visual state.
     release() {
       resetPixiShipView(this);
+    },
+    destroy() {
+      if (root.parent) root.parent.removeChild(root);
+      if (overlayRoot.parent) overlayRoot.parent.removeChild(overlayRoot);
+      root.destroy({ children: true, texture: false, textureSource: false });
+      overlayRoot.destroy({ children: true, texture: false, textureSource: false });
     }
   };
 }
@@ -374,6 +387,14 @@ export function resetPixiShipView(view) {
   view.shieldGfx.clear();
   view.hullContainer.rotation = 0;
   view.hullContainer.alpha = 1;
+  view.root.mask = null;
+  view.root.visible = true;
+  view.root.alpha = 1;
+  view.root.renderable = true;
+  view.overlayRoot.mask = null;
+  view.overlayRoot.visible = true;
+  view.overlayRoot.alpha = 1;
+  if (view.overlayRoot.parent) view.overlayRoot.parent.removeChild(view.overlayRoot);
   view.names.hud = null;
   view.names.idle = null;
   view.debugText.visible = false;

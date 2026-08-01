@@ -9,6 +9,7 @@
 
 import { state } from "../../state.js";
 import { getFogOpacity } from "../../game/renderSettings.js";
+import { angleDifference } from "../../shared/math.js";
 
 const SENSOR_FOG_COLOR_BASE = "rgba(0, 4, 16, ";
 const FULL_DARK_COLOR = "rgba(0, 0, 0, 1)";
@@ -244,6 +245,62 @@ export function updatePixiFog(env, now, _bounds) {
   fogView.lastDrawAt = now;
 }
 
+export function getAlliedSensorSources() {
+  return alliedSensorSources(state.snapshot || {}, viewerTeam());
+}
+
+export function isPointVisible(x, y, sources) {
+  for (const source of sources) {
+    const dx = x - source.x;
+    const dy = y - source.y;
+    const dist2 = dx * dx + dy * dy;
+    const range = source.range;
+    if (!(dist2 <= (range + 0.5) * (range + 0.5))) continue;
+    if (source.shape === "circle") return true;
+    const a = source.angle || 0;
+    const halfArc = (source.arc || 0) * 0.5;
+    if (halfArc >= Math.PI) return true;
+    const da = Math.abs(angleDifference(Math.atan2(dy, dx), a));
+    if (da <= halfArc + 1e-6) return true;
+  }
+  return false;
+}
+
+function coneArcSteps(arc) {
+  // Aim for about one segment per ~3 degrees of arc, with a sane minimum and
+  // maximum so very small or very large cones are not under/over tessellated.
+  return Math.min(120, Math.max(8, Math.ceil(arc / (Math.PI / 64))));
+}
+
+export function buildPixiVisibilityMaskGeometry(env, mask, sources) {
+  if (!mask) return;
+  mask.clear();
+  for (const source of sources) {
+    const x = Number(source.x);
+    const y = Number(source.y);
+    const range = Number(source.range);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !(range > 0)) continue;
+    if (source.shape === "circle" || (source.shape === "cone" && (source.arc || 0) >= Math.PI * 2 - 1e-6)) {
+      mask.circle(x, y, range);
+      mask.fill(0xffffff);
+      continue;
+    }
+    if (source.shape === "cone") {
+      const angle = Number(source.angle) || 0;
+      const arc = Math.max(0, Number(source.arc) || 0);
+      const half = arc * 0.5;
+      const steps = coneArcSteps(arc);
+      mask.moveTo(x, y);
+      for (let i = 0; i <= steps; i++) {
+        const a = angle - half + (arc * i / steps);
+        mask.lineTo(x + Math.cos(a) * range, y + Math.sin(a) * range);
+      }
+      mask.closePath();
+      mask.fill(0xffffff);
+    }
+  }
+}
+
 export function destroyPixiFog() {
   if (!fogView) return;
   const { root, texture } = fogView;
@@ -259,7 +316,7 @@ export function getPixiFogTexture() {
   return fogView?.root?.visible && fogView.texture ? fogView.texture : null;
 }
 
-function usesSensorVisibility() {
+export function usesSensorVisibility() {
   const mode = state.rules?.visibilityMode;
   return mode === "sensors" || mode === "dark";
 }
