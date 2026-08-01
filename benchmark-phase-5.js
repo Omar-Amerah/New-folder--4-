@@ -13,6 +13,7 @@ const outbound = require("./src/server/outbound");
 const flags = require("./src/server/performanceFlags");
 const { performanceSnapshot } = require("./src/server/performanceTelemetry");
 const { performanceNow } = require("./src/server/utils");
+const { signature: snapshotEntitySignature } = require("./src/server/snapshotEntityDelta");
 
 const COUNTS = [50, 150, 300, 600];
 const CLIENT_COUNTS = [1, 2, 4, 6];
@@ -86,6 +87,149 @@ function benchmarkNumericHandles() {
     reductionPercent,
     thresholdPercent: 25,
     decision: reductionPercent >= 25 ? "candidate-for-production" : "defer"
+  };
+}
+
+function benchmarkSignatureCosts() {
+  const iterations = Math.max(100, Number(process.env.MFA_PHASE5_SIGNATURE_ITERATIONS) || 2000);
+  const rounds = Math.max(3, Number(process.env.MFA_PHASE5_SIGNATURE_ROUNDS) || 5);
+  const samples = [
+    {
+      name: "weaponAngles",
+      value: Array.from({ length: 12 }, (_, index) => Math.round((index * 0.37 - 1.2) * 1000) / 1000)
+    },
+    {
+      name: "weaponRanges",
+      value: Array.from({ length: 12 }, (_, index) => index % 4 === 0 ? null : 180 + index * 35)
+    },
+    {
+      name: "sensorCones",
+      value: Array.from({ length: 4 }, (_, index) => ({
+        componentIndex: index,
+        relativeAngle: Math.round((index - 1.5) * 0.8 * 1000) / 1000,
+        arc: 1.25,
+        range: 420 + index * 60
+      }))
+    },
+    {
+      name: "droneBays",
+      value: Array.from({ length: 2 }, (_, index) => ({
+        componentId: `bay-${index + 1}`,
+        componentIndex: index,
+        droneType: index ? "repair" : "fighter",
+        commandRange: 600,
+        squadSize: 4,
+        activeCount: 2,
+        refuelingCount: 1,
+        storedCount: 1,
+        mode: "deployed",
+        launchBlockedBySpawn: false,
+        operational: true,
+        powerFraction: 1,
+        overheated: false,
+        runtimePowerMw: 3,
+        producingSlot: 2,
+        productionProgress: 0.35,
+        productionPausedReason: null,
+        launchState: "idle",
+        x: 10 + index,
+        y: 12 + index,
+        slots: Array.from({ length: 4 }, (_, slot) => ({
+          state: slot === 2 ? "producing" : "stored",
+          droneId: slot === 2 ? `drone-${index + 1}` : null,
+          progress: slot === 2 ? 0.35 : 0,
+          pauseReason: null
+        }))
+      }))
+    },
+    {
+      name: "productionQueue",
+      value: Array.from({ length: 4 }, (_, index) => ({
+        id: `queue-${index + 1}`,
+        playerId: index % 2 ? "p2" : "p1",
+        quantityRemaining: 2,
+        state: index ? "queued" : "building",
+        buildDurationSeconds: 4,
+        progress: index ? 0 : 0.42
+      }))
+    },
+    {
+      name: "effects",
+      value: {
+        id: "effect-beam-1",
+        type: "beam",
+        subtype: "rail",
+        ownerId: "p1",
+        x: 120,
+        y: 240,
+        x2: 520,
+        y2: 280,
+        radius: 8,
+        charge: 0.72,
+        at: 1000,
+        age: 50
+      }
+    }
+  ];
+
+  function measure(fn) {
+    for (let index = 0; index < 100; index += 1) fn();
+    const started = performanceNow();
+    let last;
+    for (let index = 0; index < iterations; index += 1) last = fn();
+    return { ms: performanceNow() - started, last };
+  }
+
+  const measurements = samples.map((sample) => {
+    const signatureMs = [];
+    const encodingMs = [];
+    const wireBytes = encode({ [sample.name]: sample.value }).length;
+    const valueBytes = encode(sample.value).length;
+    let signatureBytes = 0;
+    for (let round = 0; round < rounds; round += 1) {
+      const signatureRun = measure(() => snapshotEntitySignature(sample.value));
+      const encodingRun = measure(() => encode(sample.value));
+      signatureMs.push(signatureRun.ms);
+      encodingMs.push(encodingRun.ms);
+      signatureBytes = Buffer.byteLength(signatureRun.last, "utf8");
+    }
+    const signatureTotalMs = signatureMs.reduce((sum, value) => sum + value, 0);
+    const encodingTotalMs = encodingMs.reduce((sum, value) => sum + value, 0);
+    return {
+      name: sample.name,
+      iterationsPerRound: iterations,
+      rounds,
+      signatureMs: summarize(signatureMs),
+      encodingMs: summarize(encodingMs),
+      signatureMsPerOp: signatureTotalMs / (iterations * rounds),
+      encodingMsPerOp: encodingTotalMs / (iterations * rounds),
+      signatureVsEncodingPercent: encodingTotalMs ? (signatureTotalMs / encodingTotalMs) * 100 : 0,
+      signatureBytes,
+      valueWireBytes: valueBytes,
+      fieldWireBytes: wireBytes,
+      avoidedWireBytesIfUnchanged: wireBytes
+    };
+  });
+  const totalSignatureMs = measurements.reduce((sum, value) => sum + value.signatureMs.mean, 0);
+  const totalEncodingMs = measurements.reduce((sum, value) => sum + value.encodingMs.mean, 0);
+  const totalAvoidedWireBytes = measurements.reduce((sum, value) => sum + value.avoidedWireBytesIfUnchanged, 0);
+  const totalOperations = measurements.reduce((sum, value) => sum + value.iterationsPerRound * value.rounds, 0);
+  return {
+    methodology: "Representative production-shaped values; structural signature and MessagePack encoding are each measured over the same repeated value and rounds.",
+    iterationsPerRound: iterations,
+    rounds,
+    samples: measurements,
+    aggregate: {
+      totalSignatureMs,
+      totalEncodingMs,
+      signatureMsPerOp: totalOperations ? totalSignatureMs / totalOperations : 0,
+      encodingMsPerOp: totalOperations ? totalEncodingMs / totalOperations : 0,
+      signatureVsEncodingPercent: totalEncodingMs ? (totalSignatureMs / totalEncodingMs) * 100 : 0,
+      signatureCheaperThanEncoding: totalSignatureMs < totalEncodingMs,
+      avoidedWireBytesIfAllValuesStayUnchangedForOneFrame: totalAvoidedWireBytes,
+      totalOperations
+    },
+    honestLimitation: "This isolates the structural-signature decision cost from the production broadcast benchmark; it does not claim every frame skips every listed field or model browser CPU time."
   };
 }
 
@@ -396,6 +540,7 @@ async function main() {
     results,
     comparisons: pairs,
     numericHandles: benchmarkNumericHandles(),
+    signatureCosts: benchmarkSignatureCosts(),
     memory: { startHeapBytes: startedHeap, endHeapBytes: process.memoryUsage().heapUsed, growthBytes: process.memoryUsage().heapUsed - startedHeap },
     targets: {
       mostlyStationaryLargePayloadReductionPercent: 60,
@@ -408,7 +553,8 @@ async function main() {
       "Server construction is reported as shared construction plus viewer-specific construction; end-to-end broadcast wall time is reported separately and is not folded into either construction metric.",
       "Client decode timing decodes the raw MessagePack Buffer retained by the fake socket, then measures merge separately and combined; blocked fixtures record attempted writes even when backpressure rejects them.",
       "Heap growth is process-level and GC-sensitive; no forced collection is assumed. The benchmark covers representative dimension combinations rather than the full Cartesian matrix, and writes its JSON result to the ignored test-artifacts/performance directory.",
-      "Numeric entity handles were benchmarked with a 600-entity repeated-ID patch and deferred below the declared 25% savings threshold; adding dictionary state would otherwise expand reconnect and privacy validation paths."
+      "Numeric entity handles were benchmarked with a 600-entity repeated-ID patch and deferred below the declared 25% savings threshold; adding dictionary state would otherwise expand reconnect and privacy validation paths.",
+      "Signature-cost evidence is a controlled Node microbenchmark over representative field values; it compares structural-signature time with MessagePack encoding time and reports the field bytes omitted when a value stays unchanged, but does not attribute per-field production snapshots."
     ]
   };
   const outputPath = path.join(__dirname, "test-artifacts", "performance", "benchmark-phase-5.json");

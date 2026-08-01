@@ -64,6 +64,54 @@
     effects: Object.freeze(["age"])
   });
 
+  // These are the only public fields that the authoritative server currently
+  // clears explicitly for a ship.  Static/design fields and ordinary carried
+  // state are never valid clear targets in a compact ship patch.
+  const SHIP_CLEARABLE_STATE_FIELDS = Object.freeze([
+    "destructProgress", "droneBays", "decoyLaunchers", "engBlocked"
+  ]);
+
+  // Generic entity fields are split between the fixed motion tuple, the
+  // section's known state object, and a small remaining object.  Keeping the
+  // latter explicit prevents a malformed clear row from turning the generic
+  // merge helper into an arbitrary property-deletion primitive.
+  const GENERIC_STATE_FIELDS = Object.freeze({
+    drones: Object.freeze([
+      "ownerId", "parentShipId", "bayComponentId", "type", "state", "radius",
+      "hull", "maxHull", "targetId", "fuelCapacitySeconds"
+    ]),
+    decoys: Object.freeze(["ownerId", "parentShipId", "radius"]),
+    effects: Object.freeze([
+      "type", "subtype", "ownerId", "x", "y", "x2", "y2", "nx", "ny",
+      "radius", "text", "reason"
+    ]),
+    players: Object.freeze([
+      "name", "color", "colour", "team", "teamName", "isBot", "isAdmin",
+      "connected", "ready", "money", "income", "earned", "spent", "shipCap",
+      "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost", "lastReward",
+      "activeShips", "kills", "losses", "captures", "rallyPoint", "rallyPointCustom",
+      "shipsBuilt", "lostFleetCost"
+    ]),
+    points: Object.freeze([
+      "x", "y", "radius", "ownerId", "ownerTeam", "contested", "progress", "stationId"
+    ])
+  });
+
+  const GENERIC_REMAINING_FIELDS = Object.freeze({
+    drones: Object.freeze([]),
+    decoys: Object.freeze([]),
+    effects: Object.freeze(["at", "charge", "amount", "isShield"]),
+    players: Object.freeze([]),
+    points: Object.freeze([])
+  });
+
+  const STATION_STATE_FIELDS = Object.freeze([
+    "hp", "shield", "team", "ownerId", "state", "sensorRange", "weaponRange", "revision",
+    "healthRevision", "componentDamageRevision", "stateRevision", "productionRevision",
+    "captureProgress", "captureContested", "captureTeam", "weaponAngles", "weaponAnglePairs",
+    "conditionKnown", "productionQueue"
+  ]);
+
   function cleanNumber(value, fallback = 0) {
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
@@ -111,6 +159,10 @@
     SHIP_STATE_SIGNATURE_FIELDS,
     PRIVATE_SHIP_FIELDS,
     GENERIC_MOTION_FIELDS,
+    SHIP_CLEARABLE_STATE_FIELDS,
+    GENERIC_STATE_FIELDS,
+    GENERIC_REMAINING_FIELDS,
+    STATION_STATE_FIELDS,
     cleanNumber,
     packShipMotion,
     unpackShipMotion

@@ -9,6 +9,38 @@ const GENERIC_MOTION_FIELDS = ENTITY_DELTA.GENERIC_MOTION_FIELDS || {
   decoys: ["x", "y", "vx", "vy", "remainingSeconds"],
   effects: ["age"]
 };
+const SHIP_CLEARABLE_STATE_FIELDS = ENTITY_DELTA.SHIP_CLEARABLE_STATE_FIELDS || [
+  "destructProgress", "droneBays", "decoyLaunchers", "engBlocked"
+];
+const GENERIC_STATE_FIELDS = ENTITY_DELTA.GENERIC_STATE_FIELDS || {
+  drones: ["ownerId", "parentShipId", "bayComponentId", "type", "state", "radius", "hull", "maxHull", "targetId", "fuelCapacitySeconds"],
+  decoys: ["ownerId", "parentShipId", "radius"],
+  effects: ["type", "subtype", "ownerId", "x", "y", "x2", "y2", "nx", "ny", "radius", "text", "reason"],
+  players: [
+    "name", "color", "colour", "team", "teamName", "isBot", "isAdmin", "connected", "ready", "money", "income",
+    "earned", "spent", "shipCap", "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost", "lastReward",
+    "activeShips", "kills", "losses", "captures", "rallyPoint", "rallyPointCustom", "shipsBuilt", "lostFleetCost"
+  ],
+  points: ["x", "y", "radius", "ownerId", "ownerTeam", "contested", "progress", "stationId"]
+};
+const GENERIC_REMAINING_FIELDS = ENTITY_DELTA.GENERIC_REMAINING_FIELDS || {
+  drones: [], decoys: [], effects: ["at", "charge", "amount", "isShield"], players: [], points: []
+};
+const STATION_STATE_FIELDS = ENTITY_DELTA.STATION_STATE_FIELDS || [
+  "hp", "shield", "team", "ownerId", "state", "sensorRange", "weaponRange", "revision", "healthRevision",
+  "componentDamageRevision", "stateRevision", "productionRevision", "captureProgress", "captureContested", "captureTeam",
+  "weaponAngles", "weaponAnglePairs", "conditionKnown", "productionQueue"
+];
+const EMPTY_FIELD_SET = new Set();
+const CLEAR_STATE_FIELDS_BY_SECTION = Object.freeze({
+  ships: new Set(SHIP_CLEARABLE_STATE_FIELDS),
+  drones: new Set([...(GENERIC_STATE_FIELDS.drones || []), ...(GENERIC_REMAINING_FIELDS.drones || [])]),
+  decoys: new Set([...(GENERIC_STATE_FIELDS.decoys || []), ...(GENERIC_REMAINING_FIELDS.decoys || [])]),
+  effects: new Set([...(GENERIC_STATE_FIELDS.effects || []), ...(GENERIC_REMAINING_FIELDS.effects || [])]),
+  players: new Set([...(GENERIC_STATE_FIELDS.players || []), ...(GENERIC_REMAINING_FIELDS.players || [])]),
+  points: new Set([...(GENERIC_STATE_FIELDS.points || []), ...(GENERIC_REMAINING_FIELDS.points || [])]),
+  stations: new Set(STATION_STATE_FIELDS)
+});
 
 export const SNAPSHOT_REJECTION = Object.freeze({
   STALE_EPOCH: "stale-epoch",
@@ -25,6 +57,7 @@ export const SNAPSHOT_REJECTION = Object.freeze({
   DUPLICATE_PATCH_ENTRY: "duplicate-patch-entry",
   PATCH_FOR_REMOVED_ENTITY: "patch-for-removed-entity",
   PATCH_OPERATION_CONFLICT: "patch-operation-conflict",
+  INVALID_CLEAR_FIELD: "invalid-clear-field",
   INVALID_DETAIL_TRANSITION: "invalid-detail-transition",
   INCOMPATIBLE_SNAPSHOT: "incompatible-snapshot"
 });
@@ -296,7 +329,7 @@ function validatePatchSection(patch, previousEntries, spec) {
       if (error) return error;
     }
   }
-  const checkFieldClearRows = (rows, operation) => {
+  const checkFieldClearRows = (rows, operation, allowedFields = EMPTY_FIELD_SET) => {
     if (rows === undefined) return null;
     if (!Array.isArray(rows)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.${operation} is not an array`);
     const seen = new Set();
@@ -310,6 +343,7 @@ function validatePatchSection(patch, previousEntries, spec) {
       const fieldSet = new Set();
       for (const field of fields) {
         if (typeof field !== "string" || !field || fieldSet.has(field)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.${operation} has invalid fields`);
+        if (!allowedFields.has(field)) return patchError(SNAPSHOT_REJECTION.INVALID_CLEAR_FIELD, `${spec.name}.${operation} cannot clear ${field}`);
         fieldSet.add(field);
       }
     }
@@ -320,9 +354,17 @@ function validatePatchSection(patch, previousEntries, spec) {
   if (patch.remaining !== undefined) {
     for (const row of patch.remaining) if (!isPlainObject(row[1])) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, `${spec.name}.remaining has an invalid tuple`);
   }
-  const clearStateError = checkFieldClearRows(patch.clearStateFields, "clearStateFields");
+  const clearStateError = checkFieldClearRows(
+    patch.clearStateFields,
+    "clearStateFields",
+    spec.clearStateFields || EMPTY_FIELD_SET
+  );
   if (clearStateError) return clearStateError;
-  const clearPrivateFieldsError = checkFieldClearRows(patch.clearPrivateFields, "clearPrivateFields");
+  const clearPrivateFieldsError = checkFieldClearRows(
+    patch.clearPrivateFields,
+    "clearPrivateFields",
+    spec.clearPrivateFields || EMPTY_FIELD_SET
+  );
   if (clearPrivateFieldsError) return clearPrivateFieldsError;
 
   const idsFor = (rows) => new Set((rows || []).map((row) => Array.isArray(row) ? row[0] : row?.id ?? row));
@@ -340,6 +382,28 @@ function validatePatchSection(patch, previousEntries, spec) {
   };
   const intersects = (left, right) => [...left].some((id) => right.has(id));
   const conflict = (message) => patchError(SNAPSHOT_REJECTION.PATCH_OPERATION_CONFLICT, `${spec.name} ${message}`);
+  if (spec.name !== "ships" && operationIds.clearPrivate.size) return conflict("clearPrivate is only valid for ships");
+
+  const fieldsById = (rows) => new Map((rows || []).map((row) => [row[0], new Set(Object.keys(row[1] || {}))]));
+  const clearFieldsById = (rows) => new Map((rows || []).map(([id, fields]) => [id, new Set(fields)]));
+  const rejectFieldOverlap = (setRows, clearRows, setOperation, clearOperation) => {
+    const clearById = clearFieldsById(clearRows);
+    for (const [id, fields] of fieldsById(setRows)) {
+      const cleared = clearById.get(id);
+      if (!cleared) continue;
+      for (const field of fields) {
+        if (cleared.has(field)) return conflict(`${setOperation} overlaps ${clearOperation} for ${String(id)}.${field}`);
+      }
+    }
+    return null;
+  };
+  const stateClearOverlap = rejectFieldOverlap(patch.state, patch.clearStateFields, "state", "clearStateFields");
+  if (stateClearOverlap) return stateClearOverlap;
+  const remainingClearOverlap = rejectFieldOverlap(patch.remaining, patch.clearStateFields, "remaining", "clearStateFields");
+  if (remainingClearOverlap) return remainingClearOverlap;
+  const privateClearOverlap = rejectFieldOverlap(patch.private, patch.clearPrivateFields, "private", "clearPrivateFields");
+  if (privateClearOverlap) return privateClearOverlap;
+
   const exclusiveOperations = ["motion", "state", "private", "remaining", "dynamic", "clearStateFields", "clearPrivateFields", "clearPrivate"];
   for (const id of operationIds.remove) {
     if (exclusiveOperations.some((operation) => operationIds[operation].has(id)) || operationIds.upsert.has(id)) return conflict(`remove conflicts for ${String(id)}`);
@@ -374,13 +438,13 @@ function validateEntityDeltaPatches(previous, message) {
   if (!isPlainObject(message.roomPatch)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, "roomPatch is not an object");
   if (!finiteTree(message.roomPatch)) return patchError(SNAPSHOT_REJECTION.MALFORMED_DELTA, "roomPatch contains a non-finite value");
   const sections = [
-    ["playersPatch", previous?.players, { name: "players", motionStride: null }],
-    ["shipsPatch", previous?.ships, { name: "ships", motionStride: SHIP_MOTION_STRIDE }],
-    ["dronesPatch", previous?.drones, { name: "drones", motionStride: 1 + GENERIC_MOTION_FIELDS.drones.length }],
-    ["decoysPatch", previous?.decoys, { name: "decoys", motionStride: 1 + GENERIC_MOTION_FIELDS.decoys.length }],
-    ["stationsPatch", previous?.stations, { name: "stations", motionStride: null }],
-    ["pointsPatch", previous?.points, { name: "points", motionStride: null }],
-    ["effectsPatch", previous?.effects, { name: "effects", motionStride: 1 + GENERIC_MOTION_FIELDS.effects.length }]
+    ["playersPatch", previous?.players, { name: "players", motionStride: null, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.players, clearPrivateFields: EMPTY_FIELD_SET }],
+    ["shipsPatch", previous?.ships, { name: "ships", motionStride: SHIP_MOTION_STRIDE, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.ships, clearPrivateFields: new Set(PRIVATE_SHIP_FIELDS) }],
+    ["dronesPatch", previous?.drones, { name: "drones", motionStride: 1 + GENERIC_MOTION_FIELDS.drones.length, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.drones, clearPrivateFields: EMPTY_FIELD_SET }],
+    ["decoysPatch", previous?.decoys, { name: "decoys", motionStride: 1 + GENERIC_MOTION_FIELDS.decoys.length, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.decoys, clearPrivateFields: EMPTY_FIELD_SET }],
+    ["stationsPatch", previous?.stations, { name: "stations", motionStride: null, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.stations, clearPrivateFields: EMPTY_FIELD_SET }],
+    ["pointsPatch", previous?.points, { name: "points", motionStride: null, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.points, clearPrivateFields: EMPTY_FIELD_SET }],
+    ["effectsPatch", previous?.effects, { name: "effects", motionStride: 1 + GENERIC_MOTION_FIELDS.effects.length, clearStateFields: CLEAR_STATE_FIELDS_BY_SECTION.effects, clearPrivateFields: EMPTY_FIELD_SET }]
   ];
   for (const [key, entries, spec] of sections) {
     const patch = message[key];

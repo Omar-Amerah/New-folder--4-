@@ -11,32 +11,14 @@ const {
   SHIP_STATE_SIGNATURE_FIELDS,
   PRIVATE_SHIP_FIELDS,
   GENERIC_MOTION_FIELDS,
+  GENERIC_STATE_FIELDS,
+  GENERIC_REMAINING_FIELDS,
+  STATION_STATE_FIELDS,
   packShipMotion,
   cleanNumber
 } = require("../../public/src/shared/snapshotEntityDelta");
 
-const GENERIC_STATE_FIELDS = Object.freeze({
-  drones: ["ownerId", "parentShipId", "bayComponentId", "type", "state", "radius", "hull", "maxHull", "targetId", "fuelCapacitySeconds"],
-  decoys: ["ownerId", "parentShipId", "radius"],
-  effects: ["type", "subtype", "ownerId", "x", "y", "x2", "y2", "nx", "ny", "radius", "text", "reason"],
-  players: [
-    "name", "color", "colour", "team", "teamName", "isBot", "isAdmin", "connected", "ready", "money", "income",
-    "earned", "spent", "shipCap", "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost", "lastReward",
-    "activeShips", "kills", "losses", "captures", "rallyPoint", "rallyPointCustom", "shipsBuilt", "lostFleetCost"
-  ],
-  points: ["x", "y", "radius", "ownerId", "ownerTeam", "contested", "progress", "stationId"]
-});
-const STATION_SIGNATURE_FIELDS = Object.freeze([
-  "hp", "shield", "team", "ownerId", "state", "sensorRange", "weaponRange", "revision", "healthRevision",
-  "componentDamageRevision", "stateRevision", "productionRevision", "captureProgress", "captureContested", "captureTeam",
-  "weaponAngles", "weaponAnglePairs", "conditionKnown", "productionQueue"
-]);
-const GENERIC_KNOWN_FIELDS = Object.freeze(Object.fromEntries(
-  Object.keys(GENERIC_STATE_FIELDS).map((kind) => [
-    kind,
-    new Set(["id", ...(GENERIC_MOTION_FIELDS[kind] || []), ...(GENERIC_STATE_FIELDS[kind] || [])])
-  ])
-));
+const STATION_SIGNATURE_FIELDS = STATION_STATE_FIELDS;
 
 function sortedIds(values) {
   return [...values].sort((a, b) => String(a).localeCompare(String(b)));
@@ -71,9 +53,26 @@ function signature(value, depth = 0) {
   }
   if (typeof value === "boolean") return value ? "#true" : "#false";
   if (typeof value === "string") return `#s${value.length}:${value}`;
-  if (Array.isArray(value)) return `#a${value.length}[${value.map((entry) => signature(entry, depth + 1)).join("|")}]`;
+  if (Array.isArray(value)) {
+    let result = `#a${value.length}[`;
+    for (let index = 0; index < value.length; index += 1) {
+      if (index) result += "|";
+      result += signature(value[index], depth + 1);
+    }
+    return `${result}]`;
+  }
   if (typeof value === "object") {
-    return `#o{${Object.keys(value).sort().map((key) => `${signature(key, depth + 1)}=${signature(value[key], depth + 1)}`).join("|")}}`;
+    // Snapshot builders copy fields in fixed schema order. Preserving that
+    // order avoids sorting every nested sensor/bay/queue object in the hot
+    // path; a changed key set or value still produces a different signature.
+    const keys = Object.keys(value);
+    let result = "#o{";
+    for (let index = 0; index < keys.length; index += 1) {
+      if (index) result += "|";
+      const key = keys[index];
+      result += `#s${key.length}:${key}=${signature(value[key], depth + 1)}`;
+    }
+    return `${result}}`;
   }
   return `#${typeof value}`;
 }
@@ -153,11 +152,8 @@ function genericState(entry, kind) {
 }
 
 function genericRemaining(entry, kind) {
-  const known = GENERIC_KNOWN_FIELDS[kind] || new Set(["id"]);
   const result = {};
-  for (const key of Object.keys(entry || {})) {
-    if (!known.has(key)) result[key] = entry[key];
-  }
+  for (const key of GENERIC_REMAINING_FIELDS[kind] || []) if (hasOwn(entry, key)) result[key] = entry[key];
   return result;
 }
 
@@ -302,7 +298,7 @@ function buildGenericPatch(entries, previous, kind, options = {}) {
     const missingFields = [...oldPublicFields].filter((field) => !currentPublicFields.has(field));
     if (missingFields.length) clearStateFields.push([id, missingFields]);
     if (old.remainingSignature !== record.remainingSignature && Object.keys(record.remaining).length) {
-      // Unknown public fields are a supplementary sparse operation.  It can
+      // Declared supplementary public fields are a sparse operation. It can
       // safely accompany motion/state changes without reintroducing a full
       // upsert conflict.
       remaining.push([id, record.remaining]);

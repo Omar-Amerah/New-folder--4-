@@ -187,7 +187,12 @@ async function run() {
       { ...compact, shipsPatch: { ...compact.shipsPatch, motion: [["unknown", 1, 2, 3, 4, 5, 6, 7, 8]] } },
       { ...compact, shipsPatch: { ...compact.shipsPatch, motion: [["s1", 1, 2, 3, 4, 5, 6, 7, 8], ["s1", 1, 2, 3, 4, 5, 6, 7, 8]] } },
       { ...compact, shipsPatch: { ...compact.shipsPatch, upsert: [{ id: "s1", detail: "full" }], state: [["s1", { hp: 99 }]] } },
-      { ...compact, shipsPatch: { ...compact.shipsPatch, remove: ["s1"], motion: [["s1", 1, 2, 3, 4, 5, 6, 7, 8]] } }
+      { ...compact, shipsPatch: { ...compact.shipsPatch, remove: ["s1"], motion: [["s1", 1, 2, 3, 4, 5, 6, 7, 8]] } },
+      { ...compact, shipsPatch: { ...compact.shipsPatch, clearStateFields: [["s1", ["id"]]] } },
+      { ...compact, shipsPatch: { ...compact.shipsPatch, clearStateFields: [["s1", ["detail", "design"]]] } },
+      { ...compact, shipsPatch: { ...compact.shipsPatch, clearPrivateFields: [["s1", ["hp"]]] } },
+      { ...compact, shipsPatch: { ...compact.shipsPatch, state: [["s1", { destructProgress: 0.5 }]], clearStateFields: [["s1", ["destructProgress"]]] } },
+      { ...compact, shipsPatch: { ...compact.shipsPatch, private: [["s1", { powerRevision: 1 }]], clearPrivateFields: [["s1", ["powerRevision"]]] } }
     ]) {
       const result = merge.mergeSnapshotTransaction(snapshot, networkState, bad);
       assert.equal(result.ok, false);
@@ -203,6 +208,54 @@ async function run() {
       }
     };
     assert.equal(merge.mergeSnapshotTransaction(snapshot, networkState, validCombined).ok, true, "motion/state/private may share a full-detail ship");
+    const validSetAndDifferentClear = {
+      ...compact,
+      shipsPatch: {
+        ...compact.shipsPatch,
+        state: [["s1", { destructProgress: 0.5 }]],
+        clearStateFields: [["s1", ["engBlocked"]]]
+      }
+    };
+    assert.equal(merge.mergeSnapshotTransaction(snapshot, networkState, validSetAndDifferentClear).ok, true, "different state fields may be set and cleared together");
+
+    const genericBaseline = merge.mergeSnapshotTransaction(
+      null,
+      { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false },
+      {
+        ...full,
+        drones: [{ id: "d1", type: "fighter" }],
+        decoys: [{ id: "x1" }],
+        effects: [{ id: "e1", type: "spark" }]
+      }
+    );
+    assert.equal(genericBaseline.ok, true);
+    const emptyDeltaPatch = () => ({ motion: [], state: [], private: [], remaining: [], dynamic: [], upsert: [], remove: [], clearPrivate: [], clearStateFields: [], clearPrivateFields: [] });
+    for (const [patchKey, id, field] of [
+      ["dronesPatch", "d1", "fuelRemainingSeconds"],
+      ["decoysPatch", "x1", "vx"],
+      ["effectsPatch", "e1", "customTag"]
+    ]) {
+      const malformedGeneric = {
+        ...full,
+        snapshotKind: "compact",
+        snapshotFormatVersion: 2,
+        snapshotSeq: 2,
+        baseSnapshotSeq: 1,
+        roomPatch: {},
+        contacts: [],
+        playersPatch: emptyDeltaPatch(),
+        shipsPatch: emptyDeltaPatch(),
+        dronesPatch: emptyDeltaPatch(),
+        decoysPatch: emptyDeltaPatch(),
+        stationsPatch: emptyDeltaPatch(),
+        pointsPatch: emptyDeltaPatch(),
+        effectsPatch: emptyDeltaPatch()
+      };
+      malformedGeneric[patchKey].clearStateFields = [[id, [field]]];
+      const result = merge.mergeSnapshotTransaction(genericBaseline.snapshot, genericBaseline.networkState, malformedGeneric);
+      assert.equal(result.ok, false, `${patchKey} rejects non-schema clear field ${field}`);
+      assert.equal(result.reason, "invalid-clear-field");
+    }
   }
 
   // 18-28: entity lifecycle, visibility, permission transitions and cleanup.
@@ -405,30 +458,30 @@ async function run() {
     const { room } = roomFixture({ ships: 1 });
     const client = attach(room, "p1", modernCapabilities());
     delivery.sendFullSnapshot(client, 1000, "reconnect");
-    const effect = { id: "effect-mixed", type: "spark", x: 10, y: 10, at: 1000, customTag: "a" };
+    const effect = { id: "effect-mixed", type: "beam", x: 10, y: 10, at: 1000, charge: 0.1 };
     room.effects.push(effect);
     room.simulationTimeMs += 50;
     delivery.broadcastSnapshot(room, 1050);
     assert.equal(lastPacket(client).effectsPatch.upsert.length, 1);
     effect.x = 25;
-    effect.customTag = "b";
+    effect.charge = 0.75;
     room.simulationTimeMs += 50;
     delivery.broadcastSnapshot(room, 1100);
     const mixed = lastPacket(client);
     assert.ok(mixed.effectsPatch.state.some(([id, value]) => id === effect.id && value.x === 25), "recognized effect state remains sparse");
-    assert.ok(mixed.effectsPatch.remaining.some(([id, value]) => id === effect.id && value.customTag === "b"), "unknown effect fields use a supplementary patch");
-    assert.equal(mixed.effectsPatch.upsert.length, 0, "simultaneous recognized and unknown changes do not force a conflicting upsert");
+    assert.ok(mixed.effectsPatch.remaining.some(([id, value]) => id === effect.id && value.charge === 0.75), "known effect remaining fields use a supplementary patch");
+    assert.equal(mixed.effectsPatch.upsert.length, 0, "simultaneous recognized and remaining changes do not force a conflicting upsert");
     const merged = await mergePackets(packetList(client));
     const mergedEffect = merged.snapshot.effects.find((entry) => entry.id === effect.id);
     assert.equal(mergedEffect.x, 25);
-    assert.equal(mergedEffect.customTag, "b");
-    delete effect.customTag;
+    assert.equal(mergedEffect.charge, 0.75);
+    delete effect.charge;
     room.simulationTimeMs += 50;
     delivery.broadcastSnapshot(room, 1150);
     const unknownCleared = lastPacket(client);
-    assert.ok(unknownCleared.effectsPatch.clearStateFields.some(([id, fields]) => id === effect.id && fields.includes("customTag")), "unknown field removal uses explicit state clear metadata");
+    assert.ok(unknownCleared.effectsPatch.clearStateFields.some(([id, fields]) => id === effect.id && fields.includes("charge")), "known remaining field removal uses explicit state clear metadata");
     const afterUnknownClear = await mergePackets(packetList(client));
-    assert.equal(afterUnknownClear.snapshot.effects.find((entry) => entry.id === effect.id).customTag, undefined);
+    assert.equal(afterUnknownClear.snapshot.effects.find((entry) => entry.id === effect.id).charge, undefined);
   }
 
   // 41-50: outbound lifecycle and strict grouping.
