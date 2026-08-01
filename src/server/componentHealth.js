@@ -305,6 +305,7 @@ function flushComponentLifecycleRefresh(ship) {
   if (!flags) return;
   ship._componentLifecycleDirty = null;
   const heat = require("./heat");
+  heat.invalidateHeatRuntime?.(ship, flags);
   if (flags.thermalCapacity) heat.recalculateEffectiveThermalCapacities(ship);
   if (flags.exposure) heat.rebuildRuntimeExposure(ship);
   if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);

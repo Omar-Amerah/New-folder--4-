@@ -492,6 +492,7 @@ function applyShipPowerAllocation(ship, options = {}) {
   // no-op). This keeps the ship-level cable-Heat rate current for the thermal
   // tick without recomputing topology.
   ensureShipCableThermalAnalysis(ship);
+  require("./heat").refreshLoadedGeneratorComponents?.(ship);
 
   if (!options.skipRuntimeStats && ship.alive !== false) require("./componentHealth").recalcEffectiveStats(ship);
   else if (ship.alive === false) { ship.maxShield = 0; ship.shield = 0; }
@@ -517,6 +518,7 @@ function ensureShipCableThermalAnalysis(ship) {
       };
       ship.componentPowerCableHeatRate = design.map(() => 0);
       ship.powerCableHeatRate = 0;
+      require("./heat").refreshHeatRuntimeCableComponents?.(ship, ship.componentPowerCableHeatRate, 0);
       ship.powerCableThermalRevision = (ship.powerCableThermalRevision || 0) + 1;
     }
     return ship.powerCableThermalAnalysis;
@@ -552,6 +554,7 @@ function ensureShipCableThermalAnalysis(ship) {
   });
   bump("powerCableThermalAnalysisCount");
   const design = Array.isArray(ship.design) ? ship.design : [];
+  const previousCableHeatRate = Number(ship.powerCableHeatRate) || 0;
   const rates = design.map(() => 0);
   for (const component of analysis.components) {
     if (component.componentIndex >= 0 && component.componentIndex < rates.length) rates[component.componentIndex] = component.powerCableHeatPerSecond;
@@ -561,6 +564,7 @@ function ensureShipCableThermalAnalysis(ship) {
   ship.powerCableThermalRevision = (ship.powerCableThermalRevision || 0) + 1;
   ship.componentPowerCableHeatRate = rates;
   ship.powerCableHeatRate = PowerCableThermalRules.totalPowerCableHeatRate(analysis);
+  require("./heat").refreshHeatRuntimeCableComponents?.(ship, rates, ship.powerCableHeatRate, previousCableHeatRate);
   return analysis;
 }
 
