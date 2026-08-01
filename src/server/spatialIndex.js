@@ -100,6 +100,9 @@ class RoomSpatialIndex {
     this.querySequence = 0;
     this.maxProjectileSpeed = 0;
     this.builtAt = 0;
+    // Structural generation for bounded decision caches. Position updates do
+    // not advance this value; inserts/removals and explicit invalidation do.
+    this.dynamicGeneration = 0;
     this.dynamicValid = false;
     this.asteroidBuildCount = 0;
     this.queryCount = 0;
@@ -159,6 +162,7 @@ class RoomSpatialIndex {
     }
     this.maxProjectileSpeed = 0;
     this.builtAt = 0;
+    this.dynamicGeneration += 1;
     this.dynamicValid = false;
     return this;
   }
@@ -290,6 +294,7 @@ class RoomSpatialIndex {
     }
     this._releaseRecord(state, record);
     this.spatialRemovals += 1;
+    this.dynamicGeneration += 1;
   }
 
   _putRecord(kind, entity, radius, order) {
@@ -334,7 +339,10 @@ class RoomSpatialIndex {
       return state.recordsByEntity.get(entity);
     }
     const record = this._putRecord(kind, entity, radius, order);
-    if (record) this.spatialIncrementalInserts += 1;
+    if (record) {
+      this.spatialIncrementalInserts += 1;
+      this.dynamicGeneration += 1;
+    }
     return record;
   }
 
@@ -348,7 +356,10 @@ class RoomSpatialIndex {
       return existing;
     }
     const record = this._putRecord(kind, entity, radius, state.nextOrder++);
-    if (record) this.spatialIncrementalInserts += 1;
+    if (record) {
+      this.spatialIncrementalInserts += 1;
+      this.dynamicGeneration += 1;
+    }
     return record;
   }
 
@@ -362,7 +373,10 @@ class RoomSpatialIndex {
       return existing;
     }
     const record = this._putRecord(kind, entity, radius, state.nextOrder++);
-    if (record) this.spatialIncrementalInserts += 1;
+    if (record) {
+      this.spatialIncrementalInserts += 1;
+      this.dynamicGeneration += 1;
+    }
     return record;
   }
 
@@ -480,6 +494,7 @@ class RoomSpatialIndex {
   }
 
   invalidateDynamic() {
+    this.dynamicGeneration += 1;
     this.dynamicValid = false;
   }
 

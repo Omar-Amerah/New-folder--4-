@@ -35,6 +35,7 @@ function ensureDroneDecisionRuntime(room) {
     runtime.roomEpoch = epoch;
     runtime.recoveryGeneration = -1;
     runtime.contexts.clear();
+    room._droneContextSpeedCache = null;
   }
   return runtime;
 }
@@ -49,7 +50,10 @@ function resetDroneDecisionRuntime(room) {
     runtime.contexts.clear();
   }
   if (room) {
-    room._droneContextMemberScratch?.forEach?.((members) => clearArray(members));
+    const memberScratch = room._droneContextMemberScratch;
+    memberScratch?.forEach?.((members) => clearArray(members));
+    memberScratch?.clear?.();
+    room._droneContextSpeedCache = null;
     room._droneFrameId = 0;
   }
   return runtime || null;
@@ -76,17 +80,24 @@ function createContext() {
     droneType: null,
     ownerId: null,
     teamId: null,
+    roomEpoch: null,
+    bayRevision: null,
+    spatialIndex: null,
+    spatialGeneration: null,
+    sourceCounts: null,
     centreX: 0,
     centreY: 0,
     maximumDroneDisplacement: 0,
     queryRadius: 0,
     largestRelevantRange: 0,
     movementAllowance: 0,
+    candidateMovementAllowance: 0,
     hostileShips: [],
     hostileDrones: [],
     hostileProjectiles: [],
     repairShips: [],
     builtAt: 0,
+    lastUsedAt: 0,
     validUntil: 0,
     memberCount: 0,
     fallbackCount: 0
@@ -114,6 +125,60 @@ function finite(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function sourceCounts(room) {
+  return {
+    ships: Number(room?.ships?.size) || 0,
+    drones: Number(room?.drones?.size) || 0,
+    projectiles: Array.isArray(room?.bullets) ? room.bullets.length : 0
+  };
+}
+
+function sameSourceCounts(left, right) {
+  return Boolean(left && right)
+    && left.ships === right.ships
+    && left.drones === right.drones
+    && left.projectiles === right.projectiles;
+}
+
+function spatialGeneration(spatial) {
+  if (!spatial) return null;
+  // Older SpatialIndex instances do not expose a structural generation yet;
+  // builtAt still changes on a full rebuild/recovery and is a safe fallback.
+  return spatial.dynamicGeneration ?? spatial.builtAt ?? null;
+}
+
+function candidateMovementSpeed(room, spatial, fallback) {
+  const generation = spatialGeneration(spatial);
+  const cached = room?._droneContextSpeedCache;
+  if (cached?.spatialIndex === spatial && cached.generation === generation) return cached.speed;
+  let speed = Math.max(0, finite(fallback));
+  const records = spatial?.kindState
+    ? [
+      ...(spatial.kindState.ships?.records || []),
+      ...(spatial.kindState.drones?.records || []),
+      ...(spatial.kindState.projectiles?.records || [])
+    ]
+    : [];
+  const entities = records.length
+    ? records.map((record) => record.entity)
+    : [
+      ...(room?.ships?.values?.() || []),
+      ...(room?.drones?.values?.() || []),
+      ...(room?.bullets || [])
+    ];
+  for (const entity of entities) {
+    if (!entity) continue;
+    speed = Math.max(
+      speed,
+      finite(entity.stats?.maxSpeed),
+      finite(entity.maxSpeed),
+      Math.hypot(finite(entity.vx), finite(entity.vy))
+    );
+  }
+  if (room) room._droneContextSpeedCache = { spatialIndex: spatial, generation, speed };
+  return speed;
+}
+
 function contextRange(config, room) {
   const commandRange = Math.max(0, finite(config?.commandRange));
   const weaponRange = Math.max(0, finite(config?.weaponRange));
@@ -133,12 +198,35 @@ function contextCoversPoint(context, x, y, range = 0) {
   return Math.hypot(dx, dy) + Math.max(0, finite(range)) <= context.queryRadius + 0.001;
 }
 
-function buildDroneDecisionContext(room, parent, bay, droneType, config, members, now, frameId) {
+function buildDroneDecisionContext(room, parent, bay, droneType, config, members, now, frameId, bayRevision = null) {
   const runtime = beginDroneDecisionFrame(room, frameId, now);
   if (!runtime || !parent || !bay) return null;
   const balanceConfig = config?.config || config;
   const context = contextFor(runtime, parent, bay, droneType, parent.ownerId, parent.team || room.players?.get?.(parent.ownerId)?.team || null);
-  if (context.frameId === frameId && context.validUntil >= now) {
+  const resolvedBayRevision = bayRevision
+    ?? bay?._runtimeFrameState?.revision
+    ?? (Number(bay?._modeRevision) || 0);
+  const spatial = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
+  const counts = sourceCounts(room);
+  let memberCount = 0;
+  for (const drone of members || []) {
+    if (!drone || drone.destroyed || drone.removed) continue;
+    memberCount += 1;
+  }
+  const reusable = context.frameId >= 0
+    && context.validUntil >= now
+    && context.roomEpoch === (room.stateEpoch ?? 0)
+    && context.bayRevision === resolvedBayRevision
+    && context.spatialIndex === spatial
+    && context.spatialGeneration === spatialGeneration(spatial)
+    && sameSourceCounts(context.sourceCounts, counts)
+    && context.memberCount === memberCount;
+  if (reusable) {
+    // A context is a bounded-time decision cache, not a single-tick cache.
+    // Keep the latest frame marker for diagnostics while retaining the broad
+    // phase built during the earlier staggered decision.
+    context.frameId = frameId;
+    context.lastUsedAt = now;
     bump(room, "droneContextHits");
     return context;
   }
@@ -148,22 +236,37 @@ function buildDroneDecisionContext(room, parent, bay, droneType, config, members
   const centreX = finite(pose?.worldX, finite(parent.x));
   const centreY = finite(pose?.worldY, finite(parent.y));
   let maximumDroneDisplacement = 0;
-  let memberCount = 0;
   for (const drone of members || []) {
     if (!drone || drone.destroyed || drone.removed) continue;
-    memberCount += 1;
     maximumDroneDisplacement = Math.max(maximumDroneDisplacement, Math.hypot(finite(drone.x) - centreX, finite(drone.y) - centreY));
   }
 
   const largestRelevantRange = contextRange(balanceConfig, room);
   const intervalMs = Math.max(1, finite(config?.decisionIntervalMs, 120));
   const intervalSeconds = Math.max(0.05, intervalMs / 1000);
-  const movementAllowance = Math.max(0, finite(balanceConfig?.speed)) * intervalSeconds + Math.max(0, finite(room.droneSpatialPadding)) + 2;
+  const padding = Math.max(0, finite(room.droneSpatialPadding)) + 2;
+  const droneMovementAllowance = Math.max(0, finite(balanceConfig?.speed)) * intervalSeconds + padding;
+  const candidateSpeed = Math.max(
+    Math.max(0, finite(balanceConfig?.speed)),
+    Math.max(0, finite(room?.droneDecisionMaxCandidateSpeed)),
+    Math.max(0, finite(room?.spatialIndex?.maxProjectileSpeed)),
+    candidateMovementSpeed(room, spatial, balanceConfig?.speed)
+  );
+  // Candidates can move while a staggered context is reused. Include a
+  // conservative candidate allowance in the original broad phase and let the
+  // per-drone envelope check reject reuse after the window is exceeded.
+  const candidateMovementAllowance = candidateSpeed * intervalSeconds + padding;
+  const movementAllowance = Math.max(droneMovementAllowance, candidateMovementAllowance);
   const parentOffset = Math.hypot(finite(parent.x) - centreX, finite(parent.y) - centreY);
   const queryRadius = largestRelevantRange + maximumDroneDisplacement + movementAllowance + parentOffset;
 
   context.frameId = frameId;
   context.generation = runtime.generation;
+  context.roomEpoch = room.stateEpoch ?? 0;
+  context.bayRevision = resolvedBayRevision;
+  context.spatialIndex = spatial;
+  context.spatialGeneration = spatialGeneration(spatial);
+  context.sourceCounts = counts;
   context.parentShipId = parent.id;
   context.bayComponentId = bay.componentId;
   context.droneType = droneType;
@@ -175,16 +278,17 @@ function buildDroneDecisionContext(room, parent, bay, droneType, config, members
   context.queryRadius = queryRadius;
   context.largestRelevantRange = largestRelevantRange;
   context.movementAllowance = movementAllowance;
+  context.candidateMovementAllowance = candidateMovementAllowance;
   context.memberCount = memberCount;
   context.fallbackCount = 0;
   context.builtAt = now;
+  context.lastUsedAt = now;
   context.validUntil = now + intervalMs;
 
   clearArray(context.hostileShips);
   clearArray(context.hostileDrones);
   clearArray(context.hostileProjectiles);
 
-  const spatial = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
   if (spatial?.queryRangeUnordered) {
     spatial.queryRangeUnordered("ships", centreX, centreY, queryRadius, context.hostileShips);
     spatial.queryRangeUnordered("drones", centreX, centreY, queryRadius, context.hostileDrones);
@@ -196,6 +300,7 @@ function buildDroneDecisionContext(room, parent, bay, droneType, config, members
     copyFallback(context.hostileShips, room.ships?.values?.() || []);
     copyFallback(context.hostileDrones, room.drones?.values?.() || []);
     copyFallback(context.hostileProjectiles, room.bullets || []);
+    markContextFallback(room, context);
   }
 
   // Repair scoring uses the same conservative ship superset. Copying into a

@@ -3,10 +3,11 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const assert = require("node:assert/strict");
 const { performance } = require("node:perf_hooks");
 const Flags = require("./src/server/performanceFlags");
 const RoomTelemetry = require("./src/server/roomTelemetry");
-const { updateDroneBays } = require("./src/server/drones");
+const { updateDroneBays, CONFIG: DRONE_CONFIG } = require("./src/server/drones");
 const { updateBullets } = require("./src/server/projectiles");
 const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
 
@@ -18,11 +19,29 @@ const ARTIFACT = path.join("test-artifacts", "performance", "phase-6b-drone-runt
 
 const FIXTURES = mode === "full"
   ? [
-    ["small-mixed", 12, 100], ["medium-mixed", 50, 500], ["large-mixed", 150, 1500],
-    ["defence-swarm", 150, 2500], ["fighter-swarm", 150, 1000], ["repair-fleet", 100, 100],
-    ["extreme-swarm", 300, 3000]
+    { name: "small-mixed", drones: 12, projectiles: 100, shape: "mixed" },
+    { name: "medium-mixed", drones: 50, projectiles: 500, shape: "mixed" },
+    { name: "large-mixed", drones: 150, projectiles: 1500, shape: "mixed" },
+    { name: "defence-grouped", drones: 150, projectiles: 2500, shape: "defence-grouped", primary: true },
+    { name: "defence-valid-dispersed", drones: 150, projectiles: 2500, shape: "defence-valid-dispersed", primary: true },
+    { name: "defence-outside-command-range", drones: 150, projectiles: 2500, shape: "defence-outside-command-range", diagnostic: true },
+    { name: "fighter-swarm", drones: 150, projectiles: 1000, shape: "fighter-valid", primary: true },
+    { name: "repair-fleet", drones: 100, projectiles: 100, shape: "repair-valid", primary: true },
+    { name: "extreme-swarm", drones: 300, projectiles: 3000, shape: "mixed" }
   ]
-  : [["small-mixed", 12, 100], ["medium-mixed", 50, 500], ["defence-swarm", 150, 1000]];
+  : [
+    { name: "small-mixed", drones: 12, projectiles: 100, shape: "mixed" },
+    { name: "medium-mixed", drones: 50, projectiles: 500, shape: "mixed" },
+    { name: "defence-grouped", drones: 150, projectiles: 1000, shape: "defence-grouped", primary: true },
+    { name: "defence-valid-dispersed", drones: 150, projectiles: 1000, shape: "defence-valid-dispersed", primary: true },
+    { name: "defence-outside-command-range", drones: 150, projectiles: 1000, shape: "defence-outside-command-range", diagnostic: true }
+  ];
+
+function roleForShape(shape) {
+  if (String(shape).startsWith("defence")) return "defence";
+  if (String(shape).startsWith("repair")) return "repair";
+  return "fighter";
+}
 
 function percentile(values, ratio) {
   const sorted = values.slice().sort((a, b) => a - b);
@@ -37,19 +56,54 @@ function summary(values) {
   };
 }
 
-function ship(id, ownerId, team, x, y, bayId) {
+function ship(id, ownerId, team, x, y, bayId, droneType = "fighter") {
   return {
     id, ownerId, team, alive: true, x, y, angle: 0, focusTargetId: null,
     commandState: "deployed", hp: 1000, maxHp: 1000, shield: 0, maxShield: 0,
     stats: { frontDamageReduction: 0 }, componentHp: [100], componentMaxHp: [100],
     componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] },
-    componentHeatState: [0], design: [{ x: 5, y: 6, type: "droneBay", droneType: "fighter" }],
+    componentCellIndex: new Map(Array.from({ length: 15 * 15 }, (_, index) => [index, 0])),
+    dirtyComponents: new Set(),
+    componentHeatState: [0], design: [{ x: 5, y: 6, type: "droneBay", droneType }],
     droneBays: [{
-      componentIndex: 0, componentId: bayId, droneType: "fighter", mode: "deployed",
+      componentIndex: 0, componentId: bayId, droneType, mode: "deployed",
       nextLaunchAt: Infinity, launchBlockedBySpawn: false,
       launchEdge: { centerX: 5.5, centerY: 5.25, dx: 0, dy: -1 },
       slots: Array.from({ length: 4 }, (_, slot) => ({ slot, state: "active", droneId: null, productionProgress: 1, pauseReason: null }))
     }]
+  };
+}
+
+function dronePosition(parent, index, shape, seed) {
+  if (shape === "defence-grouped") {
+    const angle = (index % 8) * Math.PI / 4;
+    const radius = 50 + (index % 4) * 55;
+    return { x: parent.x + Math.cos(angle) * radius, y: parent.y + Math.sin(angle) * radius };
+  }
+  if (shape === "defence-valid-dispersed") {
+    const angle = ((index * 47 + seed * 11) % 360) * Math.PI / 180;
+    const radius = 80 + (index % 8) * 22;
+    return { x: parent.x + Math.cos(angle) * radius, y: parent.y + Math.sin(angle) * radius };
+  }
+  if (shape === "defence-outside-command-range") {
+    const angle = ((index * 47 + seed * 11) % 360) * Math.PI / 180;
+    const radius = 800 + (index % 8) * 100;
+    return { x: parent.x + Math.cos(angle) * radius, y: parent.y + Math.sin(angle) * radius };
+  }
+  if (shape === "fighter-valid") {
+    const angle = ((index * 37 + seed * 7) % 360) * Math.PI / 180;
+    const radius = 120 + (index % 8) * 95;
+    return { x: parent.x + Math.cos(angle) * radius, y: parent.y + Math.sin(angle) * radius };
+  }
+  if (shape === "repair-valid") {
+    const angle = ((index * 29 + seed * 5) % 360) * Math.PI / 180;
+    const radius = 60 + (index % 6) * 45;
+    return { x: parent.x + Math.cos(angle) * radius, y: parent.y + Math.sin(angle) * radius };
+  }
+  const grouped = shape === "grouped" || shape === "several-per-bay" || shape === "several-bays";
+  return {
+    x: parent.x + (grouped ? (index % 8) * 12 : ((index * 977 + seed * 13) % 1600)),
+    y: parent.y + (grouped ? Math.floor(index % 8 / 2) * 12 : ((index * 1597 + seed * 7) % 1600))
   };
 }
 
@@ -63,36 +117,35 @@ function fixture(droneCount, projectileCount, shape, seed = 1) {
     world: { width: 50000, height: 50000 }
   };
   const parentCount = shape === "one-per-parent" ? droneCount : Math.max(1, Math.ceil(droneCount / (shape === "several-bays" ? 8 : 4)));
+  const droneType = roleForShape(shape);
   const parents = [];
   for (let i = 0; i < parentCount; i += 1) {
     const ownerId = i % 2 === 0 ? "blue" : "red";
     const team = ownerId === "blue" ? "a" : "b";
-    const x = 1000 + (i % 20) * (shape === "dispersed" ? 1800 : 160);
-    const y = 1000 + Math.floor(i / 20) * (shape === "dispersed" ? 1800 : 160);
-    const parent = ship(`carrier-${i}`, ownerId, team, x, y, `bay-${i}`);
+    const spacing = String(shape).startsWith("defence") ? 700 : shape === "dispersed" ? 1800 : 160;
+    const x = 1000 + (i % 20) * spacing;
+    const y = 1000 + Math.floor(i / 20) * spacing;
+    const parent = ship(`carrier-${i}`, ownerId, team, x, y, `bay-${i}`, droneType);
     room.ships.set(parent.id, parent);
     parents.push(parent);
   }
-  const enemy = ship("benchmark-enemy", "red", "b", 25000, 25000, "enemy-bay");
+  const enemy = ship("benchmark-enemy", "red", "b", 25000, 25000, "enemy-bay", "fighter");
   enemy.droneBays = [];
   room.ships.set(enemy.id, enemy);
   for (let i = 0; i < droneCount; i += 1) {
     const parent = parents[shape === "one-per-parent" ? i % parents.length : Math.floor(i / Math.max(1, Math.ceil(droneCount / parents.length))) % parents.length];
-    const grouped = shape === "grouped" || shape === "several-per-bay" || shape === "several-bays";
-    const x = parent.x + (grouped ? (i % 8) * 12 : ((i * 977 + seed * 13) % 1600));
-    const y = parent.y + (grouped ? Math.floor(i % 8 / 2) * 12 : ((i * 1597 + seed * 7) % 1600));
+    const position = dronePosition(parent, i, shape, seed);
+    const typeConfig = DRONE_CONFIG.types[droneType] || DRONE_CONFIG.types.fighter;
     const ownerId = parent.ownerId;
     const drone = {
       id: `drone-${i}`, ownerId, ownerPlayerId: ownerId, teamId: parent.team,
       parentShipId: parent.id, bayComponentId: parent.droneBays[0].componentId,
-      bayComponentIndex: 0, slot: i % 4, squadIndex: i % 4, type: shape === "defence-swarm" ? "defence" : shape === "repair-fleet" ? "repair" : "fighter", droneType: "fighter",
-      x, y, vx: 0, vy: 0, angle: 0, radius: 10, hull: 45, maxHull: 45,
-      state: "active", commandState: "deployed", fuelRemainingSeconds: 20,
+      bayComponentIndex: 0, slot: i % 4, squadIndex: i % 4, type: droneType, droneType,
+      x: position.x, y: position.y, vx: 0, vy: 0, angle: 0, radius: 10, hull: typeConfig.hull, maxHull: typeConfig.hull,
+      state: "active", commandState: "deployed", fuelRemainingSeconds: typeConfig.fuelSeconds,
       nextDecisionAt: 0, nextThinkAt: 0, nextActionAt: Infinity, targetId: null,
       authoritativeSequence: i, removed: false, destroyed: false
     };
-    if (drone.type === "defence") drone.droneType = "defence";
-    if (drone.type === "repair") drone.droneType = "repair";
     parent.droneBays[0].slots[i % 4].droneId = drone.id;
     room.drones.set(drone.id, drone);
   }
@@ -194,23 +247,176 @@ function runMode(droneCount, projectileCount, shape, optimized, seed) {
   };
 }
 
+function semanticTargetKind(room, drone) {
+  const target = drone.targetId
+    ? room.drones.get(drone.targetId) || room.ships.get(drone.targetId) || room.projectileById.get(drone.targetId)
+    : null;
+  if (!target) return null;
+  if (room.drones.get(target.id) === target) return "drone";
+  if (room.ships.get(target.id) === target) return "ship";
+  if (room.projectileById.get(target.id) === target) return "projectile";
+  return null;
+}
+
+function semanticTargetPermitted(room, drone) {
+  const target = drone.targetId
+    ? room.drones.get(drone.targetId) || room.ships.get(drone.targetId) || room.projectileById.get(drone.targetId)
+    : null;
+  if (!target) return true;
+  if (target.life !== undefined) return target.life > 0 && target.ownerId !== drone.ownerId;
+  if (drone.type === "repair") return target.ownerId === drone.ownerId && target.alive !== false;
+  return target.ownerId !== drone.ownerId && target.alive !== false && !target.destroyed && !target.removed;
+}
+
+function semanticFixture(type, seed = 19) {
+  const shape = type === "defence" ? "defence-grouped" : type === "repair" ? "repair-valid" : "fighter-valid";
+  const roomData = fixture(3, 0, shape, seed);
+  const { room, ships } = roomData;
+  const parent = room.ships.get("carrier-0");
+  const enemy = room.ships.get("benchmark-enemy");
+  enemy.x = parent.x + 180;
+  enemy.y = parent.y;
+  enemy.hp = type === "destruction" ? 10 : 1000;
+  enemy.maxHp = enemy.hp;
+  if (type === "destruction") {
+    enemy.componentHp[0] = 10;
+    enemy.componentMaxHp[0] = 10;
+  }
+  parent.focusTargetId = ["fighter", "destruction"].includes(type) ? enemy.id : null;
+  for (const drone of room.drones.values()) {
+    drone.nextDecisionAt = 0;
+    drone.nextThinkAt = 0;
+    drone.nextActionAt = 1000;
+  }
+  if (type === "repair") {
+    parent.componentHp[0] = 50;
+    parent.componentMaxHp[0] = 100;
+    parent.hp = 950;
+    parent.maxHp = 1000;
+  }
+  if (type === "defence") {
+    const missile = {
+      id: "semantic-missile",
+      type: "missile",
+      ownerId: "red",
+      x: parent.x + 120,
+      y: parent.y,
+      vx: 0,
+      vy: 0,
+      life: 5,
+      damage: 0,
+      hp: 100,
+      interceptable: true
+    };
+    room.bullets.push(missile);
+    room.projectileById.set(missile.id, missile);
+  }
+  buildRoomSpatialIndex(room, ships, 1000);
+  return roomData;
+}
+
+function runSemanticMode(type, optimized) {
+  Flags.__setOPTIMIZED_DRONE_RUNTIME(optimized);
+  Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
+  const { room, ships } = semanticFixture(type);
+  let now = 1000;
+  for (let step = 0; step < 12; step += 1) {
+    room._simulationStep = 200 + step;
+    updateDroneBays(room, ships, DT, now);
+    updateBullets(room, DT, now);
+    now += DT * 1000;
+  }
+  const drones = [...room.drones.values()].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const finite = drones.every((drone) => [drone.x, drone.y, drone.vx, drone.vy, drone.fuelRemainingSeconds, drone.hull].every(Number.isFinite));
+  const targetKinds = drones.map((drone) => semanticTargetKind(room, drone));
+  const targetIds = drones.map((drone) => drone.targetId || null);
+  const destroyedIds = [
+    ...[...room.ships.values()].filter((ship) => ship.alive === false || ship.destroyed).map((ship) => ship.id),
+    ...[...room.drones.values()].filter((drone) => drone.destroyed).map((drone) => drone.id)
+  ].sort();
+  return {
+    targetKinds,
+    targetIds,
+    shots: room.effects.filter((effect) => effect.type === "droneshot").length,
+    repairs: room.effects.filter((effect) => effect.type === "dronerepair").length,
+    fuel: drones.map((drone) => +Number(drone.fuelRemainingSeconds).toFixed(6)),
+    states: drones.map((drone) => `${drone.state}:${drone.returnReason || ""}`),
+    destroyedIds,
+    collisionHits: room._roomTelemetry.projectileDroneHits || 0,
+    hulls: drones.map((drone) => +Number(drone.hull).toFixed(6)),
+    finite,
+    targetsPermitted: drones.every((drone) => semanticTargetPermitted(room, drone))
+  };
+}
+
+function runSemanticAcceptance() {
+  const checks = [];
+  for (const type of ["fighter", "destruction", "defence", "repair"]) {
+    const legacy = runSemanticMode(type, false);
+    const optimized = runSemanticMode(type, true);
+    const parity = {
+      targetKinds: legacy.targetKinds,
+      targetIds: legacy.targetIds,
+      shots: legacy.shots,
+      repairs: legacy.repairs,
+      fuel: legacy.fuel,
+      states: legacy.states,
+      destroyedIds: legacy.destroyedIds,
+      collisionHits: legacy.collisionHits,
+      hulls: legacy.hulls
+    };
+    const optimizedParity = {
+      targetKinds: optimized.targetKinds,
+      targetIds: optimized.targetIds,
+      shots: optimized.shots,
+      repairs: optimized.repairs,
+      fuel: optimized.fuel,
+      states: optimized.states,
+      destroyedIds: optimized.destroyedIds,
+      collisionHits: optimized.collisionHits,
+      hulls: optimized.hulls
+    };
+    assert.deepEqual(optimizedParity, parity, `${type} semantic parity`);
+    assert.equal(legacy.finite && optimized.finite, true, `${type} has no non-finite state`);
+    assert.equal(legacy.targetsPermitted && optimized.targetsPermitted, true, `${type} targets remain permitted`);
+    if (type === "fighter") assert.ok(optimized.shots > 0, "fighter semantic fixture exercises attacks");
+    if (type === "destruction") {
+      assert.ok(optimized.shots > 0, "destruction semantic fixture exercises attacks");
+      assert.ok(optimized.destroyedIds.includes("benchmark-enemy"), "destruction semantic fixture exercises destruction");
+    }
+    if (type === "defence") assert.ok(optimized.targetKinds.includes("projectile"), "defence semantic fixture exercises missile-first targeting");
+    if (type === "repair") assert.ok(optimized.repairs > 0, "repair semantic fixture exercises repairs");
+    checks.push({ type, legacy, optimized, parity: true });
+  }
+  return checks;
+}
+
 const fixtures = [];
-for (const [name, drones, projectiles] of FIXTURES) {
-  const legacy = runMode(drones, projectiles, name, false, 7);
-  const optimized = runMode(drones, projectiles, name, true, 7);
-  const legacyRepeat = runMode(drones, projectiles, name, false, 7);
-  const optimizedRepeat = runMode(drones, projectiles, name, true, 7);
+for (const fixtureDefinition of FIXTURES) {
+  const { name, drones, projectiles, shape, diagnostic = false, primary = false } = fixtureDefinition;
+  const legacy = runMode(drones, projectiles, shape, false, 7);
+  const optimized = runMode(drones, projectiles, shape, true, 7);
+  const legacyRepeat = runMode(drones, projectiles, shape, false, 7);
+  const optimizedRepeat = runMode(drones, projectiles, shape, true, 7);
   fixtures.push({
     scenario: name,
     drones,
     projectiles,
+    shape,
+    diagnostic,
+    primary,
     legacy,
     optimized,
     deterministicChecksum: legacy.outcomeChecksum === legacyRepeat.outcomeChecksum
       && optimized.outcomeChecksum === optimizedRepeat.outcomeChecksum,
-    legacyOptimizedChecksumEqual: legacy.outcomeChecksum === optimized.outcomeChecksum
+    legacyOptimizedChecksumEqual: legacy.outcomeChecksum === optimized.outcomeChecksum,
+    legacyOptimizedChecksumExplanation: legacy.outcomeChecksum === optimized.outcomeChecksum
+      ? "Legacy and optimized positions matched for this fixture."
+      : "Informational difference: optimized role-specific decision cadence can change exact intermediate positions; semantic parity is enforced separately."
   });
 }
+
+const semanticChecks = runSemanticAcceptance();
 
 Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
 Flags.__setINCREMENTAL_SPATIAL_INDEX(false);
@@ -223,13 +429,36 @@ const output = {
     measuredSamples: samples,
     timing: "performance.now wall-clock around the production drone and projectile stages",
     fullSimulationStepMeasured: false,
-    note: "This benchmark invokes updateDroneBays and updateBullets with the production spatial boundary; it is a subsystem benchmark, not a whole-server simulation benchmark."
+    note: "This benchmark invokes updateDroneBays and updateBullets with the production spatial boundary; it is a subsystem benchmark, not a whole-server simulation benchmark.",
+    legacyOptimizedChecksumPolicy: "Exact legacy/optimized position checksums are informational because role-specific optimized cadences intentionally differ; deterministic repeat checksums and semantic parity are mandatory."
   },
   fixtures,
   allIndexedFallbacksZero: fixtures.every((fixture) => fixture.optimized.fullScanFallbacks === 0),
   allChecksummed: fixtures.every((fixture) => fixture.deterministicChecksum),
-  legacyOptimizedChecksumsEqual: fixtures.every((fixture) => fixture.legacyOptimizedChecksumEqual)
+  legacyOptimizedChecksumsEqual: fixtures.every((fixture) => fixture.legacyOptimizedChecksumEqual),
+  semanticChecks,
+  allSemanticContracts: semanticChecks.every((check) => check.parity),
+  primaryDefenceScenarios: fixtures
+    .filter((fixture) => fixture.primary && fixture.shape.startsWith("defence"))
+    .map((fixture) => fixture.scenario),
+  diagnosticScenarios: fixtures.filter((fixture) => fixture.diagnostic).map((fixture) => fixture.scenario)
 };
+assert.equal(output.allIndexedFallbacksZero, true, "Phase 6B benchmark encountered an indexed projectile full-scan fallback");
+assert.equal(output.allChecksummed, true, "Phase 6B benchmark is not deterministic across repeated runs");
+assert.equal(output.allSemanticContracts, true, "Phase 6B semantic contract parity failed");
+assert.ok(output.primaryDefenceScenarios.includes("defence-grouped"), "Grouped Defence fixture is required in the primary benchmark set");
+assert.ok(output.primaryDefenceScenarios.includes("defence-valid-dispersed"), "Valid dispersed Defence fixture is required in the primary benchmark set");
+assert.ok(!output.primaryDefenceScenarios.includes("defence-outside-command-range"), "Outside-command-range Defence fixture must remain diagnostic");
 fs.mkdirSync(path.dirname(ARTIFACT), { recursive: true });
 fs.writeFileSync(ARTIFACT, `${JSON.stringify(output, null, 2)}\n`);
-console.log(JSON.stringify({ outputPath: ARTIFACT, mode, fixtures: fixtures.length, allIndexedFallbacksZero: output.allIndexedFallbacksZero, allChecksummed: output.allChecksummed, legacyOptimizedChecksumsEqual: output.legacyOptimizedChecksumsEqual }, null, 2));
+console.log(JSON.stringify({
+  outputPath: ARTIFACT,
+  mode,
+  fixtures: fixtures.length,
+  primaryDefenceScenarios: output.primaryDefenceScenarios,
+  diagnosticScenarios: output.diagnosticScenarios,
+  allIndexedFallbacksZero: output.allIndexedFallbacksZero,
+  allChecksummed: output.allChecksummed,
+  allSemanticContracts: output.allSemanticContracts,
+  legacyOptimizedChecksumsEqual: output.legacyOptimizedChecksumsEqual
+}, null, 2));

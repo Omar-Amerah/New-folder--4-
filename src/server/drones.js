@@ -27,6 +27,7 @@ const GRID_CENTER = 7;
 const MIN_BAY_OPERATING_POWER = 0.05;
 const DRONE_DECISION_INTERVAL_MS = 120;
 const DRONE_DECISION_INTERVALS_MS = Object.freeze({ defence: 120, fighter: 180, repair: 250 });
+const MAX_CONFIGURED_DRONE_SPEED = Math.max(0, ...Object.values(CONFIG.types || {}).map((entry) => Number(entry?.speed) || 0));
 const BACKUP_CORE_CONFIGS = Object.freeze(Object.fromEntries(
   Object.entries(CONFIG.types || {}).map(([type, config]) => [type, Object.freeze({
     ...config,
@@ -107,7 +108,10 @@ function markDroneDecisionInvalidated(room, drone, reason = "unknown") {
   if (!drone) return;
   drone.decisionInvalidated = true;
   drone._decisionInvalidationReason = reason;
-  bump(room, "droneTargetsInvalidated", reason === "target" ? 1 : 0);
+  // This counter represents decision invalidation churn, not only target
+  // reference loss. Focus changes, Bay revisions, power transitions and
+  // recall/deploy events all force the same immediate decision path.
+  bump(room, "droneTargetsInvalidated");
 }
 
 function targetKind(room, target) {
@@ -1487,10 +1491,10 @@ function updateDroneEntityOptimized(room, drone, dt, now, bayState = null, membe
   const parentDx = drone.x - parent.x;
   const parentDy = drone.y - parent.y;
   const outsideCommandRange = parentDx * parentDx + parentDy * parentDy > runtimeConfig.commandRangeSquared;
-  const targetOutsideCommandRange = target && Number.isFinite(target.x) && Number.isFinite(target.y)
-    ? ((target.x - parent.x) ** 2 + (target.y - parent.y) ** 2 > runtimeConfig.commandRangeSquared)
-    : false;
-  if (target && (outsideCommandRange || targetOutsideCommandRange)) {
+  // Command range limits the drone's leash from its parent. It does not
+  // invalidate a retained focused target: Fighters intentionally preserve a
+  // parent's focus target beyond that leash and continue moving toward it.
+  if (target && outsideCommandRange) {
     clearDroneTarget(room, drone, true);
     target = null;
   } else if (outsideCommandRange) {
@@ -1510,7 +1514,17 @@ function updateDroneEntityOptimized(room, drone, dt, now, bayState = null, membe
     const decisionStart = performanceNow();
     const immediate = Boolean(drone.decisionInvalidated);
     const memberList = members.length ? members : droneContextMembers(room, parent, bay, drone.type);
-    context = DroneDecisionContext.buildDroneDecisionContext(room, parent, bay, drone.type, runtimeConfig, memberList, now, room._droneFrameId || room._simulationStep || now);
+    context = DroneDecisionContext.buildDroneDecisionContext(
+      room,
+      parent,
+      bay,
+      drone.type,
+      runtimeConfig,
+      memberList,
+      now,
+      room._droneFrameId || room._simulationStep || now,
+      state?.revision
+    );
     const decisionRange = Math.max(
       Number(config.commandRange) || 0,
       Number(config.weaponRange) || 0,
@@ -1594,6 +1608,10 @@ function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) 
 function updateDroneBaysOptimized(room, ships, dt, now) {
   const runtimeStart = performanceNow();
   ensureDroneRuntime(room);
+  room.droneDecisionMaxCandidateSpeed = Math.max(
+    Number(room.droneDecisionMaxCandidateSpeed) || 0,
+    MAX_CONFIGURED_DRONE_SPEED
+  );
   room._droneFrameId = (Number(room._droneFrameId) || 0) + 1;
   DroneDecisionContext.beginDroneDecisionFrame(room, room._droneFrameId, now);
   room.droneSpatialPadding = Math.max(
