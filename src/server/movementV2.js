@@ -155,7 +155,7 @@ const TURN_TIME_CONSTANT_S = 0.04;
 // ships are on ice" is. The arrival profile is measured with the same figure, so
 // a ship still comes to rest precisely on its mark; it simply holds cruise most
 // of the way there instead of coasting down from a third of the map out.
-const BRAKE_ACCEL_RATIO = 3;
+const BRAKE_ACCEL_RATIO = 5;
 
 // How far off the goal a ship may be pointing before it gives up speed it has
 // already paid for. Inside this cone it coasts through the turn: the alignment
