@@ -51,7 +51,15 @@ const DURATION_FIELDS = Object.freeze([
   "fixedStepDiscardedBacklogMs",
   "fixedStepAccumulatorRemainingMs",
   "packedFleetSolverMs",
-  "movementContactRecoveryScanMs"
+  "movementContactRecoveryScanMs",
+
+  // Phase 6A authoritative Heat runtime timing
+  "heatRuntimeMs",
+  "heatStableCheckMs",
+  "heatGenerationMs",
+  "heatTransferMs",
+  "heatCoolingMs",
+  "heatFinalizationMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -191,6 +199,28 @@ const COUNTER_FIELDS = Object.freeze([
   "fixedStepCatchUpCallbacks",
   "fixedStepMaxCatchUp",
   "fixedStepReentryAttempts",
+
+  // Phase 6A authoritative Heat runtime counters
+  "heatShipsConsidered",
+  "heatShipsSolved",
+  "heatShipsStableSkipped",
+  "heatShipsLegacyProcessed",
+  "heatShipWakeups",
+  "heatShipSleeps",
+  "heatComponentsTotal",
+  "heatComponentsVisited",
+  "heatBearingComponents",
+  "heatHotComponents",
+  "heatPendingInputComponents",
+  "heatCableSourceComponents",
+  "heatLoadedGeneratorComponents",
+  "heatEdgesTotal",
+  "heatEdgesVisited",
+  "heatTransfersApplied",
+  "heatTransferObjectsAllocated",
+  "heatTopologyBuilds",
+  "heatTopologyCacheHits",
+  "heatTopologySharedShips",
 
   // Phase 4B incremental spatial-index counters
   "spatialFullRebuilds",

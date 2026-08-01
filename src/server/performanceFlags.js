@@ -111,6 +111,20 @@ let _weaponProfileRevisionCache = false;
 // benchmark checks have established parity with the existing compact format.
 let _entityDeltaSnapshots = false;
 
+// --- Phase 6A authoritative Heat runtime flag ---
+// Keep the optimized path opt-in until the parity and soak evidence is
+// accepted.  Tests and benchmarks can switch it explicitly through the
+// setter while the legacy solver remains the production default.
+let _optimizedHeatRuntime = false;
+
+function OPTIMIZED_HEAT_RUNTIME() {
+  return _optimizedHeatRuntime;
+}
+
+function __setOPTIMIZED_HEAT_RUNTIME(value) {
+  _optimizedHeatRuntime = Boolean(value);
+}
+
 function ENTITY_DELTA_SNAPSHOTS() {
   return _entityDeltaSnapshots;
 }
@@ -169,5 +183,7 @@ module.exports = {
   SHARED_MOVEMENT_CONTACT_PAIRS,
   __setSHARED_MOVEMENT_CONTACT_PAIRS,
   PACKED_FLEET_SOLVER,
-  __setPACKED_FLEET_SOLVER
+  __setPACKED_FLEET_SOLVER,
+  OPTIMIZED_HEAT_RUNTIME,
+  __setOPTIMIZED_HEAT_RUNTIME
 };
