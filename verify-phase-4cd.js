@@ -25,6 +25,7 @@ const {
   clearMovementContactPairs,
   getMovementContactPairs,
   rebuildMovementContactPairsForRecovery,
+  noteShipSpawnedDuringMovementContactStep,
   removeShipFromMovementContactPairs,
   validateMovementContactPairs
 } = require("./src/server/movementContactPairs");
@@ -206,6 +207,19 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   assert.equal(getMovementContactPairs(room, secondStep).length, 0, "room reset clears the pair cache");
   assert.notEqual(room._movementContactPairPool, other._movementContactPairPool, "rooms do not share pair pools");
   assert.deepEqual(pairIds(other, otherBuilt.stepId), [], "a separate room has its own pair set");
+
+  const launchRoom = activeRoom("PAIR-LAUNCH-RECOVERY");
+  const launchA = ship("s1", { x: 500, y: 500 });
+  installShips(launchRoom, [launchA]);
+  const launchStep = beginMovementContactStep(launchRoom, [launchA], 1000);
+  buildMovementContactPairs(launchRoom, [launchA], 1000, { stepId: launchStep });
+  const launched = ship("s2", { x: 510, y: 500 });
+  launchRoom.ships.set(launched.id, launched);
+  noteShipSpawnedDuringMovementContactStep(launchRoom, launched);
+  __setPACKED_FLEET_SOLVER(true);
+  updateShipSeparation(launchRoom, [launchA], 1 / 30, 1000, { circular: true });
+  assert.equal(launchRoom._roomTelemetry.movementContactPairRecoveryBuilds, 1, "post-build launch uses one scoped recovery build");
+  assert.deepEqual(pairIds(launchRoom, launchStep), ["s1:s2"], "post-build launch is included in the recovery pair set");
 }
 
 // 15-16. One normal build per step and no solver-iteration broad phase.

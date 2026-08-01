@@ -469,17 +469,25 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
     if (room._movementContactPairBuildStepId !== stepId) {
       contactPairs.buildMovementContactPairs(room, liveShips, now, { stepId });
     }
+    let separationShips = shipList;
+    if (room._movementContactPairNeedsRecovery) {
+      // A launch can occur after the normal movement-boundary build. Include
+      // the room's current live roster in one exceptional, deterministic
+      // recovery build so the newcomer cannot be absent from the solver graph.
+      separationShips = getLiveShips(room).filter((ship) => !ship.removed);
+      contactPairs.rebuildMovementContactPairsForRecovery(room, separationShips, now);
+    }
     if (PACKED_FLEET_SOLVER()) {
       return require("./packedFleetSolver").solvePackedFleetSeparation(
         room,
-        shipList,
+        separationShips,
         dt,
         now,
         options,
         stepId
       );
     }
-    return updateSharedPairSeparation(room, shipList, dt, now, options);
+    return updateSharedPairSeparation(room, separationShips, dt, now, options);
   }
   return updateLegacyShipSeparation(room, shipList, dt, now, options);
 }
