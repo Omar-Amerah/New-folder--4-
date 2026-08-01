@@ -106,6 +106,19 @@ function __setPACKED_FLEET_SOLVER(value) {
 let _pointDefenceSharedThreats = false;
 let _weaponProfileRevisionCache = false;
 
+// --- Phase Five entity/field-level snapshot delivery flag ---
+// This remains opt-in until the focused protocol, lifecycle and production
+// benchmark checks have established parity with the existing compact format.
+let _entityDeltaSnapshots = false;
+
+function ENTITY_DELTA_SNAPSHOTS() {
+  return _entityDeltaSnapshots;
+}
+
+function __setENTITY_DELTA_SNAPSHOTS(value) {
+  _entityDeltaSnapshots = Boolean(value);
+}
+
 function WEAPON_TARGET_ACQUISITION_CADENCE() {
   return _weaponTargetAcquisitionCadence;
 }
@@ -147,6 +160,8 @@ module.exports = {
   __setWEAPON_TARGET_ACQUISITION_CADENCE,
   __setPOINT_DEFENCE_SHARED_THREATS,
   __setWEAPON_PROFILE_REVISION_CACHE,
+  ENTITY_DELTA_SNAPSHOTS,
+  __setENTITY_DELTA_SNAPSHOTS,
   FIXED_AUTHORITATIVE_TIMESTEP,
   __setFIXED_AUTHORITATIVE_TIMESTEP,
   INCREMENTAL_SPATIAL_INDEX,

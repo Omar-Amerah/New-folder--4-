@@ -58,6 +58,15 @@ const FLAK_SERIES = [
   "flak:missileHits",
   "flak:processingUs"
 ];
+const SNAPSHOT_PHASE5_SERIES = Object.freeze([
+  "snapshotLegacyCompactBytes", "snapshotEntityDeltaBytes", "snapshotFullBytes", "snapshotMotionBytes",
+  "snapshotSparseStateBytes", "snapshotPrivateBytes", "snapshotRemovalBytes", "snapshotDictionaryBytes",
+  "snapshotConstructionSharedMs", "snapshotConstructionViewerMs", "snapshotEncodingMs", "snapshotRecipients",
+  "snapshotPayloadGroups", "snapshotEntitiesConsidered", "snapshotEntitiesPatched", "snapshotEntitiesUnchanged",
+  "snapshotVisibilityRemovals", "snapshotReacquisitionBaselines", "snapshotDetailDowngrades",
+  "snapshotDetailUpgrades", "snapshotFullPromotions", "snapshotResyncRequests", "snapshotMalformedPatchRejects",
+  "snapshotBuiltThenReplacedBytes", "snapshotBuiltThenReplacedCount", "clientSnapshotDecodeMs", "clientSnapshotMergeMs"
+]);
 const seriesNames = [
   "simulationMs",
   "cycleMs",
@@ -73,7 +82,8 @@ const seriesNames = [
   "entityEffects",
   ...SUBSYSTEM_NAMES.map((name) => `subsystem:${name}`),
   ...PURCHASE_STAGE_NAMES.map((name) => `purchase:${name}`),
-  ...FLAK_SERIES
+  ...FLAK_SERIES,
+  ...SNAPSHOT_PHASE5_SERIES
 ];
 const series = Object.fromEntries(seriesNames.map((name) => [name, createSampleRing()]));
 const totals = {
@@ -93,6 +103,7 @@ const totals = {
 };
 const outboundBuckets = new Map();
 let lastPrunedOutboundSecond = 0;
+const phase5Totals = Object.fromEntries(SNAPSHOT_PHASE5_SERIES.map((name) => [name, 0]));
 
 function ensureSeries(name) {
   if (!series[name]) series[name] = createSampleRing();
@@ -130,7 +141,7 @@ function recordRoomTick(input = {}) {
   for (const name of SUBSYSTEM_NAMES) boundedSample(`subsystem:${name}`, Math.max(0, Number(durations[name]) || 0), at);
 }
 
-function recordSnapshot({ durationMs = 0, constructionMs = 0, encodingMs = 0, payloadBytes = 0, maxClientBytes = 0, clients = 0 } = {}) {
+function recordSnapshot({ durationMs = 0, constructionMs = 0, encodingMs = 0, payloadBytes = 0, maxClientBytes = 0, clients = 0, phase5 = null } = {}) {
   const at = Date.now();
   boundedSample("snapshotBuildMs", durationMs, at);
   boundedSample("snapshotConstructionMs", constructionMs, at);
@@ -140,6 +151,20 @@ function recordSnapshot({ durationMs = 0, constructionMs = 0, encodingMs = 0, pa
   totals.snapshots += 1;
   totals.snapshotClients += Math.max(0, Number(clients) || 0);
   totals.snapshotPayloadBytes += Math.max(0, Number(payloadBytes) || 0);
+  if (phase5) recordSnapshotPhase5(phase5);
+}
+
+function recordSnapshotPhase5(metrics = {}) {
+  const at = Date.now();
+  for (const name of SNAPSHOT_PHASE5_SERIES) {
+    const value = Math.max(0, Number(metrics[name]) || 0);
+    if (value) phase5Totals[name] += value;
+    boundedSample(name, value, at);
+  }
+}
+
+function recordSnapshotWaste(bytes = 0, count = 1) {
+  recordSnapshotPhase5({ snapshotBuiltThenReplacedBytes: bytes, snapshotBuiltThenReplacedCount: count });
 }
 
 function recordOutbound(bytes, kind = "control") {
@@ -277,7 +302,11 @@ function performanceSnapshot(tickHz = 30) {
       maxClientPayloadBytes: summarize("snapshotMaxClientBytes", now),
       total: totals.snapshots,
       clientsBuilt: totals.snapshotClients,
-      bytesBuilt: totals.snapshotPayloadBytes
+      bytesBuilt: totals.snapshotPayloadBytes,
+      phase5: {
+        totals: { ...phase5Totals },
+        series: Object.fromEntries(SNAPSHOT_PHASE5_SERIES.map((name) => [name, summarize(name, now)]))
+      }
     },
     outbound: {
       ...outboundWindow(now),
@@ -295,4 +324,4 @@ function performanceSnapshot(tickHz = 30) {
   };
 }
 
-module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, recordTick, recordRoomTick, recordRoomTelemetry, recordSnapshot, recordOutbound, recordOutboundEvent, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };
+module.exports = { SUBSYSTEM_NAMES, PURCHASE_STAGE_NAMES, SNAPSHOT_PHASE5_SERIES, recordTick, recordRoomTick, recordRoomTelemetry, recordSnapshot, recordSnapshotPhase5, recordSnapshotWaste, recordOutbound, recordOutboundEvent, recordPurchaseStage, recordFlakMetrics, performanceSnapshot };
