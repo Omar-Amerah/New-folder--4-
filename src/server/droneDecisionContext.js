@@ -308,6 +308,18 @@ function buildDroneDecisionContext(room, parent, bay, droneType, config, members
   // preserving the semantic distinction between repair and hostile consumers.
   clearArray(context.repairShips);
   for (const ship of context.hostileShips) context.repairShips.push(ship);
+  // This is a deliberately conservative accounting proxy for benchmark
+  // reporting: an individual decision would have inspected the shared
+  // candidate superset once per active member. It is not a second query and
+  // does not affect gameplay or the optimized path's work.
+  const contextCandidateCount = context.hostileShips.length
+    + context.hostileDrones.length
+    + context.hostileProjectiles.length;
+  const individualCandidateEstimate = contextCandidateCount * Math.max(1, memberCount);
+  bump(room, "droneContextCandidateCount", contextCandidateCount);
+  bump(room, "droneContextIndividualCandidateEstimate", individualCandidateEstimate);
+  bump(room, "droneContextCandidatesAvoided", Math.max(0, individualCandidateEstimate - contextCandidateCount));
+  bump(room, "droneContextIndividualQueriesAvoided", Math.max(0, memberCount - 1) * 3);
   bump(room, "droneContextsBuilt");
   bump(room, "droneContextMembers", memberCount);
   bump(room, "droneShipCandidatesVisited", context.hostileShips.length);
