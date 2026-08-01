@@ -59,7 +59,12 @@ function clientSupportsProjectileEvents(client) {
 }
 
 function ensureReplication(room) {
-  if (room && room.projectileReplication) return room.projectileReplication;
+  if (room && room.projectileReplication) {
+    const existing = room.projectileReplication;
+    if (!(existing._visibleByTeam instanceof Map)) existing._visibleByTeam = new Map();
+    if (!(existing._visibleRevisionByTeam instanceof Map)) existing._visibleRevisionByTeam = new Map();
+    return existing;
+  }
   if (!room) return null;
   const rep = {
     initialized: true,
@@ -70,6 +75,7 @@ function ensureReplication(room) {
     corrections: new Map(),
     _correctionsPreparedAt: -1,
     _visibleByTeam: new Map(),
+    _visibleRevisionByTeam: new Map(),
     _visibleAt: -1,
     diagnostics: {
       projectileLifecycleEventsCreated: 0,
@@ -124,6 +130,7 @@ function resetProjectileReplication(room, newEpoch) {
   rep.corrections = new Map();
   rep._correctionsPreparedAt = -1;
   rep._visibleByTeam = new Map();
+  rep._visibleRevisionByTeam = new Map();
   rep._visibleAt = -1;
   rep.diagnostics.lifecycleLogSize = 0;
   rep.diagnostics.lifecycleLogHighWaterMark = 0;
@@ -347,15 +354,35 @@ function viewerTeamId(room, client) {
 
 function getTeamVisibleProjectiles(room, teamId, now) {
   const rep = ensureReplication(room);
+  const sensorVisibility = usesSensorVisibility(room);
+  const visibilityState = sensorVisibility
+    ? ensureTeamVisibility(room, teamId, now)
+    : null;
+  const visibilityRevision = sensorVisibility
+    ? (visibilityState?.resultRevision
+      ?? visibilityState?.revision
+      ?? visibilityState?.computedGeneration
+      ?? 0)
+    : (Number(room?._visibilityGeneration) || 0);
+
+  // Projectile events and snapshots share the authoritative team result.  A
+  // same-timestamp visibility invalidation must therefore invalidate this
+  // team's cache even when the simulation clock has not advanced. Revisions
+  // are tracked per team because two teams may compute at different times.
   if (rep._visibleAt !== now) {
     rep._visibleAt = now;
     rep._visibleByTeam.clear();
+    rep._visibleRevisionByTeam.clear();
+  }
+  if (rep._visibleRevisionByTeam.get(teamId) !== visibilityRevision) {
+    rep._visibleByTeam.delete(teamId);
+    rep._visibleRevisionByTeam.set(teamId, visibilityRevision);
   }
   if (rep._visibleByTeam.has(teamId)) {
     return rep._visibleByTeam.get(teamId);
   }
 
-  if (!usesSensorVisibility(room)) {
+  if (!sensorVisibility) {
     const visible = new Set();
     for (const bullet of room.bullets || []) {
       if (bullet?.life > 0 && bullet?.id) visible.add(bullet.id);
@@ -364,7 +391,6 @@ function getTeamVisibleProjectiles(room, teamId, now) {
     return visible;
   }
 
-  ensureTeamVisibility(room, teamId, now);
   const visible = new Set();
   for (const bullet of room.bullets || []) {
     if (bullet?.life <= 0 || !bullet?.id) continue;

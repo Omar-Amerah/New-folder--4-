@@ -617,6 +617,7 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   room.effects = [];
   require("./rooms").clearRoomRuntimeScratch(room);
   require("./stations").destroyStationsForRoom(room);
+  require("./visibility").clearVisibilityForRoom(room);
   room.controlVictory = {
     team: null,
     playerId: null,
@@ -698,6 +699,7 @@ function closeLobby(room, requester) {
   require("./decoys").resetDecoyRuntime(room);
   require("./projectiles").resetProjectileRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
+  require("./visibility").clearVisibilityForRoom(room);
   room.effects = [];
   const { clearRoomRuntimeScratch, deleteRoomIfCurrent } = require("./rooms");
   clearRoomRuntimeScratch(room);

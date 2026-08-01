@@ -247,6 +247,7 @@ function removeActiveDrone(room, drone) {
   if (!drone || room.drones?.get?.(drone.id) !== drone) return false;
   ensureDroneRuntime(room);
   room.drones.delete(drone.id);
+  if (room._visibilityRuntime) require("./visibilityRuntime").unregisterEntity(room, drone, "drone");
   room.spatialIndex?.remove?.("drones", drone);
   adjustDroneCount(room, drone, -1);
   drone.removed = true;
@@ -487,6 +488,10 @@ function spawnDrone(room, ship, bay, slot, now) {
     drone.nextThinkAt = drone.nextDecisionAt;
   }
   room.drones.set(drone.id, drone);
+  if (room._visibilityRuntime) {
+    const visibilityRuntime = require("./visibilityRuntime");
+    visibilityRuntime.registerEntityMembership(room, room._visibilityRuntime, drone, "drone");
+  }
   if (room.spatialIndex?.dynamicValid && typeof room.spatialIndex.append === "function") {
     room.spatialIndex.append("drones", drone, droneBroadPhaseRadius(drone));
   }

@@ -198,6 +198,11 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   
   player.ships.push(ship);
   room.ships.set(ship.id, ship);
+  if (room._visibilityRuntime) {
+    const visibilityRuntime = require("./visibilityRuntime");
+    visibilityRuntime.registerEntityMembership(room, room._visibilityRuntime, ship, "ship");
+    visibilityRuntime.registerSensorSource(room, ship, "ship");
+  }
   if (room.spatialIndex?.dynamicValid && typeof room.spatialIndex.append === "function") {
     const { shipBroadPhaseRadius } = require("./spatialIndex");
     room.spatialIndex.append("ships", ship, shipBroadPhaseRadius(ship));

@@ -25,6 +25,7 @@ const {
   INCREMENTAL_SPATIAL_INDEX,
   SHARED_MOVEMENT_CONTACT_PAIRS
 } = require("./performanceFlags");
+const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
 const {
   beginMovementContactStep,
   buildMovementContactPairs,
@@ -147,6 +148,9 @@ function tickRoom(room, dt, now) {
     }
   }
   durations.movementSeparationMap = performanceNow() - startedAt;
+  if (OPTIMIZED_VISIBILITY_RUNTIME() && room._visibilityRuntime) {
+    require("./visibilityRuntime").maintainVisibilityRuntime(room);
+  }
   // Everything below this point sees one cached visibility generation. Combat
   // may ask about hundreds of targets with slightly different performanceNow()
   // values; those calls must not rebuild team visibility independently.
@@ -207,6 +211,9 @@ function tickRoom(room, dt, now) {
   startedAt = performanceNow();
   updateStations(room, dt, now);
   updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
+  if (OPTIMIZED_VISIBILITY_RUNTIME() && room._visibilityRuntime) {
+    require("./visibilityRuntime").maintainVisibilityRuntime(room);
+  }
   // Weapons, projectile damage, drone movement, ship destruction and station
   // capture can all change final visibility after combat started using the
   // post-movement generation. Publish one final generation for snapshots.

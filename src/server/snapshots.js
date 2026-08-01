@@ -445,6 +445,35 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     effects: room.effects.map((effect, index) => ({ ...effect, id: snapshotEffectId(room, effect, index), age: Math.max(0, round(now - effect.at)), subtype: effect.subtype })),
     objectiveControl
   };
+  const snapshotEntityMeta = {
+    shipsById: new Map(shared.ships.map((entry) => [entry.id, entry])),
+    dronesById: new Map(shared.drones.map((entry) => [entry.id, entry])),
+    stationsById: new Map((shared.stations || []).map((entry) => [entry.id, entry])),
+    entityTeamById: new Map()
+  };
+  for (const ship of shared.ships) snapshotEntityMeta.entityTeamById.set(ship.id, ship.team ?? null);
+  for (const drone of shared.drones) snapshotEntityMeta.entityTeamById.set(
+    drone.id,
+    room.players?.get?.(drone.ownerId)?.team ?? drone.team ?? null
+  );
+  for (const station of shared.stations || []) snapshotEntityMeta.entityTeamById.set(station.id, station.team ?? null);
+  for (const bullet of shared.bullets || []) {
+    if (bullet.ownerId) snapshotEntityMeta.entityTeamById.set(
+      bullet.id,
+      room.players?.get?.(bullet.ownerId)?.team ?? null
+    );
+  }
+  for (const decoy of shared.decoys || []) {
+    if (decoy.ownerId) snapshotEntityMeta.entityTeamById.set(
+      decoy.id,
+      room.players?.get?.(decoy.ownerId)?.team ?? null
+    );
+  }
+  Object.defineProperty(shared, "snapshotEntityMeta", {
+    value: snapshotEntityMeta,
+    enumerable: false,
+    configurable: true
+  });
   return shared;
 }
 
@@ -1062,6 +1091,20 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     objectiveControl: shared.objectiveControl,
     time: Math.floor(now)
   };
+  // Server-local identity used by the Phase 6C team tactical filter. It is
+  // deliberately non-enumerable so it can never cross the wire or become part
+  // of a protocol checksum. Player-specific ship/private rows remain owned by
+  // this snapshot; only public source-array identity is shared.
+  Object.defineProperty(snapshot, "__visibilitySharedIdentity", {
+    value: shared,
+    enumerable: false,
+    configurable: true
+  });
+  Object.defineProperty(snapshot, "snapshotEntityMeta", {
+    value: shared.snapshotEntityMeta,
+    enumerable: false,
+    configurable: true
+  });
   if (sendStatic) {
     snapshot.mapSizeLabel = room.mapSizeLabel;
     snapshot.world = room.world;

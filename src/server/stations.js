@@ -851,6 +851,11 @@ function createStationsForRoom(room, now) {
     }
     room.stations.push(station);
     room.stationsById.set(station.id, station);
+    if (room._visibilityRuntime) {
+      const visibilityRuntime = require("./visibilityRuntime");
+      visibilityRuntime.registerEntityMembership(room, room._visibilityRuntime, station, "station");
+      visibilityRuntime.registerSensorSource(room, station, "station");
+    }
   }
   const relays = room.map?.relays || [];
   for (const relay of relays) {
@@ -862,12 +867,21 @@ function createStationsForRoom(room, now) {
     station.relayId = relay.id;
     room.stations.push(station);
     room.stationsById.set(station.id, station);
+    if (room._visibilityRuntime) {
+      const visibilityRuntime = require("./visibilityRuntime");
+      visibilityRuntime.registerEntityMembership(room, room._visibilityRuntime, station, "station");
+      visibilityRuntime.registerSensorSource(room, station, "station");
+    }
   }
   room.stationRevision = (room.stationRevision || 0) + 1;
 }
 
 function destroyStationsForRoom(room) {
   if (!room.stations) return;
+  if (room._visibilityRuntime) {
+    const visibilityRuntime = require("./visibilityRuntime");
+    for (const station of room.stations) visibilityRuntime.unregisterEntity(room, station, "station");
+  }
   room.stations = [];
   room.stationsById = null;
   room.stationRevision = (room.stationRevision || 0) + 1;

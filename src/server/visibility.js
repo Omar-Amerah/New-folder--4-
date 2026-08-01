@@ -10,6 +10,7 @@
 const { BALANCE } = require("./balanceConfig");
 const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
 const { angleDifference } = require("./utils");
+const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
 
 const VISIBILITY_BALANCE = BALANCE.visibility || {};
 const DETECTION_LINGER_MS = Math.max(0, Number(VISIBILITY_BALANCE.detectionLingerSeconds) || 0.25) * 1000;
@@ -69,6 +70,9 @@ function cachedTeamOfEntity(room, entity, generation) {
 }
 
 function getTeamVisibilityState(room, teamOrOwnerId) {
+  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
+    return require("./visibilityRuntime").getTeamState(room, teamOrOwnerId);
+  }
   const teamId = normalizedTeamId(room, teamOrOwnerId);
   if (!room.visibilityByTeam) room.visibilityByTeam = new Map();
   let state = room.visibilityByTeam.get(teamId);
@@ -270,7 +274,7 @@ function rememberedEntity(room, id) {
   return room.ships?.get?.(id) || null;
 }
 
-function computeTeamVisibility(room, teamOrOwnerId, now) {
+function computeTeamVisibilityLegacy(room, teamOrOwnerId, now) {
   const computedAt = Number.isFinite(Number(now)) ? Number(now) : 0;
   if (!usesSensorVisibility(room)) {
     return {
@@ -350,7 +354,7 @@ function computeTeamVisibility(room, teamOrOwnerId, now) {
   return state;
 }
 
-function ensureTeamVisibility(room, teamOrOwnerId, now) {
+function ensureTeamVisibilityLegacy(room, teamOrOwnerId, now) {
   if (!usesSensorVisibility(room)) return null;
   // Combat asks this thousands of times per tick and virtually every one of
   // those hits an already-computed scan. Answer those without running
@@ -364,9 +368,21 @@ function ensureTeamVisibility(room, teamOrOwnerId, now) {
   }
   const state = getTeamVisibilityState(room, teamOrOwnerId);
   if (state.computedGeneration !== roomVisibilityGeneration(room)) {
-    return computeTeamVisibility(room, teamOrOwnerId, now);
+    return computeTeamVisibilityLegacy(room, teamOrOwnerId, now);
   }
   return state;
+}
+
+function computeTeamVisibility(room, teamOrOwnerId, now) {
+  return OPTIMIZED_VISIBILITY_RUNTIME()
+    ? require("./visibilityRuntime").computeTeamVisibility(room, teamOrOwnerId, now)
+    : computeTeamVisibilityLegacy(room, teamOrOwnerId, now);
+}
+
+function ensureTeamVisibility(room, teamOrOwnerId, now) {
+  return OPTIMIZED_VISIBILITY_RUNTIME()
+    ? require("./visibilityRuntime").ensureTeamVisibility(room, teamOrOwnerId, now)
+    : ensureTeamVisibilityLegacy(room, teamOrOwnerId, now);
 }
 
 function getVisibleEntityIdsForTeam(room, teamOrOwnerId, now) {
@@ -434,6 +450,7 @@ function isPointVisibleToTeam(room, teamOrOwnerId, x, y, now, padding = 0) {
 
 function clearVisibilityForRoom(room) {
   if (!room) return;
+  if (room._visibilityRuntime) require("./visibilityRuntime").clearVisibilityForRoom(room);
   for (const state of room.visibilityByTeam?.values?.() || []) {
     state.visibleEntityIds.clear();
     state.nextVisibleEntityIds?.clear?.();
@@ -470,6 +487,8 @@ function clearVisibilityForRoom(room) {
 
 function invalidateVisibility(room, reason = "unknown") {
   if (!room || !usesSensorVisibility(room)) return 0;
+  const options = typeof reason === "string" ? { reason } : (reason || {});
+  const reasonText = String(options.reason || "unknown");
   let next = roomVisibilityGeneration(room) + 1;
   if (!Number.isSafeInteger(next) || next >= Number.MAX_SAFE_INTEGER) {
     next = 1;
@@ -477,11 +496,14 @@ function invalidateVisibility(room, reason = "unknown") {
   }
   room._visibilityGeneration = next;
   room._visibilityInvalidationCount = (Number(room._visibilityInvalidationCount) || 0) + 1;
+  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
+    require("./visibilityRuntime").invalidateVisibility(room, options);
+  }
 
   // Keep only a tiny diagnostic ring. The original unbounded array grew for
   // the life of a room if invalidation was ever wired into the simulation.
   const reasons = room._visibilityInvalidations || (room._visibilityInvalidations = []);
-  reasons.push({ reason, generation: next });
+  reasons.push({ reason: reasonText, generation: next });
   if (reasons.length > MAX_INVALIDATION_REASONS) reasons.splice(0, reasons.length - MAX_INVALIDATION_REASONS);
   return next;
 }

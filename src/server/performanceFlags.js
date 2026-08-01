@@ -122,6 +122,21 @@ let _optimizedHeatRuntime = false;
 // production-path checks establish parity with the existing loop.
 let _optimizedDroneRuntime = false;
 
+// --- Phase 6C authoritative visibility runtime flag ---
+// Keep the incremental source/team/snapshot architecture disabled until its
+// differential and production-path checks establish parity with the legacy
+// visibility implementation.  This is intentionally one switch for the full
+// Phase 6C architecture; do not split it into sensor/filter/team flags.
+let _optimizedVisibilityRuntime = false;
+
+function OPTIMIZED_VISIBILITY_RUNTIME() {
+  return _optimizedVisibilityRuntime;
+}
+
+function __setOPTIMIZED_VISIBILITY_RUNTIME(value) {
+  _optimizedVisibilityRuntime = Boolean(value);
+}
+
 function OPTIMIZED_DRONE_RUNTIME() {
   return _optimizedDroneRuntime;
 }
@@ -200,5 +215,7 @@ module.exports = {
   OPTIMIZED_DRONE_RUNTIME,
   __setOPTIMIZED_DRONE_RUNTIME,
   OPTIMIZED_HEAT_RUNTIME,
-  __setOPTIMIZED_HEAT_RUNTIME
+  __setOPTIMIZED_HEAT_RUNTIME,
+  OPTIMIZED_VISIBILITY_RUNTIME,
+  __setOPTIMIZED_VISIBILITY_RUNTIME
 };

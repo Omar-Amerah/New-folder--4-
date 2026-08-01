@@ -125,6 +125,10 @@ function createRoom(code, options = {}) {
 function bumpStateEpoch(room, reason = "state-reset") {
   require("./relationships").invalidateRelationshipCache(room);
   room.stateEpoch = Math.max(1, Number(room.stateEpoch) || 1) + 1;
+  // Visibility contexts are epoch-scoped. Drop both legacy and Phase 6C
+  // results immediately so a reconnect/rematch can never reuse a prior team
+  // result while the new map is being assembled.
+  clearVisibilityForRoom(room);
   room.snapshotSeq = 0;
   require("./projectileReplication").resetProjectileReplication(room, room.stateEpoch);
   room.staticRevision = Math.max(1, Number(room.staticRevision) || 1) + 1;

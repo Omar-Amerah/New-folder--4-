@@ -75,7 +75,19 @@ const DURATION_FIELDS = Object.freeze([
   "droneMovementMs",
   "droneMapCollisionMs",
   "droneSeparationMs",
-  "droneSpatialPublicationMs"
+  "droneSpatialPublicationMs",
+
+  // Phase 6C incremental visibility runtime timing
+  "visibilityRuntimeMs",
+  "visibilitySourceMaintenanceMs",
+  "visibilityCapabilityRefreshMs",
+  "visibilityCoverageUpdateMs",
+  "visibilityShipQueriesMs",
+  "visibilityDroneQueriesMs",
+  "visibilityStationQueriesMs",
+  "visibilityRememberedMs",
+  "visibilitySnapshotFilterMs",
+  "visibilityAuditMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -270,6 +282,40 @@ const COUNTER_FIELDS = Object.freeze([
   "projectileDroneHits",
   "projectileDroneIndexRecoveryBuilds",
   "projectileDroneFullScanFallbacks",
+
+  // Phase 6C incremental visibility runtime counters
+  "visibilityTeamsConsidered",
+  "visibilityTeamsComputed",
+  "visibilityTeamCacheHits",
+  "visibilityTeamsDirty",
+  "visibilitySourcesTotal",
+  "visibilitySourcesAdded",
+  "visibilitySourcesRemoved",
+  "visibilitySourcesUpdated",
+  "visibilitySourceCacheHits",
+  "visibilityCapabilityCacheHits",
+  "visibilityTransformOnlyUpdates",
+  "visibilityShipQueries",
+  "visibilityDroneQueries",
+  "visibilityStationQueries",
+  "visibilityShipCandidates",
+  "visibilityDroneCandidates",
+  "visibilityStationCandidates",
+  "visibilityCandidatesAlreadyVisible",
+  "visibilityEntitiesDetected",
+  "visibilityEntitiesLost",
+  "visibilityContactsRemembered",
+  "visibilityContactsExpired",
+  "visibilityLingeredEntities",
+  "visibilitySnapshotFilterBuilds",
+  "visibilitySnapshotFilterCacheHits",
+  "visibilitySnapshotShipsConsidered",
+  "visibilitySnapshotDronesConsidered",
+  "visibilitySnapshotBulletsConsidered",
+  "visibilitySnapshotEffectsConsidered",
+  "visibilityFullCollectionFallbacks",
+  "visibilityFullInvalidations",
+  "visibilityTeamScopedInvalidations",
 
   // Phase 4B incremental spatial-index counters
   "spatialFullRebuilds",
