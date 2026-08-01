@@ -58,6 +58,9 @@ function clearRoomRuntimeScratch(room) {
       if (Array.isArray(value)) value.length = 0;
     }
   }
+  // Pair objects are pooled per room, so reset/restart/close paths must release
+  // their ship references alongside the other reusable movement scratch.
+  require("./movementContactPairs").clearMovementContactPairs(room);
 }
 
 function createRoom(code, options = {}) {

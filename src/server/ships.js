@@ -193,6 +193,7 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     const { shipBroadPhaseRadius } = require("./spatialIndex");
     room.spatialIndex.append("ships", ship, shipBroadPhaseRadius(ship));
   }
+  require("./movementContactPairs").noteShipSpawnedDuringMovementContactStep(room, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
 
   if (process.env.NODE_ENV !== "production") {
