@@ -180,6 +180,8 @@
     "test:stats": "node verify-shields.js && node verify-movement-phase1.js",
     "test:component-balance": "npm run balance:check",
     "test:thermal-parity": "node verify-thermal-parity.js",
+    "test:phase-6a": "node verify-phase-6a-heat-runtime.js",
+    "benchmark:phase-6a": "node benchmark-phase-6a.js",
     "test:blueprint-validation-parity": "node verify-blueprint-validation-parity.js",
     "test:rotation-parity": "node verify-rotation-parity.js",
     "test:armor-delivery": "node verify-armor-delivery.js",
