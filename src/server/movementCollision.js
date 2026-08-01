@@ -457,8 +457,18 @@ function updateSharedPairSeparation(room, shipList, dt, now = 0, options = null)
 }
 
 function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
-  const { SHARED_MOVEMENT_CONTACT_PAIRS } = require("./performanceFlags");
+  const { SHARED_MOVEMENT_CONTACT_PAIRS, PACKED_FLEET_SOLVER } = require("./performanceFlags");
   if (SHARED_MOVEMENT_CONTACT_PAIRS()) {
+    if (PACKED_FLEET_SOLVER()) {
+      return require("./packedFleetSolver").solvePackedFleetSeparation(
+        room,
+        shipList,
+        dt,
+        now,
+        options,
+        room._movementContactPairStepId
+      );
+    }
     return updateSharedPairSeparation(room, shipList, dt, now, options);
   }
   return updateLegacyShipSeparation(room, shipList, dt, now, options);
