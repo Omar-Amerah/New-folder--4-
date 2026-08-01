@@ -2,7 +2,7 @@
 const { updateBots, getLiveShips } = require("./ships");
 const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
-const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions, resolveMapCollision } = require("./movement");
+const { updateShipMovement, updateShipSeparation } = require("./movement");
 const { updateBullets } = require("./projectiles");
 const { updateStations } = require("./stations");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
@@ -21,8 +21,6 @@ const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./room
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
-  circularShipSeparation,
-  redundantFleetMapCollisionPass,
   FIXED_AUTHORITATIVE_TIMESTEP,
   INCREMENTAL_SPATIAL_INDEX,
   SHARED_MOVEMENT_CONTACT_PAIRS
@@ -31,13 +29,12 @@ const {
   beginMovementContactStep,
   buildMovementContactPairs,
   clearMovementContactPairs,
-  collectMovementContactMovedShips,
-  findMissingMovementContactPairs,
   markMovementContactPairsUnsafe,
   rebuildMovementContactPairsForRecovery,
   shouldRunMovementContactDiagnostics,
   validateMovementContactPairs
 } = require("./movementContactPairs");
+const { runMovementContactSafetyPass } = require("./movementContactSafety");
 const { TICK_HZ } = require("./config");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
@@ -131,62 +128,16 @@ function tickRoom(room, dt, now) {
   }
   let modifiedShipIds = updateShipSeparation(room, ships, dt, now);
   const mapCollisionStart = performanceNow();
-  const applyFinalMapCorrection = (activeShips) => {
-    if (redundantFleetMapCollisionPass()) {
-      resolveFleetMapCollisions(room, activeShips);
-    } else {
-      for (const id of modifiedShipIds) {
-        const ship = room.ships.get(id);
-        if (ship) resolveMapCollision(room, ship);
-      }
-    }
-  };
-  const publishShipSpatial = (activeShips) => {
-    if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
-      if (INCREMENTAL_SPATIAL_INDEX()) {
-        room.spatialIndex.updateLiveEntities("ships", activeShips, shipBroadPhaseRadius);
-      } else {
-        room.spatialIndex.rebuildKind("ships", activeShips, shipBroadPhaseRadius, now);
-      }
-    }
-  };
-  applyFinalMapCorrection(ships);
+  const movementSafety = runMovementContactSafetyPass(
+    room,
+    ships,
+    modifiedShipIds,
+    dt,
+    now,
+    { sharedMovementContactPairs }
+  );
+  modifiedShipIds = movementSafety.modifiedShipIds;
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
-  // Separation and map recovery mutate positions after the pre-collision
-  // movement refresh. Publish the corrected coordinates without rebuilding
-  // unrelated dynamic kinds.
-  const movedShips = sharedMovementContactPairs
-    ? collectMovementContactMovedShips(room, ships, modifiedShipIds)
-    : [];
-  publishShipSpatial(ships);
-  if (sharedMovementContactPairs && movedShips.length > 0) {
-    const missing = findMissingMovementContactPairs(room, movedShips, { circular: circularShipSeparation() });
-    if (missing.missingCount > 0) {
-      bump(room, "movementContactPairMissDetections", missing.missingCount);
-      markMovementContactPairsUnsafe(room, "post-solver-missing-edge");
-      room._movementContactPairLastMisses = missing.pairs.map((pair) => `${pair.aId}:${pair.bId}`);
-      // One bounded exceptional rebuild per authoritative step. It is outside
-      // the packed iterations and uses the current live roster, so a launch or
-      // a newly created edge cannot remain absent from the recovery graph.
-      if (!room._movementContactPairRecoveryAttempted) {
-        const recoveryShips = getLiveShips(room, room._liveShipScratch || (room._liveShipScratch = []));
-        rebuildMovementContactPairsForRecovery(room, recoveryShips, now, {
-          scopeShips: movedShips,
-          recoveryPairs: missing.pairs
-        });
-        modifiedShipIds = updateShipSeparation(room, recoveryShips, dt, now);
-        applyFinalMapCorrection(recoveryShips);
-        const recoveryMovedShips = collectMovementContactMovedShips(room, recoveryShips, modifiedShipIds);
-        publishShipSpatial(recoveryShips);
-        const recoveredMissing = findMissingMovementContactPairs(room, recoveryMovedShips, { circular: circularShipSeparation() });
-        if (recoveredMissing.missingCount > 0) {
-          bump(room, "movementContactPairMissDetections", recoveredMissing.missingCount);
-          markMovementContactPairsUnsafe(room, "post-recovery-missing-edge");
-          room._movementContactPairLastMisses = recoveredMissing.pairs.map((pair) => `${pair.aId}:${pair.bId}`);
-        }
-      }
-    }
-  }
   if (sharedMovementContactPairs && shouldRunMovementContactDiagnostics(room)) {
     const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
     if (!integrity.ok) {

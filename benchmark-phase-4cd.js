@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 "use strict";
 
-// Deterministic Phase 4C/4D movement-contact microbenchmark. Every mode receives
-// a freshly cloned fixture generated from the same seed, movement inputs and
-// scenario definition. This intentionally measures the movement/contact/index
-// stages directly; it is not a full tickRoom production-path benchmark.
+// Deterministic Phase 4C/4D movement-contact benchmark. Every mode receives a
+// freshly cloned fixture generated from the same seed, movement inputs and
+// scenario definition. The default is the focused movement/contact microbenchmark;
+// --production-recovery also executes the post-solver safety boundary shared by
+// tickRoom(), including moved-ship scans and scoped recovery solves.
 
 const fs = require("fs");
 const path = require("path");
@@ -16,6 +17,7 @@ const {
 const { RoomSpatialIndex, buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./src/server/spatialIndex");
 const { beginMovementContactStep, buildMovementContactPairs } = require("./src/server/movementContactPairs");
 const { updateShipSeparation } = require("./src/server/movementCollision");
+const { runMovementContactSafetyPass } = require("./src/server/movementContactSafety");
 const { resetRoomTelemetry } = require("./src/server/roomTelemetry");
 const { performanceNow } = require("./src/server/utils");
 
@@ -23,8 +25,9 @@ const COUNTS = [100, 250, 500, 1000];
 const STEPS = Math.max(1, Number(process.env.MFA_PHASE4CD_STEPS) || 4);
 const REPEATS = Math.max(1, Number(process.env.MFA_PHASE4CD_REPEATS) || 2);
 const WORLD = { width: 12000, height: 8000 };
+const PRODUCTION_RECOVERY = process.argv.includes("--production-recovery");
 
-const MODES = [
+const BASE_MODES = [
   { name: "legacy-full-rebuild", shared: false, packed: false, incremental: false },
   { name: "legacy-incremental", shared: false, packed: false, incremental: true },
   { name: "shared-pairs-full-rebuild", shared: true, packed: false, incremental: false },
@@ -32,6 +35,7 @@ const MODES = [
   { name: "packed-fleet-full-rebuild", shared: true, packed: true, incremental: false },
   { name: "packed-fleet-incremental", shared: true, packed: true, incremental: true }
 ];
+const MODES = BASE_MODES.map((mode) => ({ ...mode, productionRecovery: PRODUCTION_RECOVERY }));
 
 const SCENARIOS = [
   "sparse-no-contact",
@@ -212,14 +216,31 @@ function runStep(room, ships, mode, step) {
   let pairBuildMs = 0;
   if (mode.shared) {
     buildMovementContactPairs(room, ships, now, { stepId: contactStep });
-    pairBuildMs = finite(room._roomTelemetry.movementContactPairBuildMs);
   }
-  updateShipSeparation(room, ships, dt, now, { circular: true });
-  const finalSpatialStart = performanceNow();
-  if (mode.incremental) room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
-  else room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, step);
-  const finalSpatialMs = performanceNow() - finalSpatialStart;
+  const modifiedShipIds = updateShipSeparation(room, ships, dt, now, { circular: true });
+  let finalSpatialMs = 0;
+  if (mode.productionRecovery) {
+    const safety = runMovementContactSafetyPass(
+      room,
+      ships,
+      modifiedShipIds,
+      dt,
+      now,
+      {
+        sharedMovementContactPairs: mode.shared,
+        circular: true,
+        measureSpatialPublication: true
+      }
+    );
+    finalSpatialMs = safety.spatialPublicationMs;
+  } else {
+    const finalSpatialStart = performanceNow();
+    if (mode.incremental) room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+    else room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, step);
+    finalSpatialMs = performanceNow() - finalSpatialStart;
+  }
   const telemetry = room._roomTelemetry;
+  pairBuildMs = finite(telemetry.movementContactPairBuildMs);
   return {
     stepMs: performanceNow() - stepStart,
     pairBuildMs,
@@ -232,6 +253,11 @@ function runStep(room, ships, mode, step) {
     largestIsland: finite(telemetry.packedFleetLargestIsland),
     remainingOverlaps: finite(telemetry.packedFleetRemainingOverlaps || telemetry.separationUnresolvedPairs),
     recoveryOperations: finite(telemetry.packedFleetRecoveryOperations),
+    contactRecoveryBuilds: finite(telemetry.movementContactPairRecoveryBuilds),
+    recoveryQueries: finite(telemetry.movementContactRecoveryQueries),
+    recoveryCandidatesVisited: finite(telemetry.movementContactRecoveryCandidatesVisited),
+    recoveryScanMs: finite(telemetry.movementContactRecoveryScanMs),
+    movedShipsScanned: finite(telemetry.movementContactMovedShipsScanned),
     pairPoolSize: room._movementContactPairPool?.length || 0,
     spatialRecordAllocations: room.spatialIndex.recordAllocations || 0
   };
@@ -241,7 +267,9 @@ function aggregate(samples) {
   const fields = [
     "stepMs", "pairBuildMs", "solverMs", "spatialIndexMs", "candidatesVisited",
     "pairsGenerated", "narrowPhaseChecks", "iterations", "largestIsland",
-    "remainingOverlaps", "recoveryOperations", "pairPoolSize", "spatialRecordAllocations"
+    "remainingOverlaps", "recoveryOperations", "contactRecoveryBuilds",
+    "recoveryQueries", "recoveryCandidatesVisited", "recoveryScanMs",
+    "movedShipsScanned", "pairPoolSize", "spatialRecordAllocations"
   ];
   const result = { samples: samples.length, mean: {}, p50: {}, p95: {}, max: {} };
   for (const field of fields) {
@@ -278,8 +306,9 @@ try {
           setMode(mode);
           for (let step = 0; step < STEPS; step += 1) samples.push(runStep(room, ships, mode, step));
         }
-        results.push({ count, scenario, mode: mode.name, aggregate: aggregate(samples) });
-        console.log(`${count} ${scenario} ${mode.name}: p50=${aggregate(samples).p50.stepMs.toFixed(3)}ms p95=${aggregate(samples).p95.stepMs.toFixed(3)}ms pairs=${aggregate(samples).mean.pairsGenerated.toFixed(1)} remaining=${aggregate(samples).max.remainingOverlaps}`);
+        const summary = aggregate(samples);
+        results.push({ count, scenario, mode: mode.name, aggregate: summary });
+        console.log(`${count} ${scenario} ${mode.name}: p50=${summary.p50.stepMs.toFixed(3)}ms p95=${summary.p95.stepMs.toFixed(3)}ms pairs=${summary.mean.pairsGenerated.toFixed(1)} recoveryQueries=${summary.mean.recoveryQueries.toFixed(1)} recoveryScan=${summary.mean.recoveryScanMs.toFixed(3)}ms remaining=${summary.max.remainingOverlaps}`);
       }
     }
   }
@@ -291,9 +320,14 @@ try {
 
 const artifact = {
   benchmark: "phase-4cd",
-  benchmarkType: "movement-contact-microbenchmark",
-  productionPath: false,
-  movementOrdering: "begin contact step -> deterministic movement integration -> spatial publication -> pair build -> separation -> final spatial publication",
+  benchmarkType: PRODUCTION_RECOVERY ? "movement-contact-production-recovery" : "movement-contact-microbenchmark",
+  productionPath: PRODUCTION_RECOVERY,
+  fullTickRoom: false,
+  productionBoundary: PRODUCTION_RECOVERY,
+  movementOrdering: PRODUCTION_RECOVERY
+    ? "begin contact step -> deterministic movement integration -> pre-solver spatial publication -> pair build -> separation -> final static correction -> moved-ship collection -> final spatial publication -> recovery scan -> one scoped recovery build/solve when needed"
+    : "begin contact step -> deterministic movement integration -> spatial publication -> pair build -> separation -> final spatial publication",
+  productionRecoveryMode: PRODUCTION_RECOVERY,
   stationLaunchScenarioNote: "station-launch-congestion installs authoritative spawnState but does not invoke a station hangar; use production-path verifier for actual station launches",
   startedAt,
   finishedAt: new Date().toISOString(),
@@ -308,4 +342,4 @@ const artifact = {
 const artifactPath = path.join("test-artifacts", "performance", "benchmark-phase-4cd.json");
 fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
 fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
-console.log(`Phase 4C/4D movement-contact microbenchmark complete: ${artifactPath}`);
+console.log(`Phase 4C/4D ${PRODUCTION_RECOVERY ? "production-recovery benchmark" : "movement-contact microbenchmark"} complete: ${artifactPath}`);

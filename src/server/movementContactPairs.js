@@ -403,6 +403,8 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
 
   let candidatesVisited = 0;
   let duplicatesRejected = 0;
+  let recoveryQueries = 0;
+  let recoveryCandidatesVisited = 0;
   const forceAllPairs = Boolean(options.forceAllPairs);
   const rankOf = state._movementContactPairRankByShip;
 
@@ -446,9 +448,12 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
     const recoveryQueryPadding = padding.total + SEPARATION_BROAD_PHASE_PAD;
     for (const a of scope) {
       const queryRadius = physicalCollisionRadius(a) + maximumRadius + recoveryQueryPadding;
-      const candidates = index?.queryRangeUnordered
+      const usesSpatialQuery = Boolean(index?.queryRangeUnordered);
+      if (usesSpatialQuery) recoveryQueries += 1;
+      const candidates = usesSpatialQuery
         ? index.queryRangeUnordered("ships", finite(a.x), finite(a.y), queryRadius, queryScratch)
         : ordered;
+      recoveryCandidatesVisited += candidates.length;
       if (candidates.length > 1 && candidates !== ordered) candidates.sort(compareShips);
       for (const candidate of candidates) {
         candidatesVisited += 1;
@@ -462,6 +467,7 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
       const bRank = rankOf.get(pair?.b);
       if (aRank === undefined || bRank === undefined || aRank === bRank) continue;
       candidatesVisited += 1;
+      recoveryCandidatesVisited += 1;
       addCandidate(ordered[Math.min(aRank, bRank)], Math.min(aRank, bRank), ordered[Math.max(aRank, bRank)]);
     }
   } else {
@@ -514,6 +520,8 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
   if (options.recovery) bump(room, "movementContactPairRecoveryBuilds");
   bump(room, "movementContactPairCandidatesVisited", candidatesVisited);
   bump(room, "movementContactPairDuplicatesRejected", duplicatesRejected);
+  bump(room, "movementContactRecoveryQueries", recoveryQueries);
+  bump(room, "movementContactRecoveryCandidatesVisited", recoveryCandidatesVisited);
   setCounter(room, "movementContactPairsGenerated", state._movementContactPairs.length);
   setCounter(
     room,
@@ -630,24 +638,40 @@ function shipsActuallyOverlap(a, b, options = null) {
 function findMissingMovementContactPairs(room, movedShips, options = null) {
   const state = ensureState(room);
   if (!state) return { missingCount: 0, pairs: [] };
+  const scanStart = performanceNow();
   const missing = state._movementContactPairMissingPairsScratch;
   const missingKeys = state._movementContactPairMissingKeys;
   const queryScratch = state._movementContactPairQueryScratch;
   missing.length = 0;
   missingKeys.clear();
 
+  let recoveryQueries = 0;
+  let recoveryCandidatesVisited = 0;
+  let movedShipsScanned = 0;
+  const finish = () => {
+    bump(room, "movementContactRecoveryQueries", recoveryQueries);
+    bump(room, "movementContactRecoveryCandidatesVisited", recoveryCandidatesVisited);
+    bump(room, "movementContactMovedShipsScanned", movedShipsScanned);
+    recordDuration(room, "movementContactRecoveryScanMs", scanStart);
+    return { missingCount: missing.length, pairs: missing };
+  };
+
   const live = liveShipsForStep(room, null, state);
-  if (live.length < 2 || !movedShips?.length) return { missingCount: 0, pairs: missing };
+  if (live.length < 2 || !movedShips?.length) return finish();
   let maximumRadius = 0;
   for (const ship of live) maximumRadius = Math.max(maximumRadius, physicalCollisionRadius(ship));
 
   const index = room?.spatialIndex;
   for (const moved of movedShips) {
     if (!isLiveShip(room, moved)) continue;
+    movedShipsScanned += 1;
     const queryRadius = physicalCollisionRadius(moved) + maximumRadius + SEPARATION_SLOP;
-    const candidates = index?.queryRangeUnordered
+    const usesSpatialQuery = Boolean(index?.queryRangeUnordered);
+    if (usesSpatialQuery) recoveryQueries += 1;
+    const candidates = usesSpatialQuery
       ? index.queryRangeUnordered("ships", finite(moved.x), finite(moved.y), queryRadius, queryScratch)
       : live;
+    recoveryCandidatesVisited += candidates.length;
     if (candidates.length > 1 && candidates !== live) candidates.sort(compareShips);
     for (const candidate of candidates) {
       if (!isLiveShip(room, candidate) || candidate === moved) continue;
@@ -665,7 +689,7 @@ function findMissingMovementContactPairs(room, movedShips, options = null) {
       });
     }
   }
-  return { missingCount: missing.length, pairs: missing };
+  return finish();
 }
 
 function removeShipFromMovementContactPairs(room, ship) {

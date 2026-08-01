@@ -50,7 +50,8 @@ const DURATION_FIELDS = Object.freeze([
   "fixedStepDurationMs",
   "fixedStepDiscardedBacklogMs",
   "fixedStepAccumulatorRemainingMs",
-  "packedFleetSolverMs"
+  "packedFleetSolverMs",
+  "movementContactRecoveryScanMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -76,6 +77,9 @@ const COUNTER_FIELDS = Object.freeze([
   "movementContactPairRecoveryBuilds",
   "movementContactPairMissDetections",
   "movementLegacySeparationQueriesAvoided",
+  "movementContactRecoveryQueries",
+  "movementContactRecoveryCandidatesVisited",
+  "movementContactMovedShipsScanned",
 
   // Phase 4D packed-fleet solver telemetry
   "packedFleetSolverSteps",

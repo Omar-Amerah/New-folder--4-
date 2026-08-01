@@ -333,6 +333,10 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
   const miss = findMissingMovementContactPairs(room, moved, { circular: true });
   assert.ok(miss.missingCount >= 1, `same-direction dense correction detects the newly created edge (${ships.map((entity) => `${entity.id}:${entity.x.toFixed(2)}`).join(",")})`);
+  assert.ok(room._roomTelemetry.movementContactRecoveryQueries >= 1, "missing-edge scan records spatial recovery queries");
+  assert.ok(room._roomTelemetry.movementContactRecoveryCandidatesVisited >= 1, "missing-edge scan records recovery candidates");
+  assert.ok(room._roomTelemetry.movementContactMovedShipsScanned >= 1, "missing-edge scan records moved ships scanned");
+  assert.ok(room._roomTelemetry.movementContactRecoveryScanMs >= 0, "missing-edge scan records elapsed time");
   markMovementContactPairsUnsafe(room, "verifier-missing-edge");
   rebuildMovementContactPairsForRecovery(room, ships, 1000);
   const recoveredModified = updateShipSeparation(room, ships, 1 / 30, 1000, { circular: true });
@@ -527,6 +531,9 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   buildRoomSpatialIndex(recoveryTickRoom, recoveryTickShips, 0);
   tickRoom(recoveryTickRoom, 1 / 30, 1000);
   assert.equal(recoveryTickRoom._roomTelemetry.movementContactPairRecoveryBuilds, 1, "production tick performs one missing-edge recovery build");
+  assert.ok(recoveryTickRoom._roomTelemetry.movementContactRecoveryQueries >= 1, "production recovery records safety-scan queries");
+  assert.ok(recoveryTickRoom._roomTelemetry.movementContactRecoveryCandidatesVisited >= 1, "production recovery records safety-scan candidates");
+  assert.ok(recoveryTickRoom._roomTelemetry.movementContactMovedShipsScanned >= 1, "production recovery records moved ships scanned");
   assert.equal(hasMovementContactPair(recoveryTickRoom, recoveryTickShips[3], recoveryTickShips[4]), true, "production recovery retains the new edge");
   assert.ok(recoveryTickRoom.spatialIndex.verifyIntegrity("ships").ok, "recovery tick publishes a valid final spatial index");
 
