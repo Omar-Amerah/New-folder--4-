@@ -818,6 +818,7 @@ function buildRoomSpatialIndex(room, ships, now = 0) {
     index.resetTelemetry();
     room._spatialTelemetrySnapshot = {};
     room._spatialDurationSnapshot = 0;
+    require("./movementContactPairs").clearMovementContactPairs(room);
   } else if (isNewIndex) {
     room._spatialTelemetrySnapshot = {};
     room._spatialDurationSnapshot = 0;
@@ -832,6 +833,7 @@ function buildRoomSpatialIndex(room, ships, now = 0) {
 
 function clearRoomSpatialIndex(room) {
   if (!room) return null;
+  require("./movementContactPairs").clearMovementContactPairs(room);
   if (room.spatialIndex instanceof RoomSpatialIndex) {
     room.spatialIndex.reset({ includeAsteroids: true });
     room.spatialIndex.resetTelemetry();

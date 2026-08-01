@@ -2,7 +2,7 @@
 const { updateBots, getLiveShips } = require("./ships");
 const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
-const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions, resolveMapCollision } = require("./movement");
+const { updateShipMovement, updateShipSeparation } = require("./movement");
 const { updateBullets } = require("./projectiles");
 const { updateStations } = require("./stations");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
@@ -20,7 +20,21 @@ const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry"
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
-const { redundantFleetMapCollisionPass, FIXED_AUTHORITATIVE_TIMESTEP, INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
+const {
+  FIXED_AUTHORITATIVE_TIMESTEP,
+  INCREMENTAL_SPATIAL_INDEX,
+  SHARED_MOVEMENT_CONTACT_PAIRS
+} = require("./performanceFlags");
+const {
+  beginMovementContactStep,
+  buildMovementContactPairs,
+  clearMovementContactPairs,
+  markMovementContactPairsUnsafe,
+  rebuildMovementContactPairsForRecovery,
+  shouldRunMovementContactDiagnostics,
+  validateMovementContactPairs
+} = require("./movementContactPairs");
+const { runMovementContactSafetyPass } = require("./movementContactSafety");
 const { TICK_HZ } = require("./config");
 const { invalidateVisibility } = require("./visibility");
 const { dropHiddenTargetLocksForShips } = require("./targetLocks");
@@ -59,6 +73,10 @@ function tickRoom(room, dt, now) {
   durations.botsEconomyLifecycle = performanceNow() - startedAt;
   const ships = getLiveShips(room, room._liveShipScratch || (room._liveShipScratch = []));
   setCounter(room, "liveShips", ships.length);
+  const sharedMovementContactPairs = SHARED_MOVEMENT_CONTACT_PAIRS();
+  const movementContactStepId = sharedMovementContactPairs
+    ? beginMovementContactStep(room, ships, now)
+    : (clearMovementContactPairs(room), null);
   // Section 7D-2: refresh activity-driven Power demand once per ship, before any
   // gameplay system consumes this cycle's operational multipliers / section flow.
   startedAt = performanceNow();
@@ -96,25 +114,36 @@ function tickRoom(room, dt, now) {
   } else {
     buildRoomSpatialIndex(room, ships, now);
   }
-  const modifiedShipIds = updateShipSeparation(room, ships, dt, now);
-  const mapCollisionStart = performanceNow();
-  if (redundantFleetMapCollisionPass()) {
-    resolveFleetMapCollisions(room, ships);
-  } else {
-    for (const id of modifiedShipIds) {
-      const ship = room.ships.get(id);
-      if (ship) resolveMapCollision(room, ship);
+  if (sharedMovementContactPairs) {
+    buildMovementContactPairs(room, ships, now, { stepId: movementContactStepId });
+    if (shouldRunMovementContactDiagnostics(room)) {
+      const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
+      if (!integrity.ok) {
+        bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
+        markMovementContactPairsUnsafe(room, "build-integrity-failure");
+        room._movementContactPairLastIntegrity = integrity;
+        rebuildMovementContactPairsForRecovery(room, ships, now);
+      }
     }
   }
+  let modifiedShipIds = updateShipSeparation(room, ships, dt, now);
+  const mapCollisionStart = performanceNow();
+  const movementSafety = runMovementContactSafetyPass(
+    room,
+    ships,
+    modifiedShipIds,
+    dt,
+    now,
+    { sharedMovementContactPairs }
+  );
+  modifiedShipIds = movementSafety.modifiedShipIds;
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
-  // Separation and map recovery mutate positions after the pre-collision
-  // movement refresh. Publish the corrected coordinates without rebuilding
-  // unrelated dynamic kinds.
-  if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
-    if (INCREMENTAL_SPATIAL_INDEX()) {
-      room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
-    } else {
-      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
+  if (sharedMovementContactPairs && shouldRunMovementContactDiagnostics(room)) {
+    const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
+    if (!integrity.ok) {
+      bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
+      markMovementContactPairsUnsafe(room, "post-correction-integrity-failure");
+      room._movementContactPairLastIntegrity = integrity;
     }
   }
   durations.movementSeparationMap = performanceNow() - startedAt;

@@ -259,7 +259,7 @@ function pruneCollisionContacts(room, now) {
   room._nextShipCollisionContactPruneAt = tick + COLLISION_CONTACT_RETENTION_MS;
 }
 
-function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
+function updateLegacyShipSeparation(room, shipList, dt, now = 0, options = null) {
   pruneCollisionContacts(room, now);
   const ships = (Array.isArray(shipList)
     ? shipList.filter((ship) => ship && ship.alive)
@@ -368,6 +368,128 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
   bump(room, "separationUnresolvedPairs", unresolved.length);
   recordDuration(room, "shipSeparationMs", separationStart);
   return Array.from(modified);
+}
+
+// Phase 4C shared-pair path. It intentionally retains the established
+// sequential narrow-phase correction and impulse rules so enabling the pair
+// cache alone is a broad-phase change, not a gameplay/balance change. The
+// difference is that every iteration consumes the one canonical pair array;
+// there are no per-ship spatial queries or ship-index refreshes in this loop.
+function updateSharedPairSeparation(room, shipList, dt, now = 0, options = null) {
+  const contactPairs = require("./movementContactPairs");
+  const inputShips = Array.isArray(shipList) ? shipList : getLiveShips(room);
+  const liveShips = inputShips
+    .filter((ship) => ship && ship.alive && !ship.removed)
+    .slice()
+    .sort(compareEntityIds);
+  let stepId = room._movementContactPairStepId;
+  if (stepId === null || stepId === undefined) {
+    stepId = contactPairs.beginMovementContactStep(room, liveShips, now);
+  }
+  if (room._movementContactPairBuildStepId !== stepId) {
+    contactPairs.buildMovementContactPairs(room, liveShips, now, { stepId });
+  }
+  const pairs = contactPairs.getMovementContactPairs(room, stepId);
+  const separationStart = performanceNow();
+  const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
+  modified.clear();
+  let unresolved = [];
+  let iterations = 0;
+  for (; iterations < SEPARATION_ITERATIONS; iterations += 1) {
+    let overlaps = 0;
+    unresolved = [];
+    bump(room, "separationIterations");
+    // This is the broad-phase work the shared set replaces. Keep the diagnostic
+    // visible without incrementing the legacy query counter.
+    bump(room, "movementLegacySeparationQueriesAvoided", liveShips.length);
+    const narrowStart = performanceNow();
+    for (const pair of pairs) {
+      const a = pair?.a;
+      const b = pair?.b;
+      if (!a?.alive || a.removed || !b?.alive || b.removed || a === b) continue;
+      const result = resolveSeparationPair(room, a, b, options);
+      if (!result) continue;
+      overlaps += 1;
+      unresolved.push([a, b, result.penetration]);
+      modified.add(a.id);
+      modified.add(b.id);
+    }
+    recordDuration(room, "separationNarrowPhaseMs", narrowStart);
+    const mapStart = performanceNow();
+    // Preserve the established static-collision interaction for the shared
+    // legacy solver. This is not a ship broad phase and does not regenerate the
+    // shared pair set.
+    for (const ship of liveShips) {
+      resolveMapCollision(room, ship);
+      bump(room, "separationMapCollisionCalls");
+    }
+    recordDuration(room, "separationMapCollisionMs", mapStart);
+    if (overlaps === 0) break;
+  }
+  if (unresolved.length) {
+    collisionBump(room, "shipCollisionUnresolvedPairs", unresolved.length);
+    const { findClearShipSpawnPoint } = require("./spawnPlanner");
+    for (const [a, b, penetration] of unresolved) {
+      const newcomer = a.spawnState && now < a.spawnState.expiresAt
+        ? a
+        : (b.spawnState && now < b.spawnState.expiresAt ? b : null);
+      if (!newcomer || penetration < 2) continue;
+      const recovery = findClearShipSpawnPoint(room, {
+        preferredX: newcomer.spawnState.launchPoint.x,
+        preferredY: newcomer.spawnState.launchPoint.y,
+        physicalRadius: physicalCollisionRadius(newcomer),
+        ownerId: newcomer.ownerId,
+        requestId: `recovery:${newcomer.id}`,
+        shipIndex: 0,
+        ignoredShips: new Set([newcomer])
+      });
+      if (recovery.ok) {
+        newcomer.x = recovery.x;
+        newcomer.y = recovery.y;
+        newcomer.vx = 0;
+        newcomer.vy = 0;
+      }
+    }
+  }
+  bump(room, "separationUnresolvedPairs", unresolved.length);
+  recordDuration(room, "shipSeparationMs", separationStart);
+  return Array.from(modified);
+}
+
+function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
+  const { SHARED_MOVEMENT_CONTACT_PAIRS, PACKED_FLEET_SOLVER } = require("./performanceFlags");
+  if (SHARED_MOVEMENT_CONTACT_PAIRS()) {
+    const contactPairs = require("./movementContactPairs");
+    const liveShips = (Array.isArray(shipList) ? shipList : getLiveShips(room))
+      .filter((ship) => ship && ship.alive && !ship.removed);
+    let stepId = room._movementContactPairStepId;
+    if (stepId === null || stepId === undefined) {
+      stepId = contactPairs.beginMovementContactStep(room, liveShips, now);
+    }
+    if (room._movementContactPairBuildStepId !== stepId) {
+      contactPairs.buildMovementContactPairs(room, liveShips, now, { stepId });
+    }
+    let separationShips = shipList;
+    if (room._movementContactPairNeedsRecovery) {
+      // A launch can occur after the normal movement-boundary build. Include
+      // the room's current live roster in one exceptional, deterministic
+      // recovery build so the newcomer cannot be absent from the solver graph.
+      separationShips = getLiveShips(room).filter((ship) => !ship.removed);
+      contactPairs.rebuildMovementContactPairsForRecovery(room, separationShips, now);
+    }
+    if (PACKED_FLEET_SOLVER()) {
+      return require("./packedFleetSolver").solvePackedFleetSeparation(
+        room,
+        separationShips,
+        dt,
+        now,
+        options,
+        stepId
+      );
+    }
+    return updateSharedPairSeparation(room, separationShips, dt, now, options);
+  }
+  return updateLegacyShipSeparation(room, shipList, dt, now, options);
 }
 
 function resolveFleetMapCollisions(room) {

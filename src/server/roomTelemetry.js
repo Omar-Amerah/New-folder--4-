@@ -10,6 +10,7 @@ const { performanceNow } = require("./utils");
 
 const DURATION_FIELDS = Object.freeze([
   "movementControllerMs",
+  "movementContactPairBuildMs",
   "shipSeparationMs",
   "separationNarrowPhaseMs",
   "separationMapCollisionMs",
@@ -48,7 +49,9 @@ const DURATION_FIELDS = Object.freeze([
   "fixedStepJitterMs",
   "fixedStepDurationMs",
   "fixedStepDiscardedBacklogMs",
-  "fixedStepAccumulatorRemainingMs"
+  "fixedStepAccumulatorRemainingMs",
+  "packedFleetSolverMs",
+  "movementContactRecoveryScanMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -64,6 +67,33 @@ const COUNTER_FIELDS = Object.freeze([
   "separationUnresolvedPairs",
   "separationShipIndexRebuilds",
   "separationMapCollisionCalls",
+
+  // Phase 4C shared movement contact-pair telemetry
+  "movementContactPairBuilds",
+  "movementContactPairsGenerated",
+  "movementContactPairDuplicatesRejected",
+  "movementContactPairCandidatesVisited",
+  "movementContactPairMaxPerStep",
+  "movementContactPairRecoveryBuilds",
+  "movementContactPairMissDetections",
+  "movementLegacySeparationQueriesAvoided",
+  "movementContactRecoveryQueries",
+  "movementContactRecoveryCandidatesVisited",
+  "movementContactMovedShipsScanned",
+
+  // Phase 4D packed-fleet solver telemetry
+  "packedFleetSolverSteps",
+  "packedFleetIslands",
+  "packedFleetLargestIsland",
+  "packedFleetIterations",
+  "packedFleetEarlyExits",
+  "packedFleetPairsChecked",
+  "packedFleetOverlapsResolved",
+  "packedFleetRemainingOverlaps",
+  "packedFleetMaximumPenetration",
+  "packedFleetCorrectionApplications",
+  "packedFleetRecoveryOperations",
+  "packedFleetLegacyIterationsAvoided",
 
   // Projectile counters
   "liveProjectiles",

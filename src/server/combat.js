@@ -3791,6 +3791,7 @@ function destroyShip(room, ship, attackerId, now) {
   ship.hp = 0;
 
   room.spatialIndex?.remove?.("ships", ship);
+  require("./movementContactPairs").removeShipFromMovementContactPairs(room, ship);
 
   zeroAllComponents(ship);
 
@@ -3986,6 +3987,7 @@ function detonateSelfDestruct(room, ship, now) {
   ship.hp = 0;
 
   room.spatialIndex?.remove?.("ships", ship);
+  require("./movementContactPairs").removeShipFromMovementContactPairs(room, ship);
 
   zeroAllComponents(ship);
 
@@ -4068,6 +4070,7 @@ function updateDestroyedShips(room, now) {
         invalidateShipCollisionGeometry(ship);
 
         room.spatialIndex?.remove?.("ships", ship);
+        require("./movementContactPairs").removeShipFromMovementContactPairs(room, ship);
 
         room.ships.delete(ship.id);
 

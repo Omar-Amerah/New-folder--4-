@@ -80,6 +80,29 @@ function INCREMENTAL_SPATIAL_INDEX() {
 function __setINCREMENTAL_SPATIAL_INDEX(value) {
   _incrementalSpatialIndex = Boolean(value);
 }
+
+// --- Phase 4C/4D shared ship contact pairs and packed-fleet solver flags ---
+// Both paths remain opt-in. PACKED_FLEET_SOLVER is only honoured when the
+// shared pair set is enabled by the movement collision path.
+
+let _sharedMovementContactPairs = false;
+let _packedFleetSolver = false;
+
+function SHARED_MOVEMENT_CONTACT_PAIRS() {
+  return _sharedMovementContactPairs;
+}
+
+function PACKED_FLEET_SOLVER() {
+  return _packedFleetSolver;
+}
+
+function __setSHARED_MOVEMENT_CONTACT_PAIRS(value) {
+  _sharedMovementContactPairs = Boolean(value);
+}
+
+function __setPACKED_FLEET_SOLVER(value) {
+  _packedFleetSolver = Boolean(value);
+}
 let _pointDefenceSharedThreats = false;
 let _weaponProfileRevisionCache = false;
 
@@ -127,5 +150,9 @@ module.exports = {
   FIXED_AUTHORITATIVE_TIMESTEP,
   __setFIXED_AUTHORITATIVE_TIMESTEP,
   INCREMENTAL_SPATIAL_INDEX,
-  __setINCREMENTAL_SPATIAL_INDEX
+  __setINCREMENTAL_SPATIAL_INDEX,
+  SHARED_MOVEMENT_CONTACT_PAIRS,
+  __setSHARED_MOVEMENT_CONTACT_PAIRS,
+  PACKED_FLEET_SOLVER,
+  __setPACKED_FLEET_SOLVER
 };
