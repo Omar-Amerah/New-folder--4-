@@ -121,11 +121,13 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.command);
   worldRoot.addChild(layers.engineSmoke);
   worldRoot.addChild(layers.enemyBullets);
-  // Fog presentation sits behind ship bodies; the visibility mask (not fog
-  // opacity) determines which pixels of enemy hulls are actually drawn.
-  worldRoot.addChild(layers.fog);
-  worldRoot.addChild(layers.friendlyShipBodies);
+  // Masked enemy bodies sit below the fog so the existing soft sensor gradient
+  // composites over them. The binary mask still authoritatively clips hidden
+  // hull pixels; the fog only darkens the visible part near the boundary.
   worldRoot.addChild(layers.enemyShipBodiesMasked);
+  worldRoot.addChild(layers.fog);
+  // Friendly ships and overlays remain above the fog presentation.
+  worldRoot.addChild(layers.friendlyShipBodies);
   worldRoot.addChild(layers.shipOverlays);
   worldRoot.addChild(layers.drones);
   worldRoot.addChild(layers.friendlyBullets);
