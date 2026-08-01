@@ -31,6 +31,7 @@ const {
   buildMovementContactPairs,
   clearMovementContactPairs,
   markMovementContactPairsUnsafe,
+  rebuildMovementContactPairsForRecovery,
   shouldRunMovementContactDiagnostics,
   validateMovementContactPairs
 } = require("./movementContactPairs");
@@ -121,6 +122,7 @@ function tickRoom(room, dt, now) {
         bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
         markMovementContactPairsUnsafe(room, "build-integrity-failure");
         room._movementContactPairLastIntegrity = integrity;
+        rebuildMovementContactPairsForRecovery(room, ships, now);
       }
     }
   }

@@ -459,6 +459,16 @@ function updateSharedPairSeparation(room, shipList, dt, now = 0, options = null)
 function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
   const { SHARED_MOVEMENT_CONTACT_PAIRS, PACKED_FLEET_SOLVER } = require("./performanceFlags");
   if (SHARED_MOVEMENT_CONTACT_PAIRS()) {
+    const contactPairs = require("./movementContactPairs");
+    const liveShips = (Array.isArray(shipList) ? shipList : getLiveShips(room))
+      .filter((ship) => ship && ship.alive && !ship.removed);
+    let stepId = room._movementContactPairStepId;
+    if (stepId === null || stepId === undefined) {
+      stepId = contactPairs.beginMovementContactStep(room, liveShips, now);
+    }
+    if (room._movementContactPairBuildStepId !== stepId) {
+      contactPairs.buildMovementContactPairs(room, liveShips, now, { stepId });
+    }
     if (PACKED_FLEET_SOLVER()) {
       return require("./packedFleetSolver").solvePackedFleetSeparation(
         room,
@@ -466,7 +476,7 @@ function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
         dt,
         now,
         options,
-        room._movementContactPairStepId
+        stepId
       );
     }
     return updateSharedPairSeparation(room, shipList, dt, now, options);

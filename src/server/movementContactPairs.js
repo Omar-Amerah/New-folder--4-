@@ -12,7 +12,6 @@ const { bump, setCounter, recordDuration } = require("./roomTelemetry");
 const {
   SEPARATION_BROAD_PHASE_PAD,
   SEPARATION_CORRECTION,
-  SEPARATION_ITERATIONS,
   SEPARATION_SLOP
 } = require("./movementTuning");
 const { physicalCollisionRadius } = require("./movementCollision");
@@ -57,6 +56,8 @@ function ensureState(room) {
   if (!(room._movementContactPairRankByShip instanceof Map)) room._movementContactPairRankByShip = new Map();
   if (!Array.isArray(room._movementContactPairQueryScratch)) room._movementContactPairQueryScratch = [];
   if (!Array.isArray(room._movementContactPairShipsScratch)) room._movementContactPairShipsScratch = [];
+  if (!Array.isArray(room._movementContactPairSweepScratch)) room._movementContactPairSweepScratch = [];
+  if (!Array.isArray(room._movementContactPairActiveScratch)) room._movementContactPairActiveScratch = [];
   if (!Array.isArray(room._movementContactPairPreviousShips)) room._movementContactPairPreviousShips = [];
   if (!Number.isFinite(Number(room._movementContactStepSerial))) room._movementContactStepSerial = 0;
   return room;
@@ -88,6 +89,8 @@ function clearPairReferences(room) {
   state._movementContactPairRankByShip.clear();
   state._movementContactPairQueryScratch.length = 0;
   state._movementContactPairShipsScratch.length = 0;
+  state._movementContactPairSweepScratch.length = 0;
+  state._movementContactPairActiveScratch.length = 0;
   state._movementContactPairPreviousShips.length = 0;
   state._movementContactPairBuildStepId = null;
   state._movementContactPairStepId = null;
@@ -161,23 +164,25 @@ function liveShipsForStep(room, ships, state) {
 
 function calculatePadding(maxPhysicalRadius, maximumObservedStaticCorrection) {
   // A pair is built for positions after movement/static pre-correction. The
-  // extra radius is derived from the bounded separation correction budget rather
-  // than a world-sized query. Four iterations at the existing correction ratio
-  // are the maximum normal solver displacement budget; the existing broad-phase
-  // pad remains a hard ceiling for pathological hull sizes. A half-radius static
-  // allowance covers the normal final map/station correction after separation.
+  // extra radius is derived from two bounded contact corrections (one endpoint
+  // can move away from its neighbour while the other endpoint is also moved),
+  // rather than a world-sized query. A contact island carries subsequent
+  // corrections through its already-connected graph; a genuinely new edge is
+  // handled by the scoped recovery path. The existing broad-phase pad remains a
+  // hard ceiling for pathological hull sizes. A quarter-radius static allowance
+  // covers the normal final map/station correction after separation.
   const solverCorrectionBound = Math.min(
     SEPARATION_BROAD_PHASE_PAD,
     Math.max(
       MIN_CONTACT_PADDING,
-      maxPhysicalRadius * SEPARATION_CORRECTION * Math.max(1, SEPARATION_ITERATIONS)
+      maxPhysicalRadius * SEPARATION_CORRECTION * 2
     )
   );
   const staticCorrectionBound = Math.min(
     SEPARATION_BROAD_PHASE_PAD,
     Math.max(
       MIN_CONTACT_PADDING,
-      maxPhysicalRadius * CONTACT_STATIC_CORRECTION_SCALE,
+      maxPhysicalRadius * CONTACT_STATIC_CORRECTION_SCALE * 0.5,
       finite(maximumObservedStaticCorrection)
     )
   );
@@ -188,39 +193,46 @@ function calculatePadding(maxPhysicalRadius, maximumObservedStaticCorrection) {
   };
 }
 
-function pairKey(orderA, orderB) {
-  return `${orderA}:${orderB}`;
-}
-
-function queryCandidates(room, ship, maxPhysicalRadius, padding, state, liveShips) {
-  const index = room?.spatialIndex;
-  const canUseIndex = Boolean(
-    index
-      && index.dynamicValid
-      && typeof index.querySweptAabbUnordered === "function"
-      && typeof index.count === "function"
-      && index.count("ships") >= liveShips.length
-  );
-  if (!canUseIndex) return liveShips;
-
-  const previousX = ship._movementContactPreviousStep === state._movementContactPairStepId
+function sweptBounds(ship, padding, stepId) {
+  const previousX = ship._movementContactPreviousStep === stepId
     ? finite(ship._movementContactPreviousX, ship.x)
     : finite(ship.x);
-  const previousY = ship._movementContactPreviousStep === state._movementContactPairStepId
+  const previousY = ship._movementContactPreviousStep === stepId
     ? finite(ship._movementContactPreviousY, ship.y)
     : finite(ship.y);
   const currentX = finite(ship.x);
   const currentY = finite(ship.y);
-  const queryPadding = physicalCollisionRadius(ship) + maxPhysicalRadius + padding;
-  return index.querySweptAabbUnordered(
-    "ships",
-    previousX,
-    previousY,
-    currentX,
-    currentY,
-    queryPadding,
-    state._movementContactPairQueryScratch
-  );
+  const radius = physicalCollisionRadius(ship) + padding;
+  return {
+    minX: Math.min(previousX, currentX) - radius,
+    maxX: Math.max(previousX, currentX) + radius,
+    minY: Math.min(previousY, currentY) - radius,
+    maxY: Math.max(previousY, currentY) + radius
+  };
+}
+
+function pairWithinSweptBounds(a, b, padding, stepId) {
+  const radius = physicalCollisionRadius(a) + physicalCollisionRadius(b) + padding;
+  const aPreviousX = a._movementContactPreviousStep === stepId ? finite(a._movementContactPreviousX, a.x) : finite(a.x);
+  const aPreviousY = a._movementContactPreviousStep === stepId ? finite(a._movementContactPreviousY, a.y) : finite(a.y);
+  const bPreviousX = b._movementContactPreviousStep === stepId ? finite(b._movementContactPreviousX, b.x) : finite(b.x);
+  const bPreviousY = b._movementContactPreviousStep === stepId ? finite(b._movementContactPreviousY, b.y) : finite(b.y);
+  const aMinX = Math.min(aPreviousX, finite(a.x));
+  const aMaxX = Math.max(aPreviousX, finite(a.x));
+  const aMinY = Math.min(aPreviousY, finite(a.y));
+  const aMaxY = Math.max(aPreviousY, finite(a.y));
+  const bMinX = Math.min(bPreviousX, finite(b.x));
+  const bMaxX = Math.max(bPreviousX, finite(b.x));
+  const bMinY = Math.min(bPreviousY, finite(b.y));
+  const bMaxY = Math.max(bPreviousY, finite(b.y));
+  return aMaxX >= bMinX - radius
+    && bMaxX >= aMinX - radius
+    && aMaxY >= bMinY - radius
+    && bMaxY >= aMinY - radius;
+}
+
+function pairKey(orderA, orderB) {
+  return `${orderA}:${orderB}`;
 }
 
 function createOrReusePair(state, indexA, indexB, a, b) {
@@ -293,36 +305,67 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
   let duplicatesRejected = 0;
   const forceAllPairs = Boolean(options.forceAllPairs || options.recovery);
   const rankOf = state._movementContactPairRankByShip;
-  const queryScratch = state._movementContactPairQueryScratch;
 
-  for (let index = 0; index < ordered.length; index += 1) {
-    const a = ordered[index];
-    const candidates = forceAllPairs
-      ? ordered
-      : queryCandidates(room, a, maxPhysicalRadius, padding.total, state, ordered);
-    candidatesVisited += candidates.length;
-    if (!forceAllPairs && candidates.length > 1) {
-      // Spatial buckets are deliberately unordered. Sorting the returned room-
-      // local scratch by authoritative rank makes the candidate traversal stable
-      // across full rebuilds, incremental updates and callback timing.
-      candidates.sort((left, right) => (rankOf.get(left) ?? Number.MAX_SAFE_INTEGER) - (rankOf.get(right) ?? Number.MAX_SAFE_INTEGER));
+  const addCandidate = (a, index, candidate) => {
+    const candidateRank = rankOf.get(candidate);
+    if (!isLiveShip(room, candidate) || candidateRank === undefined || candidate === a) return;
+    const low = Math.min(index, candidateRank);
+    const high = Math.max(index, candidateRank);
+    const key = pairKey(low, high);
+    if (state._movementContactPairKeys.has(key)) {
+      duplicatesRejected += 1;
+      return;
     }
-    for (const candidate of candidates) {
-      const candidateRank = rankOf.get(candidate);
-      if (!isLiveShip(room, candidate) || candidateRank === undefined || candidate === a) continue;
-      const low = Math.min(index, candidateRank);
-      const high = Math.max(index, candidateRank);
-      const key = pairKey(low, high);
-      if (state._movementContactPairKeys.has(key)) {
-        duplicatesRejected += 1;
-        continue;
+    state._movementContactPairKeys.add(key);
+    createOrReusePair(state, low, high, ordered[low], ordered[high]);
+  };
+
+  if (forceAllPairs) {
+    for (let index = 0; index < ordered.length; index += 1) {
+      for (const candidate of ordered) {
+        candidatesVisited += 1;
+        addCandidate(ordered[index], index, candidate);
       }
-      state._movementContactPairKeys.add(key);
-      createOrReusePair(state, low, high, ordered[low], ordered[high]);
     }
-    // queryCandidates reuses this array. Clear it after processing so a fallback
-    // or a caller that inspects it cannot mistake old records for this ship.
-    if (!forceAllPairs) queryScratch.length = 0;
+  } else {
+    // A deterministic swept-axis broad phase avoids depending on spatial bucket
+    // insertion order and avoids repeatedly visiting every record in a large
+    // cell. The spatial index is still refreshed before/after movement for all
+    // other gameplay systems; this pass owns the one contact candidate build.
+    const sweep = state._movementContactPairSweepScratch;
+    const active = state._movementContactPairActiveScratch;
+    sweep.length = 0;
+    active.length = 0;
+    for (const entity of ordered) {
+      const bounds = sweptBounds(entity, maxPhysicalRadius + padding.total, stepId);
+      entity._movementContactSweepMinX = bounds.minX;
+      entity._movementContactSweepMaxX = bounds.maxX;
+      entity._movementContactSweepMinY = bounds.minY;
+      entity._movementContactSweepMaxY = bounds.maxY;
+      sweep.push(entity);
+    }
+    sweep.sort((left, right) => left._movementContactSweepMinX - right._movementContactSweepMinX || rankOf.get(left) - rankOf.get(right));
+    for (const a of sweep) {
+      let write = 0;
+      for (const candidate of active) {
+        if (candidate._movementContactSweepMaxX >= a._movementContactSweepMinX) active[write++] = candidate;
+      }
+      active.length = write;
+      const aRank = rankOf.get(a);
+      for (const candidate of active) {
+        candidatesVisited += 1;
+        if (candidate._movementContactSweepMaxY < a._movementContactSweepMinY
+          || a._movementContactSweepMaxY < candidate._movementContactSweepMinY) continue;
+        const candidateRank = rankOf.get(candidate);
+        const pairPadding = Math.min(
+          SEPARATION_BROAD_PHASE_PAD,
+          Math.max(MIN_CONTACT_PADDING, Math.max(physicalCollisionRadius(a), physicalCollisionRadius(candidate)) * SEPARATION_CORRECTION * 2)
+        ) + padding.staticCorrectionBound + SEPARATION_SLOP;
+        if (!pairWithinSweptBounds(a, candidate, pairPadding, stepId)) continue;
+        addCandidate(a, aRank, candidate);
+      }
+      active.push(a);
+    }
   }
 
   state._movementContactPairs.sort(pairSort);
@@ -347,8 +390,25 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
     Number(room?._movementContactPairMaxObservedThisTick) || 0,
     state._movementContactPairs.length
   );
+  state._movementContactPairSweepScratch.length = 0;
+  state._movementContactPairActiveScratch.length = 0;
+  state._movementContactPairPreviousShips.length = 0;
   recordDuration(room, "movementContactPairBuildMs", buildStart);
   return state._movementContactPairs;
+}
+
+function rebuildMovementContactPairsForRecovery(room, ships, now = 0) {
+  const state = ensureState(room);
+  if (!state) return [];
+  let stepId = state._movementContactPairStepId;
+  if (stepId === null || stepId === undefined) {
+    stepId = beginMovementContactStep(room, ships, now);
+  }
+  return buildMovementContactPairs(room, ships, now, {
+    stepId,
+    recovery: true,
+    forceAllPairs: true
+  });
 }
 
 function getMovementContactPairs(room, stepId = null) {
@@ -484,6 +544,7 @@ module.exports = {
   getMovementContactPairs,
   markMovementContactPairsUnsafe,
   noteShipSpawnedDuringMovementContactStep,
+  rebuildMovementContactPairsForRecovery,
   removeShipFromMovementContactPairs,
   shouldRunMovementContactDiagnostics,
   validateMovementContactPairs
