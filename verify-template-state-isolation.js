@@ -46,6 +46,9 @@ for (let a = 0; a < ships.length; a += 1) {
   const collections = mutableCollections(ships[a]);
   for (const [path, value] of collections) {
     if (path.includes(".design") || path.includes(".wiring") || path.includes(".stats")) continue;
+    // Phase 6A thermal topology is immutable design data and is intentionally
+    // shared; every mutable Heat array/runtime list remains ship-local.
+    if (path.includes(".thermalTopology") || path.includes(".componentAdjacency")) continue;
     assert(!templateCollections.has(value), `${path} is shared with immutable template`);
     for (let b = a + 1; b < ships.length; b += 1) {
       const otherValues = new Set(mutableCollections(ships[b]).map(([, item]) => item));
@@ -53,6 +56,9 @@ for (let a = 0; a < ships.length; a += 1) {
     }
   }
 }
+
+assert(ships.every((ship) => ship.thermalTopology === template.thermalTopology), "template ships share one immutable thermal topology");
+assert(Object.isFrozen(template.thermalTopology) && Object.isFrozen(template.thermalTopology.edgeA), "shared thermal topology is guarded");
 
 ships[0].componentHp[0] = 0;
 ships[0].dirtyComponents.add(0);

@@ -8,6 +8,7 @@ const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
 const { recordPurchaseStage } = require("./performanceTelemetry");
 const { createMovementRuntime } = require("./movementRuntime");
+const { createComponentAdjacency } = require("./thermalTopology");
 
 class SpawnPlacementError extends Error {
   constructor(reason = "no-clear-spawn") {
@@ -18,7 +19,7 @@ class SpawnPlacementError extends Error {
 }
 
 function clonePrebuiltShipState(prebuilt) {
-  return cloneValue(prebuilt, new Set(["design", "wiring", "stats"]));
+  return cloneValue(prebuilt, new Set(["design", "wiring", "stats", "thermalTopology", "componentAdjacency", "_thermalRuntime", "_heatScratch"]));
 }
 
 function cloneValue(value, skipKeys = null) {
@@ -151,6 +152,14 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const initStart = performance.now();
   if (template) {
     Object.assign(ship, clonePrebuiltShipState(template.prebuiltShipState));
+    // Thermal topology is immutable design data and is intentionally shared by
+    // every ship spawned from the same template.  All Heat arrays were cloned
+    // above and remain ship-local.
+    ship.thermalTopology = template.thermalTopology;
+    ship.componentAdjacency = createComponentAdjacency(template.thermalTopology);
+    const heatRuntime = require("./heat");
+    heatRuntime.ensureThermalRuntime(ship);
+    heatRuntime.refreshHeatRuntimeLists(ship);
     ship.componentCellIndex = new Map(template.componentCellIndex);
     ship.validEngineIndices = new Set(template.exhaustAnalysis.validEngineIndices);
     ship.blockedEngineIndices = new Set(template.exhaustAnalysis.blockedEngineIndices);

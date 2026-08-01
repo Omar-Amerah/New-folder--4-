@@ -16,6 +16,7 @@ const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrast
 const { BALANCE } = require("./balanceConfig");
 const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
 const { initShipHeat } = require("./heat");
+const { buildThermalTopology } = require("./thermalTopology");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 // Template cache keyed by player ID and design revision
@@ -167,36 +168,9 @@ function createImmutableShipTemplate(design, wiring, stats) {
   );
   const componentBaseHeatCapacity = componentBaseThermals.map((thermal) => thermal.capacity);
   
-  // Precompute component adjacency for thermal networks
-  const edgeCounts = normalizedDesign.map(() => new Map());
-  for (let i = 0; i < normalizedDesign.length; i++) {
-    const module = normalizedDesign[i];
-    const footprint = PARTS[module.type]?.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(module.x, module.y, footprint, module.rotation || 0);
-    
-    for (const cell of cells) {
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = cell.x + dx;
-        const ny = cell.y + dy;
-        const neighborKey = nx * 15 + ny;
-        const neighborIndex = componentCellIndex.get(neighborKey);
-        if (neighborIndex !== undefined && neighborIndex !== i) {
-          edgeCounts[i].set(neighborIndex, (edgeCounts[i].get(neighborIndex) || 0) + 1);
-        }
-      }
-    }
-  }
-  
-  const componentAdjacency = edgeCounts.map((edges, i) => 
-    [...edges].map(([index, sharedEdges]) => ({
-      index,
-      sharedEdges,
-      conductivity: HeatRules.edgeConductivity(
-        componentBaseThermals[i],
-        componentBaseThermals[index]
-      )
-    }))
-  );
+  // One immutable topology authority is shared by every ship spawned from
+  // this template.  Runtime Heat arrays remain in each cloned ship state.
+  const thermalTopology = buildThermalTopology(normalizedDesign);
 
   // Precompute a full-health runtime ship state once per template.
   // spawnShip clones this instead of re-solving Power/Heat for every copy.
@@ -205,6 +179,8 @@ function createImmutableShipTemplate(design, wiring, stats) {
     wiring: normalizedWiring,
     componentMaxHp,
     componentHp: componentMaxHp.slice(),
+    thermalTopology,
+    _thermalTopologyShared: true,
     componentCellIndex,
     componentStorageCharge: normalizedDesign.map((module) => {
       const part = PARTS[module?.type] || {};
@@ -257,6 +233,8 @@ function createImmutableShipTemplate(design, wiring, stats) {
     componentCellIndex,
     exhaustAnalysis,
     componentMaxHp,
+    thermalTopology,
+    componentAdjacency: thermalTopology.componentAdjacency,
     infrastructureHostMaps: {
       power: infrastructureHostMaps.power,
       data: infrastructureHostMaps.data
@@ -264,7 +242,6 @@ function createImmutableShipTemplate(design, wiring, stats) {
     wiringMinimumHeatCapacity,
     componentWiringDisplacement,
     componentBaseHeatCapacity,
-    componentAdjacency,
     radius: stats?.radius || 0,
     unitCost: stats?.unitCost || 0,
     maxHp: stats?.maxHp || 0,
