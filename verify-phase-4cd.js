@@ -8,12 +8,13 @@ const assert = require("node:assert/strict");
 const {
   SHARED_MOVEMENT_CONTACT_PAIRS,
   PACKED_FLEET_SOLVER,
+  __setFIXED_AUTHORITATIVE_TIMESTEP,
   __setSHARED_MOVEMENT_CONTACT_PAIRS,
   __setPACKED_FLEET_SOLVER,
   __setINCREMENTAL_SPATIAL_INDEX
 } = require("./src/server/performanceFlags");
 const { createRoom, resetMatch } = require("./src/server/rooms");
-const { tickRoom } = require("./src/server/simulation");
+const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/server/simulation");
 const {
   RoomSpatialIndex,
   buildRoomSpatialIndex,
@@ -23,7 +24,11 @@ const {
   beginMovementContactStep,
   buildMovementContactPairs,
   clearMovementContactPairs,
+  collectMovementContactMovedShips,
+  findMissingMovementContactPairs,
   getMovementContactPairs,
+  hasMovementContactPair,
+  markMovementContactPairsUnsafe,
   rebuildMovementContactPairsForRecovery,
   noteShipSpawnedDuringMovementContactStep,
   removeShipFromMovementContactPairs,
@@ -34,6 +39,8 @@ const { resetRoomTelemetry } = require("./src/server/roomTelemetry");
 const { spawnShip } = require("./src/server/ships");
 const { destroyShip } = require("./src/server/combat");
 const { computeStats } = require("./src/server/shipStats");
+const { createStationsForRoom, enqueueStationProduction } = require("./src/server/stations");
+const { canonicalBlueprintSignature, getOrCreateTemplate } = require("./src/server/shipTemplates");
 
 const EPSILON = 1e-6;
 let fixtureSequence = 0;
@@ -106,6 +113,8 @@ function solverFixture(positions, overrides = {}) {
   const ships = positions.map((position, index) => ship(`s${index + 1}`, {
     x: position[0],
     y: position[1],
+    vx: position[4] ?? overrides.vx ?? 0,
+    vy: position[5] ?? overrides.vy ?? 0,
     physicalRadius: position[2] ?? overrides.physicalRadius ?? 18,
     radius: (position[2] ?? overrides.physicalRadius ?? 18) / 0.56,
     stats: { mass: position[3] ?? overrides.mass ?? 1, radius: 30, maxHp: 100 },
@@ -130,6 +139,10 @@ function snapshot(ships) {
 
 function finiteShips(ships) {
   return ships.every((entity) => [entity.x, entity.y, entity.vx, entity.vy].every(Number.isFinite));
+}
+
+function velocityDelta(ship, initialVx, initialVy) {
+  return Math.hypot(ship.vx - initialVx, ship.vy - initialVy);
 }
 
 function distance(a, b) {
@@ -264,6 +277,71 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   assert.equal(validateMovementContactPairs(full.room, full.ships, { stepId: full.step }).missingOverlaps, 0, "actual overlaps are in the conservative pair set");
 }
 
+// 20B. Steady and catch-up fixed-step callbacks produce the same packed state.
+{
+  __setFIXED_AUTHORITATIVE_TIMESTEP(true);
+  __setINCREMENTAL_SPATIAL_INDEX(true);
+  __setSHARED_MOVEMENT_CONTACT_PAIRS(true);
+  __setPACKED_FLEET_SOLVER(true);
+  const makeRoom = (code) => {
+    const room = activeRoom(code);
+    const ships = [
+      ship("s1", { x: 500, y: 500, vx: 20, vy: 0 }),
+      ship("s2", { x: 510, y: 500, vx: -20, vy: 0 }),
+      ship("s3", { x: 540, y: 500, vx: 0, vy: 0 })
+    ];
+    installShips(room, ships);
+    return room;
+  };
+  const steady = makeRoom("CALLBACK-STEADY");
+  const catchUp = makeRoom("CALLBACK-CATCHUP");
+  const t0 = 2_000_000;
+  advanceRoomAuthoritative(steady, t0);
+  advanceRoomAuthoritative(catchUp, t0);
+  for (let step = 1; step <= 6; step += 1) {
+    advanceRoomAuthoritative(steady, t0 + step * FIXED_STEP_MS);
+  }
+  advanceRoomAuthoritative(catchUp, t0 + 3 * FIXED_STEP_MS);
+  advanceRoomAuthoritative(catchUp, t0 + 6 * FIXED_STEP_MS);
+  assert.equal(steady._simulationStep, catchUp._simulationStep, "steady and catch-up callbacks execute the same fixed steps");
+  assert.deepEqual(snapshot([...steady.ships.values()]), snapshot([...catchUp.ships.values()]), "steady and catch-up callbacks produce the same packed final state");
+  __setFIXED_AUTHORITATIVE_TIMESTEP(false);
+}
+
+// 20A. A dense island can create a new edge after the batch correction. The
+// normal pair set stays sparse, then the moved-ship recovery query finds and
+// includes the external ship without an iteration-time broad-phase rebuild.
+{
+  __setSHARED_MOVEMENT_CONTACT_PAIRS(true);
+  __setPACKED_FLEET_SOLVER(true);
+  const room = activeRoom("PAIR-MISSING-EDGE");
+  const ships = [
+    ship("s1", { x: 210, y: 500, stats: { mass: 1e9, radius: 30, maxHp: 100 } }),
+    ship("s2", { x: 210, y: 500, stats: { mass: 1e9, radius: 30, maxHp: 100 } }),
+    ship("s3", { x: 210, y: 500, stats: { mass: 1e9, radius: 30, maxHp: 100 } }),
+    ship("s4", { x: 230, y: 500, stats: { mass: 1, radius: 30, maxHp: 100 } }),
+    ship("s5", { x: 306, y: 500, stats: { mass: 1, radius: 30, maxHp: 100 } })
+  ];
+  installShips(room, ships);
+  room.spatialIndex = new RoomSpatialIndex(80);
+  buildRoomSpatialIndex(room, ships, 0);
+  const step = beginMovementContactStep(room, ships, 1000);
+  buildMovementContactPairs(room, ships, 1000, { stepId: step });
+  assert.equal(hasMovementContactPair(room, ships[3], ships[4]), false, `external ship starts outside the shared pair padding (${pairIds(room, step).join(",")})`);
+  const modified = updateShipSeparation(room, ships, 1 / 30, 1000, { circular: true });
+  const moved = collectMovementContactMovedShips(room, ships, modified);
+  room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+  const miss = findMissingMovementContactPairs(room, moved, { circular: true });
+  assert.ok(miss.missingCount >= 1, `same-direction dense correction detects the newly created edge (${ships.map((entity) => `${entity.id}:${entity.x.toFixed(2)}`).join(",")})`);
+  markMovementContactPairsUnsafe(room, "verifier-missing-edge");
+  rebuildMovementContactPairsForRecovery(room, ships, 1000);
+  const recoveredModified = updateShipSeparation(room, ships, 1 / 30, 1000, { circular: true });
+  room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
+  assert.equal(hasMovementContactPair(room, ships[3], ships[4]), true, "recovery pair build includes the external ship");
+  assert.equal(room._roomTelemetry.movementContactPairRecoveryBuilds, 1, "missing edge uses one exceptional recovery build");
+  assert.ok(recoveredModified.length > 0, "recovery solve applies a bounded correction");
+}
+
 // 21-29. Packed solver geometry, mass, determinism, convergence, boundaries,
 // intent preservation and finite-state guarantees.
 {
@@ -290,16 +368,66 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   for (let y = 0; y < 3; y += 1) for (let x = 0; x < 3; x += 1) squarePositions.push([500 + x * 12, 500 + y * 12]);
   const square = solverFixture(squarePositions);
   assert.ok(finiteShips(square.ships), "dense square fleet remains finite");
+  assert.equal(square.telemetry.packedFleetRemainingOverlaps, 0, "dense square fleet converges within the bounded solver");
 
   const circlePositions = [];
   for (let i = 0; i < 10; i += 1) circlePositions.push([500 + Math.cos(i * Math.PI * 0.2) * 12, 500 + Math.sin(i * Math.PI * 0.2) * 12]);
   const circle = solverFixture(circlePositions);
   assert.ok(finiteShips(circle.ships), "dense circular fleet remains finite");
+  assert.equal(circle.telemetry.packedFleetRemainingOverlaps, 0, "dense circular fleet converges within the bounded solver");
 
   const mixed = solverFixture([[500, 500, 18], [510, 500, 42], [520, 500, 24]]);
   assert.ok(finiteShips(mixed.ships), "mixed radii remain finite");
   const extreme = solverFixture([[500, 500, 18, 1e9], [510, 500, 90, 1]]);
   assert.ok(finiteShips(extreme.ships), "extreme valid mass ratios remain finite");
+
+  const singleContact = solverFixture([
+    [500, 500, 18, 1e9, 100, 0],
+    [520, 500, 18, 1, -100, 0]
+  ]);
+  const sameSide = solverFixture([
+    [500, 500, 18, 1e9, 100, 0],
+    [500, 500, 18, 1e9, 100, 0],
+    [520, 500, 18, 1, -100, 0]
+  ]);
+  const singleCentralDelta = velocityDelta(singleContact.ships[1], -100, 0);
+  const sameSideCentralDelta = velocityDelta(sameSide.ships[2], -100, 0);
+  assert.ok(sameSideCentralDelta <= singleCentralDelta + EPSILON, "same-side contacts obey the per-ship collision-velocity budget");
+
+  const symmetrical = solverFixture([
+    [500, 500, 18, 1, 100, 0],
+    [510, 500, 18, 1, 0, 0],
+    [520, 500, 18, 1, -100, 0]
+  ]);
+  assert.ok(
+    Math.abs(symmetrical.ships[1].vx) <= singleCentralDelta * 0.5 + EPSILON,
+    `symmetrical impulses substantially cancel on the central ship (${symmetrical.ships.map((entity) => entity.vx.toFixed(3)).join(",")})`
+  );
+
+  const mixedMassVelocity = solverFixture([
+    [500, 500, 18, 1e9, 120, 0],
+    [500, 500, 42, 1, 120, 0],
+    [530, 500, 24, 2, -120, 0]
+  ]);
+  assert.ok(finiteShips(mixedMassVelocity.ships), "mixed-mass collision velocities remain finite");
+
+  const velocityFixture = [
+    [500, 500, 18, 1e9, 100, 0],
+    [500, 500, 18, 1e9, 100, 0],
+    [520, 500, 18, 1, -100, 0]
+  ];
+  __setSHARED_MOVEMENT_CONTACT_PAIRS(false);
+  __setPACKED_FLEET_SOLVER(false);
+  const legacyVelocity = solverFixture(velocityFixture);
+  __setSHARED_MOVEMENT_CONTACT_PAIRS(true);
+  __setPACKED_FLEET_SOLVER(true);
+  const packedVelocity = solverFixture(velocityFixture);
+  const legacyCentralDelta = velocityDelta(legacyVelocity.ships[2], -100, 0);
+  const packedCentralDelta = velocityDelta(packedVelocity.ships[2], -100, 0);
+  assert.ok(
+    packedCentralDelta <= legacyCentralDelta + singleCentralDelta * 0.1 + EPSILON,
+    `packed velocity delta stays close to legacy multi-contact behavior (${packedCentralDelta.toFixed(3)} vs ${legacyCentralDelta.toFixed(3)})`
+  );
 
   const reversedPairs = solverFixture([[500, 500], [510, 500], [520, 500]], { reversePairs: true });
   const forwardPairs = solverFixture([[500, 500], [510, 500], [520, 500]]);
@@ -385,6 +513,62 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   assert.ok(tickRoomFixture._roomTelemetry.packedFleetSolverSteps >= 1, "authoritative tick reaches packed solver");
   assert.equal(tickRoomFixture._roomTelemetry.movementContactPairMissDetections, 0, "authoritative tick has no missed contact diagnostic");
   assert.ok(tickRoomFixture.spatialIndex.verifyIntegrity("ships").ok, "final authoritative spatial index remains valid");
+
+  const recoveryTickRoom = activeRoom("PRODUCTION-MISSING-EDGE");
+  const recoveryTickShips = [
+    ship("s1", { x: 210, y: 500, stats: { mass: 1e9, radius: 30, maxHp: 100 } }),
+    ship("s2", { x: 210, y: 500, stats: { mass: 1e9, radius: 30, maxHp: 100 } }),
+    ship("s3", { x: 210, y: 500, stats: { mass: 1e9, radius: 30, maxHp: 100 } }),
+    ship("s4", { x: 230, y: 500, stats: { mass: 1, radius: 30, maxHp: 100 } }),
+    ship("s5", { x: 306, y: 500, stats: { mass: 1, radius: 30, maxHp: 100 } })
+  ];
+  installShips(recoveryTickRoom, recoveryTickShips);
+  recoveryTickRoom.spatialIndex = new RoomSpatialIndex(80);
+  buildRoomSpatialIndex(recoveryTickRoom, recoveryTickShips, 0);
+  tickRoom(recoveryTickRoom, 1 / 30, 1000);
+  assert.equal(recoveryTickRoom._roomTelemetry.movementContactPairRecoveryBuilds, 1, "production tick performs one missing-edge recovery build");
+  assert.equal(hasMovementContactPair(recoveryTickRoom, recoveryTickShips[3], recoveryTickShips[4]), true, "production recovery retains the new edge");
+  assert.ok(recoveryTickRoom.spatialIndex.verifyIntegrity("ships").ok, "recovery tick publishes a valid final spatial index");
+
+  const stationLaunchRoom = activeRoom("PRODUCTION-STATION-LAUNCH");
+  stationLaunchRoom.rules = { ...stationLaunchRoom.rules, infrastructureMode: "stations", gameMode: "solo" };
+  stationLaunchRoom.map.safeZones = [{ x: 600, y: 600, team: "p1", ownerId: "p1" }];
+  stationLaunchRoom.map.relays = [];
+  const launchDesign = [
+    { x: 7, y: 7, type: "core", rotation: 0 },
+    { x: 7, y: 9, type: "engine", rotation: 0 }
+  ];
+  const launchWiring = { version: 1, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: null };
+  const launchStats = computeStats(launchDesign, launchWiring);
+  const launchPlayer = {
+    id: "p1", team: "p1", ready: true, connected: true, design: launchDesign, wiring: launchWiring,
+    stats: launchStats, ships: [], shipCap: 8, money: 100000, combatStyle: "hold", movementToggles: {}
+  };
+  stationLaunchRoom.players.set("p1", launchPlayer);
+  stationLaunchRoom.spatialIndex = new RoomSpatialIndex(160);
+  buildRoomSpatialIndex(stationLaunchRoom, [], 0);
+  createStationsForRoom(stationLaunchRoom, 0);
+  const home = stationLaunchRoom.stations.find((station) => station.stationType === "home");
+  assert.ok(home?.hangar, "production fixture creates a real home-station hangar");
+  const queued = enqueueStationProduction(stationLaunchRoom, launchPlayer, {
+    template: getOrCreateTemplate(
+      "p1",
+      launchDesign,
+      launchWiring,
+      launchStats,
+      canonicalBlueprintSignature(launchDesign, launchWiring)
+    ),
+    request: { requestId: "phase4cd-launch", combatStyle: "hold" },
+    validation: { count: 1, totalCost: launchStats.unitCost }
+  }, 0);
+  assert.equal(queued.ok, true, "real station production queue accepts the launch fixture");
+  tickRoom(stationLaunchRoom, 1 / 30, 1000);
+  assert.equal(stationLaunchRoom.stationCounters.stationLaunchSuccessCount, 1, "real station hangar launch creates a ship");
+  const launchedShip = launchPlayer.ships.find((entity) => entity.alive);
+  assert.ok(launchedShip?.launchPhase, "launched ship enters the authoritative launch phase");
+  tickRoom(stationLaunchRoom, 1 / 30, 1033.3333333333);
+  assert.ok(stationLaunchRoom._roomTelemetry.packedFleetSolverSteps >= 1, "real station launch reaches packed separation on the next tick");
+  assert.ok(stationLaunchRoom.spatialIndex.verifyIntegrity("ships").ok, "real station launch leaves valid final spatial records");
 }
 
 // 34. Map correction remains finite and does not alter solver intent state.
@@ -402,4 +586,5 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
 __setSHARED_MOVEMENT_CONTACT_PAIRS(false);
 __setPACKED_FLEET_SOLVER(false);
 __setINCREMENTAL_SPATIAL_INDEX(false);
+__setFIXED_AUTHORITATIVE_TIMESTEP(false);
 console.log("Phase 4C/4D shared contact-pair and packed-fleet verification passed");

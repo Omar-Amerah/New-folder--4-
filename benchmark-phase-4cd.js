@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 "use strict";
 
-// Deterministic Phase 4C/4D benchmark. Every mode receives a freshly cloned
-// fixture generated from the same seed, movement inputs and scenario definition.
+// Deterministic Phase 4C/4D movement-contact microbenchmark. Every mode receives
+// a freshly cloned fixture generated from the same seed, movement inputs and
+// scenario definition. This intentionally measures the movement/contact/index
+// stages directly; it is not a full tickRoom production-path benchmark.
 
 const fs = require("fs");
 const path = require("path");
@@ -115,7 +117,11 @@ function fixtureDefinitions(count, scenario, seed) {
       physicalRadius: 18 + (index % 5 === 0 ? 8 : 0),
       radius: 46,
       mass: 1 + (index % 7) * 2,
-      spawnState: scenario === "station-launch-congestion"
+      // A launch congestion fixture has a bounded batch of newcomers. Marking
+      // every synthetic hull as freshly launched makes legacy recovery invoke
+      // the spawn planner once per unresolved contact and turns the benchmark
+      // into a spawn-planner soak rather than a movement/contact comparison.
+      spawnState: scenario === "station-launch-congestion" && index < 8
         ? { launchPoint: { x: position.x, y: position.y }, expiresAt: 100000 }
         : null
     });
@@ -156,7 +162,13 @@ function cloneFixture(definitions, code) {
     stats: { mass: definition.mass, radius: definition.radius, maxHp: 100 },
     design: [],
     componentHp: [],
-    movement: {}
+    movement: {},
+    spawnState: definition.spawnState
+      ? {
+        launchPoint: { ...definition.spawnState.launchPoint },
+        expiresAt: definition.spawnState.expiresAt
+      }
+      : null
   }));
   for (const entity of ships) room.ships.set(entity.id, entity);
   buildRoomSpatialIndex(room, ships, 0);
@@ -178,11 +190,17 @@ function percentile(values, p) {
 
 function runStep(room, ships, mode, step) {
   const dt = 1 / 30;
+  const now = step * dt * 1000;
+  resetRoomTelemetry(room);
+  const contactStep = mode.shared
+    ? beginMovementContactStep(room, ships, now)
+    : null;
+  // The production boundary captures previous positions before movement. Keep
+  // that ordering here so swept previous/current bounds are actually exercised.
   for (const entity of ships) {
     entity.x += entity.vx * dt;
     entity.y += entity.vy * dt;
   }
-  resetRoomTelemetry(room);
   const stepStart = performanceNow();
   const spatialStart = performanceNow();
   if (mode.incremental && room.spatialIndex.dynamicValid) {
@@ -193,11 +211,10 @@ function runStep(room, ships, mode, step) {
   const spatialIndexMs = performanceNow() - spatialStart;
   let pairBuildMs = 0;
   if (mode.shared) {
-    const contactStep = beginMovementContactStep(room, ships, step * dt * 1000);
-    buildMovementContactPairs(room, ships, step * dt * 1000, { stepId: contactStep });
+    buildMovementContactPairs(room, ships, now, { stepId: contactStep });
     pairBuildMs = finite(room._roomTelemetry.movementContactPairBuildMs);
   }
-  updateShipSeparation(room, ships, dt, step * dt * 1000, { circular: true });
+  updateShipSeparation(room, ships, dt, now, { circular: true });
   const finalSpatialStart = performanceNow();
   if (mode.incremental) room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
   else room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, step);
@@ -243,8 +260,7 @@ function shouldIncludeScenario(count, scenario) {
     "sparse-no-contact",
     "small-contact-islands",
     "dense-packed-fleet",
-    "map-boundary-congestion",
-    "station-launch-congestion"
+    "map-boundary-congestion"
   ]).has(scenario);
 }
 
@@ -275,6 +291,10 @@ try {
 
 const artifact = {
   benchmark: "phase-4cd",
+  benchmarkType: "movement-contact-microbenchmark",
+  productionPath: false,
+  movementOrdering: "begin contact step -> deterministic movement integration -> spatial publication -> pair build -> separation -> final spatial publication",
+  stationLaunchScenarioNote: "station-launch-congestion installs authoritative spawnState but does not invoke a station hangar; use production-path verifier for actual station launches",
   startedAt,
   finishedAt: new Date().toISOString(),
   deterministicSeed: 12345,
@@ -288,4 +308,4 @@ const artifact = {
 const artifactPath = path.join("test-artifacts", "performance", "benchmark-phase-4cd.json");
 fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
 fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
-console.log(`Phase 4C/4D benchmark complete: ${artifactPath}`);
+console.log(`Phase 4C/4D movement-contact microbenchmark complete: ${artifactPath}`);

@@ -15,9 +15,11 @@ const {
   SEPARATION_SLOP
 } = require("./movementTuning");
 const { physicalCollisionRadius } = require("./movementCollision");
+const { findShipHullOverlap } = require("./componentGeometry");
 
 const MIN_CONTACT_PADDING = 8;
 const CONTACT_STATIC_CORRECTION_SCALE = 0.5;
+const MATERIAL_MOVEMENT_DELTA = 0.001;
 
 function finite(value, fallback = 0) {
   const number = Number(value);
@@ -59,6 +61,14 @@ function ensureState(room) {
   if (!Array.isArray(room._movementContactPairSweepScratch)) room._movementContactPairSweepScratch = [];
   if (!Array.isArray(room._movementContactPairActiveScratch)) room._movementContactPairActiveScratch = [];
   if (!Array.isArray(room._movementContactPairPreviousShips)) room._movementContactPairPreviousShips = [];
+  if (!Array.isArray(room._movementContactPairMovedShipsScratch)) room._movementContactPairMovedShipsScratch = [];
+  if (!Array.isArray(room._movementContactPairMissingPairsScratch)) room._movementContactPairMissingPairsScratch = [];
+  if (!Array.isArray(room._movementContactPairRecoveryPairsScratch)) room._movementContactPairRecoveryPairsScratch = [];
+  if (!(room._movementContactPairMissingKeys instanceof Set)) room._movementContactPairMissingKeys = new Set();
+  if (!(room._movementContactPairMovedKeys instanceof Set)) room._movementContactPairMovedKeys = new Set();
+  if (!(room._movementContactPairRecoveryPairSet instanceof Set)) room._movementContactPairRecoveryPairSet = new Set();
+  if (!Number.isFinite(Number(room._movementContactPairPoolCursor))) room._movementContactPairPoolCursor = 0;
+  if (room._movementContactPairPoolNeedsHoleSearch !== true) room._movementContactPairPoolNeedsHoleSearch = false;
   if (!Number.isFinite(Number(room._movementContactStepSerial))) room._movementContactStepSerial = 0;
   return room;
 }
@@ -73,6 +83,7 @@ function clearPairReferences(room) {
     pair.bId = null;
     pair.orderA = 0;
     pair.orderB = 0;
+    pair._packedLastPenetration = 0;
   }
   state._movementContactPairs.length = 0;
   // The pool is room-local. Clearing it here matters on room reset: a pooled
@@ -92,10 +103,22 @@ function clearPairReferences(room) {
   state._movementContactPairSweepScratch.length = 0;
   state._movementContactPairActiveScratch.length = 0;
   state._movementContactPairPreviousShips.length = 0;
+  state._movementContactPairMovedShipsScratch.length = 0;
+  state._movementContactPairMissingPairsScratch.length = 0;
+  state._movementContactPairRecoveryPairsScratch.length = 0;
+  state._movementContactPairMissingKeys.clear();
+  state._movementContactPairMovedKeys.clear();
+  state._movementContactPairRecoveryPairSet.clear();
+  state._movementContactPairPoolCursor = 0;
+  state._movementContactPairPoolNeedsHoleSearch = false;
   state._movementContactPairBuildStepId = null;
   state._movementContactPairStepId = null;
   state._movementContactPairUnsafe = false;
   state._movementContactPairPadding = null;
+  state._movementContactPairRecoveryAttempted = false;
+  state._movementContactPairRecoveryOperations = 0;
+  state._movementContactPairPoolCursor = 0;
+  state._movementContactPairPoolNeedsHoleSearch = false;
 }
 
 function clearMovementContactPairs(room) {
@@ -128,6 +151,8 @@ function beginMovementContactStep(room, ships, now = 0) {
   state._movementContactPairInvalidatedAt = finite(now);
   state._movementContactPairStepId = ++state._movementContactStepSerial;
   state._movementContactPairNeedsRecovery = false;
+  state._movementContactPairRecoveryAttempted = false;
+  state._movementContactPairRecoveryOperations = 0;
   room._movementContactPairMaxObservedThisTick = 0;
 
   const previous = state._movementContactPairPreviousShips;
@@ -236,10 +261,31 @@ function pairKey(orderA, orderB) {
 }
 
 function createOrReusePair(state, indexA, indexB, a, b) {
-  let pair = state._movementContactPairPool[state._movementContactPairs.length];
-  if (!pair) {
-    pair = makePair();
-    state._movementContactPairPool.push(pair);
+  // Active pairs can have been compacted after a destruction. The cursor uses
+  // the normal append path without an O(pool-size) scan; only an exceptional
+  // recovery that encounters holes before the cursor searches for one.
+  let pair = null;
+  const pool = state._movementContactPairPool;
+  let cursor = Math.max(0, Number(state._movementContactPairPoolCursor) || 0);
+  while (cursor < pool.length && (pool[cursor]?.a !== null || pool[cursor]?.b !== null)) cursor += 1;
+  if (cursor < pool.length) {
+    pair = pool[cursor];
+    state._movementContactPairPoolCursor = cursor + 1;
+  } else {
+    if (state._movementContactPairPoolNeedsHoleSearch) {
+      for (let index = 0; index < cursor; index += 1) {
+        const candidate = pool[index];
+        if (candidate?.a === null && candidate?.b === null) {
+          pair = candidate;
+          break;
+        }
+      }
+    }
+    if (!pair) {
+      pair = makePair();
+      pool.push(pair);
+      state._movementContactPairPoolCursor = pool.length;
+    }
   }
   pair.a = a;
   pair.b = b;
@@ -247,6 +293,7 @@ function createOrReusePair(state, indexA, indexB, a, b) {
   pair.bId = b.id;
   pair.orderA = indexA;
   pair.orderB = indexB;
+  pair._packedLastPenetration = 0;
   state._movementContactPairs.push(pair);
   return pair;
 }
@@ -265,27 +312,80 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
     state._movementContactPairs.length = 0;
     state._movementContactPairKeys.clear();
     state._movementContactPairRankByShip.clear();
+    state._movementContactPairPoolCursor = 0;
     state._movementContactPairBuildStepId = stepId;
     if (!options.recovery) state._movementContactPairStepId = stepId;
     return state._movementContactPairs;
   }
 
-  // A recovery build is intentionally exceptional. It is deterministic and
-  // scoped to this room/step, but it may fall back to all live pairs so a stale
-  // spatial record cannot hide the overlap that caused recovery.
-  for (const pair of state._movementContactPairs) {
-    pair.a = null;
-    pair.b = null;
-    pair.aId = null;
-    pair.bId = null;
-    pair.orderA = 0;
-    pair.orderB = 0;
+  // A recovery build is intentionally exceptional. The normal post-solver
+  // recovery preserves the existing graph and adds only the affected ships'
+  // current spatial neighbourhood. Explicit force-all recovery remains
+  // available for diagnostics and invalidation paths where the current index
+  // cannot be trusted.
+  const scopedRecovery = Boolean(options.recovery && Array.isArray(options.scopeShips));
+  const previousPairCount = state._movementContactPairs.length;
+  if (!scopedRecovery) {
+    for (const pair of state._movementContactPairs) {
+      pair.a = null;
+      pair.b = null;
+      pair.aId = null;
+      pair.bId = null;
+      pair.orderA = 0;
+      pair.orderB = 0;
+      pair._packedLastPenetration = 0;
+    }
+    state._movementContactPairs.length = 0;
+    state._movementContactPairPoolCursor = 0;
+    state._movementContactPairPoolNeedsHoleSearch = false;
   }
-  state._movementContactPairs.length = 0;
   state._movementContactPairKeys.clear();
   state._movementContactPairRankByShip.clear();
   for (let index = 0; index < ordered.length; index += 1) {
     state._movementContactPairRankByShip.set(ordered[index], index);
+  }
+  if (scopedRecovery) {
+    const retained = state._movementContactPairRecoveryPairsScratch;
+    const retainedSet = state._movementContactPairRecoveryPairSet;
+    retained.length = 0;
+    retainedSet.clear();
+    for (let index = 0; index < previousPairCount; index += 1) {
+      const pair = state._movementContactPairs[index];
+      if (!isLiveShip(room, pair?.a) || !isLiveShip(room, pair?.b) || pair.a === pair.b) continue;
+      const rankA = state._movementContactPairRankByShip.get(pair.a);
+      const rankB = state._movementContactPairRankByShip.get(pair.b);
+      if (rankA === undefined || rankB === undefined) continue;
+      const low = Math.min(rankA, rankB);
+      const high = Math.max(rankA, rankB);
+      const key = pairKey(low, high);
+      if (state._movementContactPairKeys.has(key)) continue;
+      pair.a = ordered[low];
+      pair.b = ordered[high];
+      pair.aId = pair.a.id;
+      pair.bId = pair.b.id;
+      pair.orderA = low;
+      pair.orderB = high;
+      pair._packedLastPenetration = 0;
+      state._movementContactPairKeys.add(key);
+      retained.push(pair);
+      retainedSet.add(pair);
+    }
+    for (let index = 0; index < previousPairCount; index += 1) {
+      const pair = state._movementContactPairs[index];
+      if (!pair || retainedSet.has(pair)) continue;
+      pair.a = null;
+      pair.b = null;
+      pair.aId = null;
+      pair.bId = null;
+      pair.orderA = 0;
+      pair.orderB = 0;
+      pair._packedLastPenetration = 0;
+    }
+    state._movementContactPairs.length = 0;
+    for (const pair of retained) state._movementContactPairs.push(pair);
+    if (retained.length < previousPairCount) state._movementContactPairPoolNeedsHoleSearch = true;
+    retained.length = 0;
+    retainedSet.clear();
   }
 
   let maxPhysicalRadius = 18;
@@ -303,7 +403,7 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
 
   let candidatesVisited = 0;
   let duplicatesRejected = 0;
-  const forceAllPairs = Boolean(options.forceAllPairs || options.recovery);
+  const forceAllPairs = Boolean(options.forceAllPairs);
   const rankOf = state._movementContactPairRankByShip;
 
   const addCandidate = (a, index, candidate) => {
@@ -326,6 +426,43 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
         candidatesVisited += 1;
         addCandidate(ordered[index], index, candidate);
       }
+    }
+  } else if (scopedRecovery) {
+    const scope = [];
+    const scopedKeys = new Set();
+    for (const ship of options.scopeShips) {
+      const rank = rankOf.get(ship);
+      if (rank === undefined || !isLiveShip(room, ship)) continue;
+      const key = String(ship.id);
+      if (scopedKeys.has(key)) continue;
+      scopedKeys.add(key);
+      scope.push(ship);
+    }
+    scope.sort(compareShips);
+    let maximumRadius = 0;
+    for (const ship of ordered) maximumRadius = Math.max(maximumRadius, physicalCollisionRadius(ship));
+    const queryScratch = state._movementContactPairQueryScratch;
+    const index = room?.spatialIndex;
+    const recoveryQueryPadding = padding.total + SEPARATION_BROAD_PHASE_PAD;
+    for (const a of scope) {
+      const queryRadius = physicalCollisionRadius(a) + maximumRadius + recoveryQueryPadding;
+      const candidates = index?.queryRangeUnordered
+        ? index.queryRangeUnordered("ships", finite(a.x), finite(a.y), queryRadius, queryScratch)
+        : ordered;
+      if (candidates.length > 1 && candidates !== ordered) candidates.sort(compareShips);
+      for (const candidate of candidates) {
+        candidatesVisited += 1;
+        const candidateRank = rankOf.get(candidate);
+        if (candidateRank === undefined || !isLiveShip(room, candidate) || candidate === a) continue;
+        addCandidate(a, rankOf.get(a), candidate);
+      }
+    }
+    for (const pair of options.recoveryPairs || []) {
+      const aRank = rankOf.get(pair?.a);
+      const bRank = rankOf.get(pair?.b);
+      if (aRank === undefined || bRank === undefined || aRank === bRank) continue;
+      candidatesVisited += 1;
+      addCandidate(ordered[Math.min(aRank, bRank)], Math.min(aRank, bRank), ordered[Math.max(aRank, bRank)]);
     }
   } else {
     // A deterministic swept-axis broad phase avoids depending on spatial bucket
@@ -393,21 +530,32 @@ function buildMovementContactPairs(room, ships, now = 0, options = {}) {
   state._movementContactPairSweepScratch.length = 0;
   state._movementContactPairActiveScratch.length = 0;
   state._movementContactPairPreviousShips.length = 0;
+  state._movementContactPairMovedShipsScratch.length = 0;
+  state._movementContactPairMissingPairsScratch.length = 0;
+  state._movementContactPairMissingKeys.clear();
+  state._movementContactPairMovedKeys.clear();
+  state._movementContactPairRecoveryPairsScratch.length = 0;
+  state._movementContactPairRecoveryPairSet.clear();
   recordDuration(room, "movementContactPairBuildMs", buildStart);
   return state._movementContactPairs;
 }
 
-function rebuildMovementContactPairsForRecovery(room, ships, now = 0) {
+function rebuildMovementContactPairsForRecovery(room, ships, now = 0, options = {}) {
   const state = ensureState(room);
   if (!state) return [];
   let stepId = state._movementContactPairStepId;
   if (stepId === null || stepId === undefined) {
     stepId = beginMovementContactStep(room, ships, now);
   }
+  state._movementContactPairRecoveryAttempted = true;
+  state._movementContactPairRecoveryOperations += 1;
+  const scopedRecovery = Array.isArray(options.scopeShips);
   return buildMovementContactPairs(room, ships, now, {
     stepId,
     recovery: true,
-    forceAllPairs: true
+    scopeShips: scopedRecovery ? options.scopeShips : undefined,
+    recoveryPairs: scopedRecovery ? options.recoveryPairs : undefined,
+    forceAllPairs: options.forceAllPairs === undefined ? !scopedRecovery : Boolean(options.forceAllPairs)
   });
 }
 
@@ -416,6 +564,108 @@ function getMovementContactPairs(room, stepId = null) {
   if (!state) return [];
   if (stepId !== null && state._movementContactPairBuildStepId !== stepId) return [];
   return state._movementContactPairs;
+}
+
+function movementContactPairEntityKey(a, b) {
+  const first = compareEntityIds(a, b) <= 0 ? a : b;
+  const second = first === a ? b : a;
+  return `${String(first?.id)}|${String(second?.id)}`;
+}
+
+function hasMovementContactPair(room, a, b) {
+  const state = ensureState(room);
+  if (!state || !a || !b || a === b) return false;
+  const rankA = state._movementContactPairRankByShip.get(a);
+  const rankB = state._movementContactPairRankByShip.get(b);
+  return rankA !== undefined && rankB !== undefined && hasPairForRanks(state, rankA, rankB);
+}
+
+function collectMovementContactMovedShips(room, ships, modifiedShipIds = []) {
+  const state = ensureState(room);
+  if (!state) return [];
+  const moved = state._movementContactPairMovedShipsScratch;
+  const movedKeys = state._movementContactPairMovedKeys;
+  moved.length = 0;
+  movedKeys.clear();
+
+  const source = Array.isArray(ships)
+    ? ships
+    : [...(room?.ships?.values?.() || [])];
+  for (const id of modifiedShipIds || []) {
+    const ship = room?.ships?.get?.(id);
+    if (!isLiveShip(room, ship)) continue;
+    const key = String(ship.id);
+    if (movedKeys.has(key)) continue;
+    movedKeys.add(key);
+    moved.push(ship);
+  }
+  for (const ship of source) {
+    if (!isLiveShip(room, ship)) continue;
+    const record = room?.spatialIndex?.recordsByEntity?.ships?.get(ship);
+    const movedFromRecord = !record
+      || fastHypot(finite(ship.x) - finite(record.x), finite(ship.y) - finite(record.y)) > MATERIAL_MOVEMENT_DELTA;
+    if (!movedFromRecord) continue;
+    const key = String(ship.id);
+    if (movedKeys.has(key)) continue;
+    movedKeys.add(key);
+    moved.push(ship);
+  }
+  moved.sort(compareShips);
+  return moved;
+}
+
+function shipsActuallyOverlap(a, b, options = null) {
+  const dx = finite(b.x) - finite(a.x);
+  const dy = finite(b.y) - finite(a.y);
+  const minimum = physicalCollisionRadius(a) + physicalCollisionRadius(b);
+  if (dx * dx + dy * dy >= minimum * minimum) return false;
+  if (options?.circular) return true;
+  return Boolean(findShipHullOverlap(a, b));
+}
+
+// This is deliberately a post-solver recovery query, never an iteration query.
+// The normal pair build remains the only ordinary broad phase. Only ships whose
+// position changed since the last spatial publication are queried, and the
+// exact narrow phase filters false AABB candidates before recovery is requested.
+function findMissingMovementContactPairs(room, movedShips, options = null) {
+  const state = ensureState(room);
+  if (!state) return { missingCount: 0, pairs: [] };
+  const missing = state._movementContactPairMissingPairsScratch;
+  const missingKeys = state._movementContactPairMissingKeys;
+  const queryScratch = state._movementContactPairQueryScratch;
+  missing.length = 0;
+  missingKeys.clear();
+
+  const live = liveShipsForStep(room, null, state);
+  if (live.length < 2 || !movedShips?.length) return { missingCount: 0, pairs: missing };
+  let maximumRadius = 0;
+  for (const ship of live) maximumRadius = Math.max(maximumRadius, physicalCollisionRadius(ship));
+
+  const index = room?.spatialIndex;
+  for (const moved of movedShips) {
+    if (!isLiveShip(room, moved)) continue;
+    const queryRadius = physicalCollisionRadius(moved) + maximumRadius + SEPARATION_SLOP;
+    const candidates = index?.queryRangeUnordered
+      ? index.queryRangeUnordered("ships", finite(moved.x), finite(moved.y), queryRadius, queryScratch)
+      : live;
+    if (candidates.length > 1 && candidates !== live) candidates.sort(compareShips);
+    for (const candidate of candidates) {
+      if (!isLiveShip(room, candidate) || candidate === moved) continue;
+      if (hasMovementContactPair(room, moved, candidate)) continue;
+      const key = movementContactPairEntityKey(moved, candidate);
+      if (missingKeys.has(key) || !shipsActuallyOverlap(moved, candidate, options)) continue;
+      missingKeys.add(key);
+      const first = compareEntityIds(moved, candidate) <= 0 ? moved : candidate;
+      const second = first === moved ? candidate : moved;
+      missing.push({
+        a: first,
+        b: second,
+        aId: first.id,
+        bId: second.id
+      });
+    }
+  }
+  return { missingCount: missing.length, pairs: missing };
 }
 
 function removeShipFromMovementContactPairs(room, ship) {
@@ -443,6 +693,7 @@ function removeShipFromMovementContactPairs(room, ship) {
     for (const pair of state._movementContactPairs) state._movementContactPairKeys.add(pairKey(pair.orderA, pair.orderB));
   }
   state._movementContactPairRankByShip.delete(ship);
+  if (removed) state._movementContactPairPoolNeedsHoleSearch = true;
   return removed;
 }
 
@@ -541,7 +792,10 @@ module.exports = {
   beginMovementContactStep,
   buildMovementContactPairs,
   clearMovementContactPairs,
+  collectMovementContactMovedShips,
+  findMissingMovementContactPairs,
   getMovementContactPairs,
+  hasMovementContactPair,
   markMovementContactPairsUnsafe,
   noteShipSpawnedDuringMovementContactStep,
   rebuildMovementContactPairsForRecovery,

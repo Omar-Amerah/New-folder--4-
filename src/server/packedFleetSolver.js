@@ -92,6 +92,56 @@ function correctionLimit(ship) {
   );
 }
 
+function initializeTemporaryVelocities(state, ships, dt) {
+  state.velocityBaseX.clear();
+  state.velocityBaseY.clear();
+  state.velocityX.clear();
+  state.velocityY.clear();
+  state.velocityBudget.clear();
+  for (const ship of ships) {
+    const vx = finite(ship.vx);
+    const vy = finite(ship.vy);
+    state.velocityBaseX.set(ship, vx);
+    state.velocityBaseY.set(ship, vy);
+    state.velocityX.set(ship, vx);
+    state.velocityY.set(ship, vy);
+    // A normal movement-capability delta is a useful floor when a fixture does
+    // not expose a collision impulse yet. The budget is enlarged only by the
+    // largest actual single-contact delta observed for this ship this step.
+    state.velocityBudget.set(
+      ship,
+      Math.max(0, finite(ship.stats?.accel) * Math.max(0, finite(dt)))
+    );
+  }
+}
+
+function applyBoundedTemporaryImpulse(state, ship, deltaX, deltaY, contactDelta) {
+  const baseX = state.velocityBaseX.get(ship) || 0;
+  const baseY = state.velocityBaseY.get(ship) || 0;
+  const currentX = state.velocityX.get(ship) || 0;
+  const currentY = state.velocityY.get(ship) || 0;
+  const budget = Math.max(state.velocityBudget.get(ship) || 0, contactDelta || 0);
+  state.velocityBudget.set(ship, budget);
+
+  const requestedX = currentX + deltaX;
+  const requestedY = currentY + deltaY;
+  const totalX = requestedX - baseX;
+  const totalY = requestedY - baseY;
+  const totalMagnitude = fastHypot(totalX, totalY);
+  if (budget <= 0 || totalMagnitude <= budget) {
+    state.velocityX.set(ship, requestedX);
+    state.velocityY.set(ship, requestedY);
+    return fastHypot(requestedX - currentX, requestedY - currentY);
+  }
+
+  const scale = budget / totalMagnitude;
+  const boundedX = baseX + totalX * scale;
+  const boundedY = baseY + totalY * scale;
+  state.velocityX.set(ship, boundedX);
+  state.velocityY.set(ship, boundedY);
+  return fastHypot(boundedX - currentX, boundedY - currentY);
+}
+
 function clampShipPosition(room, ship, x, y) {
   const width = finite(room?.world?.width, 2000);
   const height = finite(room?.world?.height, 1600);
@@ -144,6 +194,12 @@ function releaseScratchArrays(room) {
     islandPairs: [],
     islandPairPool: [],
     rootToIsland: new Map(),
+    connectedRanks: [],
+    velocityBaseX: new Map(),
+    velocityBaseY: new Map(),
+    velocityX: new Map(),
+    velocityY: new Map(),
+    velocityBudget: new Map(),
     unresolved: [],
     resolvedShips: new Set()
   });
@@ -160,6 +216,12 @@ function releaseScratchArrays(room) {
   state.unresolved.length = 0;
   state.resolvedShips.clear();
   state.rootToIsland.clear();
+  state.connectedRanks.length = 0;
+  state.velocityBaseX.clear();
+  state.velocityBaseY.clear();
+  state.velocityX.clear();
+  state.velocityY.clear();
+  state.velocityBudget.clear();
   return state;
 }
 
@@ -193,6 +255,8 @@ function buildContactIslands(room, ships, pairs) {
   state.ranks.clear();
   state.parent.length = ships.length;
   state.size.length = ships.length;
+  state.connectedRanks.length = ships.length;
+  state.connectedRanks.fill(0);
   for (let i = 0; i < ships.length; i += 1) {
     state.ranks.set(ships[i], i);
     state.parent[i] = i;
@@ -205,12 +269,16 @@ function buildContactIslands(room, ships, pairs) {
     const bRank = state.ranks.get(pair?.b);
     if (aRank === undefined || bRank === undefined || aRank === bRank) continue;
     validPairs.push(pair);
+    state.connectedRanks[aRank] = 1;
+    state.connectedRanks[bRank] = 1;
     union(state.parent, state.size, aRank, bRank);
   }
 
-  // Ships are already authoritative-order sorted. Creating islands in that
-  // order makes island ordering independent of pair/bucket insertion history.
+  // Ships are already authoritative-order sorted. Creating islands only for
+  // connected candidate components makes isolated ships cheap while keeping
+  // island ordering independent of pair/bucket insertion history.
   for (let i = 0; i < ships.length; i += 1) {
+    if (!state.connectedRanks[i]) continue;
     const root = findRoot(state.parent, i);
     let islandIndex = state.rootToIsland.get(root);
     if (islandIndex === undefined) {
@@ -253,7 +321,7 @@ function recordContact(room, a, b, now, penetration) {
   }
 }
 
-function applyBatchCorrections(room, ships) {
+function applyBatchCorrections(room, ships, state) {
   let applications = 0;
   for (const ship of ships) {
     const correctionX = finite(ship._packedCorrectionX);
@@ -277,18 +345,20 @@ function applyBatchCorrections(room, ships) {
     ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + appliedY;
     if (fastHypot(appliedX, appliedY) > 0.000001) applications += 1;
 
-    const impulseX = finite(ship._packedImpulseX);
-    const impulseY = finite(ship._packedImpulseY);
-    const impulseMagnitude = fastHypot(impulseX, impulseY);
-    const impulseScale = impulseMagnitude > MAX_PACKED_SPEED && impulseMagnitude > 0
-      ? MAX_PACKED_SPEED / impulseMagnitude
-      : 1;
-    ship.vx = clampNumber(finite(ship.vx) + impulseX * impulseScale, -MAX_PACKED_SPEED, MAX_PACKED_SPEED);
-    ship.vy = clampNumber(finite(ship.vy) + impulseY * impulseScale, -MAX_PACKED_SPEED, MAX_PACKED_SPEED);
+    const temporaryVx = state.velocityX.get(ship);
+    const temporaryVy = state.velocityY.get(ship);
+    ship.vx = clampNumber(
+      finite(temporaryVx, ship.vx),
+      -MAX_PACKED_SPEED,
+      MAX_PACKED_SPEED
+    );
+    ship.vy = clampNumber(
+      finite(temporaryVy, ship.vy),
+      -MAX_PACKED_SPEED,
+      MAX_PACKED_SPEED
+    );
     ship._packedCorrectionX = 0;
     ship._packedCorrectionY = 0;
-    ship._packedImpulseX = 0;
-    ship._packedImpulseY = 0;
   }
   return applications;
 }
@@ -365,9 +435,15 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
   const pairs = getMovementContactPairs(room, stepId);
   pairs.sort(pairSort);
   const { state, validPairs } = buildContactIslands(room, ships, pairs);
-  setCounter(room, "packedFleetIslands", state.islands.length);
-  setCounter(room, "packedFleetLargestIsland", state.islands.reduce((largest, island) => Math.max(largest, island.length), 0));
+  bump(room, "packedFleetIslands", state.islands.length);
+  const largestIsland = state.islands.reduce((largest, island) => Math.max(largest, island.length), 0);
+  setCounter(
+    room,
+    "packedFleetLargestIsland",
+    Math.max(Number(room._roomTelemetry?.packedFleetLargestIsland) || 0, largestIsland)
+  );
   bump(room, "packedFleetSolverSteps");
+  initializeTemporaryVelocities(state, ships, dt);
 
   let iterations = 0;
   let earlyExit = false;
@@ -379,7 +455,15 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
   const checked = { value: 0 };
 
   for (; iterations < SEPARATION_ITERATIONS; iterations += 1) {
+    // Pair calculations see the temporary velocity produced by earlier pairs
+    // in this deterministic batch. The temporary state is applied only after
+    // all positional corrections for the iteration are accumulated.
+    for (const ship of ships) {
+      state.velocityX.set(ship, finite(ship.vx));
+      state.velocityY.set(ship, finite(ship.vy));
+    }
     bump(room, "separationIterations");
+    bump(room, "movementLegacySeparationQueriesAvoided", ships.length);
     bump(room, "separationCandidatesReturned", validPairs.length);
     let meaningfulOverlaps = 0;
     state.unresolved.length = 0;
@@ -404,7 +488,6 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
         meaningfulOverlaps += 1;
         overlapsResolved += 1;
         bump(room, "separationOverlapsResolved");
-        collisionBump(room, "shipCollisionPenetrationCorrected", Math.max(0, penetration - SEPARATION_SLOP));
         recordContact(room, a, b, now, Math.max(0, penetration - SEPARATION_SLOP));
 
         const normal = normalForOverlap(a, b, result.overlap, result.broadDx, result.broadDy);
@@ -420,8 +503,8 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
         b._packedCorrectionX = finite(b._packedCorrectionX) + normal.x * moveB;
         b._packedCorrectionY = finite(b._packedCorrectionY) + normal.y * moveB;
 
-        const relativeVx = finite(b.vx) - finite(a.vx);
-        const relativeVy = finite(b.vy) - finite(a.vy);
+        const relativeVx = (state.velocityX.get(b) || 0) - (state.velocityX.get(a) || 0);
+        const relativeVy = (state.velocityY.get(b) || 0) - (state.velocityY.get(a) || 0);
         const closingSpeed = relativeVx * normal.x + relativeVy * normal.y;
         if (closingSpeed < 0) {
           const biasSpeed = Math.min(SEPARATION_MAX_BIAS_SPEED, correctedPenetration * SEPARATION_BIAS_SCALE);
@@ -435,11 +518,27 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
             maxImpulse
           );
           if (impulse > 0) {
-            a._packedImpulseX = finite(a._packedImpulseX) - impulse * inverseA * normal.x;
-            a._packedImpulseY = finite(a._packedImpulseY) - impulse * inverseA * normal.y;
-            b._packedImpulseX = finite(b._packedImpulseX) + impulse * inverseB * normal.x;
-            b._packedImpulseY = finite(b._packedImpulseY) + impulse * inverseB * normal.y;
-            collisionBump(room, "shipCollisionImpulseApplied");
+            const deltaAX = -impulse * inverseA * normal.x;
+            const deltaAY = -impulse * inverseA * normal.y;
+            const deltaBX = impulse * inverseB * normal.x;
+            const deltaBY = impulse * inverseB * normal.y;
+            const appliedA = applyBoundedTemporaryImpulse(
+              state,
+              a,
+              deltaAX,
+              deltaAY,
+              fastHypot(deltaAX, deltaAY)
+            );
+            const appliedB = applyBoundedTemporaryImpulse(
+              state,
+              b,
+              deltaBX,
+              deltaBY,
+              fastHypot(deltaBX, deltaBY)
+            );
+            if (appliedA > 0.000001 || appliedB > 0.000001) {
+              collisionBump(room, "shipCollisionImpulseApplied");
+            }
           }
         }
         if (penetration > SEPARATION_SLOP) state.unresolved.push(pair);
@@ -450,7 +549,7 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
       earlyExit = true;
       break;
     }
-    correctionApplications += applyBatchCorrections(room, ships);
+    correctionApplications += applyBatchCorrections(room, ships, state);
   }
 
   // If the last iteration applied corrections, perform one final narrow-phase
@@ -468,7 +567,9 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
   }
   const recoveryOperations = recoverNewcomers(room, state, now);
   if (recoveryOperations) {
-    const recoveredScan = scanRemainingOverlaps(room, state.islandPairs, options, { value: 0 });
+    const recoveredChecked = { value: 0 };
+    const recoveredScan = scanRemainingOverlaps(room, state.islandPairs, options, recoveredChecked);
+    pairsChecked += recoveredChecked.value;
     remaining = recoveredScan.remaining;
     maximumPenetration = Math.max(maximumPenetration, recoveredScan.maximum);
   }
@@ -478,14 +579,22 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
   }
   bump(room, "separationUnresolvedPairs", remaining);
   if (earlyExit) bump(room, "packedFleetEarlyExits");
-  setCounter(room, "packedFleetIterations", iterations + (earlyExit ? 1 : 0));
-  setCounter(room, "packedFleetPairsChecked", pairsChecked);
-  setCounter(room, "packedFleetOverlapsResolved", overlapsResolved);
+  bump(room, "packedFleetIterations", iterations + (earlyExit ? 1 : 0));
+  bump(room, "packedFleetPairsChecked", pairsChecked);
+  bump(room, "packedFleetOverlapsResolved", overlapsResolved);
   setCounter(room, "packedFleetRemainingOverlaps", remaining);
-  setCounter(room, "packedFleetMaximumPenetration", maximumPenetration);
-  setCounter(room, "packedFleetCorrectionApplications", correctionApplications);
-  setCounter(room, "packedFleetRecoveryOperations", recoveryOperations);
-  setCounter(room, "packedFleetLegacyIterationsAvoided", Math.max(0, SEPARATION_ITERATIONS - (iterations + (earlyExit ? 1 : 0))));
+  setCounter(
+    room,
+    "packedFleetMaximumPenetration",
+    Math.max(Number(room._roomTelemetry?.packedFleetMaximumPenetration) || 0, maximumPenetration)
+  );
+  bump(room, "packedFleetCorrectionApplications", correctionApplications);
+  bump(
+    room,
+    "packedFleetRecoveryOperations",
+    (Number(room._movementContactPairRecoveryOperations) || 0) + recoveryOperations
+  );
+  bump(room, "packedFleetLegacyIterationsAvoided", Math.max(0, SEPARATION_ITERATIONS - (iterations + (earlyExit ? 1 : 0))));
   recordDuration(room, "shipSeparationMs", start);
   recordDuration(room, "packedFleetSolverMs", start);
 
@@ -494,6 +603,11 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
   for (const ship of ships) {
     if (fastHypot(ship._collisionCorrectionX || 0, ship._collisionCorrectionY || 0) > 0.000001) modified.add(ship.id);
   }
+  state.velocityBaseX.clear();
+  state.velocityBaseY.clear();
+  state.velocityX.clear();
+  state.velocityY.clear();
+  state.velocityBudget.clear();
   return Array.from(modified);
 }
 
