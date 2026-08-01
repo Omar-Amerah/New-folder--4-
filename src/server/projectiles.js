@@ -32,6 +32,56 @@ const MAXIMUM_DRONE_SPEED = Math.max(
   ...Object.values(BALANCE.drones?.types || {}).map((entry) => Number(entry?.speed) || 0)
 );
 
+function projectileDroneStepToken(room, now) {
+  return room?._currentAuthoritativeStepTimeMs
+    ?? room?._simulationStep
+    ?? now;
+}
+
+function liveDroneCount(room) {
+  let count = 0;
+  for (const drone of room?.drones?.values?.() || []) {
+    if (drone && !drone.destroyed && !drone.removed) count += 1;
+  }
+  return count;
+}
+
+function fullScanDroneCandidates(room, out = []) {
+  out.length = 0;
+  for (const drone of room?.drones?.values?.() || []) out.push(drone);
+  return out;
+}
+
+function ensureProjectileDroneSpatialIndex(room, liveShips, now) {
+  if (!room || room.disableSpatialIndex) return null;
+  let index = room.spatialIndex;
+  const expectedDrones = liveDroneCount(room);
+  const categoryValid = index?.dynamicValid && typeof index.count === "function"
+    ? index.count("drones") === expectedDrones
+    : Boolean(index?.dynamicValid && expectedDrones === 0);
+  if (categoryValid) return index;
+
+  const stepToken = projectileDroneStepToken(room, now);
+  if (room._droneSpatialRecoveryStep === stepToken) {
+    // A legacy projectile pass invalidates the index after publishing its
+    // projectile category. The recovered drone category is still authoritative
+    // for the remainder of this step, so reuse it without a second rebuild.
+    return index && typeof index.count === "function" && index.count("drones") === expectedDrones
+      ? index
+      : null;
+  }
+  room._droneSpatialRecoveryStep = stepToken;
+  const startedAt = performanceNow();
+  if (index && typeof index.recoverFull === "function") {
+    index.recoverFull(room, liveShips, now);
+  } else {
+    index = buildRoomSpatialIndex(room, liveShips, now);
+  }
+  bump(room, "projectileDroneIndexRecoveryBuilds");
+  recordDuration(room, "projectileDroneRecoveryMs", startedAt);
+  return room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
+}
+
 function ensureProjectileLookup(room) {
   if (!room.projectileById) {
     room.projectileById = new Map();
@@ -64,6 +114,7 @@ function resetProjectileRuntime(room) {
   if (room.projectileById instanceof Map) room.projectileById.clear();
   else room.projectileById = new Map();
   room._projectileLookupInitialized = true;
+  room._droneSpatialRecoveryStep = null;
   resetProjectileReplication(room, room.stateEpoch || 1);
 }
 
@@ -381,11 +432,7 @@ function updateBullets(room, dt, now) {
     room,
     room._projectileLiveShipScratch || (room._projectileLiveShipScratch = [])
   );
-  const spatialIndex = room.disableSpatialIndex
-    ? null
-    : (room.spatialIndex?.dynamicValid
-      ? room.spatialIndex
-      : buildRoomSpatialIndex(room, liveShips, now));
+  const spatialIndex = ensureProjectileDroneSpatialIndex(room, liveShips, now);
   const bulletsById = ensureProjectileLookup(room);
   const sourceBullets = room.bullets || [];
   const kept = room._projectileSpare && room._projectileSpare !== sourceBullets ? room._projectileSpare : [];
@@ -452,7 +499,7 @@ function updateBullets(room, dt, now) {
     for (const p of pList) pushEvent(p, "projectile", false);
     const dList = spatial
       ? spatial.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.drones)
-      : (room.drones?.values?.() || []);
+      : (bump(room, "projectileDroneFullScanFallbacks"), room.drones?.values?.() || []);
     for (const d of dList) pushEvent(d, "drone", true);
     for (const d of dList) pushEvent(d, "drone", false);
     const sList = spatial
@@ -556,7 +603,7 @@ function updateBullets(room, dt, now) {
     testCandidates(pList, "projectile", "interceptableProjectiles");
     const dList = spatial
       ? spatial.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.drones)
-      : (room.drones?.values?.() || []);
+      : (bump(room, "projectileDroneFullScanFallbacks"), room.drones?.values?.() || []);
     testCandidates(dList, "drone", "drones");
     const sList = spatial
       ? spatial.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.ships)
@@ -988,12 +1035,23 @@ function updateBullets(room, dt, now) {
     if (timeThisBullet) recordDuration(room, "projectileStationCollisionMs", stationStart);
 
     const droneStart = timeThisBullet ? performanceNow() : 0;
-    if (spatialIndex) bump(room, "droneQueries");
-    const possibleDrones = spatialIndex
-      ? spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates)
-      : (room.drones?.values?.() || []);
+    let possibleDrones;
+    if (spatialIndex) {
+      bump(room, "droneQueries");
+      bump(room, "projectileDroneQueries");
+      const droneBroadPhaseStart = timeThisBullet ? performanceNow() : 0;
+      possibleDrones = spatialIndex.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, droneMovementPadding, droneCandidates);
+      if (timeThisBullet) recordDuration(room, "projectileDroneBroadPhaseMs", droneBroadPhaseStart);
+    } else {
+      // This is intentionally retained only for the explicit no-index fixture.
+      // Normal rooms recover the drone category before entering this branch.
+      bump(room, "projectileDroneFullScanFallbacks");
+      possibleDrones = fullScanDroneCandidates(room, droneCandidates);
+    }
     bump(room, "projectileCandidateDrones", possibleDrones.length);
     bump(room, "candidateDronesReturned", possibleDrones.length);
+    bump(room, "projectileDroneCandidates", possibleDrones.length);
+    const droneNarrowPhaseStart = timeThisBullet ? performanceNow() : 0;
     for (const drone of possibleDrones) {
       if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
       const hitRadius = bullet.type === "missile"
@@ -1010,8 +1068,12 @@ function updateBullets(room, dt, now) {
         drone.y,
         (Number(drone.radius) || 10) + hitRadius
       );
-      if (hit) recordHit({ kind: "drone", t: hit.t, x: hit.x, y: hit.y, drone, entityId: drone.id });
+      if (hit) {
+        bump(room, "projectileDroneHits");
+        recordHit({ kind: "drone", t: hit.t, x: hit.x, y: hit.y, drone, entityId: drone.id });
+      }
     }
+    if (timeThisBullet) recordDuration(room, "projectileDroneNarrowPhaseMs", droneNarrowPhaseStart);
     if (timeThisBullet) recordDuration(room, "projectileDroneCollisionMs", droneStart);
 
     if (earliest?.kind === "asteroid") {

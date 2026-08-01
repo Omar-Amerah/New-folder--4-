@@ -117,6 +117,19 @@ let _entityDeltaSnapshots = false;
 // setter while the legacy solver remains the production default.
 let _optimizedHeatRuntime = false;
 
+// --- Phase 6B authoritative drone decision/runtime flag ---
+// The optimized drone architecture remains opt-in until its differential and
+// production-path checks establish parity with the existing loop.
+let _optimizedDroneRuntime = false;
+
+function OPTIMIZED_DRONE_RUNTIME() {
+  return _optimizedDroneRuntime;
+}
+
+function __setOPTIMIZED_DRONE_RUNTIME(value) {
+  _optimizedDroneRuntime = Boolean(value);
+}
+
 function OPTIMIZED_HEAT_RUNTIME() {
   return _optimizedHeatRuntime;
 }
@@ -184,6 +197,8 @@ module.exports = {
   __setSHARED_MOVEMENT_CONTACT_PAIRS,
   PACKED_FLEET_SOLVER,
   __setPACKED_FLEET_SOLVER,
+  OPTIMIZED_DRONE_RUNTIME,
+  __setOPTIMIZED_DRONE_RUNTIME,
   OPTIMIZED_HEAT_RUNTIME,
   __setOPTIMIZED_HEAT_RUNTIME
 };

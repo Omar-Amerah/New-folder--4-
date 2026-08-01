@@ -1,0 +1,229 @@
+"use strict";
+
+// Shared broad-phase state for the optimized drone decision layer. This module
+// deliberately owns only conservative candidate sets. Target selection,
+// visibility, relationship checks and scoring remain per-drone in drones.js.
+
+const { performanceNow } = require("./utils");
+const { bump, recordDuration } = require("./roomTelemetry");
+
+function contextKey(parentShipId, bayComponentId, droneType, ownerId, teamId) {
+  return [parentShipId, bayComponentId, droneType, ownerId, teamId].map((value) => String(value ?? "")).join("|");
+}
+
+function clearArray(array) {
+  if (Array.isArray(array)) array.length = 0;
+  return array;
+}
+
+function ensureDroneDecisionRuntime(room) {
+  if (!room) return null;
+  let runtime = room._droneDecisionRuntime;
+  const epoch = room.stateEpoch ?? 0;
+  if (!runtime) {
+    runtime = {
+      frameId: -1,
+      generation: 0,
+      roomEpoch: epoch,
+      contexts: new Map(),
+      recoveryGeneration: -1
+    };
+    room._droneDecisionRuntime = runtime;
+  } else if (runtime.roomEpoch !== epoch) {
+    runtime.frameId = -1;
+    runtime.generation = 0;
+    runtime.roomEpoch = epoch;
+    runtime.recoveryGeneration = -1;
+    runtime.contexts.clear();
+  }
+  return runtime;
+}
+
+function resetDroneDecisionRuntime(room) {
+  const runtime = room?._droneDecisionRuntime;
+  if (runtime) {
+    runtime.frameId = -1;
+    runtime.generation = 0;
+    runtime.roomEpoch = room?.stateEpoch ?? 0;
+    runtime.recoveryGeneration = -1;
+    runtime.contexts.clear();
+  }
+  if (room) {
+    room._droneContextMemberScratch?.forEach?.((members) => clearArray(members));
+    room._droneFrameId = 0;
+  }
+  return runtime || null;
+}
+
+function beginDroneDecisionFrame(room, frameId, now = 0) {
+  const runtime = ensureDroneDecisionRuntime(room);
+  if (!runtime) return null;
+  if (runtime.frameId !== frameId) {
+    runtime.frameId = frameId;
+    runtime.generation += 1;
+    runtime.recoveryGeneration = -1;
+  }
+  runtime.now = now;
+  return runtime;
+}
+
+function createContext() {
+  return {
+    frameId: -1,
+    generation: 0,
+    parentShipId: null,
+    bayComponentId: null,
+    droneType: null,
+    ownerId: null,
+    teamId: null,
+    centreX: 0,
+    centreY: 0,
+    maximumDroneDisplacement: 0,
+    queryRadius: 0,
+    largestRelevantRange: 0,
+    movementAllowance: 0,
+    hostileShips: [],
+    hostileDrones: [],
+    hostileProjectiles: [],
+    repairShips: [],
+    builtAt: 0,
+    validUntil: 0,
+    memberCount: 0,
+    fallbackCount: 0
+  };
+}
+
+function contextFor(runtime, parent, bay, droneType, ownerId, teamId) {
+  const key = contextKey(parent?.id, bay?.componentId, droneType, ownerId, teamId);
+  let context = runtime.contexts.get(key);
+  if (!context) {
+    context = createContext();
+    runtime.contexts.set(key, context);
+  }
+  return context;
+}
+
+function copyFallback(target, source) {
+  target.length = 0;
+  for (const entity of source || []) if (entity) target.push(entity);
+  return target;
+}
+
+function finite(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function contextRange(config, room) {
+  const commandRange = Math.max(0, finite(config?.commandRange));
+  const weaponRange = Math.max(0, finite(config?.weaponRange));
+  const lookahead = Math.max(0, finite(config?.evasionLookaheadSeconds));
+  const clearance = Math.max(0, finite(config?.evasionClearance));
+  const projectileSpeed = Math.max(0, finite(room?.spatialIndex?.maxProjectileSpeed));
+  const evasionRange = lookahead > 0 && clearance > 0
+    ? (projectileSpeed + Math.max(0, finite(config?.speed))) * lookahead + clearance
+    : 0;
+  return Math.max(commandRange, weaponRange, evasionRange);
+}
+
+function contextCoversPoint(context, x, y, range = 0) {
+  if (!context || context.frameId < 0) return false;
+  const dx = finite(x) - context.centreX;
+  const dy = finite(y) - context.centreY;
+  return Math.hypot(dx, dy) + Math.max(0, finite(range)) <= context.queryRadius + 0.001;
+}
+
+function buildDroneDecisionContext(room, parent, bay, droneType, config, members, now, frameId) {
+  const runtime = beginDroneDecisionFrame(room, frameId, now);
+  if (!runtime || !parent || !bay) return null;
+  const balanceConfig = config?.config || config;
+  const context = contextFor(runtime, parent, bay, droneType, parent.ownerId, parent.team || room.players?.get?.(parent.ownerId)?.team || null);
+  if (context.frameId === frameId && context.validUntil >= now) {
+    bump(room, "droneContextHits");
+    return context;
+  }
+
+  const startedAt = performanceNow();
+  const pose = bay._runtimeFrameState;
+  const centreX = finite(pose?.worldX, finite(parent.x));
+  const centreY = finite(pose?.worldY, finite(parent.y));
+  let maximumDroneDisplacement = 0;
+  let memberCount = 0;
+  for (const drone of members || []) {
+    if (!drone || drone.destroyed || drone.removed) continue;
+    memberCount += 1;
+    maximumDroneDisplacement = Math.max(maximumDroneDisplacement, Math.hypot(finite(drone.x) - centreX, finite(drone.y) - centreY));
+  }
+
+  const largestRelevantRange = contextRange(balanceConfig, room);
+  const intervalMs = Math.max(1, finite(config?.decisionIntervalMs, 120));
+  const intervalSeconds = Math.max(0.05, intervalMs / 1000);
+  const movementAllowance = Math.max(0, finite(balanceConfig?.speed)) * intervalSeconds + Math.max(0, finite(room.droneSpatialPadding)) + 2;
+  const parentOffset = Math.hypot(finite(parent.x) - centreX, finite(parent.y) - centreY);
+  const queryRadius = largestRelevantRange + maximumDroneDisplacement + movementAllowance + parentOffset;
+
+  context.frameId = frameId;
+  context.generation = runtime.generation;
+  context.parentShipId = parent.id;
+  context.bayComponentId = bay.componentId;
+  context.droneType = droneType;
+  context.ownerId = parent.ownerId;
+  context.teamId = parent.team || room.players?.get?.(parent.ownerId)?.team || null;
+  context.centreX = centreX;
+  context.centreY = centreY;
+  context.maximumDroneDisplacement = maximumDroneDisplacement;
+  context.queryRadius = queryRadius;
+  context.largestRelevantRange = largestRelevantRange;
+  context.movementAllowance = movementAllowance;
+  context.memberCount = memberCount;
+  context.fallbackCount = 0;
+  context.builtAt = now;
+  context.validUntil = now + intervalMs;
+
+  clearArray(context.hostileShips);
+  clearArray(context.hostileDrones);
+  clearArray(context.hostileProjectiles);
+
+  const spatial = room.spatialIndex?.dynamicValid ? room.spatialIndex : null;
+  if (spatial?.queryRangeUnordered) {
+    spatial.queryRangeUnordered("ships", centreX, centreY, queryRadius, context.hostileShips);
+    spatial.queryRangeUnordered("drones", centreX, centreY, queryRadius, context.hostileDrones);
+    spatial.queryRangeUnordered("projectiles", centreX, centreY, queryRadius, context.hostileProjectiles);
+    bump(room, "droneContextShipQueries");
+    bump(room, "droneContextDroneQueries");
+    bump(room, "droneContextProjectileQueries");
+  } else {
+    copyFallback(context.hostileShips, room.ships?.values?.() || []);
+    copyFallback(context.hostileDrones, room.drones?.values?.() || []);
+    copyFallback(context.hostileProjectiles, room.bullets || []);
+  }
+
+  // Repair scoring uses the same conservative ship superset. Copying into a
+  // context-owned reusable buffer avoids a second broad-phase query while
+  // preserving the semantic distinction between repair and hostile consumers.
+  clearArray(context.repairShips);
+  for (const ship of context.hostileShips) context.repairShips.push(ship);
+  bump(room, "droneContextsBuilt");
+  bump(room, "droneContextMembers", memberCount);
+  bump(room, "droneShipCandidatesVisited", context.hostileShips.length);
+  bump(room, "droneDroneCandidatesVisited", context.hostileDrones.length);
+  bump(room, "droneProjectileCandidatesVisited", context.hostileProjectiles.length);
+  bump(room, "droneRepairCandidatesVisited", context.repairShips.length);
+  recordDuration(room, "droneContextBuildMs", startedAt);
+  return context;
+}
+
+function markContextFallback(room, context) {
+  if (context) context.fallbackCount += 1;
+  bump(room, "droneContextFallbacks");
+}
+
+module.exports = {
+  contextKey,
+  ensureDroneDecisionRuntime,
+  resetDroneDecisionRuntime,
+  beginDroneDecisionFrame,
+  buildDroneDecisionContext,
+  contextCoversPoint,
+  markContextFallback
+};

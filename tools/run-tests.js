@@ -66,6 +66,7 @@ const GROUPS = {
     "verify-heat-effects.js",
     "verify-thermal-parity.js",
     "verify-phase-6a-heat-runtime.js",
+    "verify-phase-6b-drone-runtime.js",
     "verify-shields.js",
     "verify-template-state-isolation.js",
     "verify-power.js",

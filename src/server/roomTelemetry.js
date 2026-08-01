@@ -24,6 +24,9 @@ const DURATION_FIELDS = Object.freeze([
   "projectileShipNarrowPhaseMs",
   "projectileStationCollisionMs",
   "projectileDroneCollisionMs",
+  "projectileDroneBroadPhaseMs",
+  "projectileDroneNarrowPhaseMs",
+  "projectileDroneRecoveryMs",
   "projectileInterceptionMs",
   "flakEventSelectionMs",
   "flakExplosionMs",
@@ -59,7 +62,20 @@ const DURATION_FIELDS = Object.freeze([
   "heatGenerationMs",
   "heatTransferMs",
   "heatCoolingMs",
-  "heatFinalizationMs"
+  "heatFinalizationMs",
+
+  // Phase 6B authoritative drone runtime timing
+  "droneRuntimeMs",
+  "droneBayFrameStateMs",
+  "droneDecisionMs",
+  "droneContextBuildMs",
+  "droneTargetValidationMs",
+  "droneTargetScoringMs",
+  "droneEvasionMs",
+  "droneMovementMs",
+  "droneMapCollisionMs",
+  "droneSeparationMs",
+  "droneSpatialPublicationMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -221,6 +237,35 @@ const COUNTER_FIELDS = Object.freeze([
   "heatTopologyBuilds",
   "heatTopologyCacheHits",
   "heatTopologySharedShips",
+
+  // Phase 6B authoritative drone runtime counters
+  "dronesVisited",
+  "dronePhysicalUpdates",
+  "droneDecisionsRun",
+  "droneDecisionsDeferred",
+  "droneImmediateDecisions",
+  "droneValidTargetsRetained",
+  "droneTargetsInvalidated",
+  "droneTargetReferenceHits",
+  "droneTargetReferenceMisses",
+  "droneContextsBuilt",
+  "droneContextHits",
+  "droneContextFallbacks",
+  "droneContextMembers",
+  "droneContextShipQueries",
+  "droneContextDroneQueries",
+  "droneContextProjectileQueries",
+  "droneShipCandidatesVisited",
+  "droneDroneCandidatesVisited",
+  "droneProjectileCandidatesVisited",
+  "droneRepairCandidatesVisited",
+  "droneBayFrameBuilds",
+  "droneBayFrameHits",
+  "projectileDroneQueries",
+  "projectileDroneCandidates",
+  "projectileDroneHits",
+  "projectileDroneIndexRecoveryBuilds",
+  "projectileDroneFullScanFallbacks",
 
   // Phase 4B incremental spatial-index counters
   "spatialFullRebuilds",
