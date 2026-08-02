@@ -3,9 +3,13 @@ const fs = require('fs');
 
 const ships = fs.readFileSync('public/src/game/pixi/pixiShips.js', 'utf8');
 const view = fs.readFileSync('public/src/game/pixi/pixiShipView.js', 'utf8');
+const teamColors = fs.readFileSync('public/src/shared/teamColors.js', 'utf8');
 const outline = ships.match(/function updatePixiPlayerHullOutline[\s\S]*?\r?\n}\r?\n/)?.[0] || '';
 
-assert.match(ships, /TEAM_STATUS_BORDER_COLORS[\s\S]*friendly:\s*"#38d5ff"[\s\S]*enemy:\s*"#ef4444"/, 'friendly/enemy status box borders use team colours');
+assert.match(teamColors, /blue:\s*"#38d5ff"[\s\S]*red:\s*"#ff5f7e"/, 'shared team palette matches the authoritative blue/red colours');
+assert.match(ships, /const TEAM_STATUS_BORDER_COLORS = TEAM_COLORS/, 'ship status borders use the shared team palette');
+assert.match(ships, /return teamColorFor\(player\?\.team\)/, 'ship status borders select colour from the owner team');
+assert.doesNotMatch(ships, /enemy:\s*"#ef4444"/, 'ship status borders do not use a fixed hostile red');
 assert.match(ships, /function statusBorderColorForPlayer[\s\S]*relation === "solo"\) return player\?\.color/, 'solo status boxes use the owner player colour');
 assert.match(ships, /const borderColor = statusBorderColorForPlayer\(player\)/, 'health/shield HUD frame derives border colour from player/team ownership');
 assert.match(ships, /drawPixiHudFrame\(gfx,[^\n]*borderColor/, 'HUD frame receives the computed team/player border colour');
@@ -27,6 +31,6 @@ assert.match(outline, /gfx\.clear\(\)[\s\S]*gfx\.moveTo\(edge\.x1, edge\.y1\)[\s
 assert.doesNotMatch(outline, /new\s+(PIXI\.)?(Graphics|Sprite)|Texture|BlurFilter|GlowFilter|filter/i, 'outline update does not allocate Pixi display objects, textures, or filters per frame');
 assert.match(ships, /if \(view\.staticKey !== staticKey\)[\s\S]*rebuildPixiShipStatic/, 'hull textures rebuild only through static signature changes');
 assert.match(ships, /const staticKey = pixiStaticSignature\(pixiDesignSignature\(design\), player\.color, ship\.radius \|\| 0, env\.bakeScale\)/, 'HP, shield, selection, and player outline state are excluded from hull texture signature');
-assert.match(ships, /updatePixiTurrets[\s\S]*updatePixiPlayerHullOutline\(view, ship, player, design, zoom\);[\s\S]*updatePixiComponentDamage[\s\S]*if \(state\.selectedShipIds\.has\(ship\.id\)\) drawPixiSelectionRing/, 'selection/focus remain more prominent than permanent outline and bars');
+assert.match(ships, /updatePixiTurrets[\s\S]*updatePixiPlayerHullOutline\(view, ship, player, design, zoom\);[\s\S]*updatePixiComponentDamage[\s\S]*if \(state\.selectedShipIds\.has\(ship\.id\)[\s\S]*drawPixiSelectionRing/, 'selection/focus remain more prominent than permanent outline and bars');
 
 console.log('ship identification renderer assertions passed');

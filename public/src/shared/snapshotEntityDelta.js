@@ -107,7 +107,7 @@
 
   const STATION_STATE_FIELDS = Object.freeze([
     "hp", "shield", "team", "ownerId", "state", "sensorRange", "weaponRange", "revision",
-    "healthRevision", "componentDamageRevision", "stateRevision", "productionRevision",
+    "healthRevision", "componentDamageRevision", "stateRevision", "productionRevision", "captureRevision",
     "captureProgress", "captureContested", "captureTeam", "weaponAngles", "weaponAnglePairs",
     "conditionKnown", "productionQueue", "launches"
   ]);

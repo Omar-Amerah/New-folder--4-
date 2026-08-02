@@ -4,6 +4,7 @@
 import { state } from "../../state.js";
 import { clamp } from "../../shared/math.js";
 import { INTERPOLATION_DELAY_MS } from "../renderInterpolation.js";
+import { projectBallisticProjectile } from "../projectileTimeline.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { isCircleVisible, cullVisual } from "../viewportCulling.js";
 import { getNebulaSprite, drawAsteroid, drawBulletVisual, isFriendlyProjectile } from "../worldArt.js";
@@ -27,6 +28,7 @@ let pixiEnemyBulletPool = null;
 let pixiFriendlyBulletPool = null;
 let pixiEffectTextPool = null;
 let pixiEffectsGfx = null;
+let lastProjectileClockWarningKey = null;
 
 // Reference-counted texture caches. World object views hold LEASES only; the
 // cache owns destruction (see pixiBake.js).
@@ -491,6 +493,9 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         toDelete.push(id);
       }
     } else if (p.type === "missile") {
+      if (!p.previousSample && p.currentSample && pTime < p.currentSample.simulationTimeMs) {
+        continue;
+      }
       if (p.previousSample && p.currentSample) {
         const a = p.previousSample;
         const b = p.currentSample;
@@ -521,19 +526,20 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         p.renderedVy = p.currentSample.vy;
       }
     } else {
-      sample = p.currentSample;
-      if (sample && pTime < sample.simulationTimeMs && p.previousSample) {
-        sample = p.previousSample;
-      }
-      if (!sample) {
+      if (!p.currentSample) {
         toDelete.push(id);
         continue;
       }
-      const delta = Math.max(0, (pTime - sample.simulationTimeMs) / 1000);
-      p.renderedX = sample.x + sample.vx * delta;
-      p.renderedY = sample.y + sample.vy * delta;
-      p.renderedVx = sample.vx;
-      p.renderedVy = sample.vy;
+      // A newly received projectile belongs to the future of the delayed
+      // render timeline until its spawn tick arrives.  Keep it hidden rather
+      // than drawing it at a muzzle position that is newer than its ship.
+      const projected = projectBallisticProjectile(p.currentSample, p.previousSample, pTime);
+      if (!projected) continue;
+      sample = projected.sample;
+      p.renderedX = projected.x;
+      p.renderedY = projected.y;
+      p.renderedVx = projected.vx;
+      p.renderedVy = projected.vy;
     }
 
     if (p.terminal && pTime >= p.terminal.impactTime) {
@@ -918,7 +924,22 @@ export function updatePixiWorld(env, now, players, bounds, rect) {
   const snap = state.snapshot;
   const snapTime = snap?.simulationTimeMs ?? baseRenderTime;
   const projectileSnapTime = snap?.projectileSimulationTimeMs ?? snapTime;
-  const renderTime = baseRenderTime + (projectileSnapTime - snapTime);
+  if (Number.isFinite(snapTime) && Number.isFinite(projectileSnapTime)
+    && Math.abs(projectileSnapTime - snapTime) > 1) {
+    const warningKey = `${snap?.stateEpoch ?? 0}:${snap?.snapshotSeq ?? 0}:${snapTime}:${projectileSnapTime}`;
+    if (warningKey !== lastProjectileClockWarningKey) {
+      lastProjectileClockWarningKey = warningKey;
+      console.warn("Projectile and snapshot clocks diverged", {
+        projectileSnapTime,
+        snapTime
+      });
+    }
+  } else {
+    lastProjectileClockWarningKey = null;
+  }
+  // Ships and projectiles are both rendered on the delayed authoritative
+  // simulation timeline.  Never advance one from the other's packet stamp.
+  const renderTime = baseRenderTime;
   updatePixiGrid(env);
   updatePixiMapFeatures(env, now, bounds);
   updatePixiRelays(env, now, players, bounds);
@@ -960,5 +981,6 @@ export function destroyPixiWorld() {
   }
   projectilePresentationById.clear();
   lastProjectileSnapshotSeq = -1;
+  lastProjectileClockWarningKey = null;
   gridCache = { width: 0, height: 0, zoom: 0 };
 }

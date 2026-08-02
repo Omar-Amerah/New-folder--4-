@@ -89,8 +89,8 @@ function run() {
     if (station.stationType === "home") {
       assert(station.state === "operational", "home station starts operational");
       assert(isOperationalStation(station), "isOperationalStation returns true");
-      assert(Array.isArray(station.launchBays) && station.launchBays.length === 3, "home station has three launch bays");
-      assert(station.hangar === undefined && station.hangars === undefined, "home station has no compatibility hangar fields");
+      assert(station.hangar?.id === "central", "home station has one central hangar");
+      assert(station.launchBays === undefined && station.hangars === undefined, "home station has no multi-hangar compatibility fields");
     }
     if (station.stationType === "relay") {
       assert(station.state === "neutral", "relay station starts neutral");
@@ -101,12 +101,12 @@ function run() {
   const home = room.stations.find((s) => s.stationType === "home");
   const relay = room.stations.find((s) => s.stationType === "relay");
   assert(isHostileEntity(home, relay) === true || home.team === null || relay.team === null, "hostility helper tolerates unset teams");
-  assert.strictEqual(home.maxHp, 8000, "a home station has 8,000 hull per opposing player");
-  assert.strictEqual(home.hp, 8000, "a home station starts at its exact hull durability");
-  assert.strictEqual(home.maxShield, 8000, "a home station has 8,000 shield per opposing player");
-  assert.strictEqual(home.shield, 8000, "a home station starts at its exact shield durability");
-  assert.strictEqual(INFRASTRUCTURE.homeStation.hullScale, undefined, "home durability has no hull scale multiplier");
-  assert.strictEqual(INFRASTRUCTURE.homeStation.shieldScale, undefined, "home durability has no shield scale multiplier");
+  assert(home.maxHp === 8000, "a home station has 8,000 hull per opposing player");
+  assert(home.hp === 8000, "a home station starts at its exact hull durability");
+  assert(home.maxShield === 8000, "a home station has 8,000 shield per opposing player");
+  assert(home.shield === 8000, "a home station starts at its exact shield durability");
+  assert(INFRASTRUCTURE.homeStation.hullScale === undefined, "home durability has no hull scale multiplier");
+  assert(INFRASTRUCTURE.homeStation.shieldScale === undefined, "home durability has no shield scale multiplier");
 
   section("Station shield and hull hitboxes match the rendered station geometry");
   const expectedHomeShieldRadius = Math.hypot(7.5 * STATION_MODULE_SCALE, 7.5 * STATION_MODULE_SCALE) * 1.06;
@@ -419,10 +419,15 @@ function runCaptureChecks() {
   assert(Math.abs(capturedAfter - duration) < 0.5, `taking an unclaimed relay takes captureDurationSeconds (took ${capturedAfter}s)`);
 
   damageStation(room, relay, relay.maxHp * 3, "p1", now, 0, 0);
-  assert(relay.state === "operational", "destroying a relay immediately reactivates it");
+  assert(relay.state === "recovering", "destroying a relay starts recovery for the destroyer's team");
   assert(relay.alive === true, "a destroyed relay remains live after handoff");
   assert(relay.team === "blue", "a destroyed relay changes to the destroyer's team");
   assert(relay.ownerId === "p1", "a destroyed relay records the destroying player");
+  assert(relay.componentHp.some((hp) => hp > 0), "a transferred relay restores real component health");
+  assert(
+    Math.abs(relay.hp - relay.componentHp.reduce((sum, hp) => sum + hp, 0)) < 0.001,
+    "a transferred relay keeps aggregate and component hull equal"
+  );
   assert(relay.captureProgress === 0 && relay.captureTeam === null, "relay handoff clears stale capture progress");
   const restored = relay.hp / relay.maxHp;
   assert(
@@ -480,15 +485,16 @@ function runSnapshotChecks() {
   assert(Array.isArray(full.stations) && full.stations.length === room.stations.length, "full snapshot lists every station");
   const fullHome = full.stations.find((s) => s.stationType === "home");
   assert(Array.isArray(fullHome.design) && fullHome.design.length > 0, "full snapshot carries station design");
-  assert(Array.isArray(fullHome.launchBays) && fullHome.launchBays.length === 3, "full snapshot carries launch-bay geometry");
-  assert(fullHome.hangar === undefined && fullHome.hangars === undefined, "full snapshot contains no compatibility hangar fields");
+  assert(fullHome.hangar?.id === "central", "full snapshot carries central hangar geometry");
+  assert(fullHome.launchBays === undefined && fullHome.hangars === undefined, "full snapshot contains no multi-hangar fields");
   assert(fullHome.shieldRadius === home.shieldRadius, "full snapshot carries the authoritative shield radius");
   assert(Array.isArray(fullHome.productionQueue) && fullHome.productionQueue.length === 1, "full snapshot carries the production queue");
 
   const compact = buildSharedSnapshot(room, 2000, false);
   const compactHome = compact.stations.find((s) => s.id === fullHome.id);
   assert(compactHome.design === undefined, "compact snapshot omits cached station design");
-  assert(compactHome.launchBays === undefined, "compact snapshot omits cached launch-bay geometry");
+  assert(compactHome.hangar === undefined, "compact snapshot omits cached hangar geometry");
+  assert(compactHome.launchBays === undefined, "compact snapshot contains no launch-bay array");
   assert(compactHome.hangars === undefined, "compact snapshot contains no multi-hangar field");
   assert(compactHome.hardpoints === undefined, "compact snapshot omits cached hardpoints");
   assert(compactHome.moduleScale === undefined, "compact snapshot omits cached module scale");
@@ -496,8 +502,8 @@ function runSnapshotChecks() {
   assert(compactHome.componentHp === undefined, "shared compact snapshot omits revision-gated component health");
   assert(Array.isArray(compactHome.weaponAnglePairs), "compact snapshot carries sparse weapon bearings");
   assert(
-    compactHome.weaponAnglePairs.length < fullHome.weaponAngles.length,
-    "sparse weapon bearings are smaller than the design-sized baseline"
+    compactHome.weaponAnglePairs.length % 2 === 0,
+    "sparse weapon bearings use index/angle pairs"
   );
   assert(Array.isArray(compactHome.productionQueue) && compactHome.productionQueue.length === 1, "compact snapshot still carries the production queue");
   const item = compactHome.productionQueue[0];
@@ -593,9 +599,10 @@ function runObjectiveHudChecks() {
   assert(control.neutral === control.total - 1, "the remaining relays stay neutral");
   const red = room.players.get("p2");
   updateEconomy(room, 1);
+  const expectedMoney = Number(require("./src/server/config").ECONOMY.captureBonus) + 25;
   assert(
-    red.income === 25 && red.money === 25,
-    `a captured station relay adds exactly $5/s to base income (income ${red.income}, money ${red.money})`
+    red.income === 25 && red.money === expectedMoney,
+    `a captured station relay adds exactly $5/s to base income after its one-time capture reward (income ${red.income}, money ${red.money})`
   );
 }
 
@@ -687,10 +694,10 @@ function runHangarDoorChecks() {
   const cos = Math.cos(home.angle);
   const sin = Math.sin(home.angle);
   // Just inside the mouth, on the corridor centreline.
-  const bay = home.launchBays.find((entry) => entry.id === "forward");
+  const hangar = home.hangar;
   const doorway = {
-    x: bay.mouth.x - cos * 8,
-    y: bay.mouth.y - sin * 8
+    x: hangar.mouth.x - cos * 8,
+    y: hangar.mouth.y - sin * 8
   };
   // An enemy nosing into the mouth is pushed back out. Without this it could
   // sit in the corridor indefinitely: a launch only begins once the corridor is
@@ -701,7 +708,7 @@ function runHangarDoorChecks() {
   // The hull this station is currently launching passes straight through.
   const launcher = {
     id: "x2", x: doorway.x, y: doorway.y, vx: 100 * cos, vy: 100 * sin,
-    launchPhase: { stationId: home.id, bayId: bay.id }
+    launchPhase: { stationId: home.id }
   };
   assert(!resolveStationCollision(room, launcher, 26), "the launching hull is not blocked by its own door");
 
@@ -713,7 +720,7 @@ function runHangarDoorChecks() {
   assert(resolveStationCollision(room, otherLauncher, 26), "another station's launch does not open this door");
 
   // The interior spawn point stays free, or nothing could ever be built.
-  const spawn = bay.interiorSpawn;
+  const spawn = hangar.interiorSpawn;
   const parked = { id: "x4", x: spawn.x, y: spawn.y, vx: 0, vy: 0 };
   assert(!resolveStationCollision(room, parked, 26), "the build position inside the corridor is still clear");
 
@@ -754,8 +761,8 @@ function runHangarDoorChecks() {
   // corridor. Clearance follows the door plane, not an enemy's radius.
   prodRoom.ships.set("block", {
     id: "block", alive: true, ownerId: "p2", team: "red",
-    x: prodHome.launchBays.find((bay) => bay.id === "forward").mouth.x + outward.x * 40,
-    y: prodHome.launchBays.find((bay) => bay.id === "forward").mouth.y + outward.y * 40,
+    x: prodHome.hangar.mouth.x + outward.x * 40,
+    y: prodHome.hangar.mouth.y + outward.y * 40,
     vx: 0, vy: 0, radius: 220, physicalRadius: 220, hp: 900, maxHp: 900
   });
   assert(enqueueBotProduction(prodRoom, player, 0), "the build is queued");

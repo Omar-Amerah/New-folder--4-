@@ -13,6 +13,7 @@ const assert = require("assert");
 const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
+  applyCombatStyle,
   commandShips,
   rotateShips,
   stopShips,
@@ -141,6 +142,29 @@ function run() {
     assert.strictEqual(picked.id, near.id, "it should acquire the nearest valid enemy");
   }
 
+  // Hold does not turn its back on an engageable target already ahead merely
+  // because a more dangerous automatic target is behind it.
+  {
+    const hunter = makeShip(2000, 2000, 0);
+    const ahead = makeShip(2300, 2000, Math.PI, UNARMED_DESIGN, "p2");
+    const behind = makeShip(1700, 2000, 0, UNARMED_DESIGN, "p2");
+    ahead.stats.weaponDps = 0;
+    behind.stats.weaponDps = 400;
+    const { room, ships } = makeScenario({ p1: [hunter], p2: [ahead, behind] });
+
+    assert.strictEqual(findTarget(room, hunter, ships)?.id, ahead.id,
+      "Hold should prefer an engageable forward target over a higher-threat rear target");
+
+    hunter.combatTargetId = behind.id;
+    assert.strictEqual(findTarget(room, hunter, ships)?.id, ahead.id,
+      "Hold should replace a sticky rear target when an engageable forward target exists");
+
+    hunter.combatStyle = "charge";
+    hunter.combatTargetId = behind.id;
+    assert.strictEqual(findTarget(room, hunter, ships)?.id, behind.id,
+      "non-Hold stances should retain their current automatic target");
+  }
+
   // Ships do not detect enemies across the map: acquisition is bounded by what
   // the ship can actually shoot.
   {
@@ -231,6 +255,15 @@ function run() {
     assert.strictEqual(sanitizeCombatStyle("brawler"), "charge");
     assert.strictEqual(sanitizeCombatStyle("interceptor"), "charge");
     assert.strictEqual(sanitizeCombatStyle("evasive"), "hold");
+
+    const transitioned = makeShip(1000, 1000);
+    transitioned.combatStyle = "charge";
+    transitioned.combatStyleRaw = "charge";
+    applyCombatStyle(transitioned, "hold");
+    assert.strictEqual(transitioned.combatStyle, "hold",
+      "a runtime style change should update the snapshotted stance");
+    assert.strictEqual(transitioned.combatStyleRaw, "hold",
+      "a runtime style change should also replace the movement stance discriminator");
   }
 
   // =======================================================================

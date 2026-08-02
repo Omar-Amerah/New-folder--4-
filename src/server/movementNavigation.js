@@ -1,6 +1,7 @@
 "use strict";
 
 const { clampNumber, fastHypot } = require("./utils");
+const { WORLD } = require("./config");
 const {
   NAV_GRID_CELL_SIZE,
   NAV_PROGRESS_EPSILON,
@@ -90,8 +91,8 @@ function applyStationClearance(room, nav) {
 function ensureRoomNavigation(room) {
   const map = room?.map || null;
   const asteroids = map?.asteroids || [];
-  const width = room?.world?.width || 2000;
-  const height = room?.world?.height || 1600;
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
   const revision = room?.mapRevision ?? map?.revision ?? 0;
   const stations = stationSignature(room);
   if (room?._movementNav
@@ -284,8 +285,8 @@ function isStaticObstacleLineClear(room, x1, y1, x2, y2, clearance, options = nu
 }
 
 function isSegmentClear(room, x1, y1, x2, y2, clearance) {
-  const width = room?.world?.width || 2000;
-  const height = room?.world?.height || 1600;
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
   if (x1 < WORLD_MARGIN + clearance
     || x1 > width - WORLD_MARGIN - clearance
     || y1 < WORLD_MARGIN + clearance

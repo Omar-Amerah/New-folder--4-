@@ -182,7 +182,7 @@ function isPointDefenceTargetValid(room, ownerId, candidate, range, now, options
     return false;
   }
 
-  const pos = _targetPosition(ent);
+  const pos = _targetPosition(ent, options.originX, options.originY);
   const distance = fastHypot(pos.x - options.originX, pos.y - options.originY);
   if (distance > range) return false;
 

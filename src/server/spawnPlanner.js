@@ -1,7 +1,8 @@
 "use strict";
 
 const { hashString, compareEntityIds, compareIdStrings } = require("./utils");
-const { TEAM_COLORS, MAP_CLEARANCES } = require("./config");
+const { TEAM_COLORS, MAP_CLEARANCES, WORLD } = require("./config");
+const { validateRelaySpawnGeometry } = require("./mapFairness");
 const DEFAULT_SHIP_RADIUS = 46;
 const STARTER_SPACING = 96;
 const MAX_FALLBACK_ATTEMPTS = 72;
@@ -94,7 +95,7 @@ function releaseSpawnReservations(room, reservations) {
 }
 
 function candidateBlockReason(room, x, y, physicalRadius, reservations, ignoredReservationIds, ignoredShips) {
-  const world = room.world || { width: 2000, height: 1600 };
+  const world = room.world || WORLD;
   const edge = WORLD_MARGIN + physicalRadius;
   if (x < edge || x > world.width - edge || y < edge || y > world.height - edge) return "world";
 
@@ -383,7 +384,7 @@ function assignRallyArrivalSlots(room, ships, rallyPoint, options = {}) {
 
 function planSpawns(room, options = {}) {
   const players = [...(room.players?.values?.() || [])].sort((a, b) => compareIdStrings(a.id, b.id));
-  const world = room.world || { width: 5120, height: 3040 };
+  const world = room.world || WORLD;
   const map = room.map || { asteroids: [], relays: [] };
   const seed = (options.seed ?? room.mapSeed ?? map.seed ?? 0) >>> 0;
   const reservations = [];
@@ -441,7 +442,7 @@ function planSpawnRegions(room, options = {}) {
     // In station mode the home station is planted at this centre, so the region
     // has to be able to hold the structure as well as the starting hulls.
     radius = Math.max(radius, stationRegionRadius(room));
-    const world = room.world || { width: 5120, height: 3040 };
+    const world = room.world || WORLD;
     const ownerPlayer = group.ownerId ? players.get(group.ownerId) : players.get(group.spawns[0].playerId);
     const borderColor = solo
       ? (ownerPlayer?.color || "#ffffff")
@@ -459,12 +460,19 @@ function planSpawnRegions(room, options = {}) {
     };
     if (group.ownerId) zone.ownerId = group.ownerId;
     if (group.team) zone.team = group.team;
-    if (!zoneInsideWorld(zone, room.world || { width: 5120, height: 3040 })) { console.log('zone outside', zone, world); throw new Error(`Unable to plan legal spawn safe zone: ${zone.id} outside world bounds`); }
+    if (!zoneInsideWorld(zone, room.world || WORLD)) { throw new Error(`Unable to plan legal spawn safe zone: ${zone.id} outside world bounds`); }
     safeZones.push(zone);
   }
   for (let i = 0; i < safeZones.length; i += 1) for (let j = i + 1; j < safeZones.length; j += 1) {
     const a = safeZones[i], b = safeZones[j];
     if (Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius) throw new Error(`Unable to plan legal spawn safe zones: ${a.id} overlaps ${b.id}`);
+  }
+  // A live generated map must remain legal if a pre-match roster change asks
+  // for a fresh spawn plan. Hand-built unit fixtures intentionally omit
+  // map.generation and continue to test slot mechanics without terrain rules.
+  if (room.map?.generation && room.map?.relays?.length) {
+    const relativeErrors = validateRelaySpawnGeometry(room.map.relays, safeZones, room.world || WORLD, MAP_CLEARANCES);
+    if (relativeErrors.length) throw new Error(`Unable to plan legal spawn safe zone: ${relativeErrors[0].message}`);
   }
   return { spawns, safeZones, key: planKey(room) };
 }
@@ -555,12 +563,16 @@ function preferredSlots(world, solo, player, players, seed, radius, edgeRadius =
   // With the default phase two solo players land on the short (vertical) axis,
   // which on small worlds leaves no legal spot for the central relay's
   // safe-zone clearance. Rotate the pair onto the long axis instead.
-  const phase = ids.length === 2 ? Math.PI / 2 : 0;
+  const phase = ids.length === 2 ? Math.PI / 2 : ids.length === 4 ? -Math.PI / 4 : 0;
   const angle = -Math.PI + phase + (2 * Math.PI * (soloIndex + 0.5)) / Math.max(1, ids.length);
-  const sectorRadiusX = world.width * 0.5 - edgeRadius - 120;
-  const sectorRadiusY = world.height * 0.5 - edgeRadius - 120;
-  const x = world.width / 2 + Math.cos(angle) * sectorRadiusX * 0.72;
-  const y = world.height / 2 + Math.sin(angle) * sectorRadiusY * 0.72;
+  // Solo fairness is measured in world units. A normalized ellipse made the
+  // side spawns much farther from the centre than the top/bottom spawns on a
+  // widescreen arena, so a central relay could never be equally reachable.
+  // Keep the actual spawn ring circular and leave a deterministic station-sized
+  // margin to the world edge.
+  const ringRadius = Math.max(0, Math.min(world.width, world.height) * 0.5 - edgeRadius - 80);
+  const x = world.width / 2 + Math.cos(angle) * ringRadius;
+  const y = world.height / 2 + Math.sin(angle) * ringRadius;
   return jitteredLine(x, y, angle + Math.PI, seed, player.id, edgeRadius, world, "solo-sector");
 }
 

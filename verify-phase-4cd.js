@@ -556,7 +556,7 @@ assert.equal(PACKED_FLEET_SOLVER(), false, "PACKED_FLEET_SOLVER defaults to fals
   buildRoomSpatialIndex(stationLaunchRoom, [], 0);
   createStationsForRoom(stationLaunchRoom, 0);
   const home = stationLaunchRoom.stations.find((station) => station.stationType === "home");
-  assert.ok(home?.hangar, "production fixture creates a real home-station hangar");
+  assert.ok(home?.hangar?.id === "central" && home.launchBays === undefined, "production fixture creates one authoritative central hangar");
   const queued = enqueueStationProduction(stationLaunchRoom, launchPlayer, {
     template: getOrCreateTemplate(
       "p1",

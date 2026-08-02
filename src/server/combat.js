@@ -4176,6 +4176,20 @@ function enemyShipThreatScore(defendedShip, enemy, distance, acquisitionRange) {
 
 }
 
+function targetIsAheadOfShip(ship, point) {
+
+  const dx = point.x - ship.x;
+
+  const dy = point.y - ship.y;
+
+  if (dx * dx + dy * dy < 1e-6) return true;
+
+  const bearing = Math.atan2(dy, dx);
+
+  return Math.abs(angleDifference(ship.angle || 0, bearing)) <= Math.PI / 2;
+
+}
+
 
 
 function findTarget(room, ship, ships) {
@@ -4186,14 +4200,19 @@ function findTarget(room, ship, ships) {
 
   let bestScore = -Infinity;
 
+  let bestFacingRank = -1;
+
   const range = maxShipWeaponAcquisitionRange(ship);
   let holdFallback = null;
+  let holdRearFallback = null;
   const now = gameplayNow(room);
   const owner = room.players?.get?.(ship.ownerId);
   const viewerTeam = owner?.team || ship.team;
 
   const stations = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "destroyed");
   const targets = (ships || []).concat(stations);
+  const preferForwardTarget = !ship.focusTargetId
+    && sanitizeCombatStyle(ship.combatStyle) === "hold";
 
 
 
@@ -4240,7 +4259,13 @@ function findTarget(room, ship, ships) {
       // well inside the envelope with an asteroid briefly in the way is worth
       // keeping, an enemy that has left is not.
       if (currentDistance <= range * TARGET_RETENTION_MULTIPLIER) {
-        if (!TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, currentPoint.x, currentPoint.y, 8))) return current;
+        if (!TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, currentPoint.x, currentPoint.y, 8))) {
+          if (!preferForwardTarget || targetIsAheadOfShip(ship, currentPoint)) return current;
+          // A rear target remains sticky unless a valid forward target exists.
+          // This lets Hold keep firing when surrounded without turning its back
+          // on an enemy already in front of the hull.
+          holdRearFallback = current;
+        }
         holdFallback = current;
       }
     }
@@ -4259,10 +4284,14 @@ function findTarget(room, ship, ships) {
     const distance = fastHypot(point.x - ship.x, point.y - ship.y);
     if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, point.x, point.y, 8))) return;
     const score = enemyShipThreatScore(ship, other, distance, range);
-    if (score > bestScore || (score === bestScore && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))) {
+    const facingRank = preferForwardTarget && targetIsAheadOfShip(ship, point) ? 1 : 0;
+    if (facingRank > bestFacingRank
+      || (facingRank === bestFacingRank
+        && (score > bestScore || (score === bestScore && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))))) {
       best = other;
       bestDistance = distance;
       bestScore = score;
+      bestFacingRank = facingRank;
     }
   }
 
@@ -4275,6 +4304,7 @@ function findTarget(room, ship, ships) {
     for (const other of targets) evaluateCandidate(other);
   }
 
+  if (holdRearFallback && bestFacingRank <= 0) best = holdRearFallback;
   if (!best && holdFallback) best = holdFallback;
 
 
@@ -4811,7 +4841,12 @@ function buildShipTurretDiagnostics(room, ship) {
 
     // ship the room still knows about (PD bullet targets have no ship entry).
 
-    const targetShip = aimTargetId ? room.ships?.get?.(aimTargetId) || null : null;
+    const targetEntity = aimTargetId
+      ? room.ships?.get?.(aimTargetId)
+        || room.stationsById?.get?.(aimTargetId)
+        || room.stations?.find?.((station) => station?.id === aimTargetId)
+        || null
+      : null;
 
     let targetDistance = null;
 
@@ -4819,13 +4854,14 @@ function buildShipTurretDiagnostics(room, ship) {
 
     let inFixedArc = null;
 
-    if (targetShip) {
+    if (targetEntity) {
 
-      targetDistance = fastHypot(targetShip.x - origin.x, targetShip.y - origin.y);
+      const targetPoint = targetAttackPoint(origin.x, origin.y, targetEntity);
+      targetDistance = fastHypot(targetPoint.x - origin.x, targetPoint.y - origin.y);
 
       inFiringRange = targetDistance <= range;
 
-      inFixedArc = isTargetInWeaponArc(ship, module, targetShip, arcRadians);
+      inFixedArc = isTargetInWeaponArc(ship, module, targetEntity, arcRadians);
 
     }
 

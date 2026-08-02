@@ -12,6 +12,7 @@
 
 import { state } from "../../state.js";
 import { GENERATED_BALANCE } from "../../generatedBalance.js";
+import { TEAM_COLORS, teamColorFor } from "../../shared/teamColors.js";
 import { clamp, approachAngle } from "../../shared/math.js";
 import { PART_STATS } from "../../design/parts.js";
 import { normalizeRotation } from "../../design/rotation.js";
@@ -58,10 +59,7 @@ let pixiShipPool = null;
 let pixiGradientCache = new Map();
 const COMMAND_AURA_RANGE = Number(GENERATED_BALANCE?.commandAura?.range) || 500;
 
-const TEAM_STATUS_BORDER_COLORS = {
-  friendly: "#38d5ff",
-  enemy: "#ef4444"
-};
+const TEAM_STATUS_BORDER_COLORS = TEAM_COLORS;
 
 function isSoloMode() {
   return state.rules?.gameMode === "solo";
@@ -76,8 +74,12 @@ function playerTeamRelation(player) {
 
 function statusBorderColorForPlayer(player) {
   const relation = playerTeamRelation(player);
-  if (relation === "solo") return player?.color || "#38d5ff";
-  return relation === "friendly" ? TEAM_STATUS_BORDER_COLORS.friendly : TEAM_STATUS_BORDER_COLORS.enemy;
+  if (relation === "solo") return player?.color || TEAM_STATUS_BORDER_COLORS.blue;
+  // Relationship still controls gameplay presentation, but the colour itself
+  // identifies the authoritative team so a red-team viewer sees red allies and
+  // blue enemies rather than a fixed friendly/hostile palette.
+  return teamColorFor(player?.team)
+    || (relation === "friendly" ? TEAM_STATUS_BORDER_COLORS.blue : TEAM_STATUS_BORDER_COLORS.red);
 }
 
 function normalizePixiStrokeColor(color) {

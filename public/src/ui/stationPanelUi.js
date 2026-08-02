@@ -2,7 +2,7 @@
 // infrastructure mode only).
 //
 // Stations are not commandable, so this panel is read-only: vitals, operational
-// state, what the home station's launch bays are building, and the queue behind it.
+// state, what the home station's central hangar is building, and the queue behind it.
 // The panel stays hidden entirely in Classic rooms, where no station exists.
 
 import { dom } from "./dom.js";
@@ -17,6 +17,7 @@ import {
 
 const STATE_LABELS = {
   operational: "Operational",
+  recovering: "Recovering",
   destroyed: "Destroyed",
   neutral: "Unclaimed",
   controlled: "Controlled"
@@ -83,7 +84,7 @@ function renderMeter(label, value, max, kind) {
 
 function renderProductionQueue(station) {
   const queue = Array.isArray(station.productionQueue) ? station.productionQueue : [];
-  if (queue.length === 0) return `<p class="station-empty">Launch bays idle — nothing in production.</p>`;
+  if (queue.length === 0) return `<p class="station-empty">Central hangar idle — nothing in production.</p>`;
   const rows = queue.map((item, index) => {
     const stateLabel = QUEUE_STATE_LABELS[item.state] || item.state;
     const progress = Math.round(Math.max(0, Math.min(1, Number(item.progress) || 0)) * 100);
@@ -102,7 +103,7 @@ function renderProductionQueue(station) {
 }
 
 // Your own home station is where every purchase you make is built, so it is the
-// panel's default subject: in station mode the launch bays are visible from the moment
+// panel's default subject: in station mode the central hangar is visible from the moment
 // the match starts, without having to find and click the structure first.
 export function ownHomeStation() {
   const myTeam = state.mine?.team;
@@ -161,7 +162,7 @@ export function renderStationPanel() {
     </div>`
   ];
   if (station.stationType === "home") {
-    sections.push(`<div class="station-subhead"><h3>Launch Bays</h3></div>`);
+    sections.push(`<div class="station-subhead"><h3>Central Hangar</h3></div>`);
     sections.push(renderProductionQueue(station));
   }
 

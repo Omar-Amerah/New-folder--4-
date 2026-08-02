@@ -427,6 +427,7 @@ const COUNTER_FIELDS = Object.freeze([
   "stationSpawnFleetCapBlocks",
   "stationSpawnMissingPlayerBlocks",
   "stationSpawnMissingHangarBlocks",
+  "stationSpawnOccupiedHangarBlocks",
   "stationActiveLaunchesVisited",
   "stationLaunchesReleased",
   "stationLaunchesRemovedMissingShip",

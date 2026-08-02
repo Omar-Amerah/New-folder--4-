@@ -44,6 +44,8 @@ export const DIAGNOSTICS_ENABLED = (() => {
   }
 })();
 
+// Only used before the first authoritative hello/join payload arrives. All
+// rendering and coordinate math continues to read state.world after that.
 export const WORLD_FALLBACK = { width: 3200, height: 1900 };
 export const PART_CATEGORIES = ["Structure", "Power", "Heat Components", "Engines", "Defence", "Weapons", "Support", "Command"];
 

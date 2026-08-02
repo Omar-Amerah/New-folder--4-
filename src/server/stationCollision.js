@@ -81,7 +81,7 @@ function segmentStationHullHit(station, x0, y0, x1, y1, margin = 0) {
   const padding = Math.max(0, Number(margin) || 0);
   for (const piece of station?.collisionPieces || []) {
     // The one-way launch door is a movement barrier, not visible hull plating.
-    // Weapons may enter the open hangar and strike its rendered rear bulkhead.
+    // Weapons may enter the open hangar and strike its rendered rear wall.
     if (piece.door) continue;
     const angle = Number(piece.angle) || 0;
     const cos = Math.cos(-angle);
@@ -178,7 +178,7 @@ function stationShieldCollisionRadius(station) {
 // One authoritative point for attacking a station. A live shield is a circular
 // target, so weapons aim at the point on its circumference nearest the firing
 // origin. Once the shield is down, the nearest point is selected from the
-// compound solid hull pieces; the authored launch-bay voids can therefore never
+// compound solid hull pieces; the authored hangar void can therefore never
 // become a fake hull target.
 function stationAttackPoint(originX, originY, station) {
   const sx = Number(station?.x) || 0;

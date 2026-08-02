@@ -493,6 +493,12 @@ function maybeStartMatch(room, now) {
   const { broadcastRoom, broadcastSnapshot } = require("./messages");
   const players = [...room.players.values()].filter((player) => !player.removed && !player.isBot ? (player.connected !== false || player.disconnectTimeout) : !player.removed);
   if (!players.length || players.some((player) => !player.ready)) return;
+  // Final designs can change fleet radius/count after the design-phase arena was
+  // prepared. Regenerate once against the complete ready roster before freezing
+  // the plan, so the authoritative safe zones, relay fairness, and station
+  // centres describe the same final deployment. maybeStartMatch is phase-guarded,
+  // so disconnects during an active match never regenerate the arena.
+  require("./rooms").prepareArenaForCurrentPlayers(room);
   // Finalize each player's base while the complete ready roster is still
   // present. Departures during combat must not reshuffle surviving teammates.
   require("./spawnPlanner").freezeSpawnPlan(room);

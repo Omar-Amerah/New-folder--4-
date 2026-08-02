@@ -142,7 +142,11 @@ function verifySchemaAndDefaults() {
 
 function verifyWeaponRuntime() {
   const config = scenario("medium battle, 150 ships");
-  const result = pairedRun(config, 4);
+  // Five ticks crosses the deterministic target-acquisition cadence even with
+  // the restored station's intentionally smaller hardpoint set. Four ticks can
+  // end immediately after a retained-target pass and report a valid zero
+  // search count, making this instrumentation assertion depend on gun count.
+  const result = pairedRun(config, 5);
   const t = telemetry(result.left.room);
   assert(t.stationsWeaponProcessed > 0, "station weapon stations are processed");
   assert(t.stationWeaponComponentsVisited >= t.stationWeaponComponentsOperational, "weapon component counters are ordered");
@@ -171,7 +175,7 @@ function verifyWeaponRuntime() {
 
   const destroyed = pairedRun(scenario("mostly destroyed station weapons"), 2);
   assert(telemetry(destroyed.left.room).stationWeaponComponentsVisited > 0, "destroyed station components remain visible to the profile");
-  assert(result.checksums.length === 4, "paired weapon checks compare every authoritative tick");
+  assert(result.checksums.length === 5, "paired weapon checks compare every authoritative tick");
 }
 
 function verifyCaptureRuntime() {

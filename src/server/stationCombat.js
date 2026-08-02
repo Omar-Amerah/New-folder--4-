@@ -4,16 +4,21 @@
 
 const { PARTS } = require("./components");
 const { BALANCE } = require("./balanceConfig");
+const { ECONOMY } = require("./config");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { getComponentPowerMultiplier } = require("./componentPower");
-const { isComponentAlive, markComponentDamageChanged } = require("./componentHealth");
+const {
+  isComponentAlive,
+  markComponentDamageChanged,
+  bumpComponentAliveRevision
+} = require("./componentHealth");
 const { addBullet } = require("./projectiles");
 const { angleDifference, fastHypot, rngRange, rotateToward, performanceNow } = require("./utils");
 const TurretRules = require("../../public/src/shared/turretRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
 const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./stationTemplates");
 const { isInSafeZone, isLineBlocked, areEnemies, weaponReloadSeconds, findPointDefenseTarget, _lookupPointDefenceEntity } = require("./combat");
-const { canTeamTargetEntity } = require("./visibility");
+const { canTeamTargetEntity, invalidateVisibility } = require("./visibility");
 const PerformanceFlags = require("./performanceFlags");
 const Targeting = require("./targetingEligibility");
 const TargetingCadence = require("./targetingCadence");
@@ -274,37 +279,194 @@ function applyComponentDamage(station, amount) {
     const hp = station.componentHp[i];
     const dealt = Math.min(hp, left);
     station.componentHp[i] -= dealt;
-    station.hp -= dealt;
+    if (station.componentHp[i] <= 0.0001) station.componentHp[i] = 0;
     markComponentDamageChanged(station, i);
     applied += dealt;
     left -= dealt;
   }
+  station.hp = station.componentHp.reduce((sum, hp) => sum + Math.max(0, Number(hp) || 0), 0);
   station.healthRevision = (station.healthRevision || 0) + 1;
   return applied;
 }
 
-// A relay is transferred at the moment its hull is destroyed. It never spends a
-// frame in an ownerless intermediate state: the attacking team's ship is the
-// captor, and the existing capture restore ratio supplies the wreck's initial
-// hull strength. Neutral relays can still be captured by presence through the
-// timed objective path in stations.js.
-function activateRelayStation(station, ownerId, team, cfg = BALANCE.infrastructure?.relayStation) {
-  if (!station || station.stationType !== "relay") return false;
-  const restore = Number(cfg?.captureRestoreHpRatio);
-  const floor = Number.isFinite(restore) && restore > 0
-    ? station.maxHp * restore
-    : station.maxHp;
-  station.ownerId = team ? (ownerId || null) : null;
-  station.team = team || null;
-  station.state = team ? "operational" : "neutral";
+function relayRestoreRatio(cfg) {
+  const configured = Number(cfg?.captureRestoreHpRatio);
+  if (!Number.isFinite(configured) || configured <= 0) return 0.35;
+  return Math.max(Number.EPSILON, Math.min(1, configured));
+}
+
+function relayRecoveryThresholdRatio(cfg) {
+  const configured = Number(cfg?.recoveryOperationalHpRatio);
+  return Number.isFinite(configured)
+    ? Math.max(0, Math.min(1, configured))
+    : 0.25;
+}
+
+function stationComponentHpTotal(station) {
+  return (station.componentHp || []).reduce((sum, hp) => sum + Math.max(0, Number(hp) || 0), 0);
+}
+
+function restoreRelayComponentHp(station, ratio) {
+  if (!Array.isArray(station?.componentMaxHp) || station.componentMaxHp.length === 0) return false;
+  if (!Array.isArray(station.componentHp) || station.componentHp.length !== station.componentMaxHp.length) {
+    station.componentHp = station.componentMaxHp.map(() => 0);
+  }
+
+  const restoredHull = Math.max(0, Number(station.maxHp) || 0) * ratio;
+  const anchor = station.componentMaxHp.findIndex((value) => Number(value) > 0);
+  if (anchor < 0 || !(restoredHull > 0)) return false;
+
+  const next = station.componentMaxHp.map((value) => Math.max(0, Number(value) || 0) * ratio);
+  const nextSum = next.reduce((sum, value) => sum + value, 0);
+  next[anchor] = Math.max(0, next[anchor] + restoredHull - nextSum);
+
+  let revived = false;
+  for (let i = 0; i < next.length; i += 1) {
+    const previous = Math.max(0, Number(station.componentHp[i]) || 0);
+    station.componentHp[i] = next[i];
+    if (previous !== next[i]) markComponentDamageChanged(station, i);
+    if (!(previous > 0) && next[i] > 0) revived = true;
+  }
+  if (revived) bumpComponentAliveRevision(station);
+  station.hp = stationComponentHpTotal(station);
+  station.healthRevision = (station.healthRevision || 0) + 1;
+  return station.hp > 0 && station.componentHp.some((hp) => hp > 0);
+}
+
+function repairStationComponents(station, amount) {
+  let remaining = Math.max(0, Number(amount) || 0);
+  if (!(remaining > 0) || !Array.isArray(station?.componentHp)) return 0;
+
+  let healed = 0;
+  let revived = false;
+  for (let i = 0; i < station.componentHp.length && remaining > 0.0001; i += 1) {
+    const current = Math.max(0, Number(station.componentHp[i]) || 0);
+    const maximum = Math.max(0, Number(station.componentMaxHp?.[i]) || 0);
+    const missing = maximum - current;
+    if (!(missing > 0)) continue;
+    const restored = Math.min(remaining, missing);
+    station.componentHp[i] = current + restored;
+    markComponentDamageChanged(station, i);
+    if (!(current > 0) && station.componentHp[i] > 0) revived = true;
+    healed += restored;
+    remaining -= restored;
+  }
+
+  if (healed > 0) {
+    if (revived) bumpComponentAliveRevision(station);
+    station.hp = stationComponentHpTotal(station);
+    station.healthRevision = (station.healthRevision || 0) + 1;
+  }
+  return healed;
+}
+
+function clearRelayCombatIdentity(room, station) {
+  const arrays = [
+    "weaponAimTargetIds",
+    "weaponFireTargetIds",
+    "weaponComponentTargetIds",
+    "weaponComponentTargetIndices",
+    "weaponComponentRetargetAt",
+    "weaponBeamContacts",
+    "weaponDesiredAngles"
+  ];
+  for (const key of arrays) {
+    if (Array.isArray(station[key])) {
+      station[key].fill(key === "weaponComponentTargetIds" || key === "weaponComponentTargetIndices" ? -1 : key === "weaponComponentRetargetAt" ? 0 : null);
+    }
+  }
+  station.weaponCooldowns?.fill?.(0);
+  delete station._visibilityTeamGeneration;
+  delete station._visibilityTeamValue;
+  delete station._sensorProfileCacheGeneration;
+  delete station._sensorProfileCacheValue;
+  station._weaponTargetState = null;
+  station._pdThreatSet = null;
+  station._pdThreatMetadataCache = null;
+  station._pdSelectionState = null;
+  station._targetAcquisitionSchedule = null;
+  station._targetAcquisitionOffsets = null;
+  station._stationWeaponEnemyTargets?.splice?.(0);
+  station._snapshotWeaponRangeCache = null;
+  station._snapshotComponentHpCache = null;
+  clearStationWeaponRuntime(room);
+
+  require("./relationships").invalidateRelationshipCache(room);
+  require("./targetingCadence").invalidateAllAcquisitionSchedules(room);
+  require("./pointDefenceThreats").invalidateAllPointDefenceThreatSets(room);
+}
+
+function relayAttacker(room, attackerId) {
+  const attacker = room?.players?.get?.(attackerId);
+  if (!attacker || attacker.removed) return null;
+  const team = attacker.team || attacker.id;
+  if ((typeof team !== "string" && typeof team !== "number") || !String(team).trim() || String(team) === "neutral") return null;
+  if (room.rules?.gameMode !== "solo" && !attacker.team) return null;
+  return { attacker, team: String(team) };
+}
+
+function awardRelayTransfer(room, station, attacker, team, now) {
+  const { broadcastRoom } = require("./messages");
+  const { teamLabel } = require("./players");
+  const reward = Math.max(0, Number(ECONOMY.captureBonus) || 0);
+  const recipients = [...(room.players?.values?.() || [])].filter((player) => {
+    if (player.removed) return false;
+    const playerTeam = player.team || (room.rules?.gameMode === "solo" ? player.id : null);
+    return playerTeam === team;
+  });
+  for (const player of recipients) {
+    player.captures = (Number(player.captures) || 0) + 1;
+    if (reward > 0) {
+      player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, (Number(player.money) || 0) + reward);
+      player.earned = (Number(player.earned) || 0) + reward;
+    }
+  }
+  const label = teamLabel(room, team, attacker.name || "A wing");
+  broadcastRoom(room, {
+    type: "notice",
+    message: `${label} captured relay ${station.relayId || station.id}: +$${reward}, +$${ECONOMY.relayIncome}/s`
+  });
+}
+
+// The only authority that can transfer a relay. Home stations intentionally do
+// not enter this path: their zero-hull branch below remains a match-ending
+// destruction, not a capture or recovery.
+function transferRelayControl(room, station, attackerId, now) {
+  if (!room || !station || station.stationType !== "relay") return false;
+  const resolved = relayAttacker(room, attackerId);
+  if (!resolved) return false;
+  const { attacker, team } = resolved;
+  if (station.team && String(station.team) === team) return false;
+
+  const cfg = BALANCE.infrastructure?.relayStation;
+  const restored = restoreRelayComponentHp(station, relayRestoreRatio(cfg));
+  if (!restored) return false;
+
+  station.ownerId = attacker.id;
+  station.team = team;
+  station.state = "recovering";
   station.alive = true;
-  station.hp = Math.min(station.maxHp, Math.max(station.hp, floor));
+  station.shield = 0;
   station.captureProgress = 0;
   station.captureTeam = null;
   station.captureContested = false;
+  station.lastCapturedBy = attacker.id;
+  station.lastCapturedAt = now;
   station.captureRevision = (station.captureRevision || 0) + 1;
   station.stateRevision = (station.stateRevision || 0) + 1;
-  station.healthRevision = (station.healthRevision || 0) + 1;
+  room.stationRevision = (room.stationRevision || 0) + 1;
+
+  clearRelayCombatIdentity(room, station);
+  invalidateVisibility(room, {
+    reason: "relay-transfer",
+    entityIds: [station.id],
+    allegianceChanged: true
+  });
+  if (room._visibilityRuntime) {
+    require("./visibilityRuntime").registerSensorSource(room, station, "station");
+  }
+  awardRelayTransfer(room, station, attacker, team, now);
+  require("./objectives").updateControlVictory(room, now);
   return true;
 }
 
@@ -331,8 +493,6 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
     station.lastDamagedAt = now;
   }
 
-  const infra = BALANCE.infrastructure || {};
-  const cfg = station.stationType === "home" ? infra.homeStation : infra.relayStation;
   const homeComponentsDestroyed = station.stationType === "home" && !station.componentHp.some((hp) => hp > 0);
   if (station.stationType === "home" && station.state !== "destroyed" && (station.hp <= 0.001 || homeComponentsDestroyed)) {
     station.hp = 0;
@@ -342,8 +502,7 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
     station.stateRevision = (station.stateRevision || 0) + 1;
     require("./objectives").finalizeHomeStationDestruction(room, station, attackerId, now);
   } else if (station.stationType === "relay" && station.hp <= 0.001 && station.state !== "destroyed") {
-    const attacker = room.players.get(attackerId);
-    activateRelayStation(station, attacker?.id, attacker?.team, cfg);
+    transferRelayControl(room, station, attackerId, now);
   }
 
   return applied;
@@ -786,7 +945,9 @@ module.exports = {
   liveStations,
   updateStationWeapons,
   clearStationWeaponRuntime,
-  activateRelayStation,
+  transferRelayControl,
+  repairStationComponents,
+  relayRecoveryThresholdRatio,
   damageStation,
   stationModuleWorldPosition,
   STATION_MODULE_SCALE

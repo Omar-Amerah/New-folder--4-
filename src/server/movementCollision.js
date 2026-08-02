@@ -1,6 +1,7 @@
 "use strict";
 
 const { clampNumber, fastHypot, hashString, compareEntityIds, compareNaturalIds, performanceNow } = require("./utils");
+const { WORLD } = require("./config");
 const { bump, recordDuration } = require("./roomTelemetry");
 const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { findShipHullOverlap } = require("./componentGeometry");
@@ -62,8 +63,8 @@ function shipIsStopped(ship) {
 
 function resolveMapCollision(room, ship) {
   const radius = physicalCollisionRadius(ship);
-  const width = room?.world?.width || 2000;
-  const height = room?.world?.height || 1600;
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
   const scratch = room._mapCollisionScratch || (room._mapCollisionScratch = []);
   const asteroids = room.spatialIndex?.dynamicValid && room.spatialIndex.queryAabbUnordered
     ? room.spatialIndex.queryAabbUnordered(
@@ -168,8 +169,8 @@ function resolveSeparationPair(room, a, b, options = null) {
     * (Number.isFinite(options?.correction) ? options.correction : SEPARATION_CORRECTION);
   const moveA = correction * inverseMassA / inverseMassSum;
   const moveB = correction * inverseMassB / inverseMassSum;
-  const width = room.world?.width || 2000;
-  const height = room.world?.height || 1600;
+  const width = room.world?.width || WORLD.width;
+  const height = room.world?.height || WORLD.height;
   const edgeA = WORLD_MARGIN + physicalCollisionRadius(a);
   const edgeB = WORLD_MARGIN + physicalCollisionRadius(b);
   const oldAX = a.x;

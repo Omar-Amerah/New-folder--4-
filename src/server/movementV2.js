@@ -56,6 +56,7 @@ const {
   fastHypot,
   performanceNow
 } = require("./utils");
+const { WORLD } = require("./config");
 const { gameplayNow } = require("./gameplayTime");
 const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const { selectOwnedLivingShips } = require("./selection");
@@ -473,8 +474,8 @@ function integratePosition(room, ship, dt) {
   ship.y = (ship.y || 0) + dy;
   ship._integratedMovementX = (ship._integratedMovementX || 0) + dx;
   ship._integratedMovementY = (ship._integratedMovementY || 0) + dy;
-  const width = room?.world?.width || 2000;
-  const height = room?.world?.height || 1600;
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
   if (ship.x < EDGE_BOUNCE_MARGIN) {
     ship.x = EDGE_BOUNCE_MARGIN;
     ship.vx = Math.abs(ship.vx || 0) * EDGE_RESTITUTION;
@@ -576,6 +577,16 @@ function targetSurfacePoint(target, bearing) {
   );
 }
 
+function targetAttackPointFrom(originX, originY, target) {
+  if (targetIsStation(target)) return stationAttackPoint(originX, originY, target);
+  return { x: target.x, y: target.y };
+}
+
+function targetDistanceFrom(originX, originY, target) {
+  const point = targetAttackPointFrom(originX, originY, target);
+  return fastHypot(point.x - originX, point.y - originY);
+}
+
 function engagementGeometry(ship, target) {
   if (targetIsStation(target)) {
     const surface = stationAttackPoint(ship.x || 0, ship.y || 0, target);
@@ -593,7 +604,8 @@ function engagementGeometry(ship, target) {
 }
 
 function firingLineClearFrom(room, x, y, target, margin = 8) {
-  const bearing = Math.atan2(y - target.y, x - target.x);
+  const targetPoint = targetAttackPointFrom(x, y, target);
+  const bearing = Math.atan2(y - targetPoint.y, x - targetPoint.x);
   const surface = targetSurfacePoint(target, bearing);
   return isStaticObstacleLineClear(room, x, y, surface.x, surface.y, margin, {
     ignoreStationContainingEndpoint: true
@@ -605,9 +617,15 @@ function currentFiringLineClear(room, ship, target) {
 }
 
 function radialSeparationSpeed(ship, target, distance) {
-  if (!(distance > BEARING_MIN_DISTANCE)) return 0;
-  const unitX = (target.x - (ship.x || 0)) / distance;
-  const unitY = (target.y - (ship.y || 0)) / distance;
+  const originX = ship.x || 0;
+  const originY = ship.y || 0;
+  const point = targetAttackPointFrom(originX, originY, target);
+  const actualDistance = targetIsStation(target)
+    ? fastHypot(point.x - originX, point.y - originY)
+    : distance;
+  if (!(actualDistance > BEARING_MIN_DISTANCE)) return 0;
+  const unitX = (point.x - originX) / actualDistance;
+  const unitY = (point.y - originY) / actualDistance;
   return ((target.vx || 0) - (ship.vx || 0)) * unitX
     + ((target.vy || 0) - (ship.vy || 0)) * unitY;
 }
@@ -678,20 +696,14 @@ function refreshEngagement(room, ship, runtime, now) {
     runtime.holdEngaged = false;
     const armed = shipHasArmedProximityCharge(ship);
     if (runtime.chargeEngaged) {
-      if (distance <= resume && radialSeparationSpeed(ship, target, fastHypot(
-        target.x - (ship.x || 0),
-        target.y - (ship.y || 0)
-      )) <= CHARGE_PURSUE_SPEED) {
+      if (distance <= resume && radialSeparationSpeed(ship, target, targetDistanceFrom(ship.x || 0, ship.y || 0, target)) <= CHARGE_PURSUE_SPEED) {
         runtime.blocked = false;
         clearRoute(runtime);
         return;
       }
       runtime.chargeEngaged = false;
     } else if (distance <= enter
-      && (armed || Math.abs(radialSeparationSpeed(ship, target, fastHypot(
-        target.x - (ship.x || 0),
-        target.y - (ship.y || 0)
-      ))) <= CHARGE_SETTLE_RADIAL_SPEED)) {
+      && (armed || Math.abs(radialSeparationSpeed(ship, target, targetDistanceFrom(ship.x || 0, ship.y || 0, target))) <= CHARGE_SETTLE_RADIAL_SPEED)) {
       runtime.chargeEngaged = true;
       runtime.blocked = false;
       clearRoute(runtime);
@@ -835,10 +847,11 @@ function firingSlot(command) {
 function chargeBearing(ship, target, command, standoff) {
   const assigned = command?.chargeBearing;
   if (Number.isFinite(assigned)) {
-    const distance = fastHypot(target.x - (ship.x || 0), target.y - (ship.y || 0));
+    const distance = targetDistanceFrom(ship.x || 0, ship.y || 0, target);
     if (distance > standoff * CHARGE_RING_FADE) return assigned;
   }
-  return Math.atan2((ship.y || 0) - target.y, (ship.x || 0) - target.x);
+  const targetPoint = targetAttackPointFrom(ship.x || 0, ship.y || 0, target);
+  return Math.atan2((ship.y || 0) - targetPoint.y, (ship.x || 0) - targetPoint.x);
 }
 
 // The bearing this ship approaches its target on.
@@ -859,7 +872,8 @@ function heldApproach(ship, target, runtime) {
   const held = runtime.engageApproach;
   const detouring = (runtime.path?.length || 0) > 0;
   if (held && held.targetId === target.id && detouring) return held.approach;
-  const approach = Math.atan2((ship.y || 0) - target.y, (ship.x || 0) - target.x);
+  const targetPoint = targetAttackPointFrom(ship.x || 0, ship.y || 0, target);
+  const approach = Math.atan2((ship.y || 0) - targetPoint.y, (ship.x || 0) - targetPoint.x);
   runtime.engageApproach = { targetId: target.id, approach };
   return approach;
 }
@@ -1749,8 +1763,8 @@ function stationaryHeading(room, ship, runtime, command) {
   if (combatStance(ship) !== "sentry") {
     const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
     if (engaged) {
-      const distance = fastHypot(engaged.target.x - (ship.x || 0), engaged.target.y - (ship.y || 0));
-      if (distance > BEARING_MIN_DISTANCE) return bearingTo(ship, engaged.target);
+      const distance = targetDistanceFrom(ship.x || 0, ship.y || 0, engaged.target);
+      if (distance > BEARING_MIN_DISTANCE) return bearingTo(ship, targetAttackPointFrom(ship.x || 0, ship.y || 0, engaged.target));
     }
   }
   return restingHeading(ship, command);
@@ -1862,10 +1876,10 @@ function planMovement(room, ship, runtime, stats, route) {
     // what it was engaging.
     const speed = Math.abs(forwardSpeedOf(ship));
     const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
-    const distance = engaged ? fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y) : 0;
+    const distance = engaged ? targetDistanceFrom(ship.x, ship.y, engaged.target) : 0;
     return {
       desiredHeading: engaged && distance > BEARING_MIN_DISTANCE
-        ? bearingTo(ship, engaged.target)
+        ? bearingTo(ship, targetAttackPointFrom(ship.x, ship.y, engaged.target))
         : (ship.angle || 0),
       desiredSpeed: 0,
       phase: speed > REST_SPEED ? "braking" : "positioned"
@@ -1882,10 +1896,10 @@ function planMovement(room, ship, runtime, stats, route) {
   if (!destination) {
     const engaged = combatStance(ship) !== "sentry" && movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
     if (engaged) {
-      const distance = fastHypot(engaged.target.x - ship.x, engaged.target.y - ship.y);
+      const distance = targetDistanceFrom(ship.x, ship.y, engaged.target);
       return {
         desiredHeading: distance > BEARING_MIN_DISTANCE
-          ? bearingTo(ship, engaged.target)
+          ? bearingTo(ship, targetAttackPointFrom(ship.x, ship.y, engaged.target))
           : (ship.angle || 0),
         desiredSpeed: 0,
         phase: runtime.blocked ? "blocked" : "positioned"
@@ -2032,8 +2046,8 @@ function initializeKinematics(ship) {
 }
 
 function sanitizeMovementState(room, ship) {
-  const width = room?.world?.width || 2000;
-  const height = room?.world?.height || 1600;
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
   ship.x = clampNumber(ship.x, EDGE_BOUNCE_MARGIN, width - EDGE_BOUNCE_MARGIN);
   ship.y = clampNumber(ship.y, EDGE_BOUNCE_MARGIN, height - EDGE_BOUNCE_MARGIN);
   ship.vx = clampNumber(ship.vx, -10000, 10000);
@@ -2699,8 +2713,8 @@ function commandShips(room, player, x, y, options = {}) {
     return { ok: true, code: "repair", commanded: ships.length };
   }
 
-  const width = room?.world?.width || 2000;
-  const height = room?.world?.height || 1600;
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
   const destination = {
     x: clampNumber(x, WORLD_MARGIN, width - WORLD_MARGIN),
     y: clampNumber(y, WORLD_MARGIN, height - WORLD_MARGIN)
@@ -2804,6 +2818,12 @@ function rotateShips(room, player, options) {
 // the controller never sees a stance it has no code for.
 function applyCombatStyle(ship, combatStyle) {
   ship.combatStyle = combatStyle;
+  // Runtime stance changes are already sanitized by the message router. Keep
+  // the raw discriminator in step with that authoritative value as well:
+  // combatStance() consults combatStyleRaw first so legacy spawn aliases can be
+  // interpreted correctly, and leaving it stale made a ship continue flying
+  // its previous stance while snapshots reported the newly selected one.
+  ship.combatStyleRaw = combatStyle;
 }
 
 // Merge, not replace: a request naming one toggle leaves the rest of the ship's

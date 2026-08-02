@@ -145,49 +145,48 @@ function roundStationPoint(point) {
   return { x: round(point.x), y: round(point.y) };
 }
 
-// Static station geometry is copied without runtime occupancy. A bay's current
-// ship belongs to the dynamic launch state below, never to the cached baseline.
-function buildStationLaunchBaySnapshots(station) {
-  if (!Array.isArray(station?.launchBays)) return undefined;
-  return station.launchBays.map((bay) => ({
-    id: bay.id,
-    localCentre: roundStationPoint(bay.localCentre),
-    worldCentre: roundStationPoint(bay.worldCentre),
-    localNormal: roundStationPoint(bay.localNormal),
-    worldNormal: roundStationPoint(bay.worldNormal),
-    apertureHalfWidth: round(bay.apertureHalfWidth),
-    apertureWidth: round(bay.apertureWidth),
-    corridorDepth: round(bay.corridorDepth),
-    corridorLength: round(bay.corridorLength),
-    rampDepth: round(bay.rampDepth),
-    interiorSpawn: roundStationPoint(bay.interiorSpawn),
-    mouth: roundStationPoint(bay.mouth),
-    innerWall: roundStationPoint(bay.innerWall),
-    releasePlane: roundStationPoint(bay.releasePlane),
-    releaseDistance: round(bay.releaseDistance),
-    collisionOpening: bay.collisionOpening ? {
-      minX: round(bay.collisionOpening.minX),
-      maxX: round(bay.collisionOpening.maxX),
-      minY: round(bay.collisionOpening.minY),
-      maxY: round(bay.collisionOpening.maxY)
+// Static station geometry is copied without runtime occupancy. The hangar's
+// current ship belongs to the dynamic launch state below, never to the cached
+// baseline.
+function buildStationHangarSnapshot(station) {
+  const hangar = station?.hangar;
+  if (!hangar) return undefined;
+  return {
+    id: hangar.id,
+    localCentre: roundStationPoint(hangar.localCentre),
+    worldCentre: roundStationPoint(hangar.worldCentre),
+    localNormal: roundStationPoint(hangar.localNormal),
+    apertureHalfWidth: round(hangar.apertureHalfWidth),
+    apertureWidth: round(hangar.apertureWidth),
+    corridorDepth: round(hangar.corridorDepth),
+    corridorLength: round(hangar.corridorLength),
+    interiorSpawn: roundStationPoint(hangar.interiorSpawn),
+    mouth: roundStationPoint(hangar.mouth),
+    innerWall: roundStationPoint(hangar.innerWall),
+    releasePlane: roundStationPoint(hangar.releasePlane),
+    releaseDistance: round(hangar.releaseDistance),
+    collisionOpening: hangar.collisionOpening ? {
+      minX: round(hangar.collisionOpening.minX),
+      maxX: round(hangar.collisionOpening.maxX),
+      minY: round(hangar.collisionOpening.minY),
+      maxY: round(hangar.collisionOpening.maxY)
     } : undefined,
-    doorRect: bay.doorRect ? {
-      minX: round(bay.doorRect.minX),
-      maxX: round(bay.doorRect.maxX),
-      minY: round(bay.doorRect.minY),
-      maxY: round(bay.doorRect.maxY)
+    doorRect: hangar.doorRect ? {
+      minX: round(hangar.doorRect.minX),
+      maxX: round(hangar.doorRect.maxX),
+      minY: round(hangar.doorRect.minY),
+      maxY: round(hangar.doorRect.maxY)
     } : undefined,
-    maximumShipWidth: round(bay.maximumShipWidth),
-    maximumShipHeight: round(bay.maximumShipHeight),
-    clearance: round(bay.clearance),
-    safetyMargin: round(bay.safetyMargin)
-  }));
+    maximumShipWidth: round(hangar.maximumShipWidth),
+    maximumShipHeight: round(hangar.maximumShipHeight),
+    clearance: round(hangar.clearance),
+    safetyMargin: round(hangar.safetyMargin)
+  };
 }
 
 function buildStationLaunchState(station) {
   if (station?.stationType !== "home") return undefined;
   return (station.activeLaunches || []).map((launch) => ({
-    bayId: launch.bayId,
     shipId: launch.shipId,
     progress: round(clampNumber(Number(launch.progress) || 0, 0, 1)),
     doorOpen: launch.doorOpen !== false
@@ -214,6 +213,7 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     componentDamageRevision: station.componentDamageRevision || 0,
     stateRevision: station.stateRevision || 0,
     productionRevision: station.productionRevision || 1,
+    captureRevision: station.captureRevision || 0,
     captureProgress: station.stationType === "relay" ? round(station.captureProgress || 0) : undefined,
     captureContested: station.stationType === "relay" ? Boolean(station.captureContested) : undefined,
     // Who the capture bar currently belongs to, so it draws in their colour.
@@ -230,8 +230,8 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     entry.shieldRadius = station.shieldRadius || 0;
     entry.moduleScale = station.moduleScale;
     entry.design = station.design || [];
-    const launchBays = buildStationLaunchBaySnapshots(station);
-    if (launchBays) entry.launchBays = launchBays;
+    const hangar = buildStationHangarSnapshot(station);
+    if (hangar) entry.hangar = hangar;
     if (station.hardpoints) entry.hardpoints = station.hardpoints;
     entry.weaponAngles = (station.weaponAngles || []).map(round);
     entry.maxHp = round(station.maxHp);
@@ -948,8 +948,8 @@ function buildClientStations(room, sharedStations, client, sendStatic, options =
       entry.radius = round(station.radius || station.stats?.radius || 0);
       entry.moduleScale = station.moduleScale;
       entry.design = station.design || [];
-      const launchBays = buildStationLaunchBaySnapshots(station);
-      if (launchBays) entry.launchBays = launchBays;
+      const hangar = buildStationHangarSnapshot(station);
+      if (hangar) entry.hangar = hangar;
       if (station.hardpoints) entry.hardpoints = station.hardpoints;
       entry.weaponAngles = (station.weaponAngles || []).map(round);
       delete entry.weaponAnglePairs;
@@ -1054,9 +1054,15 @@ function markSnapshotConditionStationsWritten(client, stationIds = []) {
 }
 
 function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null, client = null, options = null) {
+  // `now` is the broadcast/send clock.  During load, snapshot construction can
+  // happen after the latest completed simulation tick, so all gameplay fields
+  // in this snapshot must use the same authoritative tick timestamp.
+  const authoritativeNow = Number.isFinite(room.simulationTimeMs)
+    ? room.simulationTimeMs
+    : now;
   if (!shared) {
     const clientUsesEvents = client && require("./projectileReplication").clientSupportsProjectileEvents(client);
-    shared = buildSharedSnapshot(room, now, sendStatic, Boolean(client), !clientUsesEvents);
+    shared = buildSharedSnapshot(room, authoritativeNow, sendStatic, Boolean(client), !clientUsesEvents);
   }
   const telemetryFocusShipId = options && Object.prototype.hasOwnProperty.call(options, "telemetryFocusShipId")
     ? options.telemetryFocusShipId
@@ -1109,7 +1115,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
 
   const visibilityViewer = client?.player || viewer;
   const visibilityState = visibilityViewer && usesSensorVisibility(room)
-    ? ensureTeamVisibility(room, visibilityViewer.team ?? visibilityViewer.id, now)
+    ? ensureTeamVisibility(room, visibilityViewer.team ?? visibilityViewer.id, authoritativeNow)
     : null;
   const snapshot = {
     type: "state",
@@ -1129,7 +1135,8 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     // The tick this state came from, not the moment it is being sent. This is
     // the client's interpolation timeline: it must advance by exactly as much
     // simulated time as the ships in it actually moved. See tickRoom.
-    simulationTimeMs: Math.floor(Number.isFinite(room.simulationTimeMs) ? room.simulationTimeMs : now),
+    simulationTimeMs: Math.floor(authoritativeNow),
+    projectileSimulationTimeMs: Math.floor(authoritativeNow),
     serverTimeMs: Date.now(),
     createdAtMs: Date.now(),
     phase: room.phase,
@@ -1153,7 +1160,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       fullControl: Boolean(room.controlVictory.team || room.controlVictory.playerId)
     } : null,
     objectiveControl: shared.objectiveControl,
-    time: Math.floor(now)
+    time: Math.floor(authoritativeNow)
   };
   // Server-local identity used by the Phase 6C team tactical filter. It is
   // deliberately non-enumerable so it can never cross the wire or become part
@@ -1183,11 +1190,11 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
   // so visibility-filtered fallback clients are not affected.
   if (client) {
     const { setPendingDelivery } = require("./projectileReplication");
-    const delivery = applyClientProjectiles(room, client, now, sendStatic, snapshot);
+    const delivery = applyClientProjectiles(room, client, authoritativeNow, sendStatic, snapshot);
     if (delivery) setPendingDelivery(client, room, delivery);
   }
   return client?.player
-    ? filterSnapshotForPlayer(room, client.player, snapshot, now)
+    ? filterSnapshotForPlayer(room, client.player, snapshot, authoritativeNow)
     : snapshot;
 }
 function collectSnapshotVisibleShipIds(snapshot) {

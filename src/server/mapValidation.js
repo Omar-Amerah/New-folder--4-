@@ -1,6 +1,7 @@
 // Validates generated map data so rooms, snapshots and tests share one schema guard.
 
 const { resolveMapClearances } = require("./config");
+const { evaluateMapFairness, validateRelaySpawnGeometry } = require("./mapFairness");
 
 function isFiniteNumber(value) {
   return Number.isFinite(value);
@@ -36,7 +37,10 @@ function validateGeneratedMap(map, world, options = {}) {
   if (generated) validateAsteroidArt(map.asteroids || []);
   validateClouds(map.clouds || [], ids.clouds);
   validateSafeZones(map.safeZones || []);
-  if (generated && world.label !== "Testing") validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", clearances.relayToSafeZone);
+  if (generated && world.label !== "Testing") {
+    validateClearance(map.relays || [], "relay", map.safeZones || [], "safe zone", clearances.relayToSafeZone);
+    for (const reason of validateRelaySpawnGeometry(map.relays || [], map.safeZones || [], world, clearances)) errors.push(`spawn-relative ${reason.message}`);
+  }
   validateClearance(map.relays || [], "relay", map.relays || [], "relay", clearances.relayToRelay, true);
   if (generated) {
     validateClearance(map.asteroids || [], "asteroid", map.safeZones || [], "safe zone", clearances.asteroidToSafeZone);
@@ -89,7 +93,15 @@ function validateGeneratedMap(map, world, options = {}) {
   }
   function validateSafeZones(items) {
     for (const zone of items) {
+      if (!zone || typeof zone !== "object") {
+        errors.push("safe zone must be an object");
+        continue;
+      }
       if (!isFiniteNumber(zone.x) || !isFiniteNumber(zone.y) || !(zone.radius > 0)) errors.push("safe zone must have finite x/y and positive radius");
+      if (isFiniteNumber(zone.x) && isFiniteNumber(zone.y) && isFiniteNumber(zone.radius)
+        && (zone.x - zone.radius < 0 || zone.x + zone.radius > world.width || zone.y - zone.radius < 0 || zone.y + zone.radius > world.height)) {
+        errors.push(`safe zone ${zone.id || "?"} is outside world bounds`);
+      }
       if (zone.id != null && typeof zone.id !== "string") errors.push("safe zone id must be a string when present");
       if (zone.team != null && typeof zone.team !== "string") errors.push("safe zone team must be a string when present");
       if (zone.ownerId != null && typeof zone.ownerId !== "string") errors.push("safe zone ownerId must be a string when present");
@@ -105,6 +117,13 @@ function validateGeneratedMap(map, world, options = {}) {
         if (Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius + buffer) errors.push(`${leftLabel} ${a.id || i} overlaps ${rightLabel} ${b.id || j}`);
       }
     }
+  }
+  if (generated && world.label !== "Testing" && options.fairness !== false && options.skipFairness !== true) {
+    const fairness = evaluateMapFairness(map, world, map.safeZones || [], {
+      mode: options.mode || options.gameMode,
+      clearances
+    });
+    if (!fairness.valid) for (const reason of fairness.reasons) errors.push(`fairness ${reason.message}`);
   }
   return { ok: errors.length === 0, seed: seedLabel, errors };
 }

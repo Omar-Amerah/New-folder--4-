@@ -569,7 +569,7 @@ function assertFixtureConstruction(room, config, homes) {
   if (config.variant === "shared-central-hangar") {
     const home = homes[0];
     const queuePlayers = new Set((home.productionQueue || []).map((item) => item.playerId));
-    assert(home.hangar && !Array.isArray(home.hangar), `${config.name}: one shared hangar object exists`);
+    assert(home.hangar?.id === "central" && home.launchBays === undefined, `${config.name}: one shared central hangar exists`);
     assert.equal(queuePlayers.size, 3, `${config.name}: three distinct players are queued through the shared path`);
   }
   return stats;
@@ -602,8 +602,9 @@ function mutateBeforeFrame(room, config, frame) {
       if (!ship.launchPhase) continue;
       const station = room.stationsById?.get(ship.launchPhase.stationId);
       if (station) {
-        ship.x = station.x + Math.cos(station.angle) * (ship.launchPhase.releaseDistance + 2);
-        ship.y = station.y + Math.sin(station.angle) * (ship.launchPhase.releaseDistance + 2);
+        const normal = ship.launchPhase.normal || { x: Math.cos(station.angle), y: Math.sin(station.angle) };
+        ship.x = station.x + normal.x * (ship.launchPhase.releaseDistance + 2);
+        ship.y = station.y + normal.y * (ship.launchPhase.releaseDistance + 2);
       }
     }
   }
@@ -748,7 +749,7 @@ function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeCh
     "stationCapturesCompleted", "stationControlVictoryEvaluations", "stationControlVictoryCacheHits", "classicCapturePointsProcessed",
     "classicCaptureCandidatesVisited", "stationHomeStationsProcessed", "stationQueuesVisited", "stationQueueItemsVisited",
     "stationSpawnAttempts", "stationSpawnSuccesses", "stationSpawnFleetCapBlocks", "stationSpawnMissingPlayerBlocks",
-    "stationSpawnMissingHangarBlocks", "stationActiveLaunchesVisited", "stationLaunchesReleased", "stationLaunchesRemovedMissingShip",
+    "stationSpawnMissingHangarBlocks", "stationSpawnOccupiedHangarBlocks", "stationActiveLaunchesVisited", "stationLaunchesReleased", "stationLaunchesRemovedMissingShip",
     "stationEmptyQueueSkips", "stationEmptyLaunchSkips"
   ];
   const timings = {};

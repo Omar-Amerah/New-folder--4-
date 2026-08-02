@@ -11,6 +11,7 @@ const {
   fastHypot,
   performanceNow
 } = require("./utils");
+const { WORLD } = require("./config");
 const { bump, setCounter, recordDuration } = require("./roomTelemetry");
 const {
   SEPARATION_BROAD_PHASE_PAD,
@@ -143,8 +144,8 @@ function applyBoundedTemporaryImpulse(state, ship, deltaX, deltaY, contactDelta)
 }
 
 function clampShipPosition(room, ship, x, y) {
-  const width = finite(room?.world?.width, 2000);
-  const height = finite(room?.world?.height, 1600);
+  const width = finite(room?.world?.width, WORLD.width);
+  const height = finite(room?.world?.height, WORLD.height);
   const edge = WORLD_MARGIN + physicalCollisionRadius(ship);
   const minX = Math.min(edge, width * 0.5);
   const maxX = Math.max(minX, width - edge);

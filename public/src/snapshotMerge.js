@@ -28,7 +28,7 @@ const GENERIC_REMAINING_FIELDS = ENTITY_DELTA.GENERIC_REMAINING_FIELDS || {
 };
 const STATION_STATE_FIELDS = ENTITY_DELTA.STATION_STATE_FIELDS || [
   "hp", "shield", "team", "ownerId", "state", "sensorRange", "weaponRange", "revision", "healthRevision",
-  "componentDamageRevision", "stateRevision", "productionRevision", "captureProgress", "captureContested", "captureTeam",
+  "componentDamageRevision", "stateRevision", "productionRevision", "captureRevision", "captureProgress", "captureContested", "captureTeam",
   "weaponAngles", "weaponAnglePairs", "conditionKnown", "productionQueue", "launches"
 ];
 const EMPTY_FIELD_SET = new Set();
@@ -223,7 +223,7 @@ export function mergeCachedStationFields(previousStations, nextStations) {
     const merged = { ...station };
     for (const key of [
       "stationType", "x", "y", "angle", "radius", "shieldRadius",
-      "design", "launchBays", "hardpoints", "moduleScale"
+      "design", "hangar", "hardpoints", "moduleScale"
     ]) {
       if (isNullish(merged[key])) merged[key] = old[key];
     }

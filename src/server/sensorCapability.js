@@ -64,11 +64,11 @@ function compareDirectedBonuses(a, b) {
 
 function isOperationalSensorSource(entity) {
   if (!entity || entity.alive === false || entity.removed) return false;
+  if (entity.stationType === "home" || entity.stationType === "relay") {
+    return entity.state === "operational";
+  }
   if (entity.type === "ship" || entity.entityType === "ship" || entity.design?.length > 0) {
     return entity.hp > 0 && entity.alive !== false;
-  }
-  if (entity.stationType === "home" || entity.stationType === "relay") {
-    return entity.state !== "destroyed";
   }
   return true;
 }

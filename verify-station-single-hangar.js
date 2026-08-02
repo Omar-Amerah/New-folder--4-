@@ -32,6 +32,7 @@ const forbidden = [
   ["bay assignment order", /\bBAY_ASSIGNMENT_ORDER\b/],
   ["player bay resolver", /\bhangarBayForPlayer\b/],
   ["client bay renderer", /\bstationHangarBaysLocal\b|\bstationBaySignature\b|\bbayWallGap\b/],
+  ["plural station launch geometry", /station\.launchBays\b|geometry\.launchBays\b|\bLAUNCH_BAY_/],
   ["station launch bay index", /\bbayIndex\b/],
   ["multi-bay player comment", /one bay per (?:player|team member)|three station bays/i],
   ["old home frontage", /(?:home[- ]station|station)\D{0,40}840\s*(?:world )?units|840\s*(?:world )?units\D{0,40}(?:home[- ]station|station)/i],

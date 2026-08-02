@@ -889,7 +889,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 10,
+        "damage": 8,
         "fireRate": 6,
         "range": 400,
         "projectileSpeed": 760,
@@ -1848,6 +1848,7 @@ export const GENERATED_BALANCE = {
       "repairDelaySeconds": 8,
       "repairRatePerSecond": 6,
       "captureRestoreHpRatio": 0.35,
+      "recoveryOperationalHpRatio": 0.25,
       "captureDurationSeconds": 10,
       "captureDecayPerSecond": 0.25,
       "selfRepairRatePerSecond": 6,

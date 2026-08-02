@@ -8,6 +8,7 @@
 // the distracting hard-edged overlapping discs.
 
 import { state } from "../../state.js";
+import { WORLD_FALLBACK } from "../../constants.js";
 import { getFogOpacity } from "../../game/renderSettings.js";
 import { angleDifference } from "../../shared/math.js";
 
@@ -227,8 +228,8 @@ export function updatePixiFog(env, now, _bounds) {
   const snapshot = state.snapshot || {};
   const mode = state.rules?.visibilityMode;
   const opacity = mode === "dark" ? 1 : getFogOpacity();
-  const worldW = Math.max(1, Number(state.world?.width) || Number(snapshot.world?.width) || 4000);
-  const worldH = Math.max(1, Number(state.world?.height) || Number(snapshot.world?.height) || 4000);
+  const worldW = Math.max(1, Number(state.world?.width) || Number(snapshot.world?.width) || WORLD_FALLBACK.width);
+  const worldH = Math.max(1, Number(state.world?.height) || Number(snapshot.world?.height) || WORLD_FALLBACK.height);
   const policy = configureFogSurface(env, fogView, worldW, worldH, mode, opacity);
   if (now - fogView.lastCheckAt < policy.intervalMs) return;
   fogView.lastCheckAt = now;
