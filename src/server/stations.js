@@ -2,7 +2,7 @@
 
 const { PARTS } = require("./components");
 const { INFRASTRUCTURE } = require("./config");
-const { angleDifference, clampNumber, rotateToward } = require("./utils");
+const { angleDifference, clampNumber, rotateToward, performanceNow } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createGeneratedPowerWiring } = require("./shipDesign");
 const { initComponentState, isComponentAlive, repairShipComponents } = require("./componentHealth");
@@ -17,6 +17,7 @@ const { getShipComponentIndexes } = require("./componentIndexes");
 const { computeStationShieldCollisionRadius } = require("./stationCollision");
 const { stationBroadPhaseRadius } = require("./spatialIndex");
 const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
+const { bump, recordDuration } = require("./roomTelemetry");
 
 const {
   SHIP_MODULE_SCALE,
@@ -474,6 +475,8 @@ function enqueueBotProduction(room, player, now) {
 // The corridor, in world space, as a swept segment from the interior spawn out
 // past the release plane. A launch may only begin when nothing occupies it.
 function corridorIsClear(room, station, ignoreShipId = null) {
+  const startedAt = performanceNow();
+  try {
   const hangar = station.hangar;
   if (!hangar) return false;
   const cos = Math.cos(station.angle);
@@ -511,20 +514,33 @@ function corridorIsClear(room, station, ignoreShipId = null) {
     if (Math.abs(across) <= halfWidth + shipRadius) return false;
   }
   return true;
+  } finally {
+    recordDuration(room, "stationCorridorQueryMs", startedAt);
+  }
 }
 
 function spawnQueuedShip(room, station, queueItem, now) {
   const player = room.players.get(queueItem.playerId);
-  if (!player || !player.ready) return null;
+  if (!player || !player.ready) {
+    bump(room, "stationSpawnMissingPlayerBlocks");
+    return null;
+  }
   const active = player.ships.filter((s) => s.alive).length;
-  if (active >= player.shipCap) return null;
+  if (active >= player.shipCap) {
+    bump(room, "stationSpawnFleetCapBlocks");
+    return null;
+  }
   const hangars = station.hangars;
-  if (!hangars || hangars.length === 0) return null;
+  if (!hangars || hangars.length === 0) {
+    bump(room, "stationSpawnMissingHangarBlocks");
+    return null;
+  }
   const bayIndex = station.bayPlayerSlots && station.bayPlayerSlots.has(queueItem.playerId)
     ? station.bayPlayerSlots.get(queueItem.playerId)
     : 0;
   const hangar = hangars[bayIndex] || hangars[0];
   bumpCounter(room, "stationLaunchAttemptCount");
+  const startedAt = performanceNow();
   const physicalRadius = computeDesignCollisionRadius(queueItem.template.design, queueItem.template.stats);
   const spawn = hangar.interiorSpawn;
   const ship = spawnShip(room, player, now, active, {
@@ -533,6 +549,7 @@ function spawnQueuedShip(room, station, queueItem, now) {
     spawnPoint: { x: spawn.x, y: spawn.y, ok: true, angle: station.angle },
     requestId: queueItem.requestId
   });
+  recordDuration(room, "stationSpawnAttemptMs", startedAt);
   if (!ship) return null;
   queueItem.blocked = false;
   ship.x = spawn.x;
@@ -564,21 +581,33 @@ function spawnQueuedShip(room, station, queueItem, now) {
 function bumpCounter(room, name) {
   const counters = room.stationCounters || (room.stationCounters = {});
   counters[name] = (counters[name] || 0) + 1;
+  if (name === "stationLaunchAttemptCount") bump(room, "stationSpawnAttempts");
+  else if (name === "stationLaunchSuccessCount") bump(room, "stationSpawnSuccesses");
 }
 
 function processStationProduction(room, station, dt, now) {
-  if (station.state !== "operational" || !station.productionQueue.length) return;
+  if (station.stationType !== "home") return;
+  bump(room, "stationQueuesVisited");
+  if (station.state !== "operational" || !station.productionQueue.length) {
+    if (!station.productionQueue.length) bump(room, "stationEmptyQueueSkips");
+    return;
+  }
   while (station.productionQueue.length > 0) {
     const item = station.productionQueue[0];
+    bump(room, "stationQueueItemsVisited");
+    const queueStart = performanceNow();
     if (item.state === "queued") {
       item.state = "complete-waiting-launch";
       station.productionRevision += 1;
     }
+    recordDuration(room, "stationProductionQueueMs", queueStart);
     const ship = spawnQueuedShip(room, station, item, now);
     if (!ship) break; // blocked by fleet cap or spawn failure; retry next tick
+    const completionStart = performanceNow();
     item.quantityRemaining -= 1;
     station.productionRevision += 1;
     if (item.quantityRemaining <= 0) station.productionQueue.shift();
+    recordDuration(room, "stationProductionQueueMs", completionStart);
   }
 }
 
@@ -586,14 +615,21 @@ function processStationProduction(room, station, dt, now) {
 // hangar corridor. Without this sweep the list grows for the whole match, since
 // nothing else ever removes an entry.
 function updateStationLaunches(room, station, dt, now) {
+  const startedAt = performanceNow();
+  try {
   const launches = station.activeLaunches;
-  if (!launches || launches.length === 0) return;
+  if (!launches || launches.length === 0) {
+    if (station.stationType === "home") bump(room, "stationEmptyLaunchSkips");
+    return;
+  }
   const cos = Math.cos(station.angle);
   const sin = Math.sin(station.angle);
   for (let i = launches.length - 1; i >= 0; i -= 1) {
     const launch = launches[i];
+    bump(room, "stationActiveLaunchesVisited");
     const ship = room.ships.get(launch.shipId);
     if (!ship || !ship.alive) {
+      bump(room, "stationLaunchesRemovedMissingShip");
       releaseLaunch(station, launch.shipId);
       launches.splice(i, 1);
       continue;
@@ -614,13 +650,19 @@ function updateStationLaunches(room, station, dt, now) {
     if (along >= phase.releaseDistance) {
       // Fully clear: ordinary movement, orders and weapons resume, and the ship
       // heads for the player's rally point.
+      const releaseStartedAt = performanceNow();
       ship.launchPhase = null;
       launch.releasedAt = now;
       releaseLaunch(station, launch.shipId);
       launches.splice(i, 1);
       const player = room.players.get(ship.ownerId);
       if (player) applyRallySlots(room, player, [ship]);
+      bump(room, "stationLaunchesReleased");
+      recordDuration(room, "stationLaunchReleaseMs", releaseStartedAt);
     }
+  }
+  } finally {
+    recordDuration(room, "stationLaunchControlMs", startedAt);
   }
 }
 
@@ -730,11 +772,15 @@ function updateStationRecovery(station, dt, now) {
 
 function updateStationCapture(room, station, dt, now) {
   if (station.stationType !== "relay") return;
+  bump(room, "stationRelaysProcessed");
 
   const cfg = INFRASTRUCTURE.relayStation;
   const radiusSq = cfg.captureRadius * cfg.captureRadius;
   const counts = new Map();
+  const candidateStartedAt = performanceNow();
+  bump(room, "stationCaptureFullShipScans");
   for (const ship of room.ships?.values() || []) {
+    bump(room, "stationCaptureCandidatesVisited");
     if (!ship.alive) continue;
     const dx = ship.x - station.x;
     const dy = ship.y - station.y;
@@ -744,9 +790,16 @@ function updateStationCapture(room, station, dt, now) {
     const entry = counts.get(player.team) || { count: 0, ownerId: ship.ownerId };
     entry.count += 1;
     counts.set(player.team, entry);
+    bump(room, "stationCaptureEligibleShips");
   }
+  recordDuration(room, "stationCaptureCandidateCollectionMs", candidateStartedAt);
 
+  const aggregationStartedAt = performanceNow();
   const contenders = [...counts.entries()].sort((a, b) => b[1].count - a[1].count);
+  recordDuration(room, "stationCaptureAggregationMs", aggregationStartedAt);
+  bump(room, "stationCaptureTeamsPresent", counts.size);
+  const transitionStartedAt = performanceNow();
+  try {
   const duration = cfg.captureDurationSeconds || 5;
   const decayPerSecond = Number(cfg.captureDecayPerSecond) || 0;
 
@@ -754,6 +807,8 @@ function updateStationCapture(room, station, dt, now) {
   // the progress sweep in the capturing side's colour instead of a generic
   // amber. It is cleared with the progress it describes.
   function setProgress(value, team = null) {
+    const previous = station.captureProgress || 0;
+    const previousTeam = station.captureTeam;
     const next = Math.max(0, Math.min(1, value));
     if (Math.round(next * 100) !== Math.round((station.captureProgress || 0) * 100)) station.captureRevision += 1;
     station.captureProgress = next;
@@ -762,6 +817,7 @@ function updateStationCapture(room, station, dt, now) {
       station.captureTeam = nextTeam;
       station.captureRevision += 1;
     }
+    if (next !== previous || nextTeam !== previousTeam) bump(room, "stationCaptureProgressChanges");
   }
 
   // Progress bleeds away whenever nobody capturable is standing on the relay.
@@ -774,7 +830,10 @@ function updateStationCapture(room, station, dt, now) {
   }
 
   station.captureContested = contenders.length > 1 && contenders[0][1].count === contenders[1][1].count;
-  if (station.captureContested) return;
+  if (station.captureContested) {
+    bump(room, "stationCaptureContestedTicks");
+    return;
+  }
 
   const [leaderTeam, leader] = contenders[0];
 
@@ -794,6 +853,7 @@ function updateStationCapture(room, station, dt, now) {
     station.captureRevision += 1;
     station.stateRevision += 1;
     station.healthRevision += 1;
+    bump(room, "stationCapturesCompleted");
   }
 
   // Taking an unclaimed relay runs the same clock as taking one off an enemy,
@@ -818,6 +878,9 @@ function updateStationCapture(room, station, dt, now) {
     if (station.captureProgress >= 1) {
       captureStation(leader.ownerId, leaderTeam);
     }
+  }
+  } finally {
+    recordDuration(room, "stationCaptureStateTransitionMs", transitionStartedAt);
   }
 }
 
@@ -896,19 +959,72 @@ function updateStationSelfRepair(station, dt) {
   if (station.hp !== before) station.healthRevision += 1;
 }
 
+// These stage helpers deliberately accept one station. updateStations keeps the
+// historical per-station ordering (capture -> recovery -> self repair -> launch
+// control -> repair -> production) while exposing independent timing buckets.
+// Splitting into room-wide loops here would make a later station's state visible
+// to an earlier station in a different order than the starting runtime.
+function updateStationCaptureSystems(room, station, dt, now) {
+  const startedAt = performanceNow();
+  try {
+    updateStationCapture(room, station, dt, now);
+  } finally {
+    recordDuration(room, "stationObjectiveRuntimeMs", startedAt);
+  }
+}
+
+function updateStationRecoverySystems(room, station, dt, now) {
+  const startedAt = performanceNow();
+  try {
+    updateStationRecovery(station, dt, now);
+  } finally {
+    recordDuration(room, "stationRecoveryRuntimeMs", startedAt);
+  }
+}
+
+function updateStationRepairSystems(room, station, dt, now, phase = "all") {
+  const startedAt = performanceNow();
+  try {
+    if (phase === "self" || phase === "all") updateStationSelfRepair(station, dt);
+    if (phase === "active" || phase === "all") {
+      updateStationRepair(room, station, dt, now);
+      updateStationRepairBeams(room, station, dt, now);
+    }
+  } finally {
+    recordDuration(room, "stationRepairRuntimeMs", startedAt);
+  }
+}
+
+function updateStationHangarSystems(room, station, dt, now, phase = "all") {
+  const startedAt = performanceNow();
+  try {
+    if (station.stationType === "home" && (phase === "launches" || phase === "all")) {
+      bump(room, "stationHomeStationsProcessed");
+    }
+    if (phase === "launches" || phase === "all") updateStationLaunches(room, station, dt, now);
+    if (phase === "production" || phase === "all") processStationProduction(room, station, dt, now);
+  } finally {
+    recordDuration(room, "stationHangarRuntimeMs", startedAt);
+  }
+}
+
 function updateStations(room, dt, now) {
   if (!usesStationInfrastructure(room) || !room.stations) return;
-  for (const station of room.stations) {
-    updateStationCapture(room, station, dt, now);
-    updateStationRecovery(station, dt, now);
-    updateStationSelfRepair(station, dt);
-    updateStationLaunches(room, station, dt, now);
-    updateStationRepair(room, station, dt, now);
-    updateStationRepairBeams(room, station, dt, now);
-    processStationProduction(room, station, dt, now);
-  }
-  if (room.spatialIndex?.updateLiveEntities && INCREMENTAL_SPATIAL_INDEX()) {
-    room.spatialIndex.updateLiveEntities("stations", room.stations, stationBroadPhaseRadius);
+  const startedAt = performanceNow();
+  try {
+    for (const station of room.stations) {
+      updateStationCaptureSystems(room, station, dt, now);
+      updateStationRecoverySystems(room, station, dt, now);
+      updateStationRepairSystems(room, station, dt, now, "self");
+      updateStationHangarSystems(room, station, dt, now, "launches");
+      updateStationRepairSystems(room, station, dt, now, "active");
+      updateStationHangarSystems(room, station, dt, now, "production");
+    }
+    if (room.spatialIndex?.updateLiveEntities && INCREMENTAL_SPATIAL_INDEX()) {
+      room.spatialIndex.updateLiveEntities("stations", room.stations, stationBroadPhaseRadius);
+    }
+  } finally {
+    recordDuration(room, "stationRuntimeMs", startedAt);
   }
 }
 
@@ -923,6 +1039,10 @@ module.exports = {
   createStationsForRoom,
   destroyStationsForRoom,
   updateStations,
+  updateStationCaptureSystems,
+  updateStationRecoverySystems,
+  updateStationRepairSystems,
+  updateStationHangarSystems,
   enqueueStationProduction,
   enqueueBotProduction,
   queuedShipCount,

@@ -69,6 +69,7 @@ const GROUPS = {
     "verify-phase-6b-drone-runtime.js",
     "verify-phase-6c-visibility-runtime.js",
     "verify-phase-6d-command-aura-runtime.js",
+    "verify-phase-6f-stations-objectives.js",
     "verify-shields.js",
     "verify-template-state-isolation.js",
     "verify-power.js",

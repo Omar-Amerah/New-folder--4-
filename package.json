@@ -185,6 +185,8 @@
     "test:phase-6b": "node verify-phase-6b-drone-runtime.js",
     "test:phase-6c": "node verify-phase-6c-visibility-runtime.js",
     "test:phase-6d": "node verify-phase-6d-command-aura-runtime.js",
+    "test:phase-6f": "node verify-phase-6f-stations-objectives.js",
+    "benchmark:phase-6f": "node benchmark-phase-6f.js",
     "benchmark:phase-6b": "node benchmark-phase-6b.js",
     "benchmark:phase-6c": "node benchmark-phase-6c.js",
     "benchmark:phase-6d": "node benchmark-phase-6d.js",

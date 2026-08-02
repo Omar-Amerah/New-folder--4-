@@ -134,6 +134,19 @@ let _optimizedVisibilityRuntime = false;
 // verification is accepted. This is intentionally one flag for the complete
 // Command Aura runtime rather than separate source/membership/winner switches.
 let _optimizedCommandAuraRuntime = false;
+// --- Phase 6F station weapon runtime flag ---
+// The legacy station weapon loop remains the production default. The optimized
+// path is enabled only by focused parity/benchmark checks after the measured
+// Phase 6F station-weapon bottleneck evidence.
+let _optimizedStationWeaponRuntime = false;
+
+function OPTIMIZED_STATION_WEAPON_RUNTIME() {
+  return _optimizedStationWeaponRuntime;
+}
+
+function __setOPTIMIZED_STATION_WEAPON_RUNTIME(value) {
+  _optimizedStationWeaponRuntime = Boolean(value);
+}
 
 function OPTIMIZED_VISIBILITY_RUNTIME() {
   return _optimizedVisibilityRuntime;
@@ -234,4 +247,6 @@ module.exports = {
   __setOPTIMIZED_VISIBILITY_RUNTIME,
   OPTIMIZED_COMMAND_AURA_RUNTIME,
   __setOPTIMIZED_COMMAND_AURA_RUNTIME
+  OPTIMIZED_STATION_WEAPON_RUNTIME,
+  __setOPTIMIZED_STATION_WEAPON_RUNTIME
 };

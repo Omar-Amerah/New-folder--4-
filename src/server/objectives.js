@@ -3,16 +3,21 @@
 const { ECONOMY, TEAM_COLORS } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 const { effectiveComponentBonus } = require("./heat");
+const { performanceNow } = require("./utils");
+const { bump, recordDuration } = require("./roomTelemetry");
 
 function updateCapturePoints(room, ships, dt) {
   if (room.rules?.infrastructureMode === "stations") return;
+  const startedAt = performanceNow();
   const { teamLabel } = require("./players");
   const { broadcastRoom } = require("./messages");
 
   for (const point of room.points) {
+    bump(room, "classicCapturePointsProcessed");
     const counts = new Map();
 
     for (const ship of ships) {
+      bump(room, "classicCaptureCandidatesVisited");
       if (Math.hypot(ship.x - point.x, ship.y - point.y) <= point.radius) {
         const player = room.players.get(ship.ownerId);
         if (!player) continue;
@@ -59,6 +64,7 @@ function updateCapturePoints(room, ships, dt) {
       }
     }
   }
+  recordDuration(room, "classicCaptureRuntimeMs", startedAt);
 }
 
 function getTeamWithFullControl(room) {
@@ -204,6 +210,11 @@ function finalizeHomeStationDestruction(room, station, attackerId, now) {
 function updateControlVictory(room, now) {
   if (room.phase !== "active" || room.winner) return;
 
+  const stationMode = room.rules?.infrastructureMode === "stations";
+  const startedAt = stationMode ? performanceNow() : 0;
+  if (stationMode) bump(room, "stationControlVictoryEvaluations");
+  try {
+
   const { teamLabel } = require("./players");
   const { broadcastRoom } = require("./messages");
 
@@ -267,6 +278,9 @@ function updateControlVictory(room, now) {
   room.controlVictory.remaining = Math.max(0, room.controlVictory.requiredSeconds - elapsedSeconds);
   if (elapsedSeconds >= room.controlVictory.requiredSeconds) {
     finalizeTeamControlVictory(room, controllingTeam, now);
+  }
+  } finally {
+    if (stationMode) recordDuration(room, "stationControlVictoryMs", startedAt);
   }
 }
 
