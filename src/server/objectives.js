@@ -4,20 +4,23 @@ const { ECONOMY, TEAM_COLORS } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 const { effectiveComponentBonus } = require("./heat");
 const { performanceNow } = require("./utils");
-const { bump, recordDuration } = require("./roomTelemetry");
+const { bump, recordDuration, detailedProfileActive } = require("./roomTelemetry");
 
 function updateCapturePoints(room, ships, dt) {
   if (room.rules?.infrastructureMode === "stations") return;
   const startedAt = performanceNow();
+  const detailed = detailedProfileActive(room);
   const { teamLabel } = require("./players");
   const { broadcastRoom } = require("./messages");
 
+  let pointsProcessed = 0;
+  let candidatesVisited = 0;
   for (const point of room.points) {
-    bump(room, "classicCapturePointsProcessed");
+    if (detailed) pointsProcessed += 1;
     const counts = new Map();
 
     for (const ship of ships) {
-      bump(room, "classicCaptureCandidatesVisited");
+      if (detailed) candidatesVisited += 1;
       if (Math.hypot(ship.x - point.x, ship.y - point.y) <= point.radius) {
         const player = room.players.get(ship.ownerId);
         if (!player) continue;
@@ -63,6 +66,10 @@ function updateCapturePoints(room, ships, dt) {
         });
       }
     }
+  }
+  if (detailed) {
+    bump(room, "classicCapturePointsProcessed", pointsProcessed);
+    bump(room, "classicCaptureCandidatesVisited", candidatesVisited);
   }
   recordDuration(room, "classicCaptureRuntimeMs", startedAt);
 }
@@ -212,7 +219,7 @@ function updateControlVictory(room, now) {
 
   const stationMode = room.rules?.infrastructureMode === "stations";
   const startedAt = stationMode ? performanceNow() : 0;
-  if (stationMode) bump(room, "stationControlVictoryEvaluations");
+  if (stationMode && detailedProfileActive(room)) bump(room, "stationControlVictoryEvaluations");
   try {
 
   const { teamLabel } = require("./players");

@@ -19,6 +19,7 @@ const { updateStationWeapons } = require("./src/server/stationCombat");
 const { updateBullets } = require("./src/server/projectiles");
 const { updateCapturePoints, updateControlVictory } = require("./src/server/objectives");
 const { computeStats } = require("./src/server/shipStats");
+const { PARTS } = require("./src/server/components");
 const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
 const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
 const { ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibility");
@@ -27,11 +28,25 @@ const flags = require("./src/server/performanceFlags");
 const args = new Set(process.argv.slice(2));
 if (args.has("--quick") && args.has("--full")) throw new Error("Choose either --quick or --full");
 const MODE = args.has("--full") ? "full" : "quick";
+const ASSERT_PERFORMANCE = args.has("--assert-performance");
+const DETAILED_PROFILE = !ASSERT_PERFORMANCE && !args.has("--production");
 const WARMUP_SAMPLES = 5;
 const MEASURED_SAMPLES = MODE === "full" ? 30 : 8;
 const REPEATS = MODE === "full" ? 3 : 1;
 const DT = 1 / 30;
-const OUTPUT_PATH = path.join(__dirname, "test-artifacts", "performance", "profile-phase-6f.json");
+const OUTPUT_PATH = path.join(__dirname, "test-artifacts", "performance", ASSERT_PERFORMANCE ? "profile-phase-6f-acceptance.json" : "profile-phase-6f.json");
+
+function resolveCommit(ref) {
+  try {
+    return execFileSync("git", ["rev-parse", ref], { cwd: __dirname, encoding: "utf8" }).trim();
+  } catch {
+    return null;
+  }
+}
+
+const BASELINE_COMMIT_SHA = process.env.PHASE_6F_BASELINE_SHA || resolveCommit("0f28aea");
+const PROFILE_COMMIT_SHA = process.env.PHASE_6F_PROFILE_SHA || resolveCommit("022f9c9");
+const OPTIMIZED_COMMIT_SHA = process.env.PHASE_6F_OPTIMIZED_SHA || resolveCommit("512808c");
 
 const WEAPON_SCENARIOS = [
   { name: "two idle home stations", subsystem: "stationWeapons", ships: 0, relays: 0, density: "idle", variant: "idle" },
@@ -73,13 +88,13 @@ const HANGAR_SCENARIOS = [
   { name: "empty queues and no active launches", subsystem: "hangar", ships: 0, relays: 3, density: "empty", variant: "empty" },
   { name: "one queued ship", subsystem: "hangar", ships: 0, relays: 3, density: "one-queue", variant: "one-queue", queueQuantity: 1, event: "ship-spawn" },
   { name: "ten queued ships", subsystem: "hangar", ships: 0, relays: 3, density: "ten-queue", variant: "ten-queue", queueQuantity: 10, event: "ship-spawn-burst" },
-  { name: "large burst queue", subsystem: "hangar", ships: 0, relays: 3, density: "burst-queue", variant: "burst-queue", queueQuantity: 10, event: "large-spawn-burst" },
+  { name: "large burst queue", subsystem: "hangar", ships: 0, relays: 3, density: "burst-queue", variant: "burst-queue", queueQuantity: 30, event: "large-spawn-burst" },
   { name: "fleet-cap blocked queue", subsystem: "hangar", ships: 0, relays: 3, density: "fleet-cap", variant: "fleet-cap", event: "fleet-cap-block" },
   { name: "missing or disconnected player", subsystem: "hangar", ships: 0, relays: 3, density: "missing-player", variant: "missing-player", event: "missing-player-block" },
   { name: "disabled home station", subsystem: "hangar", ships: 0, relays: 3, density: "disabled-home", variant: "disabled-home", event: "disabled-home-block" },
   { name: "one active launch", subsystem: "hangar", ships: 0, relays: 3, density: "active-launch", variant: "active-launch", queueQuantity: 1, event: "active-launch" },
   { name: "several simultaneous launches", subsystem: "hangar", ships: 0, relays: 3, density: "simultaneous", variant: "simultaneous", queueQuantity: 3, event: "simultaneous-launches" },
-  { name: "three occupied bays", subsystem: "hangar", ships: 0, relays: 3, density: "occupied-bays", variant: "occupied-bays", queueQuantity: 3, event: "occupied-bays" },
+  { name: "three occupied bays", subsystem: "hangar", ships: 0, relays: 3, density: "occupied-bays", variant: "occupied-bays", queueQuantity: 1, queuePlayers: ["p-blue", "p-blue-2", "p-blue-3"], event: "occupied-bays" },
   { name: "ship destroyed while launching", subsystem: "hangar", ships: 0, relays: 3, density: "destroyed-launch", variant: "destroyed-launch", queueQuantity: 1, event: "launch-destruction" },
   { name: "launch completion and rally assignment", subsystem: "hangar", ships: 0, relays: 3, density: "release", variant: "release", queueQuantity: 1, event: "launch-release" },
   { name: "small ship template", subsystem: "hangar", ships: 0, relays: 3, density: "small-template", variant: "small-template", queueQuantity: 1, event: "small-template-spawn" },
@@ -148,6 +163,13 @@ function withDeterministicRandom(seed, callback) {
   } finally {
     Math.random = previous;
   }
+}
+
+function workloadClass(config) {
+  if (config.event) return "eventSpike";
+  if (config.ships >= 300 || config.relays >= 8 || ["large", "missile-storm", "drone-storm", "churn", "burst-queue", "ten-queue"].includes(config.variant)) return "stress";
+  if ((config.ships || 0) === 0) return "idle";
+  return "representative";
 }
 
 function roomMemory() {
@@ -310,10 +332,14 @@ function buildFixture(config, repeatIndex) {
     visibilityMode: config.visibilityMode || "full"
   }, 2);
   room.phase = "active";
-  room.players = new Map([
-    ["p-blue", makePlayer("p-blue", "blue")],
-    ["p-red", makePlayer("p-red", "red")]
-  ]);
+  const players = [
+    makePlayer("p-blue", "blue"),
+    makePlayer("p-red", "red")
+  ];
+  for (const playerId of config.queuePlayers || []) {
+    if (!players.some((player) => player.id === playerId)) players.push(makePlayer(playerId, "blue"));
+  }
+  room.players = new Map(players.map((player) => [player.id, player]));
   room.ships = new Map();
   room.drones = new Map();
   room.decoys = new Map();
@@ -359,6 +385,13 @@ function buildFixture(config, repeatIndex) {
       const distance = config.variant === "idle" ? 3000 : 720 + (index % 7) * 18;
       x = anchor.x + Math.cos(angle) * distance;
       y = anchor.y + Math.sin(angle) * distance;
+      if (config.variant === "sensor-fog" && team === "red" && index % 4 === 1) {
+        // Keep a deterministic subset of hostile candidates inside the blue
+        // protected zone so the visibility/safe-zone rejection branch is a real
+        // part of the fixture rather than a merely named scenario.
+        x = 9100;
+        y = 5000;
+      }
     }
     addShip(room, `ship-${index}`, ownerId, x, y);
   }
@@ -371,10 +404,14 @@ function buildFixture(config, repeatIndex) {
   }
 
   if (config.variant === "destroyed" || config.variant === "ordinary") {
-    for (const station of homes) {
-      for (let index = 0; index < station.design.length; index += 1) {
+    for (const station of room.stations || []) {
+      const weaponIndexes = station.design
+        .map((module, index) => PARTS[module?.type]?.weapon ? index : -1)
+        .filter((index) => index >= 0);
+      for (let position = 0; position < weaponIndexes.length; position += 1) {
+        const index = weaponIndexes[position];
         const type = station.design[index]?.type;
-        if (config.variant === "destroyed" && index % 2 === 0) station.componentHp[index] = 0;
+        if (config.variant === "destroyed" && position > 0) station.componentHp[index] = 0;
         if (config.variant === "ordinary" && type === "pointDefense") station.componentHp[index] = 0;
       }
     }
@@ -453,9 +490,12 @@ function enqueueBenchmarkItem(room, home, config, playerId = "p-blue") {
 }
 
 function configureHangarFixture(room, config, home) {
-  const player = room.players.get("p-blue");
   if (!home) return;
-  player.rallyPoint = { x: 5000, y: 5000 };
+  for (const playerId of config.queuePlayers || ["p-blue"]) {
+    const player = room.players.get(playerId);
+    if (player) player.rallyPoint = { x: 5000, y: 5000 };
+  }
+  const player = room.players.get("p-blue");
   if (config.variant === "fleet-cap") player.shipCap = 0;
   if (config.variant === "disabled-home") home.state = "disabled";
   if (config.variant === "missing-player") enqueueBenchmarkItem(room, home, config, "missing-player");
@@ -465,9 +505,76 @@ function prepareMeasuredFixture(room, config, homes) {
   const home = homes[0];
   if (!home) return;
   if (config.variant === "one-queue" || config.variant === "ten-queue" || config.variant === "burst-queue" || config.variant === "fleet-cap" || config.variant === "active-launch" || config.variant === "simultaneous" || config.variant === "occupied-bays" || config.variant === "destroyed-launch" || config.variant === "release" || config.variant === "small-template" || config.variant === "large-template") {
-    enqueueBenchmarkItem(room, home, config);
+    for (const playerId of config.queuePlayers || ["p-blue"]) enqueueBenchmarkItem(room, home, config, playerId);
   }
   if (config.variant === "churn" && config.subsystem === "hangar") enqueueBenchmarkItem(room, home, config);
+}
+
+function fixtureStats(room) {
+  const stations = room.stations || [];
+  const activeStations = stations.filter((station) => station.alive !== false && station.state !== "disabled" && station.state !== "destroyed");
+  let ordinaryMounts = 0;
+  let pointDefenceMounts = 0;
+  let liveWeaponMounts = 0;
+  let totalWeaponMounts = 0;
+  for (const station of activeStations) {
+    for (let index = 0; index < (station.design || []).length; index += 1) {
+      const weapon = PARTS[station.design[index]?.type]?.weapon;
+      if (!weapon) continue;
+      totalWeaponMounts += 1;
+      if (station.componentHp?.[index] > 0) {
+        liveWeaponMounts += 1;
+        if (weapon.type === "pointDefense") pointDefenceMounts += 1;
+        else ordinaryMounts += 1;
+      }
+    }
+  }
+  return {
+    activeStations: activeStations.length,
+    ordinaryMounts,
+    pointDefenceMounts,
+    liveWeaponMounts,
+    totalWeaponMounts,
+    shipEntities: room.ships?.size || 0,
+    liveCandidates: [...(room.ships?.values?.() || [])].filter((ship) => ship.alive !== false).length,
+    activeLaunches: stations.reduce((sum, station) => sum + (station.activeLaunches?.length || 0), 0),
+    queuedItems: stations.reduce((sum, station) => sum + (station.productionQueue?.length || 0), 0),
+    queuedQuantity: stations.reduce((sum, station) => sum + (station.productionQueue || []).reduce((quantity, item) => quantity + (item.quantityRemaining || 0), 0), 0)
+  };
+}
+
+function assertFixtureConstruction(room, config, homes) {
+  const stats = fixtureStats(room);
+  const expectedCandidates = config.subsystem === "hangar" && config.variant === "churn"
+    ? Math.max(0, WARMUP_SAMPLES - 1)
+    : (config.ships || 0);
+  assert.equal(stats.liveCandidates, expectedCandidates, `${config.name}: live candidate count matches fixture`);
+  if (config.infrastructureMode === "classic") {
+    assert.equal(stats.activeStations, 0, `${config.name}: classic fixture has no active stations`);
+    return stats;
+  }
+  const disabledHomes = config.variant === "disabled-home" ? 1 : 0;
+  const ownershipRelayStillDisabled = config.variant === "ownership"
+    && (room.stations || []).some((station) => station.stationType === "relay" && station.state === "disabled");
+  const disabledRelays = ["disabled", "friendly-cancel"].includes(config.variant)
+    || ownershipRelayStillDisabled ? 1 : 0;
+  const expectedActiveStations = (2 - disabledHomes) + (config.relays || 0) - disabledRelays;
+  assert.equal(stats.activeStations, expectedActiveStations, `${config.name}: active station count matches fixture`);
+  if (config.subsystem === "stationWeapons") {
+    assert(stats.ordinaryMounts > 0, `${config.name}: ordinary mount construction is present`);
+    if (["point-defence missile storm", "point-defence drone storm", "mixed ordinary and point defence weapons"].includes(config.name)) {
+      assert(stats.pointDefenceMounts > 0, `${config.name}: point-defence mount construction is present`);
+    }
+    if (config.variant === "ordinary") assert.equal(stats.pointDefenceMounts, 0, `${config.name}: no point-defence mounts remain operational`);
+    if (config.variant === "destroyed") assert(stats.liveWeaponMounts < stats.totalWeaponMounts / 2, `${config.name}: most weapon mounts are destroyed`);
+  }
+  if (config.variant === "occupied-bays") {
+    const home = homes[0];
+    const queuePlayers = new Set((home.productionQueue || []).map((item) => item.playerId));
+    assert((home.bayPlayerSlots?.size || 0) >= 3, `${config.name}: three distinct bay assignments exist`);
+    assert.equal(queuePlayers.size, 3, `${config.name}: three distinct bay players are queued`);
+  }
+  return stats;
 }
 
 function mutateBeforeFrame(room, config, frame) {
@@ -509,6 +616,12 @@ function mutateBeforeFrame(room, config, frame) {
 }
 
 function outcomeChecksum(room) {
+  const visibilityByTeam = [...(room.visibilityByTeam?.entries?.() || [])]
+    .map(([team, state]) => [
+      team,
+      [...(state.visibleEntityIds || [])].sort(),
+      [...(state.remembered || [])].sort()
+    ]);
   return checksumValue({
     stations: (room.stations || []).map((station) => ({
       id: station.id,
@@ -517,8 +630,12 @@ function outcomeChecksum(room) {
       ownerId: station.ownerId,
       state: station.state,
       hp: round(station.hp, 6),
+      shield: round(station.shield, 6),
+      componentHp: station.componentHp?.map((value) => round(value, 6)),
       captureProgress: round(station.captureProgress, 6),
       captureTeam: station.captureTeam || null,
+      captureContested: Boolean(station.captureContested),
+      revisions: [station.revision, station.healthRevision, station.stateRevision, station.componentRevision, station.captureRevision, station.productionRevision],
       weaponAngles: station.weaponAngles?.map((value) => round(value, 6)),
       weaponCooldowns: station.weaponCooldowns?.map((value) => round(value, 6)),
       aimTargets: station.weaponAimTargetIds,
@@ -526,10 +643,50 @@ function outcomeChecksum(room) {
       queue: station.productionQueue?.map((item) => [item.id, item.quantityRemaining, item.state]),
       launches: station.activeLaunches?.map((launch) => [launch.shipId, launch.releasedAt])
     })),
-    ships: [...room.ships.values()].map((ship) => [ship.id, ship.alive, round(ship.x, 4), round(ship.y, 4), ship.launchPhase?.stationId || null]),
-    bullets: (room.bullets || []).map((bullet) => [bullet.id, bullet.type, bullet.targetId, round(bullet.x, 4), round(bullet.y, 4), round(bullet.life, 4)]),
+    ships: [...room.ships.values()].map((ship) => [
+      ship.id,
+      ship.ownerId,
+      ship.alive,
+      round(ship.x, 4),
+      round(ship.y, 4),
+      round(ship.vx, 4),
+      round(ship.vy, 4),
+      round(ship.hp, 6),
+      round(ship.shield, 6),
+      ship.design,
+      ship.launchPhase?.stationId || null,
+      ship.launchPhase?.bayIndex ?? null,
+      ship.launchPhase?.releaseDistance ?? null,
+      ship.targetX,
+      ship.targetY
+    ]),
+    bullets: (room.bullets || []).map((bullet) => [
+      bullet.id,
+      bullet.type,
+      bullet.subtype,
+      bullet.ownerId,
+      bullet.targetId,
+      round(bullet.x, 4),
+      round(bullet.y, 4),
+      round(bullet.vx, 4),
+      round(bullet.vy, 4),
+      round(bullet.damage, 6),
+      round(bullet.hp, 6),
+      bullet.pdTargetType,
+      bullet.pdTargetId,
+      round(bullet.life, 4)
+    ]),
+    players: [...(room.players?.values?.() || [])].map((player) => [
+      player.id,
+      round(player.money, 6),
+      round(player.deployedFleetCost, 6),
+      player.captures,
+      player.ships?.map((ship) => ship.id),
+      player.rallyPoint
+    ]),
     controlVictory: room.controlVictory,
-    winner: room.winner
+    winner: room.winner,
+    visibilityByTeam
   });
 }
 
@@ -602,6 +759,15 @@ function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeCh
   for (const field of ["stationWeaponWallMs", "projectileWallMs", "stationWallMs", "classicCaptureWallMs", "controlWallMs", "tickRuntimeMs"]) {
     timings[field] = summary(frames.map((frame) => frame.timings[field]));
   }
+  const topLevelDurationFields = [
+    "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
+    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+  ];
+  for (const field of topLevelDurationFields) {
+    timings[field].tickSharePercent = timings.tickRuntimeMs.mean > 0
+      ? round((timings[field].mean / timings.tickRuntimeMs.mean) * 100, 2)
+      : 0;
+  }
   const counters = {};
   for (const field of counterFields) counters[field] = round(frames.reduce((sum, frame) => sum + (Number(frame.telemetry[field]) || 0), 0) / Math.max(1, frames.length), 4);
   const checksums = frames.map((frame) => frame.checksum);
@@ -611,6 +777,11 @@ function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeCh
     maximumTickRuntimeMs: Math.max(...frames.map((frame) => frame.timings.tickRuntimeMs)),
     p95TickRuntimeMs: summary(frames.map((frame) => frame.timings.tickRuntimeMs)).p95
   } : null;
+  const rawSamples = {
+    durations: Object.fromEntries(durationFields.map((field) => [field, frames.map((frame) => frame.telemetry[field])])),
+    wall: Object.fromEntries(["stationWeaponWallMs", "projectileWallMs", "stationWallMs", "classicCaptureWallMs", "controlWallMs", "tickRuntimeMs"].map((field) => [field, frames.map((frame) => frame.timings[field])])),
+    counters: Object.fromEntries(counterFields.map((field) => [field, frames.map((frame) => frame.telemetry[field])]))
+  };
   return {
     scenario: config.name,
     subsystem: config.subsystem,
@@ -618,53 +789,93 @@ function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeCh
     buildMs,
     warmupSamples: WARMUP_SAMPLES,
     measuredSamples: frames.length,
+    workloadClass: workloadClass(config),
     timings,
     counters,
     eventSpike: event,
     outcomeChecksums: checksums,
     authoritativeOutcomeChecksums,
     deterministicOutcomeChecksum: checksums.every((checksum) => checksum === checksums[0]) ? checksums[0] : null,
+    rawSamples,
     memory
   };
 }
 
-function runScenario(config, repeatIndex, optimized = false) {
+function runScenario(config, repeatIndex, optimized = false, cadenceEnabled = false) {
   const previousFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
+  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
   flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(optimized);
+  flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(cadenceEnabled);
   try {
     const memoryBefore = roomMemory();
     const buildStartedAt = performance.now();
     const fixture = buildFixture(config, repeatIndex);
     const buildMs = performance.now() - buildStartedAt;
     const room = fixture.room;
+    room._stationDetailedProfileActive = DETAILED_PROFILE;
+    room._stationTargetLookupMeasurementActive = optimized && cadenceEnabled;
+    room._stationTargetLookupObservedFrames = 0;
+    room._stationTargetLookupMaxSize = 0;
     const authoritativeChecksums = [];
     for (let frame = 0; frame < WARMUP_SAMPLES; frame += 1) {
       mutateBeforeFrame(room, config, frame);
       authoritativeChecksums.push(runFrame(room, config, frame).checksum);
     }
+    room._stationTargetLookupObservedFrames = 0;
+    room._stationTargetLookupMaxSize = 0;
     prepareMeasuredFixture(room, config, fixture.homes);
+    const fixtureConstruction = assertFixtureConstruction(room, config, fixture.homes);
     const measured = [];
+    const measuredFixtureStats = [];
     for (let frame = 0; frame < MEASURED_SAMPLES; frame += 1) {
       mutateBeforeFrame(room, config, frame);
       const result = runFrame(room, config, WARMUP_SAMPLES + frame);
       measured.push(result);
+      measuredFixtureStats.push(fixtureStats(room));
       authoritativeChecksums.push(result.checksum);
     }
     const memoryAfter = roomMemory();
-    return summarizeFrames(measured, config, buildMs, {
+    const summaryResult = summarizeFrames(measured, config, buildMs, {
       heapBeforeBytes: memoryBefore,
       heapAfterBytes: memoryAfter,
       heapDeltaBytes: memoryAfter - memoryBefore
     }, authoritativeChecksums);
+    summaryResult.fixtureAssertions = fixtureConstruction;
+    summaryResult.fixtureAssertions.observed = {
+      maxActiveLaunches: Math.max(...measuredFixtureStats.map((stats) => stats.activeLaunches), fixtureConstruction.activeLaunches),
+      maxQueuedItems: Math.max(...measuredFixtureStats.map((stats) => stats.queuedItems), fixtureConstruction.queuedItems),
+      maxQueuedQuantity: Math.max(...measuredFixtureStats.map((stats) => stats.queuedQuantity), fixtureConstruction.queuedQuantity)
+    };
+    const launchExpected = ["one-queue", "ten-queue", "burst-queue", "active-launch", "simultaneous", "occupied-bays", "destroyed-launch", "release", "small-template", "large-template"].includes(config.variant);
+    if (launchExpected) assert(summaryResult.fixtureAssertions.observed.maxActiveLaunches > 0, `${config.name}: measured fixture produces an active launch`);
+    summaryResult.fixtureAssertions.retainedState = {
+      retainedTargetCount: (room.stations || []).reduce((sum, station) => sum + (station._weaponTargetState || []).filter((state) => state?.id !== null && state?.id !== undefined).length, 0),
+      targetLookupSize: room._stationWeaponTargetLookup?.size || 0,
+      targetScratchLength: room._stationWeaponTargetScratch?.length || 0,
+      pointDefenceReservationSize: room._pdReservations?.size || 0,
+      targetLookupObservedFrames: room._stationTargetLookupObservedFrames || 0,
+      targetLookupMaxSize: room._stationTargetLookupMaxSize || 0
+    };
+    return summaryResult;
   } finally {
     flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousFlag);
+    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
   }
 }
 
-function runScenarioComparison(config, repeatIndex) {
+function runScenarioComparison(config, repeatIndex, cadenceEnabled = false) {
   const seed = 0x6f6f0000 + repeatIndex * 17 + config.name.length;
-  const legacy = withDeterministicRandom(seed, () => runScenario(config, repeatIndex, false));
-  const optimized = withDeterministicRandom(seed, () => runScenario(config, repeatIndex, true));
+  const runLegacy = () => withDeterministicRandom(seed, () => runScenario(config, repeatIndex, false, cadenceEnabled));
+  const runOptimized = () => withDeterministicRandom(seed, () => runScenario(config, repeatIndex, true, cadenceEnabled));
+  // Alternate which implementation runs first so JIT warm-up and allocator
+  // state cannot consistently favour one side of the comparison.
+  const [legacy, optimized] = repeatIndex % 2 === 0
+    ? [runLegacy(), runOptimized()]
+    : (() => {
+      const first = runOptimized();
+      const second = runLegacy();
+      return [second, first];
+    })();
   const legacyChecksums = legacy.authoritativeOutcomeChecksums;
   const optimizedChecksums = optimized.authoritativeOutcomeChecksums;
   assert.equal(optimizedChecksums.length, legacyChecksums.length, `${config.name}: legacy/optimized tick counts differ`);
@@ -683,7 +894,10 @@ function runScenarioComparison(config, repeatIndex) {
   return {
     scenario: config.name,
     subsystem: config.subsystem,
+    workloadClass: workloadClass(config),
     repeatIndex,
+    cadenceEnabled,
+    detailedProfile: DETAILED_PROFILE,
     authoritativeTicksCompared: legacyChecksums.length,
     checksumsEqualAfterEveryTick: true,
     legacy: {
@@ -698,6 +912,7 @@ function runScenarioComparison(config, repeatIndex) {
       heapDeltaBytes: optimized.memory.heapDeltaBytes,
       eventSpike: optimized.eventSpike
     },
+    fixtureAssertions: { legacy: legacy.fixtureAssertions, optimized: optimized.fixtureAssertions },
     delta: {
       stationWeaponP50Ms: round(optimizedStation.p50 - legacyStation.p50),
       stationWeaponP95Ms: round(optimizedStation.p95 - legacyStation.p95),
@@ -708,32 +923,165 @@ function runScenarioComparison(config, repeatIndex) {
   };
 }
 
-function aggregate(results) {
+function mergeRawSamples(results) {
+  const durationFields = Object.keys(results[0]?.rawSamples?.durations || {});
+  const wallFields = Object.keys(results[0]?.rawSamples?.wall || {});
+  const counterFields = Object.keys(results[0]?.rawSamples?.counters || {});
+  const merged = {
+    durations: Object.fromEntries(durationFields.map((field) => [field, []])),
+    wall: Object.fromEntries(wallFields.map((field) => [field, []])),
+    counters: Object.fromEntries(counterFields.map((field) => [field, []]))
+  };
+  for (const result of results) {
+    for (const field of durationFields) merged.durations[field].push(...(result.rawSamples.durations[field] || []));
+    for (const field of wallFields) merged.wall[field].push(...(result.rawSamples.wall[field] || []));
+    for (const field of counterFields) merged.counters[field].push(...(result.rawSamples.counters[field] || []));
+  }
+  return merged;
+}
+
+function summarizeRawTimingSamples(rawSamples) {
+  const timings = {};
+  for (const [field, values] of Object.entries(rawSamples.durations || {})) timings[field] = summary(values);
+  for (const [field, values] of Object.entries(rawSamples.wall || {})) timings[field] = summary(values);
+  const topLevelDurationFields = [
+    "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
+    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+  ];
+  const tickMean = timings.tickRuntimeMs?.mean || 0;
+  for (const field of topLevelDurationFields) {
+    if (!timings[field]) continue;
+    timings[field].tickSharePercent = tickMean > 0 ? round((timings[field].mean / tickMean) * 100, 2) : 0;
+  }
+  return timings;
+}
+
+function aggregateWorkloadClasses(results) {
+  const groups = new Map();
+  for (const result of results) {
+    const key = result.workloadClass || workloadClass(result.fixture || {});
+    const entries = groups.get(key) || [];
+    entries.push(result);
+    groups.set(key, entries);
+  }
   const fields = [
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
     "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
   ];
-  const allFrames = Object.fromEntries(fields.map((field) => [field, []]));
-  const tickValues = [];
-  for (const result of results) {
-    for (const field of fields) allFrames[field].push(...Array(result.measuredSamples).fill(result.timings[field].p50));
-    tickValues.push(result.timings.tickRuntimeMs.p50);
-  }
-  const tickMean = tickValues.reduce((sum, value) => sum + value, 0) / Math.max(1, tickValues.length);
-  const subsystems = {};
-  for (const field of fields) {
-    const values = allFrames[field];
-    subsystems[field] = {
-      p50: summary(values).p50,
-      p95: summary(values).p95,
-      representativeTickSharePercent: tickMean > 0 ? round((summary(values).mean / tickMean) * 100, 2) : 0
+  const output = {};
+  for (const [key, entries] of groups) {
+    const raw = mergeRawSamples(entries);
+    const timings = summarizeRawTimingSamples(raw);
+    output[key] = {
+      scenarioCount: new Set(entries.map((entry) => entry.scenario)).size,
+      measuredSamples: raw.wall.tickRuntimeMs.length,
+      timings,
+      subsystems: Object.fromEntries(fields.map((field) => [field, timings[field]])),
+      tickRuntimeMs: timings.tickRuntimeMs
     };
   }
-  const eventSpikes = results.filter((result) => result.eventSpike).map((result) => ({
-    scenario: result.scenario,
-    ...result.eventSpike
-  }));
-  return { subsystems, eventSpikes, representativeTickP50Ms: round(tickMean, 4) };
+  return output;
+}
+
+function median(values) {
+  return percentile(values.filter((value) => Number.isFinite(value)), 0.5);
+}
+
+function medianComparisonValue(entries, side, field) {
+  return median(entries.map((entry) => entry[side]?.stationWeaponRuntimeMs?.[field]));
+}
+
+function finiteValue(value) {
+  if (value === null || value === undefined || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(finiteValue);
+  if (typeof value === "object") return Object.values(value).every(finiteValue);
+  return false;
+}
+
+function performanceGate(optimizationRuns, scenarios, baselineRuns = []) {
+  const cadenceModes = new Set(optimizationRuns.map((entry) => entry.cadenceEnabled));
+  const off = optimizationRuns.filter((entry) => entry.cadenceEnabled === false);
+  const on = optimizationRuns.filter((entry) => entry.cadenceEnabled === true);
+  const entriesFor = (name, cadence = false) => optimizationRuns.filter((entry) => entry.scenario === name && entry.cadenceEnabled === cadence);
+  const medium = entriesFor("medium battle, 150 ships");
+  const large = entriesFor("large battle, 300 ships");
+  const idleAndSmall = off.filter((entry) => entry.workloadClass === "idle" || entry.scenario === "two homes and three relays, 50 ships");
+  const mediumLegacyP50 = medianComparisonValue(medium, "legacy", "p50");
+  const mediumOptimizedP50 = medianComparisonValue(medium, "optimized", "p50");
+  const largeLegacyP50 = medianComparisonValue(large, "legacy", "p50");
+  const largeOptimizedP50 = medianComparisonValue(large, "optimized", "p50");
+  const largeLegacyP95 = medianComparisonValue(large, "legacy", "p95");
+  const largeOptimizedP95 = medianComparisonValue(large, "optimized", "p95");
+  const reduction = (legacy, optimized) => legacy > 0 ? (legacy - optimized) / legacy : 0;
+  const mediumReduction = reduction(mediumLegacyP50, mediumOptimizedP50);
+  const largeReduction = reduction(largeLegacyP50, largeOptimizedP50);
+  const idleSmallChecks = idleAndSmall.map((entry) => {
+    const legacyP50 = entry.legacy.stationWeaponRuntimeMs.p50;
+    const optimizedP50 = entry.optimized.stationWeaponRuntimeMs.p50;
+    const regressionMs = optimizedP50 - legacyP50;
+    const regressionPercent = legacyP50 > 0 ? regressionMs / legacyP50 : 0;
+    return {
+      scenario: entry.scenario,
+      regressionMs: round(regressionMs),
+      regressionPercent: round(regressionPercent * 100, 2),
+      passed: regressionMs <= 0.20 || (legacyP50 > 0 && regressionPercent <= 0.10)
+    };
+  });
+  const finiteTelemetry = optimizationRuns.every((entry) => finiteValue(entry.legacy) && finiteValue(entry.optimized))
+    && baselineRuns.every((entry) => finiteValue(entry.timings) && finiteValue(entry.counters) && finiteValue(entry.rawSamples) && finiteValue(entry.memory));
+  const boundedRetainedState = optimizationRuns.every((entry) => {
+    return [entry.fixtureAssertions?.legacy, entry.fixtureAssertions?.optimized].every((fixture) => {
+      const retained = fixture?.retainedState;
+      const measured = fixture?.measured || fixture;
+      if (!retained || !measured) return false;
+      return retained.targetLookupSize <= measured.shipEntities
+        && retained.targetScratchLength <= measured.shipEntities
+        && retained.retainedTargetCount <= measured.liveWeaponMounts
+        && retained.pointDefenceReservationSize <= measured.liveWeaponMounts;
+    });
+  });
+  const stableCadenceLookupMeasured = on.some((entry) => entry.scenario === "stable retained targets"
+    && entry.fixtureAssertions?.optimized?.retainedState?.targetLookupObservedFrames > 0
+    && entry.fixtureAssertions?.optimized?.retainedState?.targetLookupMaxSize > 0
+    && entry.fixtureAssertions?.optimized?.retainedState?.retainedTargetCount > 0);
+  const exactParity = optimizationRuns.length === scenarios.length * REPEATS * 2
+    && optimizationRuns.every((entry) => entry.checksumsEqualAfterEveryTick && entry.authoritativeTicksCompared > 0);
+  const checks = {
+    cadenceOffAndOnPairs: cadenceModes.has(false) && cadenceModes.has(true)
+      && off.length === scenarios.length * REPEATS
+      && on.length === scenarios.length * REPEATS,
+    representativeMediumP50Reduction: medium.length > 0 && mediumReduction >= 0.15,
+    largeP50Reduction: large.length > 0 && largeReduction >= 0.15,
+    largeP95NoRegression: large.length > 0 && largeOptimizedP95 <= largeLegacyP95,
+    idleAndSmallRegressionBounded: idleAndSmall.length > 0 && idleSmallChecks.every((check) => check.passed),
+    exactParityEveryScenario: exactParity,
+    finiteTelemetry,
+    boundedRetainedState,
+    cadenceLookupMeasured: stableCadenceLookupMeasured
+  };
+  return {
+    passed: Object.values(checks).every(Boolean),
+    checks,
+    thresholds: {
+      representativeMediumP50Reduction: 0.15,
+      largeP50Reduction: 0.15,
+      largeP95RegressionMs: 0,
+      idleOrSmallRegressionPercent: 10,
+      idleOrSmallRegressionMs: 0.20
+    },
+    measurements: {
+      mediumLegacyP50Ms: round(mediumLegacyP50),
+      mediumOptimizedP50Ms: round(mediumOptimizedP50),
+      mediumP50ReductionPercent: round(mediumReduction * 100, 2),
+      largeLegacyP50Ms: round(largeLegacyP50),
+      largeOptimizedP50Ms: round(largeOptimizedP50),
+      largeP50ReductionPercent: round(largeReduction * 100, 2),
+      largeLegacyP95Ms: round(largeLegacyP95),
+      largeOptimizedP95Ms: round(largeOptimizedP95),
+      idleAndSmall: idleSmallChecks
+    }
+  };
 }
 
 function main() {
@@ -747,8 +1095,9 @@ function main() {
   try {
     for (const config of scenarios) {
       for (let repeat = 0; repeat < REPEATS; repeat += 1) {
-        runs.push(withDeterministicRandom(0x6f6f0000 + repeat * 17 + config.name.length, () => runScenario(config, repeat)));
-        optimizationRuns.push(runScenarioComparison(config, repeat));
+        runs.push(withDeterministicRandom(0x6f6f0000 + repeat * 17 + config.name.length, () => runScenario(config, repeat, false, false)));
+        optimizationRuns.push(runScenarioComparison(config, repeat, false));
+        optimizationRuns.push(runScenarioComparison(config, repeat, true));
       }
     }
   } finally {
@@ -764,8 +1113,18 @@ function main() {
   }
   const scenarioResults = [...byScenario.entries()].map(([scenario, entries]) => {
     const first = entries[0];
+    const rawSamples = mergeRawSamples(entries);
+    const timings = summarizeRawTimingSamples(rawSamples);
+    const counters = Object.fromEntries(Object.entries(rawSamples.counters).map(([field, values]) => [
+      field,
+      round(values.reduce((sum, value) => sum + (Number(value) || 0), 0) / Math.max(1, values.length), 4)
+    ]));
     return {
       ...first,
+      measuredSamples: rawSamples.wall.tickRuntimeMs.length,
+      timings,
+      counters,
+      rawSamples,
       repeats: entries.length,
       repeatMemory: entries.map((entry) => entry.memory),
       repeatChecksums: entries.map((entry) => entry.deterministicOutcomeChecksum),
@@ -773,16 +1132,25 @@ function main() {
     };
   });
   const allChecksums = scenarioResults.map((result) => [result.scenario, result.repeatChecksums]);
+  const gate = performanceGate(optimizationRuns, scenarios, runs);
   const artifact = {
-    status: "passed",
+    status: ASSERT_PERFORMANCE && !gate.passed ? "failed" : "passed",
     phase: "6F",
     mode: MODE,
-    startingCommitSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: __dirname, encoding: "utf8" }).trim(),
+    baselineCommitSha: BASELINE_COMMIT_SHA,
+    profileCommitSha: PROFILE_COMMIT_SHA,
+    optimizedCommitSha: OPTIMIZED_COMMIT_SHA,
+    testedHeadSha: resolveCommit("HEAD"),
     nodeVersion: process.version,
+    detailedProfile: DETAILED_PROFILE,
+    assertPerformance: ASSERT_PERFORMANCE,
     warmUpCounts: { samplesPerScenario: WARMUP_SAMPLES },
     measuredSampleCounts: { samplesPerScenario: MEASURED_SAMPLES, repeats: REPEATS },
     fixtureSizeAndDensity: scenarios.map((scenario) => ({ name: scenario.name, subsystem: scenario.subsystem, ships: scenario.ships, stations: 2 + (scenario.relays || 0), relays: scenario.relays || 0, density: scenario.density })),
-    independentSubsystems: aggregate(scenarioResults),
+    independentSubsystems: {
+      scenarioCount: scenarioResults.length,
+      workloadClasses: aggregateWorkloadClasses(scenarioResults)
+    },
     scenarios: scenarioResults,
     optimizationEvidence: {
       flag: "OPTIMIZED_STATION_WEAPON_RUNTIME",
@@ -790,8 +1158,10 @@ function main() {
       comparedScenarios: optimizationRuns.length,
       checksumsEqualAfterEveryTick: optimizationRuns.every((entry) => entry.checksumsEqualAfterEveryTick),
       authoritativeTicksCompared: optimizationRuns.reduce((sum, entry) => sum + entry.authoritativeTicksCompared, 0),
+      cadenceModes: [false, true],
       runs: optimizationRuns
     },
+    performanceGate: gate,
     deterministicOutcomeChecksums: allChecksums,
     memoryGrowth: scenarioResults.map((result) => ({ scenario: result.scenario, heapDeltaBytes: result.memory.heapDeltaBytes, repeatDeltas: result.repeatMemory.map((memory) => memory.heapDeltaBytes) })),
     optimizationDecision: {
@@ -799,12 +1169,15 @@ function main() {
       benchmarkedFlags: ["OPTIMIZED_STATION_WEAPON_RUNTIME"],
       productionFlagsEnabled: [],
       candidate: "station weapon profile cache and authoritative live-target reuse",
-      stage: "profiled-with-opt-in-parity"
+      stage: gate.passed ? "profiled-with-opt-in-parity" : "profiled-but-not-accepted"
     }
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(artifact, null, 2));
-  previousLog(JSON.stringify({ status: artifact.status, mode: MODE, scenarios: scenarioResults.length, repeats: REPEATS, output: OUTPUT_PATH, representativeTickP50Ms: artifact.independentSubsystems.representativeTickP50Ms }, null, 2));
+  previousLog(JSON.stringify({ status: artifact.status, mode: MODE, scenarios: scenarioResults.length, repeats: REPEATS, output: OUTPUT_PATH, workloadClasses: Object.keys(artifact.independentSubsystems.workloadClasses), performanceGate: gate }, null, 2));
+  if (ASSERT_PERFORMANCE && !gate.passed) {
+    throw new Error(`Phase 6F performance acceptance failed: ${Object.entries(gate.checks).filter(([, passed]) => !passed).map(([name]) => name).join(", ")}`);
+  }
 }
 
 if (require.main === module) main();
@@ -815,9 +1188,14 @@ module.exports = {
   CAPTURE_SCENARIOS,
   HANGAR_SCENARIOS,
   buildFixture,
+  addShip,
+  addProjectile,
   prepareMeasuredFixture,
   mutateBeforeFrame,
   runFrame,
   outcomeChecksum,
+  fixtureStats,
+  assertFixtureConstruction,
+  performanceGate,
   withDeterministicRandom
 };

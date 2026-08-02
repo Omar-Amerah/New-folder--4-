@@ -18,7 +18,7 @@ const PerformanceFlags = require("./performanceFlags");
 const Targeting = require("./targetingEligibility");
 const TargetingCadence = require("./targetingCadence");
 const TargetingTelemetry = require("./targetingTelemetry");
-const { bump, recordDuration } = require("./roomTelemetry");
+const { bump, recordDuration, detailedProfileActive } = require("./roomTelemetry");
 
 const SHIELD_ABSORPTION = 0.95;
 
@@ -112,6 +112,19 @@ function prepareStationWeaponTargetLookup(room, targets) {
   return lookup;
 }
 
+function prepareStationWeaponEnemyTargets(room, station, targets, identity, now) {
+  const candidates = station._stationWeaponEnemyTargets || (station._stationWeaponEnemyTargets = []);
+  candidates.length = 0;
+  for (const target of targets || []) {
+    if (!target || target.id === station.id || target.alive === false || target.state === "disabled") continue;
+    if (!areEnemies(room, identity, target.ownerId)) continue;
+    if (!canTeamTargetEntity(room, identity, target, now)) continue;
+    if (isInSafeZone(room, target.x, target.y, target)) continue;
+    candidates.push(target);
+  }
+  return candidates;
+}
+
 // A station's allegiance is its TEAM. `ownerId` is only populated when a player
 // personally captured a relay; a home station is built from a map safe zone,
 // which carries a team and no owner at all.
@@ -179,46 +192,65 @@ function isTargetInWeaponArc(station, index, target, profile = null) {
   return Math.abs(angleDifference(weaponFacingAngle(station, index, profile), angleToTarget)) <= arc / 2;
 }
 
-function findStationWeaponTarget(room, station, index, targets, identity, now, profile = null) {
+function findStationWeaponTarget(room, station, index, targets, identity, now, profile = null, candidateTargets = targets, detailedOverride = null) {
   const module = profile?.module || station.design[index];
   const part = profile?.part || PARTS[module.type] || PARTS.frame;
   const weapon = profile?.weapon || part.weapon;
   if (!weapon) return null;
+  const detailed = detailedOverride === null ? detailedProfileActive(room) : detailedOverride;
   const origin = stationModuleWorldPosition(station, index, profile);
+  const weaponAngle = weaponFacingAngle(station, index, profile);
   const range = profile?.range ?? (weapon.range || 0);
   const rangeSq = range * range;
+  const prevalidated = Boolean(profile && candidateTargets && candidateTargets !== targets);
+  const arcRadians = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
   let best = null;
   let bestDist = Infinity;
-  bump(room, "stationWeaponFullTargetScans");
-  for (const target of targets || []) {
-    bump(room, "stationWeaponCandidatesVisited");
+  let candidatesVisited = 0;
+  let validations = 0;
+  let visibilityRejects = 0;
+  let rangeRejects = 0;
+  let arcRejects = 0;
+  if (detailed) bump(room, "stationWeaponFullTargetScans");
+  for (const target of candidateTargets || []) {
+    if (detailed) candidatesVisited += 1;
     if (!target || target.id === station.id) continue;
     if (target.alive === false || target.state === "disabled") continue;
-    bump(room, "stationWeaponTargetValidations");
-    if (!areEnemies(room, identity, target.ownerId)) continue;
-    if (!canTeamTargetEntity(room, identity, target, now)) {
-      bump(room, "stationWeaponVisibilityRejects");
-      continue;
-    }
-    if (isInSafeZone(room, target.x, target.y, target)) {
-      bump(room, "stationWeaponVisibilityRejects");
-      continue;
+    if (detailed) validations += 1;
+    if (!prevalidated) {
+      if (!areEnemies(room, identity, target.ownerId)) continue;
+      if (!canTeamTargetEntity(room, identity, target, now)) {
+        if (detailed) visibilityRejects += 1;
+        continue;
+      }
+      if (isInSafeZone(room, target.x, target.y, target)) {
+        if (detailed) visibilityRejects += 1;
+        continue;
+      }
     }
     const dx = target.x - origin.x;
     const dy = target.y - origin.y;
     const distSq = dx * dx + dy * dy;
     if (distSq > rangeSq) {
-      bump(room, "stationWeaponRangeRejects");
+      if (detailed) rangeRejects += 1;
       continue;
     }
-    if (!isTargetInWeaponArc(station, index, target, profile)) {
-      bump(room, "stationWeaponArcRejects");
+    if (arcRadians < Math.PI * 2
+      && Math.abs(angleDifference(weaponAngle, Math.atan2(dy, dx))) > arcRadians / 2) {
+      if (detailed) arcRejects += 1;
       continue;
     }
     if (distSq < bestDist) {
       best = target;
       bestDist = distSq;
     }
+  }
+  if (detailed) {
+    bump(room, "stationWeaponCandidatesVisited", candidatesVisited);
+    bump(room, "stationWeaponTargetValidations", validations);
+    bump(room, "stationWeaponVisibilityRejects", visibilityRejects);
+    bump(room, "stationWeaponRangeRejects", rangeRejects);
+    bump(room, "stationWeaponArcRejects", arcRejects);
   }
   return best;
 }
@@ -307,7 +339,8 @@ function _updateStationTargetState(station, i, target, now, kind) {
   state.nextSearchAt = TargetingCadence.nextAcquisitionAt(station, kind, i, now);
 }
 
-function getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile = null, targetLookup = null) {
+function getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile = null, targetLookup = null, candidateTargets = targets, detailedOverride = null) {
+  const detailed = detailedOverride === null ? detailedProfileActive(room) : detailedOverride;
   TargetingTelemetry.bump(room, "stationTargetValidationAttempts");
   if (!station._weaponTargetState) station._weaponTargetState = [];
   let state = station._weaponTargetState[i];
@@ -330,9 +363,9 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
     ? (targetLookup ? (targetLookup.get(state.id) || null) : (targets || []).find((t) => t && t.id === state.id))
     : null;
   let currentValid = false;
-  const validationStartedAt = performanceNow();
+  const validationStartedAt = detailed ? performanceNow() : 0;
   if (cached) {
-    bump(room, "stationWeaponTargetValidations");
+    if (detailed) bump(room, "stationWeaponTargetValidations");
     currentValid = Targeting.isStationWeaponTargetValid(room, station, cached, identity, now, range, {
       originX: origin.x,
       originY: origin.y,
@@ -342,7 +375,7 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
     if (currentValid && isInSafeZone(room, cached.x, cached.y, cached)) currentValid = false;
     if (!currentValid) TargetingTelemetry.bump(room, "ordinaryTargetValidationFailures");
   }
-  recordDuration(room, "stationWeaponValidationMs", validationStartedAt);
+  if (detailed) recordDuration(room, "stationWeaponValidationMs", validationStartedAt);
 
   const due = TargetingCadence.isAcquisitionDue(station, "stationOrdinary", i, now);
   const force = hadCachedTarget && !currentValid;
@@ -351,17 +384,17 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
     state.id = null;
     TargetingTelemetry.bump(room, "targetInvalidations");
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
-    bump(room, "stationWeaponImmediateReacquisitions");
+    if (detailed) bump(room, "stationWeaponImmediateReacquisitions");
   } else if (force) {
     state.id = null;
     TargetingTelemetry.bump(room, "targetInvalidations");
     TargetingTelemetry.bump(room, "ordinaryTargetImmediateReacquisitions");
-    bump(room, "stationWeaponImmediateReacquisitions");
+    if (detailed) bump(room, "stationWeaponImmediateReacquisitions");
   }
 
   if (currentValid && !due && !force) {
     TargetingTelemetry.bump(room, "stationTargetSearchDeferred");
-    bump(room, "stationWeaponRetainedTargets");
+    if (detailed) bump(room, "stationWeaponRetainedTargets");
     return cached;
   }
 
@@ -371,12 +404,10 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
   }
 
   TargetingTelemetry.bump(room, "stationTargetSearches");
-  bump(room, "stationWeaponTargetSearches");
-  const acquisitionStartedAt = performanceNow();
+  if (detailed) bump(room, "stationWeaponTargetSearches");
   const picked = TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledStationAcquisitionDuration", () =>
-    findStationWeaponTarget(room, station, i, targets, identity, now, profile)
+    findStationWeaponTarget(room, station, i, targets, identity, now, profile, candidateTargets, detailed)
   );
-  recordDuration(room, "stationWeaponOrdinaryAcquisitionMs", acquisitionStartedAt);
   _updateStationTargetState(station, i, picked, now, "stationOrdinary");
   if (picked) {
     TargetingTelemetry.bump(room, "stationTargetCandidates");
@@ -389,27 +420,35 @@ function updateStationWeapons(room, stations, ships, dt, now) {
   const runtimeStartedAt = performanceNow();
   try {
   if (!Array.isArray(stations) || stations.length === 0) return;
+  const detailed = detailedProfileActive(room);
   const optimized = PerformanceFlags.OPTIMIZED_STATION_WEAPON_RUNTIME();
   const cadenceEnabled = PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE();
-  const preparationStartedAt = performanceNow();
+  const preparationStartedAt = detailed ? performanceNow() : 0;
   const targets = prepareStationWeaponTargets(room, ships, optimized);
-  recordDuration(room, "stationWeaponTargetPreparationMs", preparationStartedAt);
-  const targetLookup = optimized && cadenceEnabled ? prepareStationWeaponTargetLookup(room, targets) : null;
+    if (detailed) recordDuration(room, "stationWeaponTargetPreparationMs", preparationStartedAt);
+    const targetLookup = optimized && cadenceEnabled ? prepareStationWeaponTargetLookup(room, targets) : null;
+    if (targetLookup && room._stationTargetLookupMeasurementActive === true) {
+      room._stationTargetLookupObservedFrames = (room._stationTargetLookupObservedFrames || 0) + 1;
+      room._stationTargetLookupMaxSize = Math.max(room._stationTargetLookupMaxSize || 0, targetLookup.size);
+    }
   // Point-defence overkill reservations are per-firing-entity and the ship pass
   // has already run for this tick, so the stations start from a clean map.
   if (!room._pdReservations) room._pdReservations = new Map();
   room._pdReservations.clear();
   for (const station of stations) {
     if (station.state !== "operational" || station.alive === false) continue;
-    bump(room, "stationsWeaponProcessed");
+    if (detailed) bump(room, "stationsWeaponProcessed");
     initStationCombatRuntime(station);
     const profiles = optimized ? getStationWeaponProfiles(station) : null;
     // Resolved once per station per tick: targeting, point defence and every
     // round the station fires all key off the same identity.
     const identity = stationCombatIdentity(room, station);
+    const ordinaryTargets = optimized
+      ? prepareStationWeaponEnemyTargets(room, station, targets, identity, now)
+      : targets;
     const indexes = getShipComponentIndexes(station);
     for (const i of indexes.weaponIndices) {
-      bump(room, "stationWeaponComponentsVisited");
+      if (detailed) bump(room, "stationWeaponComponentsVisited");
       station.weaponCooldowns[i] = Math.max(0, (station.weaponCooldowns[i] || 0) - dt);
       if (!isComponentAlive(station, i)) {
         station.weaponAimTargetIds[i] = null;
@@ -424,13 +463,13 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         station.weaponAngles[i] = station.weaponAngles[i] ?? moduleRotationToRadians(0);
         continue;
       }
-      bump(room, "stationWeaponComponentsOperational");
-      const profileStartedAt = performanceNow();
+      if (detailed) bump(room, "stationWeaponComponentsOperational");
+      const profileStartedAt = detailed ? performanceNow() : 0;
       const profile = profiles?.[i] || null;
       const module = profile?.module || station.design[i];
       const part = profile?.part || PARTS[module.type] || PARTS.frame;
       const weapon = profile?.weapon || part.weapon;
-      recordDuration(room, "stationWeaponProfileLookupMs", profileStartedAt);
+      if (detailed) recordDuration(room, "stationWeaponProfileLookupMs", profileStartedAt);
       if (!weapon) continue;
 
       const origin = stationModuleWorldPosition(station, i, profile);
@@ -441,19 +480,21 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       // nothing fragile is inbound. Before this it could see ships alone, so
       // eight point-defence mounts watched missiles fly past into the hull.
       const isPointDefense = (weapon.type || "") === "pointDefense";
-      if (isPointDefense) bump(room, "stationWeaponPointDefenceMounts");
-      else bump(room, "stationWeaponOrdinaryMounts");
+       if (detailed) {
+         if (isPointDefense) bump(room, "stationWeaponPointDefenceMounts");
+         else bump(room, "stationWeaponOrdinaryMounts");
+       }
       let pdTarget = null;
       if (isPointDefense) {
-        const pointDefenceStartedAt = performanceNow();
+        const pointDefenceStartedAt = detailed ? performanceNow() : 0;
         const pdCachedId = station.weaponAimTargetIds[i] ?? null;
         const pdCached = pdCachedId ? _lookupPointDefenceEntity(room, pdCachedId) : null;
         const worldWeaponAngle = (station.angle || 0) + (station.weaponAngles[i] || 0);
         const pdArcRadians = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
         let pdCurrentValid = false;
         if (pdCached) {
-          const validationStartedAt = performanceNow();
-          bump(room, "stationWeaponTargetValidations");
+          const validationStartedAt = detailed ? performanceNow() : 0;
+          if (detailed) bump(room, "stationWeaponTargetValidations");
           pdCurrentValid = Targeting.isPointDefenceTargetValid(room, identity, pdCached, weapon.range || 0, now, {
             originX: origin.x,
             originY: origin.y,
@@ -463,16 +504,16 @@ function updateStationWeapons(room, stations, ships, dt, now) {
             priorityList: weapon.targetPriority,
             team: station.team
           });
-          recordDuration(room, "stationWeaponValidationMs", validationStartedAt);
+          if (detailed) recordDuration(room, "stationWeaponValidationMs", validationStartedAt);
           if (pdCurrentValid && TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledLineOfSightDuration", () => isLineBlocked(room, origin.x, origin.y, pdCached.entity.x, pdCached.entity.y, 4))) pdCurrentValid = false;
           if (!pdCurrentValid) {
             TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
-            bump(room, "stationWeaponImmediateReacquisitions");
+            if (detailed) bump(room, "stationWeaponImmediateReacquisitions");
           }
         }
         const pdDue = TargetingCadence.isAcquisitionDue(station, "stationPointDefence", i, now);
         const pdForce = pdCachedId !== null && !pdCurrentValid;
-        if (pdCurrentValid && !pdDue) bump(room, "stationWeaponRetainedTargets");
+        if (detailed && pdCurrentValid && !pdDue) bump(room, "stationWeaponRetainedTargets");
         if (pdCurrentValid && !pdDue) {
           TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
           pdTarget = pdCached;
@@ -481,27 +522,27 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           pdTarget = null;
         } else {
           TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
-          bump(room, "stationWeaponTargetSearches");
+          if (detailed) bump(room, "stationWeaponTargetSearches");
           pdTarget = findPointDefenseTarget(room, origin.x, origin.y, identity, weapon, targets, station.id, now);
           TargetingCadence.markAcquisitionCompleted(station, "stationPointDefence", i, now);
         }
-        recordDuration(room, "stationWeaponPointDefenceMs", pointDefenceStartedAt);
+        if (detailed) recordDuration(room, "stationWeaponPointDefenceMs", pointDefenceStartedAt);
       }
       let target;
       if (pdTarget) {
         target = pdTarget.entity;
       } else {
-        const acquisitionStartedAt = performanceNow();
+        const acquisitionStartedAt = detailed ? performanceNow() : 0;
         target = cadenceEnabled
-          ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile, targetLookup)
-          : findStationWeaponTarget(room, station, i, targets, identity, now, profile);
-        recordDuration(room, "stationWeaponOrdinaryAcquisitionMs", acquisitionStartedAt);
-        if (!cadenceEnabled) bump(room, "stationWeaponTargetSearches");
+          ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile, targetLookup, ordinaryTargets, detailed)
+          : findStationWeaponTarget(room, station, i, targets, identity, now, profile, ordinaryTargets, detailed);
+        if (detailed) recordDuration(room, "stationWeaponOrdinaryAcquisitionMs", acquisitionStartedAt);
+        if (detailed && !cadenceEnabled) bump(room, "stationWeaponTargetSearches");
       }
       const defaultRelative = profile?.defaultRelative ?? moduleRotationToRadians(module.rotation || 0);
       let desiredRelative = defaultRelative;
       let isTracking = false;
-      const aimStartedAt = performanceNow();
+      const aimStartedAt = detailed ? performanceNow() : 0;
 
       if (target) {
         const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
@@ -511,7 +552,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           desiredRelative = relativeAngleToTarget;
           isTracking = true;
         } else {
-          bump(room, "stationWeaponArcRejects");
+          if (detailed) bump(room, "stationWeaponArcRejects");
         }
       }
 
@@ -523,11 +564,11 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       station.weaponDesiredAngles[i] = desiredRelative;
       station.weaponAimTargetIds[i] = isTracking && target ? target.id : null;
       station.weaponFireTargetIds[i] = null;
-      recordDuration(room, "stationWeaponAimMs", aimStartedAt);
+      if (detailed) recordDuration(room, "stationWeaponAimMs", aimStartedAt);
 
       if (!isTracking) continue;
       if (station.weaponCooldowns[i] > 0) {
-        bump(room, "stationWeaponCooldownSkips");
+        if (detailed) bump(room, "stationWeaponCooldownSkips");
         continue;
       }
 
@@ -537,7 +578,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
       const alignmentThreshold = module.type === "pointDefense" ? 0.035 : 0.26;
       if (family !== "beam" && angleErr > alignmentThreshold) {
-        bump(room, "stationWeaponArcRejects");
+        if (detailed) bump(room, "stationWeaponArcRejects");
         continue;
       }
 
@@ -559,7 +600,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       // the ship weapons use.
       const reload = weaponReloadSeconds(weapon, 1);
       station.weaponFireTargetIds[i] = target.id;
-      const fireStartedAt = performanceNow();
+      const fireStartedAt = detailed ? performanceNow() : 0;
 
       if (pdTarget) {
         // Reserve the damage so the next battery this tick picks a different
@@ -572,7 +613,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           : Infinity;
         const reserved = room._pdReservations?.get(entity.id) || 0;
         if (pool - reserved <= 0.001) {
-          recordDuration(room, "stationWeaponFireMs", fireStartedAt);
+          if (detailed) recordDuration(room, "stationWeaponFireMs", fireStartedAt);
           continue;
         }
         room._pdReservations?.set(entity.id, reserved + (weapon.damage || 0));
@@ -600,9 +641,9 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           bornAt: now,
           armorInteractionSeconds: pdTarget.type === "ship" ? Math.min(1, reload) : undefined
         }));
-        bump(room, "stationWeaponShotsCreated");
+        if (detailed) bump(room, "stationWeaponShotsCreated");
         station.weaponCooldowns[i] = reload;
-        recordDuration(room, "stationWeaponFireMs", fireStartedAt);
+        if (detailed) recordDuration(room, "stationWeaponFireMs", fireStartedAt);
         continue;
       }
 
@@ -624,7 +665,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           armorInteractionSeconds: Math.min(1, reload)
         });
         });
-        bump(room, "stationWeaponShotsCreated");
+        if (detailed) bump(room, "stationWeaponShotsCreated");
       } else if (family === "missile") {
         TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "missile",
@@ -651,7 +692,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           armorInteractionSeconds: Math.min(1, reload)
         });
         });
-        bump(room, "stationWeaponShotsCreated");
+        if (detailed) bump(room, "stationWeaponShotsCreated");
       } else if (family === "flak") {
         TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "flak",
@@ -675,24 +716,47 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           armorInteractionSeconds: Math.min(1, reload)
         });
         });
-        bump(room, "stationWeaponShotsCreated");
+        if (detailed) bump(room, "stationWeaponShotsCreated");
       } else {
-        recordDuration(room, "stationWeaponFireMs", fireStartedAt);
+        if (detailed) recordDuration(room, "stationWeaponFireMs", fireStartedAt);
         continue;
       }
       station.weaponCooldowns[i] = reload;
-      recordDuration(room, "stationWeaponFireMs", fireStartedAt);
+      if (detailed) recordDuration(room, "stationWeaponFireMs", fireStartedAt);
     }
   }
   } finally {
+    // The target lookup/scratch are tick-local. Clear them after the station
+    // phase as well as on room reset so a ship spawned or removed by the later
+    // hangar/projectile stages cannot leave a stale retained reference behind.
+    room?._stationWeaponTargetLookup?.clear?.();
+    if (Array.isArray(room?._stationWeaponTargetScratch)) room._stationWeaponTargetScratch.length = 0;
+    room?._pdReservations?.clear?.();
+    for (const station of room?.stations || []) {
+      if (Array.isArray(station?._stationWeaponEnemyTargets)) station._stationWeaponEnemyTargets.length = 0;
+    }
     recordDuration(room, "stationWeaponRuntimeMs", runtimeStartedAt);
   }
+}
+
+function clearStationWeaponRuntime(room) {
+  if (!room) return;
+  room._stationWeaponTargetLookup?.clear?.();
+  if (Array.isArray(room._stationWeaponTargetScratch)) room._stationWeaponTargetScratch.length = 0;
+  room._pdReservations?.clear?.();
+  for (const station of room.stations || []) {
+    if (Array.isArray(station?._stationWeaponEnemyTargets)) station._stationWeaponEnemyTargets.length = 0;
+  }
+  if (room._stationTargetLookupMeasurementActive !== undefined) room._stationTargetLookupMeasurementActive = false;
+  if (room._stationTargetLookupObservedFrames !== undefined) room._stationTargetLookupObservedFrames = 0;
+  if (room._stationTargetLookupMaxSize !== undefined) room._stationTargetLookupMaxSize = 0;
 }
 
 module.exports = {
   initStationCombatRuntime,
   liveStations,
   updateStationWeapons,
+  clearStationWeaponRuntime,
   damageStation,
   stationModuleWorldPosition,
   STATION_MODULE_SCALE

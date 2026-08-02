@@ -96,7 +96,7 @@ const DURATION_FIELDS = Object.freeze([
   "commandAuraWinnerResolutionMs",
   "commandAuraRecipientPublishMs",
   "commandAuraReconciliationMs",
-  "commandAuraFallbackMs"
+  "commandAuraFallbackMs",
   // Phase 6F station/objective profiling. These fields are room-scoped so
   // instrumentation never needs to attach a telemetry object to a station,
   // weapon, ship candidate or queue item.
@@ -483,6 +483,13 @@ function recordDuration(room, name, startMs) {
   return elapsed;
 }
 
+// Detailed Phase 6F counters and substage clocks are opt-in. Top-level runtime
+// durations remain unconditional, while callers use this single room flag to
+// keep candidate-level diagnostics out of the normal simulation hot path.
+function detailedProfileActive(room) {
+  return room?._stationDetailedProfileActive === true;
+}
+
 function setCounter(room, name, value) {
   if (!room) return 0;
   const telemetry = ensureTelemetry(room);
@@ -510,6 +517,7 @@ module.exports = {
   resetRoomTelemetry,
   bump,
   recordDuration,
+  detailedProfileActive,
   setCounter,
   getRoomTelemetry,
   telemetryDiagnostics

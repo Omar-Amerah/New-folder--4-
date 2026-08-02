@@ -13,10 +13,23 @@ const {
 } = require("./src/server/roomTelemetry");
 const { tickRoom } = require("./src/server/simulation");
 const { destroyStationsForRoom } = require("./src/server/stations");
+const { clearStationWeaponRuntime } = require("./src/server/stationCombat");
+const { clearRoomRuntimeScratch, bumpStateEpoch } = require("./src/server/rooms");
+const { createMovementRuntime } = require("./src/server/movementRuntime");
+const { PARTS } = require("./src/server/components");
 const flags = require("./src/server/performanceFlags");
 const benchmark = require("./benchmark-phase-6f");
 
-const { ALL_SCENARIOS, buildFixture, prepareMeasuredFixture, mutateBeforeFrame, runFrame, outcomeChecksum, withDeterministicRandom } = benchmark;
+const {
+  ALL_SCENARIOS,
+  buildFixture,
+  prepareMeasuredFixture,
+  mutateBeforeFrame,
+  runFrame,
+  outcomeChecksum,
+  assertFixtureConstruction,
+  withDeterministicRandom
+} = benchmark;
 
 function scenario(name) {
   const result = ALL_SCENARIOS.find((entry) => entry.name === name);
@@ -29,8 +42,13 @@ function pairedRun(config, frames = 3) {
   const right = buildFixture(config, 0);
   prepareMeasuredFixture(left.room, config, left.homes);
   prepareMeasuredFixture(right.room, config, right.homes);
+  left.room._stationDetailedProfileActive = true;
+  right.room._stationDetailedProfileActive = true;
+  assertFixtureConstruction(left.room, config, left.homes);
+  assertFixtureConstruction(right.room, config, right.homes);
   const checksums = [];
   const previousFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
+  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
   try {
     for (let frame = 0; frame < frames; frame += 1) {
       mutateBeforeFrame(left.room, config, frame);
@@ -46,6 +64,7 @@ function pairedRun(config, frames = 3) {
     }
   } finally {
     flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousFlag);
+    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
   }
   return { left, right, checksums };
 }
@@ -91,6 +110,34 @@ function verifySchemaAndDefaults() {
   assert.equal(flags.OPTIMIZED_STATION_WEAPON_RUNTIME(), false, "station weapon optimization remains disabled by default");
   assert.equal(flags.OPTIMIZED_STATION_CAPTURE_RUNTIME, undefined, "capture has no speculative optimization flag");
   assert.equal(flags.OPTIMIZED_STATION_HANGAR_RUNTIME, undefined, "hangar has no speculative optimization flag");
+
+  const gatedFixture = buildFixture(scenario("medium battle, 150 ships"), 0);
+  gatedFixture.room._stationDetailedProfileActive = false;
+  runFrame(gatedFixture.room, scenario("medium battle, 150 ships"), 0);
+  const gatedTelemetry = telemetry(gatedFixture.room);
+  assert(gatedTelemetry.stationWeaponRuntimeMs > 0, "top-level station weapon timing remains available without detailed profiling");
+  const phase6fCounter = (name) => name.startsWith("stationWeapon")
+    || name.startsWith("stationCapture")
+    || name.startsWith("stationControl")
+    || name.startsWith("stationRelays")
+    || name.startsWith("stationHome")
+    || name.startsWith("stationQueue")
+    || name.startsWith("stationSpawn")
+    || name.startsWith("stationActive")
+    || name.startsWith("stationLaunch")
+    || name.startsWith("stationEmpty")
+    || name.startsWith("classicCapture");
+  for (const field of COUNTER_FIELDS.filter(phase6fCounter)) {
+    assert.equal(gatedTelemetry[field], 0, `detailed Phase 6F counter ${field} is gated off`);
+  }
+  const unconditionalDurations = new Set([
+    "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
+    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+  ]);
+  for (const field of DURATION_FIELDS.filter((name) => name.startsWith("station") || name.startsWith("classicCapture"))) {
+    if (unconditionalDurations.has(field)) continue;
+    assert.equal(gatedTelemetry[field], 0, `detailed Phase 6F duration ${field} is gated off`);
+  }
 }
 
 function verifyWeaponRuntime() {
@@ -100,17 +147,17 @@ function verifyWeaponRuntime() {
   assert(t.stationsWeaponProcessed > 0, "station weapon stations are processed");
   assert(t.stationWeaponComponentsVisited >= t.stationWeaponComponentsOperational, "weapon component counters are ordered");
   assert(t.stationWeaponOrdinaryMounts > 0, "ordinary station mounts are profiled separately");
-  assert(t.stationWeaponTargetSearches >= 0 && t.stationWeaponCandidatesVisited >= 0, "ordinary target scans are counted");
-  assert(t.stationWeaponRuntimeMs >= 0 && t.stationWeaponAimMs >= 0, "station weapon timings are recorded");
+  assert(t.stationWeaponTargetSearches > 0 && t.stationWeaponCandidatesVisited > 0, "ordinary target scans are counted");
+  assert(t.stationWeaponRuntimeMs > 0 && t.stationWeaponAimMs > 0, "station weapon timings are recorded");
   assertNoEntityTelemetry(result.left.room);
 
   const pd = pairedRun(scenario("point-defence missile storm"), 3);
   const pdTelemetry = telemetry(pd.left.room);
   assert(pdTelemetry.stationWeaponPointDefenceMounts > 0, "point-defence mounts are profiled separately");
-  assert(pdTelemetry.stationWeaponPointDefenceMs >= 0, "point-defence timing is recorded");
+  assert(pdTelemetry.stationWeaponPointDefenceMs > 0, "point-defence timing is recorded");
 
   const fog = pairedRun(scenario("sensors and fog enabled"), 2);
-  assert(telemetry(fog.left.room).stationWeaponVisibilityRejects >= 0, "fog/safe-zone target rejections are counted");
+  assert(telemetry(fog.left.room).stationWeaponVisibilityRejects > 0, "fog/safe-zone target rejections are counted");
 
   const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
   let cadence;
@@ -191,6 +238,7 @@ function verifyHangarRuntime() {
 function verifyAuthoritativeOrdering() {
   const config = scenario("medium battle, 150 ships");
   const fixture = buildFixture(config, 0);
+  fixture.room._stationDetailedProfileActive = true;
   withDeterministicRandom(0x6f6f2000, () => {
     const beforeGeneration = fixture.room._visibilityGeneration || 0;
     const frame = runFrame(fixture.room, config, 0);
@@ -207,9 +255,83 @@ function verifyAuthoritativeOrdering() {
     assert((fixture.room._visibilityGeneration || 0) >= beforeGeneration, "final visibility observes the post-combat state");
   });
 
-  const tickFixture = buildFixture(scenario("two idle home stations"), 0);
-  tickRoom(tickFixture.room, 1 / 30, 33);
-  assert.equal(tickFixture.room._visibilityFinalizedAt, 33, "real tickRoom preserves the final visibility boundary");
+  const tickFixture = buildFixture(scenario("full-control countdown stable"), 0);
+  const tickRoomState = tickFixture.room;
+  tickRoomState._stationDetailedProfileActive = true;
+  const targetRelay = tickFixture.relays[0];
+  assert(targetRelay, "ordering fixture has a relay to disable");
+  for (const relay of tickFixture.relays.slice(1)) {
+    relay.state = "operational";
+    relay.alive = true;
+    relay.team = "blue";
+    relay.ownerId = "p-blue";
+    relay.captureProgress = 0;
+  }
+  targetRelay.state = "operational";
+  targetRelay.alive = true;
+  targetRelay.team = "red";
+  targetRelay.ownerId = "p-red";
+  targetRelay.shield = 0;
+  targetRelay.captureProgress = 1 - (1 / 30) / 5;
+  targetRelay.captureTeam = "blue";
+  for (let index = 0; index < targetRelay.design.length; index += 1) {
+    if (PARTS[targetRelay.design[index]?.type]?.weapon) targetRelay.componentHp[index] = 0;
+  }
+  // Keep the injected damage internally consistent with the relay's remaining
+  // component pool so this hit crosses the disabled threshold deterministically.
+  targetRelay.hp = targetRelay.componentHp.reduce((sum, value) => sum + Math.max(0, value), 0);
+  targetRelay.maxHp = targetRelay.hp;
+  const captureShip = benchmark.addShip(tickRoomState, "ordering-capture-ship", "p-blue", targetRelay.x, targetRelay.y);
+  captureShip.movement = createMovementRuntime();
+  captureShip.hp = 1000;
+  captureShip.maxHp = 1000;
+  captureShip.componentHp = captureShip.componentHp.map(() => 1000);
+  const injected = benchmark.addProjectile(tickRoomState, "ordering-relay-hit", "p-blue", targetRelay.x - 300, targetRelay.y, 0);
+  injected.type = "bolt";
+  injected.subtype = "bolt";
+  injected.interceptable = false;
+  injected.vx = 60;
+  injected.vy = 0;
+  injected.damage = targetRelay.hp + 1;
+  injected.life = 100;
+  injected.shieldDamageMultiplier = 1;
+  injected.hullDamageMultiplier = 1;
+  const previousWeaponFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
+  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
+  try {
+    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(false);
+    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
+    // Use a compressed authoritative interval so the real tickRoom path reaches
+    // the capture threshold in the same invocation after the projectile hit.
+    tickRoom(tickRoomState, 10, 77);
+  } finally {
+    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousWeaponFlag);
+    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
+  }
+  assert.equal(targetRelay.state, "operational", "projectile damage disables the relay before capture runs");
+  assert.equal(targetRelay.team, "blue", "same-tick capture takes ownership after projectile disable");
+  assert.equal(tickRoomState.controlVictory.team, "blue", "control victory observes the same-tick ownership transition");
+  assert.equal(tickRoomState._visibilityFinalizedAt, 77, "real tickRoom finalizes visibility after combat, capture, and control");
+  assert(!tickRoomState.projectileById.has(injected.id), "the injected relay projectile is consumed during projectile processing");
+
+  const resetRoom = buildFixture(scenario("stable retained targets"), 0).room;
+  resetRoom._stationWeaponTargetLookup = new Map([["old-target", {}]]);
+  resetRoom._stationWeaponTargetScratch = [{ id: "old-target" }];
+  resetRoom._pdReservations = new Map([["old-target", 10]]);
+  clearStationWeaponRuntime(resetRoom);
+  assert.equal(resetRoom._stationWeaponTargetLookup.size, 0, "station target lookup clears explicitly");
+  assert.equal(resetRoom._stationWeaponTargetScratch.length, 0, "station target scratch clears explicitly");
+  assert.equal(resetRoom._pdReservations.size, 0, "point-defence reservations clear explicitly");
+  resetRoom._stationWeaponTargetLookup.set("epoch-target", {});
+  resetRoom._stationWeaponTargetScratch.push({ id: "epoch-target" });
+  bumpStateEpoch(resetRoom, "phase-6f-verifier");
+  assert.equal(resetRoom._stationWeaponTargetLookup.size, 0, "state epoch reset clears station target lookup");
+  assert.equal(resetRoom._stationWeaponTargetScratch.length, 0, "state epoch reset clears station target scratch");
+  resetRoom._stationWeaponTargetLookup.set("match-target", {});
+  resetRoom._stationWeaponTargetScratch.push({ id: "match-target" });
+  clearRoomRuntimeScratch(resetRoom);
+  assert.equal(resetRoom._stationWeaponTargetLookup.size, 0, "room runtime reset clears station target lookup for repeated matches");
+  assert.equal(resetRoom._stationWeaponTargetScratch.length, 0, "room runtime reset clears station target scratch for repeated matches");
 }
 
 function main() {
