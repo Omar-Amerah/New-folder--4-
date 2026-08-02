@@ -25,7 +25,6 @@ const {
 } = require("./commandAuraRules");
 
 const RECONCILIATION_INTERVAL = 32;
-const MOVEMENT_EPSILON = 0.001;
 const MEMBERSHIP_SEPARATOR = "\u0000";
 
 function finite(value, fallback = 0) {
@@ -37,7 +36,7 @@ function telemetry(room) {
   const current = room?._commandAuraTelemetry || (room._commandAuraTelemetry = {});
   const fields = [
     "activeSources", "activeSourceShips", "receivingShips", "candidatesExamined", "recalculations", "lastUpdateUs", "additions", "removals",
-    "sourceCacheHits", "sourceRebuilds", "sourceActivations", "sourceDeactivations", "membershipQueries", "membershipCacheHits", "membershipAdds", "membershipRemoves",
+    "sourceCacheHits", "sourceRebuilds", "sourceActivations", "sourceDeactivations", "membershipQueries", "recipientMembershipQueries", "membershipCacheHits", "membershipAdds", "membershipRemoves",
     "candidatesVisited", "recipientMovesProcessed", "sourceMovesProcessed", "recipientsDirty", "recipientsPublished", "recipientsUnchanged", "winnerChanges", "winnerRescans",
     "priorityComparisons", "sortsPerformed", "fullScanFallbacks", "reconciliations", "reconciliationRepairs", "staleSourcesRemoved", "staleRecipientsRemoved",
     "fallbackUs", "sourceMaintenanceUs", "membershipUs", "winnerResolutionUs", "recipientPublishUs", "reconciliationUs"
@@ -333,13 +332,8 @@ function sourceCapabilityKey(ship, componentIndex, type) {
     type,
     ship.alive ? 1 : 0,
     hpAlive,
-    Number(ship.componentAliveRevision) || 0,
-    Number(ship.componentDamageRevision) || 0,
-    Number(ship.powerRevision) || 0,
-    Number(ship.powerFlowRevision) || 0,
-    Number(ship.heatStateRevision) || 0,
-    Number(ship.heatRevision) || 0,
     Number(ship.designRevision) || 1,
+    Number(ship.componentHp?.[componentIndex]) || 0,
     Number(power?.operationalMultiplier) || 0,
     power?.state || "",
     heatState || "",
@@ -474,8 +468,8 @@ function maintainSourcesAndRecipients(room, state, ships) {
     const previous = previousTransforms.get(id);
     const explicitMove = state.explicitMovedIds.has(id);
     const moved = explicitMove || !previous || previous.ship !== ship
-      || Math.abs(finite(previous.x) - finite(ship.x)) > MOVEMENT_EPSILON
-      || Math.abs(finite(previous.y) - finite(ship.y)) > MOVEMENT_EPSILON;
+      || previous.x !== ship.x
+      || previous.y !== ship.y;
     const allegianceChanged = !previous || previous.ownerId !== ship.ownerId;
     if (moved || !wasKnownRecipient) {
       state.movedRecipientIds.add(id);
@@ -494,18 +488,27 @@ function maintainSourcesAndRecipients(room, state, ships) {
       }
     }
     state.recipientShipsById.set(id, ship);
-    previousTransforms.set(id, {
-      ship,
-      x: finite(ship.x),
-      y: finite(ship.y),
-      ownerId: ship.ownerId
-    });
+    if (previous) {
+      previous.ship = ship;
+      previous.x = ship.x;
+      previous.y = ship.y;
+      previous.ownerId = ship.ownerId;
+    } else {
+      previousTransforms.set(id, {
+        ship,
+        x: ship.x,
+        y: ship.y,
+        ownerId: ship.ownerId
+      });
+    }
 
     const auraIndices = getAuraComponentIndices(ship);
+    const capabilityDirty = Boolean(ship._commandAuraCapabilityDirty);
     let group = state.sourceGroupsByShipId.get(id);
     if (!auraIndices.length) {
       if (group) removeSourceGroup(state, group);
       ship.commandAuraActive = false;
+      ship._commandAuraCapabilityDirty = false;
       continue;
     }
     const hadStableMembership = Boolean(group && !group.dirty && !group.transformDirty && group.activeKeys.size);
@@ -533,9 +536,11 @@ function maintainSourcesAndRecipients(room, state, ships) {
       const type = aura.type;
       const key = `${ship.id}:${componentIndex}:${type}`;
       state.sourceKeyScratch.add(key);
-      const capabilityRevision = sourceCapabilityKey(ship, componentIndex, type);
       const sourcesForShip = state.sourcesByShipId.get(id);
       let source = sourcesForShip.get(key);
+      const capabilityRevision = source && !capabilityDirty
+        ? source.capabilityRevision
+        : sourceCapabilityKey(ship, componentIndex, type);
       if (!source) {
         source = makeSourceRecord(state, ship, componentIndex, type, capabilityRevision);
         sourcesForShip.set(key, source);
@@ -571,6 +576,7 @@ function maintainSourcesAndRecipients(room, state, ships) {
       source.transformRevision = group.transformRevision;
       source.allegianceRevision = currentRelationshipRevision;
     }
+    ship._commandAuraCapabilityDirty = false;
 
     for (const key of [...group.sourceKeys]) {
       if (state.sourceKeyScratch.has(key)) continue;
@@ -644,7 +650,7 @@ function refreshMovedSpatialRecords(room, state) {
   }
 }
 
-function queryCandidateShips(room, state, x, y, range) {
+function queryCandidateShips(room, state, x, y, range, queryKind = "source") {
   const startedAt = performanceNow();
   const out = state.candidateScratch;
   out.length = 0;
@@ -655,7 +661,8 @@ function queryCandidateShips(room, state, x, y, range) {
     state.metrics.fullScanFallbacks += 1;
     for (const ship of state.liveShips || []) out.push(ship);
   }
-  state.metrics.membershipQueries += 1;
+  if (queryKind === "recipient") state.metrics.recipientMembershipQueries += 1;
+  else state.metrics.membershipQueries += 1;
   state.metrics.candidatesVisited += out.length;
   state.metrics.candidatesExamined += out.length;
   if (!isSpatialIndexUsable(room)) state.metrics.fallbackUs += performanceNow() - startedAt;
@@ -737,18 +744,37 @@ function processMovedRecipients(room, state, processedSourceGroups) {
   const range = getCommandAuraRange();
   const rangeSquared = range * range;
   const selfAllowed = commandAuraSelfAllowed();
+  let activeSourceGroupCount = 0;
+  for (const group of state.sourceGroupsByShipId.values()) {
+    if (group.activeKeys.size) activeSourceGroupCount += 1;
+  }
+  const remainingSourceGroupCount = Math.max(0, activeSourceGroupCount - processedSourceGroups.size);
+  // When a large moved-recipient set would issue more recipient-centred
+  // queries than the remaining source groups, refresh those groups once. This
+  // keeps the membership work source-centred and lets every moved recipient
+  // reuse the final edge set; the smaller path below remains cheaper for sparse
+  // movement.
+  if (remainingSourceGroupCount > 0 && state.movedRecipientIds.size > remainingSourceGroupCount) {
+    for (const group of state.sourceGroupsByShipId.values()) {
+      if (!group.activeKeys.size || processedSourceGroups.has(group.shipId)) continue;
+      refreshSourceGroupMembership(room, state, group, processedSourceGroups);
+    }
+  }
+  const allActiveSourceGroupsProcessed = processedSourceGroups.size >= activeSourceGroupCount;
   for (const recipientId of state.movedRecipientIds) {
     const recipient = state.recipientShipsById.get(recipientId);
     if (!recipient) continue;
     state.metrics.recipientMovesProcessed += 1;
     const nearby = state.nearbySourceGroupIds;
     nearby.clear();
-    const candidates = queryCandidateShips(room, state, finite(recipient.x), finite(recipient.y), range);
-    for (const sourceShip of candidates) {
-      const group = sourceGroupFor(state, sourceShip?.id);
-      if (!group?.activeKeys.size || processedSourceGroups.has(group.shipId)) continue;
-      if (!candidateBelongsToSourceGroup(room, group, recipient, selfAllowed, rangeSquared)) continue;
-      nearby.add(group.shipId);
+    if (!allActiveSourceGroupsProcessed) {
+      const candidates = queryCandidateShips(room, state, finite(recipient.x), finite(recipient.y), range, "recipient");
+      for (const sourceShip of candidates) {
+        const group = sourceGroupFor(state, sourceShip?.id);
+        if (!group?.activeKeys.size || processedSourceGroups.has(group.shipId)) continue;
+        if (!candidateBelongsToSourceGroup(room, group, recipient, selfAllowed, rangeSquared)) continue;
+        nearby.add(group.shipId);
+      }
     }
 
     const known = state.knownSourceGroupIds;
@@ -1012,6 +1038,7 @@ function syncSharedTelemetry(room, state, elapsedMs) {
     commandAuraSourceActivations: metrics.sourceActivations,
     commandAuraSourceDeactivations: metrics.sourceDeactivations,
     commandAuraMembershipQueries: metrics.membershipQueries,
+    commandAuraRecipientMembershipQueries: metrics.recipientMembershipQueries,
     commandAuraMembershipCacheHits: metrics.membershipCacheHits,
     commandAuraMembershipAdds: metrics.membershipAdds,
     commandAuraMembershipRemoves: metrics.membershipRemoves,
@@ -1097,6 +1124,15 @@ function updateCommandAuraRuntime(room, ships, now) {
   state.metrics.membershipUs = performanceNow() - membershipStart;
   recordDuration(room, "commandAuraMembershipMs", membershipStart);
 
+  state.generation += 1;
+  state.reconciliationGeneration += 1;
+  if (state.reconciliationGeneration >= RECONCILIATION_INTERVAL) {
+    state.reconciliationGeneration = 0;
+    const reconciliationStart = performanceNow();
+    reconcileRuntime(room, state);
+    recordDuration(room, "commandAuraReconciliationMs", reconciliationStart);
+  }
+
   const winnerStart = performanceNow();
   const winnerElapsed = resolveDirtyWinners(state);
   state.metrics.winnerResolutionUs = winnerElapsed;
@@ -1107,14 +1143,6 @@ function updateCommandAuraRuntime(room, ships, now) {
   state.metrics.recipientPublishUs = performanceNow() - publicationStart;
   recordDuration(room, "commandAuraRecipientPublishMs", publicationStart);
 
-  state.generation += 1;
-  state.reconciliationGeneration += 1;
-  if (state.reconciliationGeneration >= RECONCILIATION_INTERVAL) {
-    state.reconciliationGeneration = 0;
-    const reconciliationStart = performanceNow();
-    reconcileRuntime(room, state);
-    recordDuration(room, "commandAuraReconciliationMs", reconciliationStart);
-  }
   const elapsed = performanceNow() - startedAt;
   state.lastProcessedAt = finite(now, state.lastProcessedAt);
   syncSharedTelemetry(room, state, elapsed);
@@ -1135,14 +1163,22 @@ function updateCommandAuraRuntime(room, ships, now) {
 function invalidateCommandAuraSource(room, ship) {
   if (!room || !ship) return;
   ship._commandAuraCapabilityDirty = true;
+  if (!ship.alive || ship.removed) {
+    room._commandAuraStalePublicState = true;
+    ship.commandAuraActive = false;
+    clearPublishedResult(ship);
+  }
   const state = room._commandAuraRuntime;
   if (!state) return;
   state.dirtySourceShips.add(String(ship.id));
-  state.dirtyRecipientShips.add(String(ship.id));
 }
 
 function invalidateCommandAuraRecipient(room, ship) {
   if (!room || !ship) return;
+  if (!ship.alive || ship.removed) {
+    room._commandAuraStalePublicState = true;
+    clearPublishedResult(ship);
+  }
   const state = room._commandAuraRuntime;
   if (!state) return;
   state.dirtyRecipientShips.add(String(ship.id));
@@ -1193,6 +1229,7 @@ function clearCommandAuraRuntime(room, ships = null) {
   room._commandAuraMovedShipIds?.clear?.();
   room._commandAuraLastMetrics = null;
   room._commandAuraTelemetry = null;
+  room._commandAuraStalePublicState = false;
 }
 
 module.exports = {

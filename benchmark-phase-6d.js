@@ -5,6 +5,9 @@
 // steady, movement, capability and lifecycle samples separately.
 
 const crypto = require("crypto");
+const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { performance } = require("perf_hooks");
 const { RoomSpatialIndex, buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./src/server/spatialIndex");
 const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
@@ -29,6 +32,7 @@ const AURA_COMPONENTS = [
 ];
 const QUICK_ROUNDS = 18;
 const FULL_ROUNDS = 36;
+const WARMUP_ROUNDS = 3;
 
 function percentile(values, p) {
   if (!values.length) return 0;
@@ -180,7 +184,14 @@ function mutateRooms(rooms, config, round) {
   const changedIds = [];
   for (const room of rooms) {
     const ships = liveShips(room);
-    if (config.sourceMovement || config.mixedMovement) {
+    const allShips = [...room.ships.values()];
+    if (config.allShipsMovement) {
+      for (const ship of ships) {
+        ship.x += round % 2 === 0 ? 7 : -7;
+        ship.y += round % 2 === 0 ? 5 : -5;
+        changedIds.push(ship.id);
+      }
+    } else if (config.sourceMovement || config.mixedMovement) {
       for (const ship of ships) {
         if (!ship._benchmarkSource || (ship.id.slice(1) % 10) >= 2) continue;
         ship.x += round % 2 === 0 ? 35 : -35;
@@ -204,8 +215,22 @@ function mutateRooms(rooms, config, round) {
         invalidateCommandAuraSource(room, ship, "benchmark-capability");
       }
     }
-    if (config.lifecycleChurn && round % 4 === 0) {
+    if (config.unrelatedChurn) {
       for (const ship of ships) {
+        if (!ship._benchmarkSource || (Number(ship.id.slice(1)) + round) % 4 !== 0) continue;
+        const unrelatedIndex = 2;
+        ship.componentHp[unrelatedIndex] = round % 2 === 0 ? 90 : 100;
+        ship.componentHeatState[unrelatedIndex] = round % 2 === 0 ? "hot" : "normal";
+        ship.componentDamageRevision += 1;
+        ship.heatStateRevision += 1;
+        ship.heatRevision += 1;
+        ship.powerRevision += 1;
+        ship.powerFlowRevision += 1;
+        invalidateCommandAuraSource(room, ship, "benchmark-unrelated-churn");
+      }
+    }
+    if (config.lifecycleChurn && round % 4 === 0) {
+      for (const ship of allShips) {
         if (!ship._benchmarkSource || Number(ship.id.slice(1)) % 7 !== 0) continue;
         ship.alive = !ship.alive;
         ship.removed = !ship.alive;
@@ -239,6 +264,68 @@ function runMode(room, config, optimized, now) {
   };
 }
 
+function assertFiniteRoom(room, label) {
+  for (const ship of room.ships.values()) {
+    for (const value of Object.values(ship.commandAuraMultipliers || {})) {
+      assert(Number.isFinite(Number(value)), `${label}: non-finite multiplier on ${ship.id}`);
+    }
+    for (const entry of Object.values(ship.commandAurasReceived || {})) {
+      assert(Number.isFinite(Number(entry.suppressedCount)), `${label}: non-finite suppression count on ${ship.id}`);
+      for (const value of Object.values(entry.multipliers || {})) {
+        assert(Number.isFinite(Number(value)), `${label}: non-finite received multiplier on ${ship.id}`);
+      }
+    }
+  }
+  const telemetry = getRoomTelemetry(room);
+  for (const [key, value] of Object.entries(telemetry)) {
+    assert(Number.isFinite(Number(value)), `${label}: non-finite telemetry ${key}`);
+  }
+}
+
+function assertOptimizedInvariants(room, config) {
+  assertFiniteRoom(room, `${config.name}: optimized`);
+  const telemetry = getRoomTelemetry(room);
+  if (!config.noSpatialIndex) {
+    assert.strictEqual(telemetry.commandAuraSortsPerformed, 0, `${config.name}: optimized path performs no candidate sorts`);
+    assert.strictEqual(telemetry.commandAuraFullScanFallbacks, 0, `${config.name}: indexed path performs no full scan fallback`);
+  }
+  const state = room._commandAuraRuntime;
+  if (!state) return;
+  assert(state.sourceRecordsByKey.size <= config.count * 2, `${config.name}: source cache is bounded`);
+  assert(state.sourceGroupsByShipId.size <= config.count, `${config.name}: source group cache is bounded`);
+  assert(state.recipientShipsById.size <= config.count, `${config.name}: recipient cache is bounded`);
+}
+
+function warmRoom(room, config, optimized) {
+  for (let round = 0; round < WARMUP_ROUNDS; round += 1) {
+    runMode(room, config, optimized, (round + 1) * 200);
+  }
+  room._commandAuraNextUpdate = 0;
+  resetRoomTelemetry(room);
+}
+
+function assessPerformance(result) {
+  if (result.name === "small") {
+    const regressionMs = result.optimized.p50 - result.legacy.p50;
+    return {
+      target: "no more than 10% or 0.25ms p50 regression",
+      measuredRegressionMs: fixed(regressionMs),
+      passed: result.commandAuraReductionPercent >= -10 || regressionMs <= 0.25
+    };
+  }
+  const minimumReduction = {
+    "mostly-stationary": 40,
+    large: 25,
+    "capability-churn": 35
+  }[result.name];
+  if (minimumReduction === undefined) return null;
+  return {
+    target: `at least ${minimumReduction}% p50 reduction`,
+    measuredReductionPercent: result.commandAuraReductionPercent,
+    passed: result.commandAuraReductionPercent >= minimumReduction
+  };
+}
+
 function scenarioDefinitions(full) {
   const size = (small, large) => full ? large : small;
   return [
@@ -249,7 +336,9 @@ function scenarioDefinitions(full) {
     { name: "mostly-stationary", count: size(200, 500), sourceRatio: 0.2, capabilityChurn: true, rounds: size(18, 28) },
     { name: "source-movement", count: size(100, 300), sourceRatio: 0.2, sourceMovement: true, rounds: size(14, 22) },
     { name: "recipient-movement", count: size(100, 300), sourceRatio: 0.2, recipientMovement: true, rounds: size(14, 22) },
+    { name: "all-moving", count: size(100, 300), sourceRatio: 0.2, allShipsMovement: true, rounds: size(12, 20) },
     { name: "capability-churn", count: size(100, 300), sourceRatio: 0.2, capabilityChurn: true, rounds: size(14, 22) },
+    { name: "unrelated-churn", count: size(100, 300), sourceRatio: 0.2, unrelatedChurn: true, rounds: size(14, 22) },
     { name: "lifecycle-churn", count: size(100, 300), sourceRatio: 0.2, lifecycleChurn: true, rounds: size(14, 22) },
     { name: "dense-overlap", count: size(150, 300), sourceRatio: 0.35, dense: true, rounds: size(12, 20) },
     { name: "sparse-formation", count: size(100, 300), sourceRatio: 0.12, sparse: true, rounds: size(12, 20) },
@@ -280,13 +369,23 @@ function runScenario(config) {
   let parityChecksum = "";
   const startHeap = process.memoryUsage().heapUsed;
   let peakHeap = process.memoryUsage().heapUsed;
+  let lifecycleSawInactive = false;
+  let lifecycleRestored = false;
+
+  warmRoom(rooms[0], config, false);
+  warmRoom(rooms[1], config, true);
 
   for (let round = 0; round < config.rounds; round += 1) {
     mutateRooms(rooms, config, round);
+    if (config.lifecycleChurn) {
+      const lifecycleSource = rooms[1].ships.get("s0");
+      if (lifecycleSource && !lifecycleSource.alive) lifecycleSawInactive = true;
+      if (lifecycleSawInactive && lifecycleSource?.alive) lifecycleRestored = true;
+    }
     const phase = round === 0 ? "bootstrap"
       : config.lifecycleChurn && round % 4 === 0 ? "lifecycle"
-        : config.capabilityChurn && round % 5 === 0 ? "capability"
-          : (config.sourceMovement || config.recipientMovement || config.mixedMovement) ? "movement" : "steady";
+        : (config.capabilityChurn || config.unrelatedChurn) && round % 5 === 0 ? "capability"
+          : (config.sourceMovement || config.recipientMovement || config.mixedMovement || config.allShipsMovement) ? "movement" : "steady";
     const results = modes.map((optimized, index) => runMode(rooms[index], config, optimized, round * 200));
     const legacyChecksum = checksum(rooms[0]);
     const optimizedChecksum = checksum(rooms[1]);
@@ -296,6 +395,18 @@ function runScenario(config) {
     parityChecksum = optimizedChecksum;
     for (let index = 0; index < results.length; index += 1) {
       const label = index === 0 ? "legacy" : "optimized";
+      assertFiniteRoom(rooms[index], `${config.name}: ${label}`);
+      if (label === "optimized") {
+        assertOptimizedInvariants(rooms[index], config);
+        if (config.allShipsMovement) {
+          assert.strictEqual(results[index].telemetry.commandAuraRecipientMembershipQueries, 0, `${config.name}: all-moving path skips recipient spatial queries`);
+        }
+        if (config.unrelatedChurn && round > 0) {
+          assert.strictEqual(results[index].telemetry.commandAuraSourceRebuilds, 0, `${config.name}: unrelated churn rebuilds no source`);
+          assert.strictEqual(results[index].telemetry.commandAuraWinnerRescans, 0, `${config.name}: unrelated churn rescans no winners`);
+          assert.strictEqual(results[index].telemetry.commandAuraRecipientsPublished, 0, `${config.name}: unrelated churn publishes no recipients`);
+        }
+      }
       samples[label].push(results[index].elapsed);
       phases[label][phase].push(results[index].elapsed);
       for (const [name, field] of substageFields) substages[label][name].push(results[index].telemetry[field] || 0);
@@ -303,13 +414,18 @@ function runScenario(config) {
     }
   }
 
+  if (config.lifecycleChurn) {
+    assert(lifecycleRestored, `${config.name}: lifecycle scenario restores a previously inactive source`);
+  }
+
   const optimizedRoom = rooms[1];
   const optimizedTelemetry = getRoomTelemetry(optimizedRoom);
   const legacyRoom = rooms[0];
-  return {
+  const result = {
     name: config.name,
     count: config.count,
     rounds: config.rounds,
+    warmupRounds: WARMUP_ROUNDS,
     legacy: {
       p50: fixed(percentile(samples.legacy, 0.5)),
       p95: fixed(percentile(samples.legacy, 0.95)),
@@ -336,6 +452,7 @@ function runScenario(config) {
       reconciliationMs: fixed(optimizedTelemetry.commandAuraReconciliationMs),
       fallbackMs: fixed(optimizedTelemetry.commandAuraFallbackMs),
       membershipQueries: optimizedTelemetry.commandAuraMembershipQueries,
+      recipientMembershipQueries: optimizedTelemetry.commandAuraRecipientMembershipQueries,
       membershipCacheHits: optimizedTelemetry.commandAuraMembershipCacheHits,
       candidatesVisited: optimizedTelemetry.commandAuraCandidatesVisited,
       spatialQueries: optimizedRoom.spatialIndex?.queryCount || 0,
@@ -353,13 +470,17 @@ function runScenario(config) {
     heapGrowthMb: fixed((process.memoryUsage().heapUsed - startHeap) / (1024 * 1024)),
     parityChecksum,
     fallback: Boolean(config.noSpatialIndex),
+    lifecycleRestorationObserved: lifecycleRestored,
     legacyCacheSizes: legacyRoom._commandAuraLastMetrics || {}
   };
+  result.performanceAssertion = assessPerformance(result);
+  return result;
 }
 
 function main() {
   const full = process.argv.includes("--full");
   const quick = process.argv.includes("--quick") || !full;
+  const assertPerformance = process.argv.includes("--assert-performance");
   const definitions = scenarioDefinitions(full);
   const startedAt = performance.now();
   const results = [];
@@ -374,8 +495,28 @@ function main() {
   } finally {
     __setOPTIMIZED_COMMAND_AURA_RUNTIME(false);
   }
+  const report = {
+    mode: quick ? "quick" : "full",
+    generatedAt: new Date().toISOString(),
+    warmupRounds: WARMUP_ROUNDS,
+    performanceAssertions: {
+      enforced: assertPerformance,
+      failures: results.filter((result) => result.performanceAssertion && !result.performanceAssertion.passed).map((result) => ({
+        scenario: result.name,
+        assertion: result.performanceAssertion
+      }))
+    },
+    results
+  };
+  const artifactPath = path.join(__dirname, "test-artifacts", "performance", "benchmark-phase-6d.json");
+  fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+  fs.writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(`Completed in ${fixed(performance.now() - startedAt)}ms`);
-  console.log(JSON.stringify({ mode: quick ? "quick" : "full", results }, null, 2));
+  console.log(`Artifact: ${path.relative(__dirname, artifactPath)}`);
+  console.log(JSON.stringify(report, null, 2));
+  if (assertPerformance && report.performanceAssertions.failures.length) {
+    process.exitCode = 1;
+  }
 }
 
 main();

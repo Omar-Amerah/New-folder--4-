@@ -23,7 +23,8 @@ const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
   FIXED_AUTHORITATIVE_TIMESTEP,
   INCREMENTAL_SPATIAL_INDEX,
-  SHARED_MOVEMENT_CONTACT_PAIRS
+  SHARED_MOVEMENT_CONTACT_PAIRS,
+  OPTIMIZED_COMMAND_AURA_RUNTIME
 } = require("./performanceFlags");
 const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
 const {
@@ -102,16 +103,22 @@ function tickRoom(room, dt, now) {
   durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
   let movementStart = performanceNow();
-  const movedForCommandAuras = room._commandAuraMovementScratch || (room._commandAuraMovementScratch = []);
-  movedForCommandAuras.length = 0;
-  for (const ship of ships) updateShipMovement(room, ship, dt, now);
-  for (const ship of ships) {
-    if (Math.abs(Number(ship._integratedMovementX) || 0) > 0.001
-      || Math.abs(Number(ship._integratedMovementY) || 0) > 0.001
-      || Math.abs(Number(ship._collisionCorrectionX) || 0) > 0.001
-      || Math.abs(Number(ship._collisionCorrectionY) || 0) > 0.001) {
-      movedForCommandAuras.push(ship.id);
+  const optimizedCommandAuras = OPTIMIZED_COMMAND_AURA_RUNTIME();
+  let movedForCommandAuras = null;
+  if (optimizedCommandAuras) {
+    movedForCommandAuras = room._commandAuraMovementScratch || (room._commandAuraMovementScratch = []);
+    movedForCommandAuras.length = 0;
+    for (const ship of ships) {
+      updateShipMovement(room, ship, dt, now);
+      if ((Number(ship._integratedMovementX) || 0) !== 0
+        || (Number(ship._integratedMovementY) || 0) !== 0
+        || (Number(ship._collisionCorrectionX) || 0) !== 0
+        || (Number(ship._collisionCorrectionY) || 0) !== 0) {
+        movedForCommandAuras.push(ship.id);
+      }
     }
+  } else {
+    for (const ship of ships) updateShipMovement(room, ship, dt, now);
   }
   recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
@@ -148,8 +155,10 @@ function tickRoom(room, dt, now) {
     { sharedMovementContactPairs }
   );
   modifiedShipIds = movementSafety.modifiedShipIds;
-  invalidateCommandAuraMovement(room, movedForCommandAuras);
-  invalidateCommandAuraMovement(room, modifiedShipIds);
+  if (optimizedCommandAuras) {
+    invalidateCommandAuraMovement(room, movedForCommandAuras);
+    invalidateCommandAuraMovement(room, modifiedShipIds);
+  }
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
   if (sharedMovementContactPairs && shouldRunMovementContactDiagnostics(room)) {
     const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });

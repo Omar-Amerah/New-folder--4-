@@ -30,6 +30,7 @@ const {
   auraForComponent,
   shipSequenceNumber
 } = require("./commandAuraRules");
+const { areAllies } = require("./relationships");
 const { OPTIMIZED_COMMAND_AURA_RUNTIME } = require("./performanceFlags");
 const commandAuraRuntime = require("./commandAuraRuntime");
 
@@ -91,19 +92,20 @@ function recalculateAuras(room, ships) {
   const range = getCommandAuraRange();
   const rangeSquared = range * range;
   const selfAllowed = commandAuraSelfAllowed();
-  const liveSet = new Set(ships);
 
-  // The simulation passes only live ships. Clear stale public aura state on a
-  // hull that was destroyed/removed between cadence boundaries so the legacy
-  // reference and the incremental lifecycle path expose the same result.
-  for (const ship of room.ships?.values?.() || []) {
-    if (liveSet.has(ship)) continue;
-    if (!ship.alive || ship.removed) {
-      ship.commandAuraActive = false;
-      ship.commandAurasReceived = {};
-      ship.commandAuraMultipliers = {};
-      ship.commandAuraReceived = false;
+  // Lifecycle invalidation sets this only when a dead/removed hull needs its
+  // public state cleared. The normal legacy benchmark path stays free of a
+  // room-wide stale-state scan.
+  if (room._commandAuraStalePublicState) {
+    for (const ship of room.ships?.values?.() || []) {
+      if (!ship.alive || ship.removed) {
+        ship.commandAuraActive = false;
+        ship.commandAurasReceived = {};
+        ship.commandAuraMultipliers = {};
+        ship.commandAuraReceived = false;
+      }
     }
+    room._commandAuraStalePublicState = false;
   }
 
   const recipients = [];
@@ -132,7 +134,7 @@ function recalculateAuras(room, ships) {
     if (!index) {
       for (const target of recipients) {
         if (!selfAllowed && target === source) continue;
-        if (!areAlliesCompat(room, source.ownerId, target.ownerId)) continue;
+        if (!areAllies(room, source.ownerId, target.ownerId)) continue;
         const dx = target.x - source.x;
         const dy = target.y - source.y;
         if (dx * dx + dy * dy <= rangeSquared) {
@@ -148,7 +150,7 @@ function recalculateAuras(room, ships) {
     for (const target of candidateBuffer) {
       if (!target?.alive) continue;
       if (!selfAllowed && target === source) continue;
-      if (!areAlliesCompat(room, source.ownerId, target.ownerId)) continue;
+      if (!areAllies(room, source.ownerId, target.ownerId)) continue;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       if (dx * dx + dy * dy > rangeSquared) continue;
@@ -178,13 +180,6 @@ function recalculateAuras(room, ships) {
 
   t.lastUpdateUs = Math.max(0, (performanceNow() - startedAt) * 1000);
   t.recalculations += 1;
-}
-
-function areAlliesCompat(room, ownerA, ownerB) {
-  // Kept local to make the legacy loop's call shape obvious and avoid making
-  // the optimized runtime depend on a mutable candidate array.
-  const { areAllies } = require("./relationships");
-  return areAllies(room, ownerA, ownerB);
 }
 
 function considerTarget(target, source, sources) {
@@ -242,6 +237,7 @@ function invalidateCommandAuraAllegiance(room, ship, oldTeam, newTeam) {
 function clearCommandAuras(room, ships) {
   if (room) {
     room._commandAuraNextUpdate = 0;
+    room._commandAuraStalePublicState = false;
     commandAuraRuntime.clearCommandAuraRuntime(room, ships);
     room._commandAuraCandidateBuffer = null;
   }

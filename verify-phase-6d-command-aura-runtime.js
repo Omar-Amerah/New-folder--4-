@@ -32,6 +32,8 @@ const {
   assertCommandAuraConsistency
 } = require("./src/server/commandAuraRuntime");
 const { getAuraComponentIndices } = require("./src/server/commandAuraRules");
+const { tickRoom } = require("./src/server/simulation");
+const { createMovementRuntime, setMovementCommand } = require("./src/server/movementRuntimeV2");
 
 const RANGE = getCommandAuraRange();
 const UPDATE_STEP = 200;
@@ -416,6 +418,175 @@ function runMembershipAndRevisionChecks() {
   ok("Source/recipient movement, cache hits and revision invalidation parity.");
 }
 
+function runExactMovementChecks() {
+  const sourceBoundary = makePair([
+    { id: "src", ownerId: "p1", x: RANGE + 0.00025, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: 0, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(sourceBoundary, 0);
+  assert.strictEqual(sourceBoundary.optimized.ships.get("dst").commandAuraReceived, false, "source starts just outside the range boundary");
+  eachShip(sourceBoundary, "src", (ship) => { ship.x = RANGE - 0.00025; });
+  const sourceIn = updatePair(sourceBoundary, UPDATE_STEP);
+  assert(sourceBoundary.optimized.ships.get("dst").commandAuraReceived, "source movement of 0.0005 enters the boundary");
+  assert(sourceIn.commandAuraSourceMovesProcessed > 0, "exact source transform comparison tracks sub-epsilon movement");
+  eachShip(sourceBoundary, "src", (ship) => { ship.x = RANGE + 0.00025; });
+  updatePair(sourceBoundary, UPDATE_STEP * 2);
+  assert.strictEqual(sourceBoundary.optimized.ships.get("dst").commandAuraReceived, false, "source movement of 0.0005 exits the boundary");
+
+  const recipientBoundary = makePair([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: RANGE + 0.00025, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(recipientBoundary, 0);
+  eachShip(recipientBoundary, "dst", (ship) => { ship.x = RANGE - 0.00025; });
+  const recipientIn = updatePair(recipientBoundary, UPDATE_STEP);
+  assert(recipientBoundary.optimized.ships.get("dst").commandAuraReceived, "recipient movement of 0.0005 enters the boundary");
+  assert(recipientIn.commandAuraRecipientMovesProcessed > 0, "exact recipient transform comparison tracks sub-epsilon movement");
+
+  const tie = makePair([
+    { id: "left", ownerId: "p1", x: -100, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "right", ownerId: "p1", x: 100, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: -0.00025, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(tie, 0);
+  assert.strictEqual(receivedType(tie.optimized, "dst", "fireControl").sourceShipId, "left", "equal-strength nearest winner starts on the left");
+  eachShip(tie, "dst", (ship) => { ship.x = 0.00025; });
+  updatePair(tie, UPDATE_STEP);
+  assert.strictEqual(receivedType(tie.optimized, "dst", "fireControl").sourceShipId, "right", "equal-strength winner changes after 0.0005 movement");
+
+  const accumulated = makePair([
+    { id: "src", ownerId: "p1", x: RANGE + 0.0012, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: 0, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(accumulated, 0);
+  for (let step = 1; step <= 3; step += 1) {
+    eachShip(accumulated, "src", (ship) => { ship.x -= 0.0004; });
+    updatePair(accumulated, UPDATE_STEP * step);
+  }
+  assert(accumulated.optimized.ships.get("dst").commandAuraReceived, "accumulated sub-epsilon movement crosses the range boundary");
+
+  const allMoving = makePair([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "r1", ownerId: "p1", x: 100, y: 0, types: ["core", "frame"] },
+    { id: "r2", ownerId: "p1", x: 120, y: 20, types: ["core", "frame"] },
+    { id: "r3", ownerId: "p1", x: 140, y: -20, types: ["core", "frame"] }
+  ]);
+  updatePair(allMoving, 0);
+  eachShip(allMoving, "src", (ship) => { ship.x += 1; });
+  eachShip(allMoving, "r1", (ship) => { ship.x += 1; });
+  eachShip(allMoving, "r2", (ship) => { ship.y += 1; });
+  eachShip(allMoving, "r3", (ship) => { ship.x -= 1; });
+  invalidateMovementPair(allMoving, ["src", "r1", "r2", "r3"]);
+  const allMovingTelemetry = updatePair(allMoving, UPDATE_STEP);
+  assert.strictEqual(allMovingTelemetry.commandAuraRecipientMembershipQueries, 0, "all-moving fleet skips recipient spatial queries after source refresh");
+  ok("Exact source/recipient movement, boundary crossing and sub-epsilon winner changes.");
+}
+
+function runSourceLocalInvalidationChecks() {
+  const pair = makePair([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre", "frame"] },
+    { id: "dst", ownerId: "p1", x: 100, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(pair, 0);
+  eachShip(pair, "src", (ship) => {
+    ship.componentHp[2] = Math.max(1, ship.componentHp[2] - 10);
+    ship.componentHeatState[2] = HeatRules.STATE.HOT;
+    ship.componentDamageRevision = (Number(ship.componentDamageRevision) || 0) + 1;
+    ship.heatStateRevision = (Number(ship.heatStateRevision) || 0) + 1;
+    ship.heatRevision = (Number(ship.heatRevision) || 0) + 1;
+    ship.powerRevision = (Number(ship.powerRevision) || 0) + 1;
+    ship.powerFlowRevision = (Number(ship.powerFlowRevision) || 0) + 1;
+  });
+  invalidateSourcePair(pair, "src");
+  const unrelated = updatePair(pair, UPDATE_STEP);
+  assert.strictEqual(unrelated.commandAuraSourceRebuilds, 0, "unrelated component damage/heat/power revisions do not rebuild the aura source");
+  assert.strictEqual(unrelated.commandAuraWinnerRescans, 0, "unrelated component state does not rescan winners");
+  assert.strictEqual(unrelated.commandAuraRecipientsPublished, 0, "unrelated component state does not republish recipients");
+  assert(pair.optimized.ships.get("dst").commandAuraReceived, "unrelated component state preserves the published aura");
+
+  eachShip(pair, "src", (ship) => {
+    ship.componentHp[2] = ship.componentMaxHp[2];
+    ship.componentHeatState[2] = HeatRules.STATE.NORMAL;
+    ship.componentDamageRevision = (Number(ship.componentDamageRevision) || 0) + 1;
+    ship.heatStateRevision = (Number(ship.heatStateRevision) || 0) + 1;
+    ship.heatRevision = (Number(ship.heatRevision) || 0) + 1;
+  });
+  invalidateSourcePair(pair, "src");
+  const unrelatedRepair = updatePair(pair, UPDATE_STEP * 2);
+  assert.strictEqual(unrelatedRepair.commandAuraSourceRebuilds, 0, "unrelated component repair does not rebuild the aura source");
+  assert.strictEqual(unrelatedRepair.commandAuraWinnerRescans, 0, "unrelated component repair does not rescan winners");
+  assert.strictEqual(unrelatedRepair.commandAuraRecipientsPublished, 0, "unrelated component repair does not republish recipients");
+
+  eachShip(pair, "src", (ship) => {
+    ship.componentHeatState[1] = HeatRules.STATE.OVERHEATED;
+  });
+  invalidateSourcePair(pair, "src");
+  const sourceLocal = updatePair(pair, UPDATE_STEP * 3);
+  assert(sourceLocal.commandAuraSourceRebuilds > 0, "source-local Heat state still rebuilds the source capability");
+  assert.strictEqual(pair.optimized.ships.get("dst").commandAuraReceived, false, "source-local Heat state still changes the aura result");
+
+  const multiSource = makePair([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre", "engineeringCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: 100, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(multiSource, 0);
+  assert(multiSource.optimized.ships.get("src").commandAuraActive, "a multi-aura source starts active");
+  eachShip(multiSource, "src", (ship) => setPower(ship, 1, 0));
+  invalidateSourcePair(multiSource, "src");
+  const deactivated = updatePair(multiSource, UPDATE_STEP);
+  assert(deactivated.commandAuraSourceDeactivations > 0, "one source component deactivation is tracked");
+  assert(multiSource.optimized.ships.get("src").commandAuraActive, "another active aura component keeps the source active");
+  assert.strictEqual(receivedType(multiSource.optimized, "dst", "fireControl"), null, "deactivated aura category is removed");
+  assert(receivedType(multiSource.optimized, "dst", "engineering"), "remaining aura category stays published");
+  eachShip(multiSource, "src", (ship) => setPower(ship, 1, 1));
+  invalidateSourcePair(multiSource, "src");
+  updatePair(multiSource, UPDATE_STEP * 2);
+  assert(receivedType(multiSource.optimized, "dst", "fireControl"), "source component reactivation restores its category");
+  ok("Source capability invalidation is limited to source-local formula inputs.");
+}
+
+function runTickRoomIntegrationChecks() {
+  function prepareMovingRecipient(room) {
+    const ship = room.ships.get("dst");
+    ship.angle = Math.PI;
+    ship.movement = createMovementRuntime();
+    setMovementCommand(ship, {
+      id: "phase-6d-boundary-move",
+      type: "move",
+      destination: { x: RANGE - 100, y: 0 }
+    });
+    return ship;
+  }
+
+  const room = makeRoom([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: RANGE + 0.00025, y: 0, types: ["core", "engine"] }
+  ]);
+  const disabledMovingRecipient = prepareMovingRecipient(room);
+  __setOPTIMIZED_COMMAND_AURA_RUNTIME(false);
+  tickRoom(room, 0.1, 1000);
+  assert.strictEqual(room._commandAuraMovementScratch, undefined, "disabled tickRoom does not allocate Command Aura movement scratch");
+  assert.strictEqual(room._commandAuraMovedShipIds, undefined, "disabled tickRoom does not create movement invalidation state");
+  assert(disabledMovingRecipient.x < RANGE, "the disabled tickRoom fixture crosses the aura boundary during movement");
+  assert.strictEqual(disabledMovingRecipient.commandAuraReceived, false, "aura timing is evaluated before movement on the current tick");
+
+  __setOPTIMIZED_COMMAND_AURA_RUNTIME(true);
+  const optimizedRoom = makeRoom([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: RANGE + 0.00025, y: 0, types: ["core", "engine"] }
+  ]);
+  const optimizedMovingRecipient = prepareMovingRecipient(optimizedRoom);
+  tickRoom(optimizedRoom, 0.1, 1000);
+  assert(optimizedRoom._commandAuraMovementScratch, "optimized tickRoom creates movement tracking only when enabled");
+  assert(optimizedRoom._commandAuraRuntime, "tickRoom invokes the authoritative Command Aura runtime");
+  assert(optimizedMovingRecipient.x < RANGE, "optimized tickRoom fixture crosses the aura boundary during movement");
+  assert.strictEqual(optimizedMovingRecipient.commandAuraReceived, false, "optimized aura timing also remains pre-movement");
+  tickRoom(optimizedRoom, 0.1, 1200);
+  assert(optimizedMovingRecipient.commandAuraReceived, "the next aura boundary observes the moved recipient");
+  __setOPTIMIZED_COMMAND_AURA_RUNTIME(false);
+  ok("Real tickRoom integration preserves the disabled boundary and enabled runtime path.");
+}
+
 function runAllegianceLifecycleAndReconciliation() {
   const pair = makePair([
     { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
@@ -485,6 +656,35 @@ function runAllegianceLifecycleAndReconciliation() {
   assert(repaired, "bounded reconciliation repairs a missed reverse edge");
   assert(assertCommandAuraConsistency(pair.optimized).ok, "reconciliation restores bidirectional consistency");
 
+  const publicationPair = makePair([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: 100, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(publicationPair, 0);
+  const publicationState = publicationPair.optimized._commandAuraRuntime;
+  const publicationKey = [...publicationState.recipientsBySourceKey.keys()][0];
+  const publicationGroup = publicationState.sourceGroupsByShipId.get("src");
+  publicationGroup.members.delete("dst");
+  eachRoom(publicationPair, (room) => { room.ships.get("dst").x = RANGE * 2; });
+  publicationState.transformsByShipId.get("dst").x = RANGE * 2;
+  publicationState.reconciliationGeneration = 31;
+  const publicationTelemetry = updatePair(publicationPair, UPDATE_STEP);
+  assert(publicationTelemetry.commandAuraReconciliationRepairs > 0, "reconciliation reports the stale edge repair");
+  assert.strictEqual(publicationPair.optimized.ships.get("dst").commandAuraReceived, false, "reconciliation publishes a corrected public result on the same boundary");
+  assert(!publicationState.recipientsBySourceKey.get(publicationKey)?.has("dst"), "reconciliation removes the stale forward edge before publication");
+
+  const deadPair = makePair([
+    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: 100, y: 0, types: ["core", "frame"] }
+  ]);
+  updatePair(deadPair, 0);
+  eachShip(deadPair, "src", (ship) => { ship.alive = false; ship.removed = false; });
+  invalidateSourcePair(deadPair, "src");
+  updatePair(deadPair, UPDATE_STEP);
+  assert.strictEqual(deadPair.optimized.ships.get("src").commandAuraActive, false, "dead source clears active public state before final removal");
+  assert.strictEqual(deadPair.optimized.ships.get("src").commandAuraReceived, false, "dead source clears received public state before final removal");
+  assert.strictEqual(deadPair.optimized.ships.get("dst").commandAuraReceived, false, "dead source clears recipients before final removal");
+
   clearCommandAuras(pair.legacy, liveShips(pair.legacy));
   clearCommandAuras(pair.optimized, liveShips(pair.optimized));
   assert.strictEqual(pair.optimized._commandAuraRuntime, null, "room reset clears runtime references");
@@ -541,6 +741,9 @@ try {
   runPriorityParity();
   runCapabilityParity();
   runMembershipAndRevisionChecks();
+  runExactMovementChecks();
+  runSourceLocalInvalidationChecks();
+  runTickRoomIntegrationChecks();
   runAllegianceLifecycleAndReconciliation();
   runFallbackAndCacheSafety();
   runComponentIndexGuard();

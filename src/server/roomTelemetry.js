@@ -340,6 +340,7 @@ const COUNTER_FIELDS = Object.freeze([
   "commandAuraSourceActivations",
   "commandAuraSourceDeactivations",
   "commandAuraMembershipQueries",
+  "commandAuraRecipientMembershipQueries",
   "commandAuraMembershipCacheHits",
   "commandAuraMembershipAdds",
   "commandAuraMembershipRemoves",
