@@ -14,7 +14,7 @@ const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
 const { buildRoomSpatialIndex, shipBroadPhaseRadius, publishSpatialTelemetry } = require("./spatialIndex");
 const { updateStationWeapons } = require("./stationCombat");
-const { updateCommandAuras } = require("./commandAuras");
+const { updateCommandAuras, invalidateCommandAuraMovement } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
 const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry");
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
@@ -23,7 +23,8 @@ const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
   FIXED_AUTHORITATIVE_TIMESTEP,
   INCREMENTAL_SPATIAL_INDEX,
-  SHARED_MOVEMENT_CONTACT_PAIRS
+  SHARED_MOVEMENT_CONTACT_PAIRS,
+  OPTIMIZED_COMMAND_AURA_RUNTIME
 } = require("./performanceFlags");
 const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
 const {
@@ -102,7 +103,23 @@ function tickRoom(room, dt, now) {
   durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
   let movementStart = performanceNow();
-  for (const ship of ships) updateShipMovement(room, ship, dt, now);
+  const optimizedCommandAuras = OPTIMIZED_COMMAND_AURA_RUNTIME();
+  let movedForCommandAuras = null;
+  if (optimizedCommandAuras) {
+    movedForCommandAuras = room._commandAuraMovementScratch || (room._commandAuraMovementScratch = []);
+    movedForCommandAuras.length = 0;
+    for (const ship of ships) {
+      updateShipMovement(room, ship, dt, now);
+      if ((Number(ship._integratedMovementX) || 0) !== 0
+        || (Number(ship._integratedMovementY) || 0) !== 0
+        || (Number(ship._collisionCorrectionX) || 0) !== 0
+        || (Number(ship._collisionCorrectionY) || 0) !== 0) {
+        movedForCommandAuras.push(ship.id);
+      }
+    }
+  } else {
+    for (const ship of ships) updateShipMovement(room, ship, dt, now);
+  }
   recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
   // updated by their own systems before consumers that need their positions.
@@ -138,6 +155,10 @@ function tickRoom(room, dt, now) {
     { sharedMovementContactPairs }
   );
   modifiedShipIds = movementSafety.modifiedShipIds;
+  if (optimizedCommandAuras) {
+    invalidateCommandAuraMovement(room, movedForCommandAuras);
+    invalidateCommandAuraMovement(room, modifiedShipIds);
+  }
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
   if (sharedMovementContactPairs && shouldRunMovementContactDiagnostics(room)) {
     const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });

@@ -1,233 +1,91 @@
-// Authoritative command-component aura system.
+// Authoritative Command Aura system.
 //
-// Command components emit a shared-radius aura that passively buffs nearby
-// allied ships.  All auras use one authoritative range so their circles align
-// visually and players can instantly judge whether a ship is inside command
-// range.  Identical aura types do not stack; only the strongest valid source
-// applies for each aura type, with a deterministic priority tie-breaker.
+// The legacy implementation remains available as the rollout reference. The
+// Phase 6D runtime keeps the same rules but caches source capability, spatial
+// membership and per-recipient winners behind one server-side flag.
 
 "use strict";
 
-const { PARTS } = require("./components");
-const { BALANCE } = require("./balanceConfig");
-const { areAllies } = require("./relationships");
 const { performanceNow } = require("./utils");
+const {
+  AURA_TYPES,
+  AURA_STAT_KEYS,
+  AURA_UPDATE_INTERVAL_MS,
+  getCommandAuraRange,
+  commandAuraSelfAllowed,
+  collectAuraSources,
+  isAuraComponentOperational,
+  auraComponentEffectiveness,
+  scaleAuraMultiplier,
+  auraMultipliersFrom,
+  auraMultipliersScaled,
+  auraStrength,
+  sourcePriorityKey,
+  compareSourcePriority,
+  getAuraComponentIndices,
+  buildAuraSourceValues,
+  compareSourceForRecipient,
+  formatAuraReceivedEntry,
+  addAuraMultipliers,
+  auraForComponent,
+  shipSequenceNumber
+} = require("./commandAuraRules");
+const { areAllies } = require("./relationships");
+const { OPTIMIZED_COMMAND_AURA_RUNTIME } = require("./performanceFlags");
+const commandAuraRuntime = require("./commandAuraRuntime");
 
-const HeatRules = require("../../public/src/shared/heatRules");
-
-// Types of command aura.  Each type is an independent buff category; different
-// categories may operate simultaneously.  Within one category only the single
-// strongest valid source applies.
-const AURA_TYPES = new Set([
-  "command",
-  "fireControl",
-  "fleetDefence",
-  "shield",
-  "engineering",
-  "propulsion",
-  "ewar"
-]);
-
-// Canonical stat multipliers that an aura may contribute.  Every stat has a
-// neutral value of 1.0 so systems can multiply without branching.
-const AURA_STAT_KEYS = new Set([
-  "weaponAccuracyMultiplier",
-  "weaponTrackingMultiplier",
-  "turretAimSpeedMultiplier",
-  "targetAcquisitionMultiplier",
-  "pointDefenceTrackingMultiplier",
-  "flakTrackingMultiplier",
-  "interceptionReactionMultiplier",
-  "shieldRegenMultiplier",
-  "shieldRestartDelayMultiplier",
-  "repairRateMultiplier",
-  "heatDissipationMultiplier",
-  "overheatRecoveryMultiplier",
-  "accelerationMultiplier",
-  "turnRateMultiplier",
-  "sensorRangeMultiplier",
-  "missileTrackingResistanceMultiplier",
-  "componentAimRetentionMultiplier"
-]);
-
-// Shared authoritative aura range.  All command components use this exact value.
-function getCommandAuraRange() {
-  return Number(BALANCE?.commandAura?.range) || 500;
-}
-
-function commandAuraSelfAllowed() {
-  return BALANCE?.commandAura?.selfAura === true;
-}
-
-const AURA_UPDATE_INTERVAL_MS = 150;
-
-// Room-scoped telemetry.  Per-room counters are reset on every full update.
+// Room-scoped telemetry. The optimized fields are reset with the legacy fields
+// so diagnostics always describe the most recent authoritative aura update.
 function telemetry(room) {
   return room._commandAuraTelemetry || (room._commandAuraTelemetry = {
     activeSources: 0,
+    activeSourceShips: 0,
     receivingShips: 0,
     candidatesExamined: 0,
     recalculations: 0,
     lastUpdateUs: 0,
     additions: 0,
-    removals: 0
+    removals: 0,
+    sourceCacheHits: 0,
+    sourceRebuilds: 0,
+    sourceActivations: 0,
+    sourceDeactivations: 0,
+    membershipQueries: 0,
+    membershipCacheHits: 0,
+    membershipAdds: 0,
+    membershipRemoves: 0,
+    candidatesVisited: 0,
+    recipientMovesProcessed: 0,
+    sourceMovesProcessed: 0,
+    recipientsDirty: 0,
+    recipientsPublished: 0,
+    recipientsUnchanged: 0,
+    winnerChanges: 0,
+    winnerRescans: 0,
+    priorityComparisons: 0,
+    sortsPerformed: 0,
+    fullScanFallbacks: 0,
+    reconciliations: 0,
+    reconciliationRepairs: 0,
+    staleSourcesRemoved: 0,
+    staleRecipientsRemoved: 0,
+    fallbackUs: 0,
+    sourceMaintenanceUs: 0,
+    membershipUs: 0,
+    winnerResolutionUs: 0,
+    recipientPublishUs: 0,
+    reconciliationUs: 0
   });
 }
 
 function resetTelemetry(room) {
   const t = telemetry(room);
-  t.activeSources = 0;
-  t.receivingShips = 0;
-  t.candidatesExamined = 0;
-  t.recalculations = 0;
-  t.lastUpdateUs = 0;
-  t.additions = 0;
-  t.removals = 0;
+  for (const key of Object.keys(t)) t[key] = 0;
   return t;
 }
 
-// Extract an ordered list of aura sources from a ship.  Each source records the
-// component index, aura type, multipliers and a derived strength used for
-// source-vs-source priority within the same aura type.
-function collectAuraSources(ship) {
-  const sources = [];
-  const design = ship.design || [];
-  for (let i = 0; i < design.length; i += 1) {
-    const part = PARTS[design[i]?.type];
-    const aura = part?.aura;
-    if (!aura || !AURA_TYPES.has(aura.type)) continue;
-    if (!isAuraComponentOperational(ship, i)) continue;
-    const effectiveness = auraComponentEffectiveness(ship, i);
-    if (effectiveness <= 0) continue;
-    const multipliers = auraMultipliersScaled(aura, effectiveness);
-    const strength = auraStrength(aura.type, multipliers);
-    sources.push({
-      ship,
-      componentIndex: i,
-      type: aura.type,
-      multipliers,
-      strength,
-      effectiveness
-    });
-  }
-  return sources;
-}
-
-function isAuraComponentOperational(ship, index) {
-  if (!ship.alive) return false;
-  if ((ship.componentHp?.[index] ?? 1) <= 0) return false;
-  const powerRecord = ship.componentPower?.byComponentIndex?.[index];
-  if (!powerRecord || powerRecord.operationalMultiplier <= 0) return false;
-  const heatState = ship.componentHeatState?.[index];
-  if (heatState !== undefined && heatState !== null) {
-    const output = HeatRules.activeOutputForState(heatState);
-    if (output <= 0) return false;
-  }
-  return true;
-}
-
-// Operational effectiveness of a command component, clamped to [0, 1].
-// Combines the component's power allocation multiplier and thermal output
-// multiplier so that partial power or elevated heat proportionally reduces
-// aura strength.  Destroyed, unpowered or fully overheated components yield 0.
-function auraComponentEffectiveness(ship, index) {
-  if (!ship.alive) return 0;
-  if ((ship.componentHp?.[index] ?? 1) <= 0) return 0;
-  const powerRecord = ship.componentPower?.byComponentIndex?.[index];
-  const powerMult = Number(powerRecord?.operationalMultiplier) || 0;
-  if (powerMult <= 0) return 0;
-  const heatState = ship.componentHeatState?.[index];
-  const heatOutput = heatState !== undefined && heatState !== null
-    ? HeatRules.activeOutputForState(heatState)
-    : 1;
-  const effectiveness = powerMult * heatOutput;
-  if (effectiveness <= 0) return 0;
-  return Math.max(0, Math.min(1, effectiveness));
-}
-
-// Scale a configured multiplier by effectiveness.
-// For beneficial multipliers above 1 (buffs): blend from neutral.
-//   scaledMultiplier = 1 + (configuredMultiplier - 1) * effectiveness
-// For beneficial reduction multipliers below 1 (debuffs):
-//   scaledMultiplier = 1 - (1 - configuredMultiplier) * effectiveness
-// At zero effectiveness every multiplier is neutral (1).
-// At full effectiveness the configured balance value is used.
-function scaleAuraMultiplier(configuredValue, effectiveness) {
-  if (!Number.isFinite(configuredValue)) return 1;
-  if (configuredValue === 1) return 1;
-  const eff = Math.max(0, Math.min(1, effectiveness));
-  if (configuredValue > 1) {
-    return 1 + (configuredValue - 1) * eff;
-  }
-  return 1 - (1 - configuredValue) * eff;
-}
-
-function auraMultipliersFrom(aura) {
-  const multipliers = {};
-  for (const key of AURA_STAT_KEYS) {
-    const value = Number(aura[key]);
-    if (Number.isFinite(value)) multipliers[key] = value;
-  }
-  return multipliers;
-}
-
-// Returns aura multipliers scaled by the source component's operational
-// effectiveness.  At zero effectiveness all multipliers are 1 (neutral).
-function auraMultipliersScaled(aura, effectiveness) {
-  const multipliers = {};
-  for (const key of AURA_STAT_KEYS) {
-    const value = Number(aura[key]);
-    if (Number.isFinite(value)) multipliers[key] = scaleAuraMultiplier(value, effectiveness);
-  }
-  return multipliers;
-}
-
-function auraStrength(type, multipliers) {
-  // Strongest source is decided by the largest individual positive multiplier
-  // this aura type contributes.  Negative or zero multipliers are treated as
-  // neutral for priority purposes.
-  let max = 0;
-  for (const key of Object.keys(multipliers)) {
-    const value = multipliers[key];
-    if (value > max) max = value;
-  }
-  return max;
-}
-
-function sourcePriorityKey(source, recipientX, recipientY) {
-  // Deterministic priority:
-  // 1. highest effective modifier (strength) - descending
-  // 2. shortest distance - ascending
-  // 3. lowest authoritative source ship sequence - ascending
-  // 4. lowest component index - ascending
-  const dx = source.ship.x - recipientX;
-  const dy = source.ship.y - recipientY;
-  const distanceSquared = dx * dx + dy * dy;
-  const shipSequence = shipSequenceNumber(source.ship.id);
-  return {
-    strength: source.strength,
-    distanceSquared,
-    shipSequence,
-    componentIndex: source.componentIndex
-  };
-}
-
-function shipSequenceNumber(id) {
-  if (typeof id !== "string") return Number.MAX_SAFE_INTEGER;
-  const numeric = Number.parseInt(id.replace(/^[^0-9-]*-?/, ""), 10);
-  return Number.isFinite(numeric) ? numeric : Number.MAX_SAFE_INTEGER;
-}
-
-// Compare two priority keys.  Returns negative if a wins, positive if b wins.
-function compareSourcePriority(a, b) {
-  if (a.strength !== b.strength) return b.strength - a.strength;
-  if (a.distanceSquared !== b.distanceSquared) return a.distanceSquared - b.distanceSquared;
-  if (a.shipSequence !== b.shipSequence) return a.shipSequence - b.shipSequence;
-  return a.componentIndex - b.componentIndex;
-}
-
-// Recompute aura membership for every live ship.  Uses the spatial index for
-// broad-phase candidate collection and reuses scratch buffers.
+// Legacy full rebuild. This deliberately retains the original candidate-array
+// and sort behavior so the disabled flag remains a differential reference.
 function recalculateAuras(room, ships) {
   const t = resetTelemetry(room);
   const startedAt = performanceNow();
@@ -235,7 +93,21 @@ function recalculateAuras(room, ships) {
   const rangeSquared = range * range;
   const selfAllowed = commandAuraSelfAllowed();
 
-  // Reset per-ship received state and flatten recipients.
+  // Lifecycle invalidation sets this only when a dead/removed hull needs its
+  // public state cleared. The normal legacy benchmark path stays free of a
+  // room-wide stale-state scan.
+  if (room._commandAuraStalePublicState) {
+    for (const ship of room.ships?.values?.() || []) {
+      if (!ship.alive || ship.removed) {
+        ship.commandAuraActive = false;
+        ship.commandAurasReceived = {};
+        ship.commandAuraMultipliers = {};
+        ship.commandAuraReceived = false;
+      }
+    }
+    room._commandAuraStalePublicState = false;
+  }
+
   const recipients = [];
   for (const ship of ships) {
     if (!ship.alive) continue;
@@ -249,14 +121,17 @@ function recalculateAuras(room, ships) {
   const candidateBuffer = room._commandAuraCandidateBuffer || (room._commandAuraCandidateBuffer = []);
 
   for (const source of ships) {
-    if (!source.alive) { source.commandAuraActive = false; continue; }
+    if (!source.alive) {
+      source.commandAuraActive = false;
+      continue;
+    }
     const sources = collectAuraSources(source);
     source.commandAuraActive = sources.length > 0;
     if (!sources.length) continue;
     t.activeSources += sources.length;
+    t.activeSourceShips += 1;
 
     if (!index) {
-      // Fallback for tests or rooms built without a spatial index: full scan.
       for (const target of recipients) {
         if (!selfAllowed && target === source) continue;
         if (!areAllies(room, source.ownerId, target.ownerId)) continue;
@@ -284,8 +159,6 @@ function recalculateAuras(room, ships) {
     }
   }
 
-  // Resolve strongest source per aura type for each recipient and flatten final
-  // multipliers.  Also populate a readable received-aura list for snapshots/UI.
   for (const ship of recipients) {
     const received = ship.commandAurasReceived;
     const finalMultipliers = {};
@@ -293,21 +166,11 @@ function recalculateAuras(room, ships) {
       const candidates = received[type];
       if (!candidates || !candidates.length) continue;
       candidates.sort((a, b) => compareSourcePriority(a.priority, b.priority));
+      t.sortsPerformed += 1;
       const best = candidates[0];
-      const sourceShip = best.source.ship;
-      const entry = {
-        type,
-        sourceShipId: sourceShip.id,
-        sourceComponentIndex: best.source.componentIndex,
-        sourcePlayerId: sourceShip.ownerId,
-        multipliers: { ...best.source.multipliers },
-        suppressedCount: candidates.length - 1
-      };
+      const entry = formatAuraReceivedEntry(best.source, candidates.length - 1);
       received[type] = entry;
-      for (const [key, value] of Object.entries(entry.multipliers)) {
-        if (!AURA_STAT_KEYS.has(key)) continue;
-        finalMultipliers[key] = (finalMultipliers[key] || 1) * value;
-      }
+      addAuraMultipliers(finalMultipliers, entry.multipliers);
       t.additions += 1;
     }
     ship.commandAuraMultipliers = finalMultipliers;
@@ -338,31 +201,58 @@ function updateCommandAuras(room, ships, now) {
   const nextUpdate = room._commandAuraNextUpdate || 0;
   if (now < nextUpdate) return;
   room._commandAuraNextUpdate = now + AURA_UPDATE_INTERVAL_MS;
-  recalculateAuras(room, ships);
+  if (OPTIMIZED_COMMAND_AURA_RUNTIME()) {
+    commandAuraRuntime.updateCommandAuraRuntime(room, ships, now);
+  } else {
+    recalculateAuras(room, ships);
+    // Movement notifications are only meaningful to the optimized runtime.
+    room._commandAuraMovedShipIds?.clear?.();
+  }
 }
 
+// Compatibility wrapper retained for existing callers. Scoped production
+// invalidation functions below avoid turning every mutation into a full reset.
 function invalidateCommandAuras(room) {
-  if (room) room._commandAuraNextUpdate = 0;
+  if (!room) return;
+  room._commandAuraNextUpdate = 0;
+  commandAuraRuntime.invalidateAllCommandAuras(room, "compatibility");
+}
+
+function invalidateCommandAuraSource(room, ship, reason = "source") {
+  commandAuraRuntime.invalidateCommandAuraSource(room, ship, reason);
+}
+
+function invalidateCommandAuraRecipient(room, ship, reason = "recipient") {
+  commandAuraRuntime.invalidateCommandAuraRecipient(room, ship, reason);
+}
+
+function invalidateCommandAuraMovement(room, movedShipIds, reason = "movement") {
+  commandAuraRuntime.invalidateCommandAuraMovement(room, movedShipIds, reason);
+}
+
+function invalidateCommandAuraAllegiance(room, ship, oldTeam, newTeam) {
+  commandAuraRuntime.invalidateCommandAuraAllegiance(room, ship, oldTeam, newTeam);
 }
 
 function clearCommandAuras(room, ships) {
   if (room) {
     room._commandAuraNextUpdate = 0;
-    room._commandAuraTelemetry = null;
+    room._commandAuraStalePublicState = false;
+    commandAuraRuntime.clearCommandAuraRuntime(room, ships);
     room._commandAuraCandidateBuffer = null;
   }
-  if (Array.isArray(ships)) {
-    for (const ship of ships) {
-      ship.commandAurasReceived = {};
-      ship.commandAuraMultipliers = {};
-      ship.commandAuraActive = false;
-      ship.commandAuraReceived = false;
-    }
+  const targets = Array.isArray(ships)
+    ? ships
+    : [...(room?.ships?.values?.() || [])];
+  for (const ship of targets) {
+    ship.commandAurasReceived = {};
+    ship.commandAuraMultipliers = {};
+    ship.commandAuraActive = false;
+    ship.commandAuraReceived = false;
+    if (ship.commandAuraRevision === undefined) ship.commandAuraRevision = 0;
   }
 }
 
-// Quick accessor for gameplay systems.  Returns the multiplier for a given stat,
-// defaulting to 1.0 when no aura provides it.
 function getCommandAuraMultiplier(ship, stat) {
   if (!ship?.commandAuraMultipliers) return 1;
   const value = ship.commandAuraMultipliers[stat];
@@ -372,15 +262,29 @@ function getCommandAuraMultiplier(ship, stat) {
 module.exports = {
   AURA_TYPES,
   AURA_STAT_KEYS,
+  AURA_UPDATE_INTERVAL_MS,
   getCommandAuraRange,
   commandAuraSelfAllowed,
   updateCommandAuras,
   invalidateCommandAuras,
+  invalidateCommandAuraSource,
+  invalidateCommandAuraRecipient,
+  invalidateCommandAuraMovement,
+  invalidateCommandAuraAllegiance,
+  invalidateAllCommandAuras: invalidateCommandAuras,
   clearCommandAuras,
   getCommandAuraMultiplier,
   telemetry,
   collectAuraSources,
+  getAuraComponentIndices,
+  buildAuraSourceValues,
+  auraForComponent,
   isAuraComponentOperational,
   auraComponentEffectiveness,
-  scaleAuraMultiplier
+  scaleAuraMultiplier,
+  auraMultipliersFrom,
+  auraMultipliersScaled,
+  auraStrength,
+  compareSourceForRecipient,
+  shipSequenceNumber
 };

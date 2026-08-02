@@ -1591,19 +1591,29 @@ function updateShipHeatOptimized(ship, dt, room, now) {
 }
 
 function updateShipHeat(ship, dt, room, now) {
-  if (OPTIMIZED_HEAT_RUNTIME()) return updateShipHeatOptimized(ship, dt, room, now);
-  const runtime = ship?._thermalRuntime;
-  if (runtime) {
-    bump(room, "heatShipsConsidered");
-    bump(room, "heatComponentsTotal", ship.componentHeat?.length || 0);
-    bump(room, "heatEdgesTotal", runtime.topology.edgeA.length);
-    if (!runtime.topologyTelemetryReported) {
-      bump(room, "heatTopologyBuilds", runtime.topologyBuilds);
-      runtime.topologyTelemetryReported = true;
+  const previousHeatStateRevision = Number(ship?.heatStateRevision) || 0;
+  const previousHeatRevision = Number(ship?.heatRevision) || 0;
+  let result;
+  if (OPTIMIZED_HEAT_RUNTIME()) result = updateShipHeatOptimized(ship, dt, room, now);
+  else {
+    const runtime = ship?._thermalRuntime;
+    if (runtime) {
+      bump(room, "heatShipsConsidered");
+      bump(room, "heatComponentsTotal", ship.componentHeat?.length || 0);
+      bump(room, "heatEdgesTotal", runtime.topology.edgeA.length);
+      if (!runtime.topologyTelemetryReported) {
+        bump(room, "heatTopologyBuilds", runtime.topologyBuilds);
+        runtime.topologyTelemetryReported = true;
+      }
     }
+    bump(room, "heatShipsLegacyProcessed");
+    result = updateShipHeatLegacy(ship, dt, room, now);
   }
-  bump(room, "heatShipsLegacyProcessed");
-  return updateShipHeatLegacy(ship, dt, room, now);
+  if (room && (previousHeatStateRevision !== (Number(ship?.heatStateRevision) || 0)
+    || previousHeatRevision !== (Number(ship?.heatRevision) || 0))) {
+    require("./commandAuras").invalidateCommandAuraSource(room, ship, "heat-state");
+  }
+  return result;
 }
 
 function buildHeatDebug(ship) {

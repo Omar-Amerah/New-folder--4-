@@ -371,11 +371,13 @@ function handleMessage(client, message) {
       send(client, { type: "error", message: "Wings can only be changed in the lobby before ship design" });
       return;
     }
+    const previousTeam = client.player.team;
     if (client.room.rules?.gameMode === "solo") {
       // The lobby UI hides the wing selector in solo mode, so this is only
       // reachable from non-UI clients — answer informatively, not as an error.
       client.player.team = client.player.id;
       invalidateRelationshipCache(client.room);
+      require("./commandAuras").invalidateCommandAuraAllegiance(client.room, client.player, previousTeam, client.player.team);
       require("./visibility").invalidateVisibility(client.room, { reason: "player-team-change", allegianceChanged: true });
       send(client, { type: "notice", message: "Solo mode: every pilot fights alone, so wings are not used" });
       broadcastSnapshot(client.room, performanceNow(), true);
@@ -383,6 +385,7 @@ function handleMessage(client, message) {
     }
     client.player.team = sanitizeTeam(message.team, balanceTeam(client.room));
     invalidateRelationshipCache(client.room);
+    require("./commandAuras").invalidateCommandAuraAllegiance(client.room, client.player, previousTeam, client.player.team);
     require("./visibility").invalidateVisibility(client.room, { reason: "player-team-change", allegianceChanged: true });
     revalidateTelemetryFocusForRoom(client.room);
     require("./spawnPlanner").invalidateSpawnPlan(client.room);

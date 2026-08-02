@@ -53,6 +53,7 @@ function despawnPlayerShips(room, player) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    require("./commandAuras").invalidateCommandAuraSource(room, ship, "player-despawn");
     require("./componentGeometry").invalidateShipCollisionGeometry(ship);
     room.spatialIndex?.remove?.("ships", ship);
     room.ships.delete(ship.id);
@@ -372,6 +373,7 @@ function removePlayerFromRoom(room, player, reason) {
   for (const ship of player.ships) {
     ship.alive = false;
     ship.removed = true;
+    require("./commandAuras").invalidateCommandAuraSource(room, ship, "player-remove");
     require("./componentGeometry").invalidateShipCollisionGeometry(ship);
     room.spatialIndex?.remove?.("ships", ship);
     room.ships.delete(ship.id);
@@ -451,6 +453,8 @@ function teamLabel(room, team, fallback) {
 function resetPlayerForMatch(room, player, now) {
   for (const oldShip of player.ships) {
     oldShip.removed = true;
+    oldShip.alive = false;
+    require("./commandAuras").invalidateCommandAuraSource(room, oldShip, "match-reset");
     require("./componentGeometry").invalidateShipCollisionGeometry(oldShip);
     room.spatialIndex?.remove?.("ships", oldShip);
     room.ships.delete(oldShip.id);
@@ -607,6 +611,8 @@ function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   room.winnerAt = 0;
   for (const ship of room.ships.values()) {
     ship.removed = true;
+    ship.alive = false;
+    require("./commandAuras").invalidateCommandAuraSource(room, ship, "room-close");
   }
   room.ships.clear();
   revalidateTelemetryFocusForRoom(room);

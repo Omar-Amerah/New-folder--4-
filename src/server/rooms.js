@@ -61,6 +61,7 @@ function clearRoomRuntimeScratch(room) {
   // Pair objects are pooled per room, so reset/restart/close paths must release
   // their ship references alongside the other reusable movement scratch.
   require("./movementContactPairs").clearMovementContactPairs(room);
+  require("./commandAuraRuntime").clearCommandAuraRuntime(room);
 }
 
 function createRoom(code, options = {}) {
@@ -125,6 +126,8 @@ function createRoom(code, options = {}) {
 function bumpStateEpoch(room, reason = "state-reset") {
   require("./relationships").invalidateRelationshipCache(room);
   room.stateEpoch = Math.max(1, Number(room.stateEpoch) || 1) + 1;
+  require("./commandAuraRuntime").clearCommandAuraRuntime(room);
+  room._commandAuraNextUpdate = 0;
   // Visibility contexts are epoch-scoped. Drop both legacy and Phase 6C
   // results immediately so a reconnect/rematch can never reuse a prior team
   // result while the new map is being assembled.

@@ -89,6 +89,14 @@ const DURATION_FIELDS = Object.freeze([
   "visibilitySnapshotFilterMs",
   "visibilityAuditMs",
 
+  // Phase 6D incremental Command Aura runtime timing
+  "commandAuraRuntimeMs",
+  "commandAuraSourceMaintenanceMs",
+  "commandAuraMembershipMs",
+  "commandAuraWinnerResolutionMs",
+  "commandAuraRecipientPublishMs",
+  "commandAuraReconciliationMs",
+  "commandAuraFallbackMs"
   // Phase 6F station/objective profiling. These fields are room-scoped so
   // instrumentation never needs to attach a telemetry object to a station,
   // weapon, ship candidate or queue item.
@@ -349,6 +357,34 @@ const COUNTER_FIELDS = Object.freeze([
   "visibilityComputesAfterFinalization",
   "visibilityReconciliations",
 
+  // Phase 6D incremental Command Aura runtime counters
+  "commandAuraShipsConsidered",
+  "commandAuraActiveSourceShips",
+  "commandAuraActiveComponents",
+  "commandAuraSourceCacheHits",
+  "commandAuraSourceRebuilds",
+  "commandAuraSourceActivations",
+  "commandAuraSourceDeactivations",
+  "commandAuraMembershipQueries",
+  "commandAuraRecipientMembershipQueries",
+  "commandAuraMembershipCacheHits",
+  "commandAuraMembershipAdds",
+  "commandAuraMembershipRemoves",
+  "commandAuraCandidatesVisited",
+  "commandAuraRecipientMovesProcessed",
+  "commandAuraSourceMovesProcessed",
+  "commandAuraRecipientsDirty",
+  "commandAuraRecipientsPublished",
+  "commandAuraRecipientsUnchanged",
+  "commandAuraWinnerChanges",
+  "commandAuraWinnerRescans",
+  "commandAuraPriorityComparisons",
+  "commandAuraSortsPerformed",
+  "commandAuraFullScanFallbacks",
+  "commandAuraReconciliations",
+  "commandAuraReconciliationRepairs",
+  "commandAuraStaleSourcesRemoved",
+  "commandAuraStaleRecipientsRemoved",
   // Phase 6F station weapons.
   "stationsWeaponProcessed",
   "stationWeaponComponentsVisited",

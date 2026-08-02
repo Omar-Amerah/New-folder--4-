@@ -129,6 +129,11 @@ let _optimizedDroneRuntime = false;
 // Phase 6C architecture; do not split it into sensor/filter/team flags.
 let _optimizedVisibilityRuntime = false;
 
+// --- Phase 6D authoritative incremental Command Aura runtime ---
+// Keep the cache/incremental path opt-in until differential and production-path
+// verification is accepted. This is intentionally one flag for the complete
+// Command Aura runtime rather than separate source/membership/winner switches.
+let _optimizedCommandAuraRuntime = false;
 // --- Phase 6F station weapon runtime flag ---
 // The legacy station weapon loop remains the production default. The optimized
 // path is enabled only by focused parity/benchmark checks after the measured
@@ -149,6 +154,14 @@ function OPTIMIZED_VISIBILITY_RUNTIME() {
 
 function __setOPTIMIZED_VISIBILITY_RUNTIME(value) {
   _optimizedVisibilityRuntime = Boolean(value);
+}
+
+function OPTIMIZED_COMMAND_AURA_RUNTIME() {
+  return _optimizedCommandAuraRuntime;
+}
+
+function __setOPTIMIZED_COMMAND_AURA_RUNTIME(value) {
+  _optimizedCommandAuraRuntime = Boolean(value);
 }
 
 function OPTIMIZED_DRONE_RUNTIME() {
@@ -232,6 +245,8 @@ module.exports = {
   __setOPTIMIZED_HEAT_RUNTIME,
   OPTIMIZED_VISIBILITY_RUNTIME,
   __setOPTIMIZED_VISIBILITY_RUNTIME,
+  OPTIMIZED_COMMAND_AURA_RUNTIME,
+  __setOPTIMIZED_COMMAND_AURA_RUNTIME
   OPTIMIZED_STATION_WEAPON_RUNTIME,
   __setOPTIMIZED_STATION_WEAPON_RUNTIME
 };
