@@ -51,7 +51,7 @@ const { getCommandAuraMultiplier } = require("./commandAuras");
 const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
 
 const Relationships = require("./relationships");
-const { segmentStationHullHit, nearestStationHullPoint, isSegmentStationClear } = require("./stationCollision");
+const { segmentStationHullHit, nearestStationHullPoint, isSegmentStationClear, stationAttackPoint } = require("./stationCollision");
 
 const TargetingTelemetry = require("./targetingTelemetry");
 const PointDefenceThreats = require("./pointDefenceThreats");
@@ -114,7 +114,14 @@ function componentAimWorldPosition(ship, index) {
 
 
 
-function targetCoreAimWorldPosition(target) {
+function targetAttackPoint(originX, originY, target) {
+  if (target?.entityType === "station") return stationAttackPoint(originX, originY, target);
+  return { x: target?.x ?? 0, y: target?.y ?? 0 };
+}
+
+function targetCoreAimWorldPosition(target, originX = 0, originY = 0) {
+
+  if (target?.entityType === "station") return stationAttackPoint(originX, originY, target);
 
   if (!target?.alive || !target.design?.length) return null;
 
@@ -427,6 +434,15 @@ function clearWeaponComponentAim(ship, weaponIndex) {
 
 
 function weaponComponentAimPoint(room, ship, weaponIndex, target, now) {
+
+  // Stations are compound structures, never ship component targets. Keep the
+  // station id as the selected target but aim at the live shield circumference
+  // or nearest solid hull point from this weapon's actual muzzle origin.
+  if (target?.entityType === "station") {
+    clearWeaponComponentAim(ship, weaponIndex);
+    const origin = weaponModuleWorldPosition(ship, ship.design?.[weaponIndex]);
+    return { ...stationAttackPoint(origin.x, origin.y, target), componentIndex: -1 };
+  }
 
   if (!target?.alive) {
 
@@ -848,8 +864,9 @@ function weaponSpreadRadians(weapon, family, targetEvasionFactor) {
 
 function computeTransversalVelocity(ship, target) {
   if (!target || !ship) return 0;
-  const dx = (target.x || 0) - (ship.x || 0);
-  const dy = (target.y || 0) - (ship.y || 0);
+  const point = targetAttackPoint(ship.x || 0, ship.y || 0, target);
+  const dx = point.x - (ship.x || 0);
+  const dy = point.y - (ship.y || 0);
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist < 0.001) return 0;
   const dirX = dx / dist;
@@ -1266,7 +1283,7 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
   state.focusId = focusId;
 
   const maxRange = maxShipWeaponAcquisitionRange(ship);
-  const allTargets = (ships || []).concat((room?.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled"));
+  const allTargets = (ships || []).concat((room?.stations || []).filter((s) => s && s.alive !== false && s.state !== "destroyed"));
 
   let current = null;
   let currentValid = false;
@@ -1278,13 +1295,21 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
         originX: ship.x,
         originY: ship.y
       });
-      if (currentValid && TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8))) currentValid = false;
+      const currentPoint = targetAttackPoint(ship.x, ship.y, current);
+      if (currentValid && TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, currentPoint.x, currentPoint.y, 8))) currentValid = false;
       if (!currentValid) TargetingTelemetry.bump(room, "shipCombatTargetInvalidations");
     }
   }
 
   if (focusId) {
     const focused = allTargets.find((e) => e && e.id === focusId);
+    if (focused && focused.entityType === "station"
+      && focused.alive !== false
+      && Relationships.areEntityEnemies(room, ship.ownerId, focused)
+      && canTeamTargetEntity(room, ship.team, focused, now)) {
+      ship.combatTargetId = focused.id;
+      return focused;
+    }
     if (focused && Targeting.isOrdinaryWeaponTargetValid(room, ship, focused, now, maxRange, { originX: ship.x, originY: ship.y })) {
       ship.combatTargetId = focused.id;
       return focused;
@@ -1791,7 +1816,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         if (family === "beam") {
 
-          aimPoint = targetCoreAimWorldPosition(aimEntity);
+          aimPoint = targetCoreAimWorldPosition(aimEntity, worldX, worldY);
 
           if (aimPoint && effectiveWeapon.accuracy < 1) {
 
@@ -1986,6 +2011,12 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const targetAimX = fireAimPoint ? fireAimPoint.x : targetEntity.x;
 
     const targetAimY = fireAimPoint ? fireAimPoint.y : targetEntity.y;
+
+    const targetDistance = fastHypot(targetAimX - worldX, targetAimY - worldY);
+    if (targetDistance > range) {
+      if (family === "beam" && ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
+      return;
+    }
 
     const worldAngleToTarget = Math.atan2(targetAimY - worldY, targetAimX - worldX);
 
@@ -3138,7 +3169,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
     ? index.querySweptAabbUnordered("stations", x1, y1, x2, y2, beamRadius, roomScratch(room, "beamStations"))
     : (room.stations || []);
   for (const station of stationCandidates) {
-    if (!station || station.alive === false || station.state === "disabled") continue;
+    if (!station || station.alive === false || station.state === "destroyed") continue;
     if (!Relationships.areEntityEnemies(room, ship.ownerId, station)) continue;
 
     if (station.shield >= SHIELD_HIT_MIN) {
@@ -3490,7 +3521,8 @@ function isTargetInWeaponArc(ship, module, target, arcRadians) {
 
   const weaponFacing = weaponFacingAngle(ship, module);
 
-  const angleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
+  const point = targetAttackPoint(origin.x, origin.y, target);
+  const angleToTarget = Math.atan2(point.y - origin.y, point.x - origin.x);
 
   return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
 
@@ -4160,7 +4192,7 @@ function findTarget(room, ship, ships) {
   const owner = room.players?.get?.(ship.ownerId);
   const viewerTeam = owner?.team || ship.team;
 
-  const stations = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
+  const stations = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "destroyed");
   const targets = (ships || []).concat(stations);
 
 
@@ -4170,6 +4202,7 @@ function findTarget(room, ship, ships) {
     const focused = targets.find((other) => other.id === ship.focusTargetId && Relationships.areEntityEnemies(room, ship.ownerId, other) && canTeamTargetEntity(room, viewerTeam, other, now));
 
     if (focused && focused.alive) {
+      if (focused.entityType === "station") return focused;
 
       const focusedDistance = fastHypot(focused.x - ship.x, focused.y - ship.y);
 
@@ -4195,7 +4228,8 @@ function findTarget(room, ship, ships) {
     if (current && current.alive) {
       const explicitFocus = ship.focusTargetId === current.id;
       if (explicitFocus || sanitizeCombatStyle(ship.combatStyle) !== "hold") return current;
-      const currentDistance = fastHypot(current.x - ship.x, current.y - ship.y);
+      const currentPoint = targetAttackPoint(ship.x, ship.y, current);
+      const currentDistance = fastHypot(currentPoint.x - ship.x, currentPoint.y - ship.y);
       // Keep the target while it is anywhere near the envelope, not only while
       // it is inside it. The retention margin is what stops a ship swapping
       // between two enemies straddling the range edge on alternate ticks.
@@ -4206,7 +4240,7 @@ function findTarget(room, ship, ships) {
       // well inside the envelope with an asteroid briefly in the way is worth
       // keeping, an enemy that has left is not.
       if (currentDistance <= range * TARGET_RETENTION_MULTIPLIER) {
-        if (!TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, current.x, current.y, 8))) return current;
+        if (!TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, currentPoint.x, currentPoint.y, 8))) return current;
         holdFallback = current;
       }
     }
@@ -4221,8 +4255,9 @@ function findTarget(room, ship, ships) {
   function evaluateCandidate(other) {
     if (!other.alive || !Relationships.areEntityEnemies(room, ship.ownerId, other)) return;
     if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) return;
-    const distance = fastHypot(other.x - ship.x, other.y - ship.y);
-    if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, other.x, other.y, 8))) return;
+    const point = targetAttackPoint(ship.x, ship.y, other);
+    const distance = fastHypot(point.x - ship.x, point.y - ship.y);
+    if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, ship.x, ship.y, point.x, point.y, 8))) return;
     const score = enemyShipThreatScore(ship, other, distance, range);
     if (score > bestScore || (score === bestScore && (distance < bestDistance || (distance === bestDistance && (!best || isStableIdBefore(other, best)))))) {
       best = other;
@@ -4473,9 +4508,17 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
   if (primary?.alive && !room.drones?.has?.(primary.id) && canTeamTargetEntity(room, viewerTeam, primary, now)) {
 
-    const distance = fastHypot(primary.x - worldX, primary.y - worldY);
+    // An explicit hostile station focus is exclusive for offensive weapons.
+    // Keep the weapon tracking/waiting on the station until its surface is in
+    // range instead of silently redirecting fire to a ship or drone.
+    if (primary.entityType === "station"
+      && ship.focusTargetId === primary.id
+      && Relationships.areEntityEnemies(room, ship.ownerId, primary)) return primary;
 
-    if (distance <= range && !TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, primary.x, primary.y, 8))) shipTarget = primary;
+    const primaryPoint = targetAttackPoint(worldX, worldY, primary);
+    const distance = fastHypot(primaryPoint.x - worldX, primaryPoint.y - worldY);
+
+    if (distance <= range && !TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, primaryPoint.x, primaryPoint.y, 8))) shipTarget = primary;
 
   }
 
@@ -4495,9 +4538,10 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
       if (usesSensorVisibility(room) && !canTeamTargetEntity(room, viewerTeam, other, now)) return;
 
-      const distance = fastHypot(other.x - worldX, other.y - worldY);
+      const point = targetAttackPoint(worldX, worldY, other);
+      const distance = fastHypot(point.x - worldX, point.y - worldY);
 
-      if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, other.x, other.y, 8))) return;
+      if (distance > range || TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, point.x, point.y, 8))) return;
 
       const score = enemyShipThreatScore(ship, other, distance, range);
 
@@ -4531,7 +4575,7 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
     } else {
 
-      const stationTargets = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "disabled");
+      const stationTargets = (room.stations || []).filter((s) => s && s.alive !== false && s.state !== "destroyed");
 
       for (const other of (ships || []).concat(stationTargets)) evaluateCandidate(other);
 
@@ -4618,7 +4662,8 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
       originY: worldY,
       ignoreDrones: !canWeaponDefensivelyTargetDrones(options.weapon)
     });
-    if (currentValid && TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, cached.x, cached.y, 8))) {
+    const cachedPoint = targetAttackPoint(worldX, worldY, cached);
+    if (currentValid && TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, cachedPoint.x, cachedPoint.y, 8))) {
       currentValid = false;
     }
     if (!currentValid) TargetingTelemetry.bump(room, "ordinaryTargetValidationFailures");
@@ -4680,6 +4725,7 @@ function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
     if (!asteroid) continue;
     if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
   }
+
   return !isSegmentStationClear(room, x1, y1, x2, y2, margin, {
     ignoreStationContainingEndpoint: true,
     ignoreDoors: true
@@ -5260,7 +5306,7 @@ function resolveDemolitionContacts(room, ships, now) {
     }
     if (!a.alive) continue;
     for (const station of room.stations || []) {
-      if (!station || station.alive === false || station.state === "disabled" || station.state === "destroyed") continue;
+      if (!station || station.alive === false || station.state === "destroyed") continue;
       if (!Relationships.areEntityEnemies(room, a.ownerId, station)) continue;
       const dx = station.x - a.x;
       const dy = station.y - a.y;

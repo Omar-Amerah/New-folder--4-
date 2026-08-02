@@ -22,7 +22,7 @@ const { isSegmentStationClear } = require("./stationCollision");
 // crossing being shoved sideways by the collision solver. Everything that is
 // physically solid has to be navigationally solid too, or the two disagree and
 // the ship grinds along the hull. No state filter, for exactly that reason:
-// resolveStationCollision does not filter either, so a disabled wreck is still
+// resolveStationCollision does not filter either, so every station hull remains
 // an obstacle to both.
 function stationCollisionPieces(room) {
   const pieces = [];

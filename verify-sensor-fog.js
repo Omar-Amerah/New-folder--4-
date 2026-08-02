@@ -384,7 +384,7 @@ function testGenerationCache() {
   assert.strictEqual(queries, 2, "combat reuses the generation computed by target-lock validation");
 }
 
-function testClassicRelayAndDisabledStation() {
+function testClassicRelayAndDestroyedStation() {
   const room = createRoom("relay");
   room.rules.visibilityMode = "sensors";
   room.rules.infrastructureMode = "classic";
@@ -392,9 +392,9 @@ function testClassicRelayAndDisabledStation() {
   const sources = getSensorSourcesForTeam(room, "blue");
   assert(sources.some((source) => source.entity.id === "r1"), "owned classic relay is a sensor source");
   assert.strictEqual(
-    effectiveSensorRange({ stationType: "home", state: "disabled", alive: true }),
+    effectiveSensorRange({ stationType: "home", state: "destroyed", alive: false }),
     0,
-    "disabled stations do not keep revealing fog"
+    "destroyed stations do not keep revealing fog"
   );
 }
 
@@ -502,7 +502,7 @@ function main() {
   testTeamVisibility();
   testDirectedTeamVisibility();
   testGenerationCache();
-  testClassicRelayAndDisabledStation();
+  testClassicRelayAndDestroyedStation();
   testSnapshotFiltering();
   testTeamSnapshotCacheInvalidation();
   testRendererUsesRasterMask();

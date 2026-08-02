@@ -82,14 +82,16 @@ function markWritten(client, snapshot) {
   assert.ok(alliedFull.hardpoints?.length, "full station baseline contains hardpoints");
   assert.ok(alliedFull.componentHp?.length, "full visible station baseline contains component health");
   assert.equal(alliedFull.stationType, "home", "full station baseline restores its infrastructure type");
-  assert.ok(alliedFull.hangar && !Array.isArray(alliedFull.hangar), "full station baseline carries one hangar object");
-  assert.equal(alliedFull.hangars, undefined, "full station baseline carries no multi-hangar field");
+  assert.ok(Array.isArray(alliedFull.launchBays) && alliedFull.launchBays.length === 3, "full station baseline carries three launch-bay records");
+  assert.equal(alliedFull.hangar, undefined, "full station baseline carries no singular compatibility hangar");
+  assert.equal(alliedFull.hangars, undefined, "full station baseline carries no plural compatibility hangar");
   assert.ok(Number.isFinite(alliedFull.x) && Number.isFinite(alliedFull.y), "full station baseline restores its world position");
   assert.ok(Number.isFinite(alliedFull.radius) && alliedFull.radius > 0, "full station baseline restores its collision radius");
   assert.equal(alliedCompact.design, undefined, "compact station update omits cached design");
   assert.equal(alliedCompact.hardpoints, undefined, "compact station update omits cached hardpoints");
   assert.equal(alliedCompact.componentHp, undefined, "unchanged compact station update omits cached health");
-  assert.equal(alliedCompact.hangars, undefined, "compact station update carries no multi-hangar field");
+  assert.equal(alliedCompact.launchBays, undefined, "compact station update omits cached launch-bay geometry");
+  assert.equal(alliedCompact.hangars, undefined, "compact station update carries no plural compatibility hangar");
   assert.ok(Array.isArray(alliedCompact.weaponAnglePairs), "compact station update carries sparse turret bearings");
 
   const fullStationBytes = encodeMessage(full.stations).length;
@@ -130,7 +132,8 @@ function markWritten(client, snapshot) {
   assert.equal(compactMerged.ok, true, compactMerged.reason);
   const mergedAllied = compactMerged.snapshot.stations.find((station) => station.id === alliedFull.id);
   assert.deepEqual(mergedAllied.design, alliedFull.design, "client retains full station geometry through compact updates");
-  assert.deepEqual(mergedAllied.hangar, alliedFull.hangar, "client reconstructs the single hangar through compact updates");
+  assert.deepEqual(mergedAllied.launchBays, alliedFull.launchBays, "client reconstructs launch-bay geometry through compact updates");
+  assert.equal(mergedAllied.hangar, undefined, "client reconstructs no singular compatibility hangar");
   assert.equal(mergedAllied.hangars, undefined, "merged station retains no multi-hangar field");
   assert.deepEqual(mergedAllied.componentHp, alliedFull.componentHp, "client retains unchanged component condition");
   assert.equal(mergedAllied.weaponAngles.length, alliedFull.weaponAngles.length, "client reconstructs the dense turret-angle API");

@@ -75,10 +75,8 @@ const CAPTURE_SCENARIOS = [
   { name: "exact contested tie", subsystem: "capture", ships: 50, relays: 1, density: "tie", variant: "tie" },
   { name: "leader changes every tick", subsystem: "capture", ships: 50, relays: 1, density: "leader-churn", variant: "leader-churn" },
   { name: "neutral relay capture", subsystem: "capture", ships: 50, relays: 1, density: "neutral", variant: "neutral" },
-  { name: "disabled enemy relay capture", subsystem: "capture", ships: 50, relays: 1, density: "disabled", variant: "disabled" },
-  { name: "friendly recapture cancellation", subsystem: "capture", ships: 50, relays: 1, density: "friendly-cancel", variant: "friendly-cancel" },
   { name: "capture decay", subsystem: "capture", ships: 0, relays: 1, density: "decay", variant: "decay" },
-  { name: "relay ownership transition", subsystem: "capture", ships: 50, relays: 1, density: "ownership", variant: "ownership", event: "relay-ownership-transition" },
+  { name: "relay capture transition", subsystem: "capture", ships: 50, relays: 1, density: "ownership", variant: "ownership", event: "relay-capture-transition" },
   { name: "full-control countdown stable", subsystem: "capture", ships: 0, relays: 3, density: "victory", variant: "victory", event: "victory-countdown-start" },
   { name: "full-control countdown repeatedly interrupted", subsystem: "capture", ships: 0, relays: 3, density: "victory-interrupted", variant: "victory-interrupted", event: "victory-countdown-interruption" },
   { name: "classic capture reference", subsystem: "classicCapture", ships: 50, relays: 1, density: "classic", variant: "classic", infrastructureMode: "classic" }
@@ -91,7 +89,7 @@ const HANGAR_SCENARIOS = [
   { name: "large burst queue", subsystem: "hangar", ships: 0, relays: 3, density: "burst-queue", variant: "burst-queue", queueQuantity: 30, event: "large-spawn-burst" },
   { name: "fleet-cap blocked queue", subsystem: "hangar", ships: 0, relays: 3, density: "fleet-cap", variant: "fleet-cap", event: "fleet-cap-block" },
   { name: "missing or disconnected player", subsystem: "hangar", ships: 0, relays: 3, density: "missing-player", variant: "missing-player", event: "missing-player-block" },
-  { name: "disabled home station", subsystem: "hangar", ships: 0, relays: 3, density: "disabled-home", variant: "disabled-home", event: "disabled-home-block" },
+  { name: "destroyed home station", subsystem: "hangar", ships: 0, relays: 3, density: "destroyed-home", variant: "destroyed-home", event: "destroyed-home-block" },
   { name: "one active launch", subsystem: "hangar", ships: 0, relays: 3, density: "active-launch", variant: "active-launch", queueQuantity: 1, event: "active-launch" },
   { name: "several simultaneous launches", subsystem: "hangar", ships: 0, relays: 3, density: "simultaneous", variant: "simultaneous", queueQuantity: 3, event: "simultaneous-launches" },
   { name: "three queued players share the central hangar", subsystem: "hangar", ships: 0, relays: 3, density: "shared-central-hangar", variant: "shared-central-hangar", queueQuantity: 1, queuePlayers: ["p-blue", "p-blue-2", "p-blue-3"], event: "shared-central-hangar" },
@@ -370,7 +368,7 @@ function buildFixture(config, repeatIndex) {
       } else if (config.variant === "tie") {
         x = relay.x + (team === "blue" ? -30 : 30);
         y = relay.y;
-      } else if (["single-team", "neutral", "disabled", "friendly-cancel", "ownership"].includes(config.variant) && team === "red") {
+      } else if (["single-team", "neutral", "ownership"].includes(config.variant) && team === "red") {
         x = 8000 + index * 2;
         y = 1200 + (index % 20) * 20;
       } else {
@@ -432,14 +430,15 @@ function buildFixture(config, repeatIndex) {
 }
 
 function configureCaptureFixture(room, config, relays) {
-  if (config.variant === "disabled" || config.variant === "friendly-cancel" || config.variant === "ownership") {
+  if (config.variant === "ownership") {
     const relay = relays[0];
     if (relay) {
-      relay.state = "disabled";
+      relay.state = "neutral";
       relay.alive = true;
-      relay.team = config.variant === "friendly-cancel" ? "blue" : "red";
-      relay.ownerId = config.variant === "friendly-cancel" ? "p-blue" : "p-red";
-      relay.captureProgress = config.variant === "ownership" ? 0.999 : 0;
+      relay.team = null;
+      relay.ownerId = null;
+      relay.captureProgress = 0.999;
+      relay.captureTeam = null;
     }
   }
   if (config.variant === "decay" && relays[0]) {
@@ -497,7 +496,10 @@ function configureHangarFixture(room, config, home) {
   }
   const player = room.players.get("p-blue");
   if (config.variant === "fleet-cap") player.shipCap = 0;
-  if (config.variant === "disabled-home") home.state = "disabled";
+  if (config.variant === "destroyed-home") {
+    home.state = "destroyed";
+    home.alive = false;
+  }
   if (config.variant === "missing-player") enqueueBenchmarkItem(room, home, config, "missing-player");
 }
 
@@ -512,7 +514,7 @@ function prepareMeasuredFixture(room, config, homes) {
 
 function fixtureStats(room) {
   const stations = room.stations || [];
-  const activeStations = stations.filter((station) => station.alive !== false && station.state !== "disabled" && station.state !== "destroyed");
+  const activeStations = stations.filter((station) => station.alive !== false && station.state !== "destroyed");
   let ordinaryMounts = 0;
   let pointDefenceMounts = 0;
   let liveWeaponMounts = 0;
@@ -553,12 +555,8 @@ function assertFixtureConstruction(room, config, homes) {
     assert.equal(stats.activeStations, 0, `${config.name}: classic fixture has no active stations`);
     return stats;
   }
-  const disabledHomes = config.variant === "disabled-home" ? 1 : 0;
-  const ownershipRelayStillDisabled = config.variant === "ownership"
-    && (room.stations || []).some((station) => station.stationType === "relay" && station.state === "disabled");
-  const disabledRelays = ["disabled", "friendly-cancel"].includes(config.variant)
-    || ownershipRelayStillDisabled ? 1 : 0;
-  const expectedActiveStations = (2 - disabledHomes) + (config.relays || 0) - disabledRelays;
+  const destroyedHomes = config.variant === "destroyed-home" ? 1 : 0;
+  const expectedActiveStations = (2 - destroyedHomes) + (config.relays || 0);
   assert.equal(stats.activeStations, expectedActiveStations, `${config.name}: active station count matches fixture`);
   if (config.subsystem === "stationWeapons") {
     assert(stats.ordinaryMounts > 0, `${config.name}: ordinary mount construction is present`);
@@ -733,7 +731,7 @@ function runFrame(room, config, frame) {
 function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeChecksums = frames.map((frame) => frame.checksum)) {
   const durationFields = [
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
-    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs",
+    "stationRepairRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs",
     "stationWeaponTargetPreparationMs", "stationWeaponProfileLookupMs", "stationWeaponValidationMs",
     "stationWeaponOrdinaryAcquisitionMs", "stationWeaponPointDefenceMs", "stationWeaponAimMs", "stationWeaponFireMs",
     "stationCaptureCandidateCollectionMs", "stationCaptureAggregationMs", "stationCaptureStateTransitionMs",
@@ -760,7 +758,7 @@ function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeCh
   }
   const topLevelDurationFields = [
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
-    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+    "stationRepairRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
   ];
   for (const field of topLevelDurationFields) {
     timings[field].tickSharePercent = timings.tickRuntimeMs.mean > 0
@@ -945,7 +943,7 @@ function summarizeRawTimingSamples(rawSamples) {
   for (const [field, values] of Object.entries(rawSamples.wall || {})) timings[field] = summary(values);
   const topLevelDurationFields = [
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
-    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+    "stationRepairRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
   ];
   const tickMean = timings.tickRuntimeMs?.mean || 0;
   for (const field of topLevelDurationFields) {
@@ -965,7 +963,7 @@ function aggregateWorkloadClasses(results) {
   }
   const fields = [
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
-    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+    "stationRepairRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
   ];
   const output = {};
   for (const [key, entries] of groups) {

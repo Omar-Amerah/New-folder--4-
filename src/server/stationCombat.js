@@ -1,5 +1,5 @@
 // Authoritative combat hooks for stations. Kept separate from ship combat so
-// the larger station module scale and disabled state are handled cleanly.
+// the larger station module scale and relay ownership transitions are handled cleanly.
 "use strict";
 
 const { PARTS } = require("./components");
@@ -18,6 +18,7 @@ const PerformanceFlags = require("./performanceFlags");
 const Targeting = require("./targetingEligibility");
 const TargetingCadence = require("./targetingCadence");
 const TargetingTelemetry = require("./targetingTelemetry");
+const { stationAttackPoint } = require("./stationCollision");
 const { bump, recordDuration, detailedProfileActive } = require("./roomTelemetry");
 
 const SHIELD_ABSORPTION = 0.95;
@@ -47,7 +48,7 @@ function initStationCombatRuntime(station) {
 }
 
 function liveStations(room) {
-  return (room.stations || []).filter((s) => s.alive !== false && s.state !== "disabled");
+  return (room.stations || []).filter((s) => s.alive !== false && s.state !== "destroyed");
 }
 
 // Station designs are immutable during a match. Keep the derived weapon data
@@ -116,7 +117,7 @@ function prepareStationWeaponEnemyTargets(room, station, targets, identity, now)
   const candidates = station._stationWeaponEnemyTargets || (station._stationWeaponEnemyTargets = []);
   candidates.length = 0;
   for (const target of targets || []) {
-    if (!target || target.id === station.id || target.alive === false || target.state === "disabled") continue;
+    if (!target || target.id === station.id || target.alive === false || target.state === "destroyed") continue;
     if (!areEnemies(room, identity, target.ownerId)) continue;
     if (!canTeamTargetEntity(room, identity, target, now)) continue;
     if (isInSafeZone(room, target.x, target.y, target)) continue;
@@ -188,7 +189,10 @@ function isTargetInWeaponArc(station, index, target, profile = null) {
   const arc = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
   if (arc >= Math.PI * 2) return true;
   const origin = stationModuleWorldPosition(station, index, profile);
-  const angleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
+  const point = target?.entityType === "station"
+    ? stationAttackPoint(origin.x, origin.y, target)
+    : target;
+  const angleToTarget = Math.atan2(point.y - origin.y, point.x - origin.x);
   return Math.abs(angleDifference(weaponFacingAngle(station, index, profile), angleToTarget)) <= arc / 2;
 }
 
@@ -215,7 +219,7 @@ function findStationWeaponTarget(room, station, index, targets, identity, now, p
   for (const target of candidateTargets || []) {
     if (detailed) candidatesVisited += 1;
     if (!target || target.id === station.id) continue;
-    if (target.alive === false || target.state === "disabled") continue;
+    if (target.alive === false || target.state === "destroyed") continue;
     if (detailed) validations += 1;
     if (!prevalidated) {
       if (!areEnemies(room, identity, target.ownerId)) continue;
@@ -228,8 +232,11 @@ function findStationWeaponTarget(room, station, index, targets, identity, now, p
         continue;
       }
     }
-    const dx = target.x - origin.x;
-    const dy = target.y - origin.y;
+    const point = target?.entityType === "station"
+      ? stationAttackPoint(origin.x, origin.y, target)
+      : target;
+    const dx = point.x - origin.x;
+    const dy = point.y - origin.y;
     const distSq = dx * dx + dy * dy;
     if (distSq > rangeSq) {
       if (detailed) rangeRejects += 1;
@@ -276,6 +283,31 @@ function applyComponentDamage(station, amount) {
   return applied;
 }
 
+// A relay is transferred at the moment its hull is destroyed. It never spends a
+// frame in an ownerless intermediate state: the attacking team's ship is the
+// captor, and the existing capture restore ratio supplies the wreck's initial
+// hull strength. Neutral relays can still be captured by presence through the
+// timed objective path in stations.js.
+function activateRelayStation(station, ownerId, team, cfg = BALANCE.infrastructure?.relayStation) {
+  if (!station || station.stationType !== "relay") return false;
+  const restore = Number(cfg?.captureRestoreHpRatio);
+  const floor = Number.isFinite(restore) && restore > 0
+    ? station.maxHp * restore
+    : station.maxHp;
+  station.ownerId = team ? (ownerId || null) : null;
+  station.team = team || null;
+  station.state = team ? "operational" : "neutral";
+  station.alive = true;
+  station.hp = Math.min(station.maxHp, Math.max(station.hp, floor));
+  station.captureProgress = 0;
+  station.captureTeam = null;
+  station.captureContested = false;
+  station.captureRevision = (station.captureRevision || 0) + 1;
+  station.stateRevision = (station.stateRevision || 0) + 1;
+  station.healthRevision = (station.healthRevision || 0) + 1;
+  return true;
+}
+
 function damageStation(room, station, damage, attackerId, now, sourceX, sourceY, options = {}) {
   if (damage <= 0 || station.alive === false) return 0;
   const shieldMultiplier = Number.isFinite(Number(options.shieldDamageMultiplier)) ? options.shieldDamageMultiplier : 1;
@@ -307,20 +339,11 @@ function damageStation(room, station, damage, attackerId, now, sourceX, sourceY,
     station.state = "destroyed";
     station.alive = false;
     room.spatialIndex?.remove?.("stations", station);
-    station.disabledAt = now;
     station.stateRevision = (station.stateRevision || 0) + 1;
     require("./objectives").finalizeHomeStationDestruction(room, station, attackerId, now);
-  } else if (station.stationType !== "home" && station.hp <= 0.001 && station.state !== "destroyed") {
-    // A damaged relay goes disabled and becomes capturable; the actual
-    // handover is handled by updateStationCapture so the timed ring means
-    // the same thing for both neutral and enemy-held relays.
-    station.state = "disabled";
-    station.alive = true;
-    station.captureProgress = 0;
-    station.captureTeam = null;
-    station.captureRevision = (station.captureRevision || 0) + 1;
-    station.stateRevision = (station.stateRevision || 0) + 1;
-    station.healthRevision = (station.healthRevision || 0) + 1;
+  } else if (station.stationType === "relay" && station.hp <= 0.001 && station.state !== "destroyed") {
+    const attacker = room.players.get(attackerId);
+    activateRelayStation(station, attacker?.id, attacker?.team, cfg);
   }
 
   return applied;
@@ -545,7 +568,10 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       const aimStartedAt = detailed ? performanceNow() : 0;
 
       if (target) {
-        const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
+        const targetPoint = target?.entityType === "station"
+          ? stationAttackPoint(origin.x, origin.y, target)
+          : target;
+        const worldAngleToTarget = Math.atan2(targetPoint.y - origin.y, targetPoint.x - origin.x);
         const relativeAngleToTarget = angleDifference(station.angle || 0, worldAngleToTarget);
         const arc = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
         if (Math.abs(angleDifference(defaultRelative, relativeAngleToTarget)) <= arc / 2) {
@@ -574,7 +600,10 @@ function updateStationWeapons(room, stations, ships, dt, now) {
 
       const family = weapon.type || "blaster";
       const worldWeaponAngle = (station.angle || 0) + station.weaponAngles[i];
-      const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
+      const targetPoint = target?.entityType === "station"
+        ? stationAttackPoint(origin.x, origin.y, target)
+        : target;
+      const worldAngleToTarget = Math.atan2(targetPoint.y - origin.y, targetPoint.x - origin.x);
       const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
       const alignmentThreshold = module.type === "pointDefense" ? 0.035 : 0.26;
       if (family !== "beam" && angleErr > alignmentThreshold) {
@@ -757,6 +786,7 @@ module.exports = {
   liveStations,
   updateStationWeapons,
   clearStationWeaponRuntime,
+  activateRelayStation,
   damageStation,
   stationModuleWorldPosition,
   STATION_MODULE_SCALE

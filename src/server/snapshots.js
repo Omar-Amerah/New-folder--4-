@@ -140,6 +140,60 @@ function buildStationWeaponAnglePairs(station) {
   return pairs;
 }
 
+function roundStationPoint(point) {
+  if (!point) return undefined;
+  return { x: round(point.x), y: round(point.y) };
+}
+
+// Static station geometry is copied without runtime occupancy. A bay's current
+// ship belongs to the dynamic launch state below, never to the cached baseline.
+function buildStationLaunchBaySnapshots(station) {
+  if (!Array.isArray(station?.launchBays)) return undefined;
+  return station.launchBays.map((bay) => ({
+    id: bay.id,
+    localCentre: roundStationPoint(bay.localCentre),
+    worldCentre: roundStationPoint(bay.worldCentre),
+    localNormal: roundStationPoint(bay.localNormal),
+    worldNormal: roundStationPoint(bay.worldNormal),
+    apertureHalfWidth: round(bay.apertureHalfWidth),
+    apertureWidth: round(bay.apertureWidth),
+    corridorDepth: round(bay.corridorDepth),
+    corridorLength: round(bay.corridorLength),
+    rampDepth: round(bay.rampDepth),
+    interiorSpawn: roundStationPoint(bay.interiorSpawn),
+    mouth: roundStationPoint(bay.mouth),
+    innerWall: roundStationPoint(bay.innerWall),
+    releasePlane: roundStationPoint(bay.releasePlane),
+    releaseDistance: round(bay.releaseDistance),
+    collisionOpening: bay.collisionOpening ? {
+      minX: round(bay.collisionOpening.minX),
+      maxX: round(bay.collisionOpening.maxX),
+      minY: round(bay.collisionOpening.minY),
+      maxY: round(bay.collisionOpening.maxY)
+    } : undefined,
+    doorRect: bay.doorRect ? {
+      minX: round(bay.doorRect.minX),
+      maxX: round(bay.doorRect.maxX),
+      minY: round(bay.doorRect.minY),
+      maxY: round(bay.doorRect.maxY)
+    } : undefined,
+    maximumShipWidth: round(bay.maximumShipWidth),
+    maximumShipHeight: round(bay.maximumShipHeight),
+    clearance: round(bay.clearance),
+    safetyMargin: round(bay.safetyMargin)
+  }));
+}
+
+function buildStationLaunchState(station) {
+  if (station?.stationType !== "home") return undefined;
+  return (station.activeLaunches || []).map((launch) => ({
+    bayId: launch.bayId,
+    shipId: launch.shipId,
+    progress: round(clampNumber(Number(launch.progress) || 0, 0, 1)),
+    doorOpen: launch.doorOpen !== false
+  }));
+}
+
 // Builds the parts of a snapshot that are identical for every viewer so they can
 // be computed once per broadcast instead of once per client.
 function buildStationSnapshot(room, station, now, sendStatic) {
@@ -176,7 +230,8 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     entry.shieldRadius = station.shieldRadius || 0;
     entry.moduleScale = station.moduleScale;
     entry.design = station.design || [];
-    if (station.hangar) entry.hangar = station.hangar;
+    const launchBays = buildStationLaunchBaySnapshots(station);
+    if (launchBays) entry.launchBays = launchBays;
     if (station.hardpoints) entry.hardpoints = station.hardpoints;
     entry.weaponAngles = (station.weaponAngles || []).map(round);
     entry.maxHp = round(station.maxHp);
@@ -199,6 +254,7 @@ function buildStationSnapshot(room, station, now, sendStatic) {
         ? 0
         : round(clampNumber((now - item.buildStartedAt) / Math.max(1, item.buildDurationSeconds * 1000), 0, 1))
     }));
+    entry.launches = buildStationLaunchState(station);
   }
   return entry;
 }
@@ -892,7 +948,8 @@ function buildClientStations(room, sharedStations, client, sendStatic, options =
       entry.radius = round(station.radius || station.stats?.radius || 0);
       entry.moduleScale = station.moduleScale;
       entry.design = station.design || [];
-      if (station.hangar) entry.hangar = station.hangar;
+      const launchBays = buildStationLaunchBaySnapshots(station);
+      if (launchBays) entry.launchBays = launchBays;
       if (station.hardpoints) entry.hardpoints = station.hardpoints;
       entry.weaponAngles = (station.weaponAngles || []).map(round);
       delete entry.weaponAnglePairs;

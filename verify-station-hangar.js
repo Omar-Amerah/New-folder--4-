@@ -1,8 +1,8 @@
 "use strict";
 
-// Single home-station geometry acceptance tests. All dimensions are read from
-// the production template and the same collision/placement helpers used by the
-// server; this file intentionally does not maintain a second station model.
+// Authoritative acceptance checks for the three-side home launch-bay revision.
+// Geometry comes directly from stationTemplates and runtime placement comes
+// from the station entity; this verifier does not maintain a second layout.
 
 const assert = require("assert");
 const {
@@ -17,7 +17,7 @@ const {
   buildHomeStationGeometry,
   buildRelayStationDesign,
   buildRelayStationGeometry,
-  inCorridorVoid
+  inLaunchBayVoid
 } = require("./src/server/stationTemplates");
 const { computeDesignCollisionRadius, computeDesignFootprintRadius } = require("./src/server/componentGeometry");
 const { computeStationShieldCollisionRadius, segmentStationHullHit, isSegmentStationClear } = require("./src/server/stationCollision");
@@ -26,24 +26,8 @@ const { createRoom } = require("./src/server/rooms");
 const { createStationsForRoom } = require("./src/server/stations");
 const { planSpawnRegions } = require("./src/server/spawnPlanner");
 
-const HULL_CELL_COLLISION_RADIUS = SHIP_MODULE_SCALE * Math.SQRT2 / 2;
-const geometry = buildHomeStationGeometry();
-const design = buildHomeStationDesign();
-
 function section(label) {
   console.log(`  ${label}`);
-}
-
-function shipLocalBounds(shipDesign) {
-  const half = SHIP_MODULE_SCALE / 2;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const module of shipDesign) {
-    const lx = (GRID_CENTER - module.y) * SHIP_MODULE_SCALE;
-    const ly = (module.x - GRID_CENTER) * SHIP_MODULE_SCALE;
-    minX = Math.min(minX, lx - half); maxX = Math.max(maxX, lx + half);
-    minY = Math.min(minY, ly - half); maxY = Math.max(maxY, ly + half);
-  }
-  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }
 
 function makeDesign(cells) {
@@ -58,10 +42,9 @@ function fullGrid() {
   return makeDesign(cells);
 }
 
-function assertConnected(value) {
-  if (value.length <= 1) return;
-  const cells = new Map(value.map((module) => [`${module.x},${module.y}`, module]));
-  const start = value[0];
+function assertConnected(design) {
+  const cells = new Map(design.map((module) => [`${module.x},${module.y}`, module]));
+  const start = design[0];
   const visited = new Set([`${start.x},${start.y}`]);
   const queue = [start];
   while (queue.length) {
@@ -74,19 +57,41 @@ function assertConnected(value) {
       }
     }
   }
-  assert.strictEqual(visited.size, cells.size, "home station components stay connected around the corridor");
+  assert.strictEqual(visited.size, cells.size, "home station components stay connected around the launch voids");
 }
 
-function makeStationRoom(playerCount = 3) {
-  const room = createRoom(`station-hangar-${playerCount}`, { seed: 0x51a7 });
+function makeStationRoom({ blue = 3, red = 1, id = "station-bays" } = {}) {
+  const room = createRoom(id, { seed: 0x51a7 });
   room.rules.infrastructureMode = "stations";
-  room.rules.gameMode = "team";
-  room.map = { ...room.map, asteroids: [], relays: [], safeZones: [] };
-  for (let i = 0; i < playerCount; i += 1) {
-    room.players.set(`p${i + 1}`, {
-      id: `p${i + 1}`,
-      name: `P${i + 1}`,
+  room.rules.gameMode = "teams";
+  room.map = {
+    ...room.map,
+    asteroids: [],
+    relays: [],
+    safeZones: [
+      { id: "blue-home", x: 1100, y: 1000, radius: 360, team: "blue" },
+      { id: "red-home", x: room.world.width - 1100, y: room.world.height - 1000, radius: 360, team: "red" }
+    ]
+  };
+  for (let i = 0; i < blue; i += 1) {
+    const idValue = `blue-${i + 1}`;
+    room.players.set(idValue, {
+      id: idValue,
+      name: idValue,
       team: "blue",
+      removed: false,
+      ready: true,
+      isBot: false,
+      ships: [],
+      shipCap: 10
+    });
+  }
+  for (let i = 0; i < red; i += 1) {
+    const idValue = `red-${i + 1}`;
+    room.players.set(idValue, {
+      id: idValue,
+      name: idValue,
+      team: "red",
       removed: false,
       ready: true,
       isBot: false,
@@ -97,99 +102,143 @@ function makeStationRoom(playerCount = 3) {
   return room;
 }
 
+function localToWorld(station, point) {
+  const cos = Math.cos(station.angle);
+  const sin = Math.sin(station.angle);
+  return {
+    x: station.x + point.x * cos - point.y * sin,
+    y: station.y + point.x * sin + point.y * cos
+  };
+}
+
 function run() {
   console.log("verify-station-hangar");
+  const geometry = buildHomeStationGeometry();
+  const design = buildHomeStationDesign();
 
-  section("The home station is the authored single-corridor structure");
+  section("The home station uses the compact three-side authored shell");
   assert.strictEqual(STATION_MODULE_SCALE, 36, "home station module scale is exactly 36");
   assert.strictEqual(geometry.moduleScale, 36, "home station geometry uses scale 36");
-  assert.strictEqual(MAX_SHIP_EXTENT, MAX_SHIP_CELLS * SHIP_MODULE_SCALE, "maximum ship extent follows ship scale");
   assert.strictEqual(HOME_STATION_CELLS.gridCells, 15, "home station stays on the 15x15 grid");
-  assert.strictEqual(HOME_STATION_CELLS.apertureCells, 7, "aperture is seven cells wide");
-  assert.strictEqual(HOME_STATION_CELLS.apertureXMin, 4, "aperture starts at cell 4");
-  assert.strictEqual(HOME_STATION_CELLS.apertureXMax, 10, "aperture ends at cell 10");
-  assert.strictEqual(geometry.collisionRects.length, 3, "left, right and rear hull pieces form the shell");
-  assert.strictEqual(geometry.collisionRects.some((rect) => rect.minY < 0 && rect.maxY > 0 && rect.minX > geometry.corridor.rearWallX), false, "no dividing wall seals the corridor");
+  assert.strictEqual(HOME_STATION_CELLS.launchBayCount, 3, "home station has exactly three launch bays");
+  assert.deepStrictEqual(HOME_STATION_CELLS.launchBayIds, ["forward", "upper", "lower"], "launch-bay ids are stable");
+  assert.strictEqual(HOME_STATION_CELLS.apertureCells, 7, "each aperture is seven cells wide");
+  assert.strictEqual(HOME_STATION_CELLS.apertureXMin, 4, "forward aperture starts at cell 4");
+  assert.strictEqual(HOME_STATION_CELLS.apertureXMax, 10, "forward aperture ends at cell 10");
+  assert.strictEqual(geometry.collisionRects.length, 4, "connected shell is four solid hull pieces around three voids");
+  assert.strictEqual(geometry.launchBays.length, 3, "geometry contains one static record per authored launch bay");
+  assert.deepStrictEqual(geometry.launchBays.map((bay) => bay.id), ["forward", "upper", "lower"], "geometry order is deterministic");
 
   const shellWidth = geometry.shell.maxX - geometry.shell.minX;
   const shellHeight = geometry.shell.maxY - geometry.shell.minY;
   assert.strictEqual(shellWidth, 540, "home station shell is 540 world units wide");
   assert.strictEqual(shellHeight, 540, "home station shell is 540 world units high");
-  assert.strictEqual(geometry.aperture.maxY - geometry.aperture.minY, 7 * STATION_MODULE_SCALE, "aperture width is seven station cells");
-  assert.strictEqual(geometry.aperture.minY + geometry.aperture.maxY, 0, "aperture is centred laterally");
-  assert.strictEqual(geometry.corridor.halfWidth, (7 * STATION_MODULE_SCALE) / 2, "corridor half-width follows the aperture");
-  assert(geometry.corridor.length >= MAX_SHIP_EXTENT, "corridor is at least one maximum ship deep");
-  assert(!Array.isArray(geometry.bays), "geometry has one authored hangar record, not a bay array");
-  assert(!Array.isArray(geometry.doorRects), "geometry has one authored aperture door");
-  assert(geometry.doorRect && geometry.aperture && geometry.corridor, "single aperture and corridor records are present");
-
-  section("Every authored component stays out of the open corridor");
-  for (const module of design) {
-    assert(!inCorridorVoid(module.x, module.y), `no component occupies the corridor at ${module.x},${module.y}`);
+  for (const bay of geometry.launchBays) {
+    assert.strictEqual(bay.apertureWidth, 7 * STATION_MODULE_SCALE, `${bay.id} aperture is seven station cells wide`);
+    assert(bay.corridorDepth >= 7 * STATION_MODULE_SCALE, `${bay.id} corridor is seven cells deep`);
+    assert(bay.clearance > 0, `${bay.id} clears the maximum legal ship envelope`);
+    assert(bay.releaseDistance > 0, `${bay.id} has an outward release plane`);
   }
-  assertConnected(design);
+  assert.deepStrictEqual(geometry.launchBays.map((bay) => bay.localNormal), [
+    { x: 1, y: 0 }, { x: 0, y: -1 }, { x: 0, y: 1 }
+  ], "forward, upper and lower bays point out of their respective faces");
 
-  section("Maximum-size hulls clear the central launch path");
-  const maximumBounds = shipLocalBounds(fullGrid());
-  const paddedHalfWidth = maximumBounds.width / 2 + HULL_CELL_PADDING;
-  assert(geometry.clearance > 0, "the seven-cell aperture clears the maximum padded hull");
-  const spawn = geometry.interiorSpawn.x;
-  assert(spawn + maximumBounds.minX - HULL_CELL_COLLISION_RADIUS >= geometry.corridor.rearWallX, "maximum hull starts beyond the rear wall");
-  assert(spawn + maximumBounds.maxX + HULL_CELL_COLLISION_RADIUS <= geometry.aperture.x, "maximum hull starts behind the aperture");
-  for (let x = spawn; x <= geometry.releasePlaneX; x += 6) {
-    const hull = {
-      minX: x + maximumBounds.minX - HULL_CELL_COLLISION_RADIUS,
-      maxX: x + maximumBounds.maxX + HULL_CELL_COLLISION_RADIUS,
-      minY: -paddedHalfWidth,
-      maxY: paddedHalfWidth
-    };
-    for (const rect of geometry.collisionRects) {
-      const overlaps = hull.minX < rect.maxX && hull.maxX > rect.minX
-        && hull.minY < rect.maxY && hull.maxY > rect.minY;
-      assert(!overlaps, `maximum hull clears the solid shell at local x=${x}`);
+  for (let i = 0; i < geometry.launchBays.length; i += 1) {
+    for (let j = i + 1; j < geometry.launchBays.length; j += 1) {
+      const a = geometry.launchBays[i].collisionOpening;
+      const b = geometry.launchBays[j].collisionOpening;
+      const overlaps = a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+      assert(!overlaps, `launch openings ${geometry.launchBays[i].id} and ${geometry.launchBays[j].id} do not overlap`);
     }
   }
 
-  section("Station entity, shield and broad phase use the same geometry");
-  const room = makeStationRoom(3);
-  room.map.safeZones = [{ id: "blue-home", x: 1100, y: 1000, team: "blue", ownerId: "p1" }];
+  section("Authored components avoid all launch voids and remain connected");
+  for (const module of design) {
+    assert(!inLaunchBayVoid(module.x, module.y), `no component occupies a launch void at ${module.x},${module.y}`);
+  }
+  assertConnected(design);
+
+  section("Maximum-size hulls clear every launch aperture");
+  const maximumShip = fullGrid();
+  const maximumHalfExtent = MAX_SHIP_EXTENT / 2 + HULL_CELL_PADDING;
+  for (const bay of geometry.launchBays) {
+    assert(bay.apertureHalfWidth > maximumHalfExtent, `${bay.id} lateral clearance fits the maximum padded hull`);
+    assert(bay.corridorLength > MAX_SHIP_EXTENT + HULL_CELL_PADDING, `${bay.id} depth fits the maximum padded hull`);
+    assert(computeDesignCollisionRadius(maximumShip, { radius: 0 }) > 0, "maximum ship collision radius is measurable");
+  }
+
+  section("Station entity, assignments, shield and broad phase use the same geometry");
+  const room = makeStationRoom({ blue: 3, red: 2 });
   createStationsForRoom(room, 0);
-  const station = room.stations.find((entry) => entry.stationType === "home");
+  const station = room.stations.find((entry) => entry.stationType === "home" && entry.team === "blue");
   assert(station, "team has a home station");
-  assert(station.hangar && !Array.isArray(station.hangar), "station exposes one central hangar object");
-  assert.strictEqual(station.hangars, undefined, "station does not retain a multi-hangar field");
-  assert.strictEqual(station.bayPlayerSlots, undefined, "station does not retain per-player bay assignment");
-  const lateralOffset = (point) => -(point.x - station.x) * Math.sin(station.angle) + (point.y - station.y) * Math.cos(station.angle);
-  assert(Math.abs(lateralOffset(station.hangar.interiorSpawn)) < 1e-9, "hangar spawn is on the station centreline");
-  assert(Math.abs(lateralOffset(station.hangar.mouth)) < 1e-9, "hangar mouth is on the station centreline");
-  assert.strictEqual(station.collisionPieces.filter((piece) => !piece.door).length, 3, "solid collision remains compound");
+  assert.strictEqual(station.moduleScale, 36, "home station entity reports module scale 36");
+  assert(Array.isArray(station.launchBays) && station.launchBays.length === 3, "station exposes exactly three authoritative launch bays");
+  assert.strictEqual(station.hangar, undefined, "station has no singular compatibility hangar field");
+  assert.strictEqual(station.hangars, undefined, "station has no plural compatibility hangar field");
+  assert(station.launchBayAssignments instanceof Map, "bay assignments are runtime-only match state");
+  assert.deepStrictEqual(
+    ["blue-1", "blue-2", "blue-3"].map((id) => station.launchBayAssignments.get(id)),
+    ["upper", "forward", "lower"],
+    "three active players receive stable upper/forward/lower assignments"
+  );
+  const exactDurability = 8000 * 2;
+  assert.strictEqual(station.maxShield, exactDurability, "home shield is 8,000 per opposing player");
+  assert.strictEqual(station.shield, exactDurability, "home shield starts at the exact match durability");
+  assert.strictEqual(station.maxHp, exactDurability, "home hull is 8,000 per opposing player");
+  assert.strictEqual(station.hp, exactDurability, "home hull starts at the exact match durability");
+  assert.strictEqual(station.shieldScale, undefined, "home durability does not retain a scale multiplier");
+  assert.strictEqual(station.hullScale, undefined, "home durability does not retain a scale multiplier");
+
+  for (const bay of station.launchBays) {
+    const lateral = bay.worldNormal.x !== 0 ? { x: 0, y: 1 } : { x: 1, y: 0 };
+    const centreOffset = { x: bay.worldCentre.x - station.x, y: bay.worldCentre.y - station.y };
+    assert(Math.abs(centreOffset.x * lateral.x + centreOffset.y * lateral.y) < 1e-9, `${bay.id} remains centred on its face`);
+    assert.strictEqual(bay.occupyingShipId, null, `${bay.id} starts unoccupied`);
+  }
+  assert.strictEqual(station.collisionPieces.filter((piece) => !piece.door).length, 4, "solid collision remains compound");
+  assert.strictEqual(station.collisionPieces.filter((piece) => piece.door).length, 3, "each bay has one launch door piece");
   assert(Math.abs(station.shieldRadius - computeStationShieldCollisionRadius(station)) < 1e-9, "shield radius is derived from the solid pieces");
   assert(station.shieldRadius < 500, "shield radius is not from the former oversized station");
-  assert(stationBroadPhaseRadius(station) >= station.radius, "broad phase encloses the station shell");
-  assert(station.radius < 500, "station broad-phase source radius matches the 540-unit shell");
+  assert(stationBroadPhaseRadius(station) >= station.radius, "broad phase encloses every solid piece");
+  assert(station.radius < 500, "station broad phase matches the compact 540-unit shell");
 
-  const heading = station.angle;
-  const along = (distance) => ({ x: station.x + Math.cos(heading) * distance, y: station.y + Math.sin(heading) * distance });
-  const corridorStart = along(geometry.interiorSpawn.x + 20);
-  const release = along(geometry.releasePlaneX + 20);
-  assert(!segmentStationHullHit(station, corridorStart.x, corridorStart.y, release.x, release.y), "central aperture is open to hull travel");
-  assert(isSegmentStationClear(room, corridorStart.x, corridorStart.y, release.x, release.y, 0, { ignoreDoors: true }), "central launch path is clear when the one-way door is ignored");
-  const sideStart = { x: station.x - 320 * Math.cos(heading) + 200 * Math.sin(heading), y: station.y - 320 * Math.sin(heading) - 200 * Math.cos(heading) };
-  const sideEnd = { x: station.x + 320 * Math.cos(heading) + 200 * Math.sin(heading), y: station.y + 320 * Math.sin(heading) - 200 * Math.cos(heading) };
-  assert(segmentStationHullHit(station, sideStart.x, sideStart.y, sideEnd.x, sideEnd.y), "solid side hull remains collidable");
+  for (const bay of station.launchBays) {
+    const start = localToWorld(station, {
+      x: bay.innerWall.x + bay.localNormal.x * 4,
+      y: bay.innerWall.y + bay.localNormal.y * 4
+    });
+    const end = localToWorld(station, {
+      x: bay.releasePlane.x + bay.localNormal.x * 4,
+      y: bay.releasePlane.y + bay.localNormal.y * 4
+    });
+    assert.strictEqual(segmentStationHullHit(station, start.x, start.y, end.x, end.y), null, `${bay.id} path is open through the shell`);
+    assert(isSegmentStationClear(room, start.x, start.y, end.x, end.y, 0, { ignoreDoors: true }), `${bay.id} navigation path is open`);
+  }
+  const sideStart = localToWorld(station, { x: 1000, y: -200 });
+  const sideEnd = localToWorld(station, { x: -1000, y: -200 });
+  assert(segmentStationHullHit(station, sideStart.x, sideStart.y, sideEnd.x, sideEnd.y), "solid hull remains collidable beside a launch opening");
 
-  section("Spawn regions fit the restored footprint for team rosters");
-  const regionPlan = planSpawnRegions(makeStationRoom(3));
-  assert(regionPlan.safeZones.length === 1, "three players on one team share one station region");
-  const region = regionPlan.safeZones[0];
-  assert(region.radius >= Math.hypot(shellWidth, shellHeight) / 2 + 40, "team region contains the restored station");
-  assert(region.radius < 500, "team region does not reserve the former 840-unit footprint");
+  section("Assignments stay deterministic for one and two active players");
+  for (const [count, expected] of [[1, ["forward"]], [2, ["upper", "lower"]]]) {
+    const smallRoom = makeStationRoom({ blue: count, red: 1, id: `station-bays-${count}` });
+    createStationsForRoom(smallRoom, 0);
+    const small = smallRoom.stations.find((entry) => entry.stationType === "home" && entry.team === "blue");
+    assert.deepStrictEqual(
+      Array.from({ length: count }, (_, index) => small.launchBayAssignments.get(`blue-${index + 1}`)),
+      expected,
+      `${count}-player team uses the documented stable bay assignment`
+    );
+  }
 
-  section("Current component and relay systems remain intact");
-  assert(design.length > 0 && design.every((module) => typeof module.type === "string"), "home design uses ordinary components");
-  assert(design.some((module) => module.type === "core"), "home station has a systems core");
-  assert(design.some((module) => module.type === "pointDefense"), "home station keeps point defence");
-  assert(design.some((module) => module.type === "repair"), "home station keeps repair components");
+  section("Spawn regions fit the restored footprint");
+  const regionPlan = planSpawnRegions(makeStationRoom({ blue: 3, red: 2, id: "station-spawn" }));
+  const blueRegion = regionPlan.safeZones.find((zone) => zone.team === "blue");
+  assert(blueRegion, "team spawn region exists");
+  assert(blueRegion.radius >= Math.hypot(shellWidth, shellHeight) / 2 + 40, "team region contains the restored station");
+  assert(blueRegion.radius < 500, "team region does not reserve the former oversized footprint");
+
+  section("Relay geometry and current component systems remain intact");
   const relay = buildRelayStationDesign();
   assert(relay.length < design.length, "relay stations remain smaller");
   assert(relay.some((module) => module.type === "pointDefense"), "relay keeps point defence");
@@ -199,7 +248,7 @@ function run() {
   assert(Number.isFinite(computeDesignCollisionRadius(design, { radius: 0 })), "station collision geometry remains measurable");
   assert(Number.isFinite(computeDesignFootprintRadius(design)), "station footprint geometry remains measurable");
 
-  console.log("  all single-hangar geometry checks passed");
+  console.log("  all launch-bay geometry checks passed");
 }
 
 try {

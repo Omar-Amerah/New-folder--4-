@@ -22,7 +22,8 @@ const Relationships = require("./relationships");
 const {
   segmentStationHullHit,
   nearestStationHullPoint,
-  stationShieldCollisionRadius
+  stationShieldCollisionRadius,
+  stationAttackPoint
 } = require("./stationCollision");
 const { BALANCE } = require("./balanceConfig");
 const PROJECTILES = BALANCE.projectiles;
@@ -474,7 +475,7 @@ function updateBullets(room, dt, now) {
     function pushEvent(entity, kind, direct) {
       if (entity === bullet) return;
       if (!entity || (kind === "ship" && (!entity.alive || entity.destroyed))) return;
-      if (kind === "station" && (!entity || entity.alive === false || entity.state === "disabled")) return;
+      if (kind === "station" && (!entity || entity.alive === false || entity.state === "destroyed")) return;
       if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
       if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
       if (kind === "station") {
@@ -577,7 +578,7 @@ function updateBullets(room, dt, now) {
       for (const entity of list) {
         if (entity === bullet) continue;
         if (kind === "ship" && (!entity.alive || entity.destroyed)) continue;
-        if (kind === "station" && (!entity || entity.alive === false || entity.state === "disabled")) continue;
+        if (kind === "station" && (!entity || entity.alive === false || entity.state === "destroyed")) continue;
         if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) continue;
         if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) continue;
         if (kind === "station") {
@@ -753,11 +754,19 @@ function updateBullets(room, dt, now) {
       if (bullet.trackingDisabledFor && bullet.trackingDisabledFor > 0) {
         bullet.trackingDisabledFor -= dt;
       }
-      const target = room.ships.get(bullet.targetId) || room.drones?.get?.(bullet.targetId) || room.decoys?.get?.(bullet.targetId);
+      const target = room.ships.get(bullet.targetId)
+        || room.drones?.get?.(bullet.targetId)
+        || room.decoys?.get?.(bullet.targetId)
+        || room.stationsById?.get?.(bullet.targetId)
+        || (room.stations || []).find((station) => station?.id === bullet.targetId)
+        || null;
       const canTrack = (Number(bullet.tracking) || 0) > 0
         && (bullet.trackRemaining === undefined || bullet.trackRemaining > 0)
         && (!bullet.trackingDisabledFor || bullet.trackingDisabledFor <= 0);
-      if (target && canTrack && areEnemies(room, bullet.ownerId, target.ownerId)) {
+      const hostileTarget = target && (target.entityType === "station"
+        ? Relationships.areEntityEnemies(room, bullet.ownerId, target)
+        : areEnemies(room, bullet.ownerId, target.ownerId));
+      if (target && canTrack && hostileTarget) {
         const cadenceEnabled = PROJECTILE_GUIDANCE_CADENCE();
         const updatesPerSecond = PROJECTILES.missileGuidanceUpdatesPerSecond || 12;
         const intervalMs = cadenceEnabled && updatesPerSecond > 0 ? 1000 / updatesPerSecond : 0;
@@ -773,14 +782,27 @@ function updateBullets(room, dt, now) {
         if (guidanceDue) {
           bump(room, "missileGuidanceUpdates");
           bullet._guidanceTargetId = target.id;
-          const { componentAimWorldPosition, selectComponentAimIndex } = require("./combat");
           if (bullet.targetComponentIndex === undefined) bullet.targetComponentIndex = -1;
-          if (bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0)) {
-            bullet.targetComponentIndex = selectComponentAimIndex(room, target, bullet.targetComponentIndex);
+          if (target.entityType === "station") {
+            // Stations are compound structures, not ship component targets.
+            // Keep the station id throughout guidance and aim at its live shield
+            // circumference or nearest solid hull point.
+            bullet.targetComponentIndex = -1;
+          } else {
+            const { selectComponentAimIndex } = require("./combat");
+            if (bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0)) {
+              bullet.targetComponentIndex = selectComponentAimIndex(room, target, bullet.targetComponentIndex);
+            }
           }
-          const targetPoint = bullet.targetComponentIndex >= 0 ? componentAimWorldPosition(target, bullet.targetComponentIndex) : null;
-          const targetX = targetPoint ? targetPoint.x : target.x;
-          const targetY = targetPoint ? targetPoint.y : target.y;
+          let targetPoint = null;
+          if (target.entityType === "station") {
+            targetPoint = stationAttackPoint(bullet.x, bullet.y, target);
+          } else if (bullet.targetComponentIndex >= 0) {
+            const { componentAimWorldPosition } = require("./combat");
+            targetPoint = componentAimWorldPosition(target, bullet.targetComponentIndex);
+          }
+          const targetX = targetPoint?.x ?? target.x;
+          const targetY = targetPoint?.y ?? target.y;
           let desired = Math.atan2(targetY - bullet.y, targetX - bullet.x);
           let turnRate = MISSILE_GUIDANCE.armingTurnRate; // Weak tracking during arming delay
 
@@ -821,7 +843,7 @@ function updateBullets(room, dt, now) {
         const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
-      } else if (target && !areEnemies(room, bullet.ownerId, target.ownerId)) {
+      } else if (target && !hostileTarget) {
         bullet._guidanceTargetId = target.id;
       }
       if (bullet.trackRemaining !== undefined) bullet.trackRemaining = Math.max(0, bullet.trackRemaining - dt);
@@ -1015,7 +1037,7 @@ function updateBullets(room, dt, now) {
       : (room.stations || []);
     bump(room, "candidateStationsReturned", possibleStations.length);
     for (const station of possibleStations) {
-      if (station.alive === false || station.state === "disabled") continue;
+      if (station.alive === false || station.state === "destroyed") continue;
       if (!Relationships.areEntityEnemies(room, bullet.ownerId, station)) continue;
       const hitRadius = bullet.type === "missile"
         ? PROJECTILES.hitRadius.missile

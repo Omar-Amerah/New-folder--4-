@@ -1837,17 +1837,11 @@ export const GENERATED_BALANCE = {
       "repairBeamRange": 1250,
       "repairBeamRatePerSecond": 11,
       "repairDelaySeconds": 6,
-      "disabledRecoveryDelaySeconds": 10,
-      "disabledRepairRatePerSecond": 9,
       "selfRepairRatePerSecond": 9,
-      "disabledHpRatio": 0.1,
-      "reactivationHpRatio": 0.25,
       "productionBaseSeconds": 0.6,
       "productionSecondsPerModule": 0.05,
       "productionCostSecondsMultiplier": 0.0002,
-      "launchRetrySeconds": 0.5,
-      "hullScale": 0.4,
-      "shieldScale": 0.4
+      "launchRetrySeconds": 0.5
     },
     "relayStation": {
       "captureRadius": 280,
@@ -1856,11 +1850,7 @@ export const GENERATED_BALANCE = {
       "captureRestoreHpRatio": 0.35,
       "captureDurationSeconds": 10,
       "captureDecayPerSecond": 0.25,
-      "disabledRecoveryDelaySeconds": 12,
-      "disabledRepairRatePerSecond": 6,
       "selfRepairRatePerSecond": 6,
-      "disabledHpRatio": 0.1,
-      "reactivationHpRatio": 1,
       "hullScale": 0.6
     }
   },

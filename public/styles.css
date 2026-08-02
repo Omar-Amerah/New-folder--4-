@@ -779,12 +779,6 @@ h2 {
   color: #86efac !important;
 }
 
-.station-status-disabled {
-  border-color: rgba(255, 95, 126, 0.3);
-  background: rgba(239, 68, 68, 0.09);
-  color: #fda4af !important;
-}
-
 .station-status-neutral,
 .station-status-controlled,
 .station-status-unknown {

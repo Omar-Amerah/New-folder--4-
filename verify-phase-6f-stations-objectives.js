@@ -89,7 +89,7 @@ function assertNoEntityTelemetry(room) {
 }
 
 function verifySchemaAndDefaults() {
-  const expectedDurationCount = 24;
+  const expectedDurationCount = 23;
   const expectedCounterNames = [
     "stationsWeaponProcessed", "stationWeaponComponentsVisited", "stationWeaponComponentsOperational",
     "stationWeaponOrdinaryMounts", "stationWeaponPointDefenceMounts", "stationWeaponTargetValidations",
@@ -132,7 +132,7 @@ function verifySchemaAndDefaults() {
   }
   const unconditionalDurations = new Set([
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
-    "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs"
+    "stationRepairRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs", "stationTargetAcquisitionMs"
   ]);
   for (const field of DURATION_FIELDS.filter((name) => name.startsWith("station") || name.startsWith("classicCapture"))) {
     if (unconditionalDurations.has(field)) continue;
@@ -180,9 +180,9 @@ function verifyCaptureRuntime() {
   assert(contestedTelemetry.stationCaptureContestedTicks > 0, "exact relay ties remain contested");
   assert(contested.left.relays[0].captureProgress === 0, "contested capture does not advance progress");
 
-  const ownership = pairedRun(scenario("relay ownership transition"), 1);
+  const ownership = pairedRun(scenario("relay capture transition"), 1);
   const ownershipTelemetry = telemetry(ownership.left.room);
-  assert(ownershipTelemetry.stationCapturesCompleted > 0, "relay ownership transition is profiled");
+  assert(ownershipTelemetry.stationCapturesCompleted > 0, "relay capture transition is profiled");
   assert.equal(ownership.left.relays[0].team, "blue", "ownership changes to the capturing team");
 
   const decay = pairedRun(scenario("capture decay"), 2);
@@ -223,8 +223,8 @@ function verifyHangarRuntime() {
   const missing = pairedRun(scenario("missing or disconnected player"), 2);
   assert(telemetry(missing.left.room).stationSpawnMissingPlayerBlocks > 0, "missing-player spawn blocks are explicit");
 
-  const disabled = pairedRun(scenario("disabled home station"), 2);
-  assert(telemetry(disabled.left.room).stationSpawnAttempts === 0, "disabled homes do not attempt spawns");
+  const destroyedHome = pairedRun(scenario("destroyed home station"), 2);
+  assert(telemetry(destroyedHome.left.room).stationSpawnAttempts === 0, "destroyed homes do not attempt spawns");
 
   const destroyed = pairedRun(scenario("ship destroyed while launching"), 2);
   assert(telemetry(destroyed.left.room).stationLaunchesRemovedMissingShip > 0, "destroyed launch records are removed");
@@ -259,7 +259,7 @@ function verifyAuthoritativeOrdering() {
   const tickRoomState = tickFixture.room;
   tickRoomState._stationDetailedProfileActive = true;
   const targetRelay = tickFixture.relays[0];
-  assert(targetRelay, "ordering fixture has a relay to disable");
+  assert(targetRelay, "ordering fixture has a relay to hit");
   for (const relay of tickFixture.relays.slice(1)) {
     relay.state = "operational";
     relay.alive = true;
@@ -278,7 +278,7 @@ function verifyAuthoritativeOrdering() {
     if (PARTS[targetRelay.design[index]?.type]?.weapon) targetRelay.componentHp[index] = 0;
   }
   // Keep the injected damage internally consistent with the relay's remaining
-  // component pool so this hit crosses the disabled threshold deterministically.
+  // component pool so this hit crosses the destruction threshold deterministically.
   targetRelay.hp = targetRelay.componentHp.reduce((sum, value) => sum + Math.max(0, value), 0);
   targetRelay.maxHp = targetRelay.hp;
   const captureShip = benchmark.addShip(tickRoomState, "ordering-capture-ship", "p-blue", targetRelay.x, targetRelay.y);
@@ -308,8 +308,10 @@ function verifyAuthoritativeOrdering() {
     flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousWeaponFlag);
     flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
   }
-  assert.equal(targetRelay.state, "operational", "projectile damage disables the relay before capture runs");
-  assert.equal(targetRelay.team, "blue", "same-tick capture takes ownership after projectile disable");
+  assert.equal(targetRelay.state, "operational", "projectile destruction immediately reactivates the relay");
+  assert.equal(targetRelay.team, "blue", "projectile destruction gives ownership to the attacking team");
+  assert.equal(targetRelay.ownerId, "p-blue", "projectile destruction records the attacking player");
+  assert.equal(targetRelay.captureProgress, 0, "relay destruction clears stale capture progress");
   assert.equal(tickRoomState.controlVictory.team, "blue", "control victory observes the same-tick ownership transition");
   assert.equal(tickRoomState._visibilityFinalizedAt, 77, "real tickRoom finalizes visibility after combat, capture, and control");
   assert(!tickRoomState.projectileById.has(injected.id), "the injected relay projectile is consumed during projectile processing");

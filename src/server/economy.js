@@ -402,8 +402,8 @@ function updateEconomy(room, dt) {
     : [];
   if (stationRelays.length > 0) {
     // Station relays do not mutate room.points. Their team remains authoritative
-    // while disabled, so a captured relay keeps paying until another side takes
-    // it rather than silently falling back to base income.
+    // after destruction handoff, so a captured relay keeps paying rather than
+    // silently falling back to base income.
     for (const station of stationRelays) {
       if (!station.team || station.state === "neutral") continue;
       ownedRelays.set(station.team, (ownedRelays.get(station.team) || 0) + 1);

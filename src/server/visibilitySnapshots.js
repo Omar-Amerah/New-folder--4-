@@ -302,8 +302,8 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
         // Whether a relay has been captured is already public — it drives the
         // objective HUD, the relay chips and the victory condition — so masking
         // a neutral station as "unknown" would hide something the panel on the
-        // right is showing anyway. Only the operational/disabled distinction is
-        // withheld, because that is the part that reveals condition.
+        // right is showing anyway. Condition remains withheld, because it can
+        // reveal the station's remaining combat strength.
         state: station.state === "neutral"
           ? "neutral"
           : (station.stationType === "relay" && (station.team || station.ownerId) ? "controlled" : "unknown"),
@@ -314,7 +314,7 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
       };
       for (const key of [
         "stationType", "x", "y", "angle", "radius", "shieldRadius",
-        "design", "hardpoints", "moduleScale", "weaponAngles", "weaponAnglePairs", "hangar"
+        "design", "hardpoints", "moduleScale", "weaponAngles", "weaponAnglePairs", "launchBays", "launches"
       ]) {
         if (station[key] !== undefined) hiddenStation[key] = station[key];
       }

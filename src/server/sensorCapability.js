@@ -68,7 +68,7 @@ function isOperationalSensorSource(entity) {
     return entity.hp > 0 && entity.alive !== false;
   }
   if (entity.stationType === "home" || entity.stationType === "relay") {
-    return entity.state !== "disabled" && entity.state !== "destroyed";
+    return entity.state !== "destroyed";
   }
   return true;
 }

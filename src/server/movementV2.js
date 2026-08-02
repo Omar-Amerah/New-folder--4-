@@ -111,7 +111,7 @@ const {
   searchPathWorld,
   segmentCircleClearance
 } = require("./movementNavigation");
-const { nearestStationHullPoint } = require("./stationCollision");
+const { stationAttackPoint } = require("./stationCollision");
 const {
   createMovementRuntime,
   ensureMovementRuntime,
@@ -569,7 +569,7 @@ function targetSurfacePoint(target, bearing) {
     Number(target.height) || 0,
     1000
   ) * 4;
-  return nearestStationHullPoint(
+  return stationAttackPoint(
     target.x + Math.cos(bearing) * far,
     target.y + Math.sin(bearing) * far,
     target
@@ -578,7 +578,7 @@ function targetSurfacePoint(target, bearing) {
 
 function engagementGeometry(ship, target) {
   if (targetIsStation(target)) {
-    const surface = nearestStationHullPoint(ship.x || 0, ship.y || 0, target);
+    const surface = stationAttackPoint(ship.x || 0, ship.y || 0, target);
     return {
       distance: fastHypot(surface.x - (ship.x || 0), surface.y - (ship.y || 0)),
       contact: physicalCollisionRadius(ship),

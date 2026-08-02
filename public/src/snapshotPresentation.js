@@ -169,13 +169,17 @@ function stationMap(snapshot) {
   return new Map((snapshot?.stations || []).map((station) => [station.id, station]));
 }
 
-// Station production advances every tick while a hangar is busy, so the queue is
+// Station production and launch bays advance while a build is active, so the queue is
 // compared by its own summary rather than by identity: an idle station produces
 // no panel repaints at all.
 function productionSignature(station) {
   const queue = station?.productionQueue;
-  if (!Array.isArray(queue) || queue.length === 0) return "";
-  return queue.map((item) => `${item.id}:${item.state}:${item.quantityRemaining}:${Math.round((Number(item.progress) || 0) * 100)}`).join(",");
+  const launches = Array.isArray(station?.launches) ? station.launches : [];
+  const queueSignature = Array.isArray(queue)
+    ? queue.map((item) => `${item.id}:${item.state}:${item.quantityRemaining}:${Math.round((Number(item.progress) || 0) * 100)}`).join(",")
+    : "";
+  const launchSignature = launches.map((launch) => `${launch.bayId}:${launch.shipId}:${Math.round((Number(launch.progress) || 0) * 100)}:${launch.doorOpen ? 1 : 0}`).join(",");
+  return `${queueSignature}|${launchSignature}`;
 }
 
 function compareStations(previous, next) {

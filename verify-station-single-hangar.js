@@ -34,7 +34,8 @@ const forbidden = [
   ["client bay renderer", /\bstationHangarBaysLocal\b|\bstationBaySignature\b|\bbayWallGap\b/],
   ["station launch bay index", /\bbayIndex\b/],
   ["multi-bay player comment", /one bay per (?:player|team member)|three station bays/i],
-  ["old home frontage", /(?:home[- ]station|station)\D{0,40}840\s*(?:world )?units|840\s*(?:world )?units\D{0,40}(?:home[- ]station|station)/i]
+  ["old home frontage", /(?:home[- ]station|station)\D{0,40}840\s*(?:world )?units|840\s*(?:world )?units\D{0,40}(?:home[- ]station|station)/i],
+  ["disabled station state", /state\s*(?:===|!==|=)\s*["']disabled["']|station-disabled/]
 ];
 
 function run() {

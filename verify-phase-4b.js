@@ -416,7 +416,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
-// 31. Station state change to disabled removes the station record.
+// 31. Station destruction removes the station record.
 {
   __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BSTAT");
@@ -442,10 +442,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   buildRoomSpatialIndex(room, [], 0);
   const station = room.stations[0];
   assert.strictEqual(room.spatialIndex.count("stations"), 1, "station is indexed");
-  station.state = "disabled";
+  station.state = "destroyed";
   station.alive = false;
   updateStations(room, 16, 16);
-  assert.strictEqual(room.spatialIndex.count("stations"), 0, "disabled station is removed");
+  assert.strictEqual(room.spatialIndex.count("stations"), 0, "destroyed station is removed");
   __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 

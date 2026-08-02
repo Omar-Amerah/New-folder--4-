@@ -67,17 +67,46 @@ const HOME_X_MAX = GRID_CELLS - 1;
 const HOME_Y_MIN = 0;
 const HOME_Y_MAX = GRID_CELLS - 1;
 
-// Aperture: one seven-cell-wide opening around the grid centre.
+// Every launch opening is seven cells wide. The forward aperture retains the
+// pre-experiment centreline and the side apertures use the same physical width.
 const APERTURE_CELLS = 7;
 const APERTURE_X_MIN = Math.floor((GRID_CELLS - APERTURE_CELLS) / 2); // 4
 const APERTURE_X_MAX = APERTURE_X_MIN + APERTURE_CELLS - 1;           // 10
 
-// Corridor depth: seven cells (252u), so a full 195u ship sits entirely inside
-// the station before it moves.
+// Each physical corridor is seven cells deep (252u), enough for the maximum
+// legal 195u ship plus the collision padding used by the movement system. The
+// client may render a shorter ramp inside this authored opening.
 const CORRIDOR_CELLS = 7;
 const CORRIDOR_Y_MIN = HOME_Y_MIN;
 const CORRIDOR_Y_MAX = CORRIDOR_Y_MIN + CORRIDOR_CELLS - 1; // 6
 const BODY_CELLS = GRID_CELLS - CORRIDOR_CELLS;             // 8
+
+const LAUNCH_BAY_CELL_DEFINITIONS = Object.freeze([
+  Object.freeze({
+    id: "forward",
+    xMin: APERTURE_X_MIN,
+    xMax: APERTURE_X_MAX,
+    yMin: 0,
+    yMax: CORRIDOR_Y_MAX,
+    normal: Object.freeze({ x: 1, y: 0 })
+  }),
+  Object.freeze({
+    id: "upper",
+    xMin: 0,
+    xMax: CORRIDOR_CELLS - 1,
+    yMin: CORRIDOR_Y_MAX + 2,
+    yMax: HOME_Y_MAX,
+    normal: Object.freeze({ x: 0, y: -1 })
+  }),
+  Object.freeze({
+    id: "lower",
+    xMin: GRID_CELLS - CORRIDOR_CELLS,
+    xMax: HOME_Y_MAX,
+    yMin: CORRIDOR_Y_MAX + 2,
+    yMax: HOME_Y_MAX,
+    normal: Object.freeze({ x: 0, y: 1 })
+  })
+]);
 
 const RELAY_CELLS = 9;
 // Relays are structures too, but far smaller than a home station.
@@ -86,19 +115,42 @@ const RELAY_MODULE_SCALE = 20;
 function inAperture(x) {
   return x >= APERTURE_X_MIN && x <= APERTURE_X_MAX;
 }
+
+function inLaunchBayVoid(x, y) {
+  return LAUNCH_BAY_CELL_DEFINITIONS.some((bay) =>
+    x >= bay.xMin && x <= bay.xMax && y >= bay.yMin && y <= bay.yMax
+  );
+}
+
+// The station design builder uses this name for the authored empty cells. It
+// now covers all three launch bays; there is no second hangar representation.
 function inCorridorVoid(x, y) {
-  return inAperture(x) && y >= CORRIDOR_Y_MIN && y <= CORRIDOR_Y_MAX;
+  return inLaunchBayVoid(x, y);
+}
+
+function cellAdjacentToLaunchBayVoid(x, y) {
+  return inLaunchBayVoid(x + 1, y)
+    || inLaunchBayVoid(x - 1, y)
+    || inLaunchBayVoid(x, y + 1)
+    || inLaunchBayVoid(x, y - 1);
+}
+
+function launchBayNormalForCell(x, y) {
+  for (const bay of LAUNCH_BAY_CELL_DEFINITIONS) {
+    if (bay.normal.x !== 0
+      && y >= bay.yMin && y <= bay.yMax
+      && (x === bay.xMin - 1 || x === bay.xMax + 1)) return bay.normal;
+    if (bay.normal.y !== 0
+      && x >= bay.xMin && x <= bay.xMax
+      && (y === bay.yMin - 1 || y === bay.yMax + 1)) return bay.normal;
+  }
+  return null;
 }
 
 // Distance in cells to the nearest surface — the outer shell or a corridor wall.
 function surfaceDepth(x, y) {
   let depth = Math.min(x - HOME_X_MIN, HOME_X_MAX - x, y - HOME_Y_MIN, HOME_Y_MAX - y);
-  if (y <= CORRIDOR_Y_MAX) {
-    if (x < APERTURE_X_MIN) depth = Math.min(depth, APERTURE_X_MIN - x - 1);
-    else if (x > APERTURE_X_MAX) depth = Math.min(depth, x - APERTURE_X_MAX - 1);
-  } else if (inAperture(x)) {
-    depth = Math.min(depth, y - CORRIDOR_Y_MAX - 1);
-  }
+  if (cellAdjacentToLaunchBayVoid(x, y)) depth = 0;
   return depth;
 }
 
@@ -131,9 +183,8 @@ function homeStationSurfacePart(x, y) {
   const onFront = y === HOME_Y_MIN;
   const onFlank = x === HOME_X_MIN || x === HOME_X_MAX;
   const onRear = y === HOME_Y_MAX;
-  // Corridor walls beside the mouth.
-  const besideMouth = y <= CORRIDOR_Y_MIN + 2
-    && (x === APERTURE_X_MIN - 1 || x === APERTURE_X_MAX + 1);
+  // Corridor walls beside any of the three mouths.
+  const besideMouth = cellAdjacentToLaunchBayVoid(x, y);
   if (besideMouth) return "pointDefense";
   if (onFront) {
     if (x === APERTURE_X_MIN - 2 || x === APERTURE_X_MAX + 2) return "flakCannon";
@@ -182,8 +233,8 @@ const HOME_REPAIR_BEAM_MOUNTS = Object.freeze([
   { x: APERTURE_X_MAX + 1, y: CORRIDOR_Y_MIN + 2, rotation: 0 },
   { x: HOME_X_MIN, y: 5, rotation: 270 },
   { x: HOME_X_MAX, y: 5, rotation: 90 },
-  { x: HOME_X_MIN, y: 9, rotation: 270 },
-  { x: HOME_X_MAX, y: 9, rotation: 90 }
+  { x: HOME_X_MIN, y: 7, rotation: 270 },
+  { x: HOME_X_MAX, y: 7, rotation: 90 }
 ]);
 
 function buildHomeStationDesign() {
@@ -218,10 +269,13 @@ function buildHomeStationDesign() {
       // Batteries beside the hangar mouth stay bore-sighted down the launch
       // corridor; every other surface battery points off its own facing.
       // Only weapons are turned: armour plating is non-rotatable hull art.
-      const besideMouth = inAperture(x + 1) || inAperture(x - 1);
-      const rotation = onSurface && PARTS[type]?.weapon && !(besideMouth && y <= CORRIDOR_Y_MIN + 2)
+      const besideMouth = cellAdjacentToLaunchBayVoid(x, y);
+      const bayNormal = launchBayNormalForCell(x, y);
+      const rotation = onSurface && PARTS[type]?.weapon && !besideMouth
         ? outwardRotation(x, y, HOME_X_MIN, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX)
-        : 0;
+        : bayNormal
+          ? (bayNormal.x > 0 ? 0 : bayNormal.x < 0 ? 180 : bayNormal.y < 0 ? 270 : 90)
+          : 0;
       design.push({ x, y, type, rotation });
     }
   }
@@ -294,50 +348,113 @@ function cellRectToLocal(xMin, xMax, yMin, yMax, scale) {
   };
 }
 
+function buildLaunchBayGeometry(definition, scale) {
+  const opening = cellRectToLocal(
+    definition.xMin,
+    definition.xMax,
+    definition.yMin,
+    definition.yMax,
+    scale
+  );
+  const normal = { x: definition.normal.x, y: definition.normal.y };
+  const lateralMin = normal.x !== 0 ? opening.minY : opening.minX;
+  const lateralMax = normal.x !== 0 ? opening.maxY : opening.maxX;
+  const lateralCentre = (lateralMin + lateralMax) / 2;
+  const mouthCoordinate = normal.x > 0
+    ? opening.maxX
+    : normal.x < 0
+      ? opening.minX
+      : normal.y > 0
+        ? opening.maxY
+        : opening.minY;
+  const innerCoordinate = normal.x > 0
+    ? opening.minX
+    : normal.x < 0
+      ? opening.maxX
+      : normal.y > 0
+        ? opening.minY
+        : opening.maxY;
+  const corridorLength = Math.abs(mouthCoordinate - innerCoordinate);
+  const halfWidth = (lateralMax - lateralMin) / 2;
+  const localCentre = normal.x !== 0
+    ? { x: (mouthCoordinate + innerCoordinate) / 2, y: lateralCentre }
+    : { x: lateralCentre, y: (mouthCoordinate + innerCoordinate) / 2 };
+  const interiorSpawn = { x: localCentre.x, y: localCentre.y };
+  const mouth = normal.x !== 0
+    ? { x: mouthCoordinate, y: lateralCentre }
+    : { x: lateralCentre, y: mouthCoordinate };
+  const safetyMargin = HULL_CELL_PADDING;
+  const releaseOffset = MAX_SHIP_EXTENT / 2 + safetyMargin;
+  const releasePlane = {
+    x: mouth.x + normal.x * releaseOffset,
+    y: mouth.y + normal.y * releaseOffset
+  };
+  const doorThickness = scale * 0.4;
+  const doorRect = normal.x !== 0
+    ? {
+      minX: normal.x > 0 ? mouthCoordinate - doorThickness : mouthCoordinate,
+      maxX: normal.x > 0 ? mouthCoordinate : mouthCoordinate + doorThickness,
+      minY: lateralMin,
+      maxY: lateralMax
+    }
+    : {
+      minX: lateralMin,
+      maxX: lateralMax,
+      minY: normal.y > 0 ? mouthCoordinate - doorThickness : mouthCoordinate,
+      maxY: normal.y > 0 ? mouthCoordinate : mouthCoordinate + doorThickness
+    };
+
+  return {
+    id: definition.id,
+    localCentre,
+    localNormal: normal,
+    apertureHalfWidth: halfWidth,
+    apertureWidth: lateralMax - lateralMin,
+    corridorDepth: corridorLength,
+    corridorLength,
+    rampDepth: Math.min(corridorLength * 0.4, scale * 2.5),
+    interiorSpawn,
+    mouth,
+    innerWall: normal.x !== 0
+      ? { x: innerCoordinate, y: lateralCentre }
+      : { x: lateralCentre, y: innerCoordinate },
+    releasePlane,
+    releaseDistance: releasePlane.x * normal.x + releasePlane.y * normal.y,
+    collisionOpening: { ...opening },
+    doorRect,
+    clearance: halfWidth - (MAX_SHIP_EXTENT / 2 + safetyMargin),
+    maximumShipWidth: MAX_SHIP_EXTENT,
+    maximumShipHeight: MAX_SHIP_EXTENT,
+    safetyMargin
+  };
+}
+
 // Home station geometry in structure-local space, +x forward. Collision is
-// compound on purpose: one circle would seal the hangar mouth, the single path
-// that has to stay open.
+// compound on purpose: one circle would seal all three launch openings. The
+// solid cell runs below leave a connected central/armour structure between the
+// forward, upper and lower voids.
 function buildHomeStationGeometry() {
   const scale = STATION_MODULE_SCALE;
   const shell = cellRectToLocal(HOME_X_MIN, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX, scale);
-  const aperture = cellRectToLocal(APERTURE_X_MIN, APERTURE_X_MAX, CORRIDOR_Y_MIN, CORRIDOR_Y_MAX, scale);
-  const mouthX = shell.maxX;
-  const rearWallX = aperture.minX;
-  const halfWidth = (aperture.maxY - aperture.minY) / 2;
-  const releasePlaneX = mouthX + MAX_SHIP_EXTENT / 2 + HULL_CELL_PADDING;
-
+  const launchBays = LAUNCH_BAY_CELL_DEFINITIONS.map((definition) =>
+    buildLaunchBayGeometry(definition, scale)
+  );
   return {
     moduleScale: scale,
     collisionRects: [
-      // Left hull, full depth.
-      cellRectToLocal(HOME_X_MIN, APERTURE_X_MIN - 1, HOME_Y_MIN, HOME_Y_MAX, scale),
-      // Right hull, full depth.
-      cellRectToLocal(APERTURE_X_MAX + 1, HOME_X_MAX, HOME_Y_MIN, HOME_Y_MAX, scale),
-      // Rear body closing the back of the corridor.
-      cellRectToLocal(APERTURE_X_MIN, APERTURE_X_MAX, CORRIDOR_Y_MAX + 1, HOME_Y_MAX, scale)
+      // Forward-face side hulls.
+      cellRectToLocal(HOME_X_MIN, APERTURE_X_MIN - 1, HOME_Y_MIN, CORRIDOR_Y_MAX, scale),
+      cellRectToLocal(APERTURE_X_MAX + 1, HOME_X_MAX, HOME_Y_MIN, CORRIDOR_Y_MAX, scale),
+      // The solid band behind the forward bay connects the two arms.
+      cellRectToLocal(HOME_X_MIN, HOME_X_MAX, CORRIDOR_Y_MAX + 1, CORRIDOR_Y_MAX + 1, scale),
+      // The centre keel separates the upper and lower side openings and joins
+      // the rear body to the cross-band.
+      cellRectToLocal(GRID_CENTER, GRID_CENTER, CORRIDOR_Y_MAX + 2, HOME_Y_MAX, scale)
     ],
-    aperture: { x: mouthX, halfWidth, minY: aperture.minY, maxY: aperture.maxY },
-    corridor: { rearWallX, mouthX, halfWidth, length: mouthX - rearWallX },
-    // The blast door across the mouth. It is NOT part of collisionRects: it is
-    // solid to everything except the hull currently launching, so a ship may
-    // leave the hangar but nothing may fly back in. Without it an enemy could
-    // park inside the corridor and stop the station building ships at all,
-    // since a launch only starts when the corridor is clear.
-    doorRect: {
-      minX: mouthX - scale * 0.4,
-      maxX: mouthX,
-      minY: aperture.minY,
-      maxY: aperture.maxY
-    },
-    // Centred in the corridor: the deepest point where a maximum ship's whole
-    // padded hull is both clear of the rear wall and still behind the mouth.
-    interiorSpawn: { x: (rearWallX + mouthX) / 2, y: 0 },
-    // Where a launching ship's whole padded hull is outside the structure.
-    releasePlaneX,
+    launchBays,
     shell,
     maxShipExtent: MAX_SHIP_EXTENT,
-    // Clearance the aperture grants a maximum ship on each side.
-    clearance: halfWidth - MAX_SHIP_EXTENT / 2
+    safetyMargin: HULL_CELL_PADDING
   };
 }
 
@@ -350,6 +467,8 @@ function buildRelayStationGeometry() {
 
 const HOME_STATION_CELLS = Object.freeze({
   gridCells: GRID_CELLS,
+  launchBayCount: LAUNCH_BAY_CELL_DEFINITIONS.length,
+  launchBayIds: Object.freeze(LAUNCH_BAY_CELL_DEFINITIONS.map((bay) => bay.id)),
   corridorCells: CORRIDOR_CELLS,
   bodyCells: BODY_CELLS,
   apertureCells: APERTURE_CELLS,
@@ -384,6 +503,9 @@ module.exports = {
   cellRectToLocal,
   moduleCentreToLocal,
   outwardRotation,
+  LAUNCH_BAY_CELL_DEFINITIONS,
+  inLaunchBayVoid,
+  launchBayNormalForCell,
   inCorridorVoid,
   PARTS_REFERENCE: PARTS
 };

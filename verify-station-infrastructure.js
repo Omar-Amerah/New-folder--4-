@@ -27,7 +27,6 @@ const { areEnemies } = require("./src/server/combat");
 const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
 const { resolveMapCollision } = require("./src/server/movement");
 const { updateEconomy } = require("./src/server/economy");
-const { effectiveShieldStats } = require("./src/server/componentPower");
 const {
   segmentStationHullHit,
   computeStationShieldCollisionRadius
@@ -90,7 +89,8 @@ function run() {
     if (station.stationType === "home") {
       assert(station.state === "operational", "home station starts operational");
       assert(isOperationalStation(station), "isOperationalStation returns true");
-      assert(station.hangar && typeof station.hangar.interiorSpawn === "object", "home station has hangar");
+      assert(Array.isArray(station.launchBays) && station.launchBays.length === 3, "home station has three launch bays");
+      assert(station.hangar === undefined && station.hangars === undefined, "home station has no compatibility hangar fields");
     }
     if (station.stationType === "relay") {
       assert(station.state === "neutral", "relay station starts neutral");
@@ -101,19 +101,12 @@ function run() {
   const home = room.stations.find((s) => s.stationType === "home");
   const relay = room.stations.find((s) => s.stationType === "relay");
   assert(isHostileEntity(home, relay) === true || home.team === null || relay.team === null, "hostility helper tolerates unset teams");
-  const homeHullScale = INFRASTRUCTURE.homeStation.hullScale;
-  const unscaledHomeHp = homeStationTemplate.stats.maxHp
-    + homeStationTemplate.design.filter((module) => module.type === "core").length * PARTS.core.hp;
-  assert(homeHullScale === 0.4, "home station hull health is configured at 40% after the 60% reduction");
-  assert(
-    Math.abs(home.maxHp - unscaledHomeHp * homeHullScale) < 0.001,
-    `home station hull health is reduced by exactly 60% (${home.maxHp} vs ${unscaledHomeHp})`
-  );
-  assert(INFRASTRUCTURE.homeStation.shieldScale === 0.4, "home station shield capacity is configured at 40% after the 60% reduction");
-  assert(
-    Math.abs(home.maxShield - effectiveShieldStats(home).capacity * INFRASTRUCTURE.homeStation.shieldScale) < 0.001,
-    "home station shield capacity is reduced by exactly 60%"
-  );
+  assert.strictEqual(home.maxHp, 8000, "a home station has 8,000 hull per opposing player");
+  assert.strictEqual(home.hp, 8000, "a home station starts at its exact hull durability");
+  assert.strictEqual(home.maxShield, 8000, "a home station has 8,000 shield per opposing player");
+  assert.strictEqual(home.shield, 8000, "a home station starts at its exact shield durability");
+  assert.strictEqual(INFRASTRUCTURE.homeStation.hullScale, undefined, "home durability has no hull scale multiplier");
+  assert.strictEqual(INFRASTRUCTURE.homeStation.shieldScale, undefined, "home durability has no shield scale multiplier");
 
   section("Station shield and hull hitboxes match the rendered station geometry");
   const expectedHomeShieldRadius = Math.hypot(7.5 * STATION_MODULE_SCALE, 7.5 * STATION_MODULE_SCALE) * 1.06;
@@ -347,7 +340,7 @@ function runWeaponChecks() {
 }
 
 function runCaptureChecks() {
-  section("Relay capture is timed, decays when abandoned, and honours the restore ratio");
+  section("Relay capture is timed, decays when abandoned, and destruction transfers ownership");
   const { room } = makeStationRoom("CAPS");
   const relay = room.stations.find((s) => s.stationType === "relay");
   const cfg = INFRASTRUCTURE.relayStation;
@@ -426,27 +419,15 @@ function runCaptureChecks() {
   assert(Math.abs(capturedAfter - duration) < 0.5, `taking an unclaimed relay takes captureDurationSeconds (took ${capturedAfter}s)`);
 
   damageStation(room, relay, relay.maxHp * 3, "p1", now, 0, 0);
-  assert(relay.state === "disabled", "enough damage disables a relay");
-  room.ships.delete("r1");
-  room.ships.set("b1", hull("b1", "p1", "blue"));
-  for (let tick = 0; tick < duration * 12; tick += 1) updateStations(room, 1 / 30, (now += 33));
-  const banked = relay.captureProgress;
-  assert(banked > 0 && banked < 1, "a partial capture accumulates");
-  room.ships.delete("b1");
-  for (let tick = 0; tick < (1 / cfg.captureDecayPerSecond) * 60; tick += 1) updateStations(room, 1 / 30, (now += 33));
-  assert(relay.captureProgress === 0, `abandoned capture progress decays back to zero (left ${relay.captureProgress})`);
-
-  room.ships.set("b1", hull("b1", "p1", "blue"));
-  let flipped = null;
-  for (let tick = 0; tick < duration * 60 && flipped === null; tick += 1) {
-    updateStations(room, 1 / 30, (now += 33));
-    if (relay.team === "blue") flipped = tick / 30;
-  }
-  assert(flipped !== null, "a disabled relay can be taken off its owner");
+  assert(relay.state === "operational", "destroying a relay immediately reactivates it");
+  assert(relay.alive === true, "a destroyed relay remains live after handoff");
+  assert(relay.team === "blue", "a destroyed relay changes to the destroyer's team");
+  assert(relay.ownerId === "p1", "a destroyed relay records the destroying player");
+  assert(relay.captureProgress === 0 && relay.captureTeam === null, "relay handoff clears stale capture progress");
   const restored = relay.hp / relay.maxHp;
   assert(
     Math.abs(restored - cfg.captureRestoreHpRatio) < 0.02,
-    `a captured wreck comes back at captureRestoreHpRatio, not full health (got ${restored.toFixed(2)})`
+    `a destroyed relay comes back at captureRestoreHpRatio, not full health (got ${restored.toFixed(2)})`
   );
 }
 
@@ -499,15 +480,15 @@ function runSnapshotChecks() {
   assert(Array.isArray(full.stations) && full.stations.length === room.stations.length, "full snapshot lists every station");
   const fullHome = full.stations.find((s) => s.stationType === "home");
   assert(Array.isArray(fullHome.design) && fullHome.design.length > 0, "full snapshot carries station design");
-  assert(fullHome.hangar && typeof fullHome.hangar.interiorSpawn === "object", "full snapshot carries hangar geometry");
-  assert(fullHome.hangars === undefined, "full snapshot contains no multi-hangar field");
+  assert(Array.isArray(fullHome.launchBays) && fullHome.launchBays.length === 3, "full snapshot carries launch-bay geometry");
+  assert(fullHome.hangar === undefined && fullHome.hangars === undefined, "full snapshot contains no compatibility hangar fields");
   assert(fullHome.shieldRadius === home.shieldRadius, "full snapshot carries the authoritative shield radius");
   assert(Array.isArray(fullHome.productionQueue) && fullHome.productionQueue.length === 1, "full snapshot carries the production queue");
 
   const compact = buildSharedSnapshot(room, 2000, false);
   const compactHome = compact.stations.find((s) => s.id === fullHome.id);
   assert(compactHome.design === undefined, "compact snapshot omits cached station design");
-  assert(compactHome.hangar === undefined, "compact snapshot omits cached hangar geometry");
+  assert(compactHome.launchBays === undefined, "compact snapshot omits cached launch-bay geometry");
   assert(compactHome.hangars === undefined, "compact snapshot contains no multi-hangar field");
   assert(compactHome.hardpoints === undefined, "compact snapshot omits cached hardpoints");
   assert(compactHome.moduleScale === undefined, "compact snapshot omits cached module scale");
@@ -545,9 +526,10 @@ function runProductionChecks() {
   assert(overflow.ok === false && overflow.code === "fleet-cap", "queued hulls count against the fleet cap");
   assert(queuedShipCount(room, player.id) === 2, "queuedShipCount reports pending hulls");
 
-  home.state = "disabled";
-  const disabled = enqueue("d");
-  assert(disabled.ok === false && disabled.code === "station-disabled", "a disabled station refuses production");
+  home.state = "destroyed";
+  home.alive = false;
+  const unavailable = enqueue("d");
+  assert(unavailable.ok === false && unavailable.code === "station-unavailable", "a destroyed station refuses production");
   home.state = "operational";
 
   section("Bots build through the station queue instead of spawning instantly");
@@ -705,9 +687,10 @@ function runHangarDoorChecks() {
   const cos = Math.cos(home.angle);
   const sin = Math.sin(home.angle);
   // Just inside the mouth, on the corridor centreline.
+  const bay = home.launchBays.find((entry) => entry.id === "forward");
   const doorway = {
-    x: home.hangar.mouth.x - cos * 8,
-    y: home.hangar.mouth.y - sin * 8
+    x: bay.mouth.x - cos * 8,
+    y: bay.mouth.y - sin * 8
   };
   // An enemy nosing into the mouth is pushed back out. Without this it could
   // sit in the corridor indefinitely: a launch only begins once the corridor is
@@ -718,7 +701,7 @@ function runHangarDoorChecks() {
   // The hull this station is currently launching passes straight through.
   const launcher = {
     id: "x2", x: doorway.x, y: doorway.y, vx: 100 * cos, vy: 100 * sin,
-    launchPhase: { stationId: home.id }
+    launchPhase: { stationId: home.id, bayId: bay.id }
   };
   assert(!resolveStationCollision(room, launcher, 26), "the launching hull is not blocked by its own door");
 
@@ -730,7 +713,7 @@ function runHangarDoorChecks() {
   assert(resolveStationCollision(room, otherLauncher, 26), "another station's launch does not open this door");
 
   // The interior spawn point stays free, or nothing could ever be built.
-  const spawn = home.hangar.interiorSpawn;
+  const spawn = bay.interiorSpawn;
   const parked = { id: "x4", x: spawn.x, y: spawn.y, vx: 0, vy: 0 };
   assert(!resolveStationCollision(room, parked, 26), "the build position inside the corridor is still clear");
 
@@ -771,8 +754,8 @@ function runHangarDoorChecks() {
   // corridor. Clearance follows the door plane, not an enemy's radius.
   prodRoom.ships.set("block", {
     id: "block", alive: true, ownerId: "p2", team: "red",
-    x: prodHome.hangar.mouth.x + outward.x * 40,
-    y: prodHome.hangar.mouth.y + outward.y * 40,
+    x: prodHome.launchBays.find((bay) => bay.id === "forward").mouth.x + outward.x * 40,
+    y: prodHome.launchBays.find((bay) => bay.id === "forward").mouth.y + outward.y * 40,
     vx: 0, vy: 0, radius: 220, physicalRadius: 220, hp: 900, maxHp: 900
   });
   assert(enqueueBotProduction(prodRoom, player, 0), "the build is queued");

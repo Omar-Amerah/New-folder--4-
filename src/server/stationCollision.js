@@ -1,6 +1,8 @@
 "use strict";
 
 const STATION_SHIELD_MARGIN_MULTIPLIER = 1.06;
+const { BALANCE } = require("./balanceConfig");
+const STATION_SHIELD_HIT_MIN = Number(BALANCE.projectiles?.shieldHitMinimum) || 10;
 
 function segmentAabbFirstHit(x0, y0, x1, y1, halfWidth, halfHeight) {
   const dx = x1 - x0;
@@ -173,11 +175,43 @@ function stationShieldCollisionRadius(station) {
   return computeStationShieldCollisionRadius(station);
 }
 
+// One authoritative point for attacking a station. A live shield is a circular
+// target, so weapons aim at the point on its circumference nearest the firing
+// origin. Once the shield is down, the nearest point is selected from the
+// compound solid hull pieces; the authored launch-bay voids can therefore never
+// become a fake hull target.
+function stationAttackPoint(originX, originY, station) {
+  const sx = Number(station?.x) || 0;
+  const sy = Number(station?.y) || 0;
+  const ox = Number(originX) || 0;
+  const oy = Number(originY) || 0;
+  if (Number(station?.shield) >= STATION_SHIELD_HIT_MIN) {
+    let dx = ox - sx;
+    let dy = oy - sy;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 1e-6) {
+      const angle = Number(station?.angle) || 0;
+      dx = Math.cos(angle);
+      dy = Math.sin(angle);
+    } else {
+      dx /= distance;
+      dy /= distance;
+    }
+    const radius = stationShieldCollisionRadius(station);
+    const point = { x: sx + dx * radius, y: sy + dy * radius };
+    return { ...point, distance: Math.hypot(point.x - ox, point.y - oy), kind: "shield", radius };
+  }
+  const hull = nearestStationHullPoint(ox, oy, station);
+  return { ...hull, kind: "hull" };
+}
+
 module.exports = {
   STATION_SHIELD_MARGIN_MULTIPLIER,
+  STATION_SHIELD_HIT_MIN,
   segmentStationHullHit,
   isSegmentStationClear,
   nearestStationHullPoint,
   computeStationShieldCollisionRadius,
-  stationShieldCollisionRadius
+  stationShieldCollisionRadius,
+  stationAttackPoint
 };

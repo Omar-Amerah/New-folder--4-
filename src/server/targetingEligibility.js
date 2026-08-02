@@ -9,6 +9,7 @@ const Relationships = require("./relationships");
 const Visibility = require("./visibility");
 const { fastHypot, compareIdStrings, angleDifference } = require("./utils");
 const TargetingTelemetry = require("./targetingTelemetry");
+const { stationAttackPoint } = require("./stationCollision");
 
 function stableId(value) {
   return String(value?.id ?? value ?? "");
@@ -102,7 +103,6 @@ function _isLiving(target) {
   if (!target) return false;
   if (target.alive === false) return false;
   if (target.destroyed) return false;
-  if (target.state === "disabled") return false;
   if (typeof target.life === "number" && target.life <= 0) return false;
   return true;
 }
@@ -113,7 +113,10 @@ function _isInArc(originX, originY, weaponAngle, arcRadians, targetX, targetY) {
   return Math.abs(angleDifference(weaponAngle, angleToTarget)) <= arcRadians / 2;
 }
 
-function _targetPosition(target) {
+function _targetPosition(target, originX = 0, originY = 0) {
+  if (target?.entityType === "station") {
+    return stationAttackPoint(originX, originY, target);
+  }
   return { x: target?.x ?? 0, y: target?.y ?? 0 };
 }
 
@@ -136,7 +139,7 @@ function isOrdinaryWeaponTargetValid(room, attacker, target, now, range, options
   }
 
   TargetingTelemetry.bump(room, "targetRangeChecks");
-  const pos = _targetPosition(target);
+  const pos = _targetPosition(target, options.originX, options.originY);
   const distance = fastHypot(pos.x - options.originX, pos.y - options.originY);
   if (distance > range) return false;
 
@@ -217,7 +220,7 @@ function isStationWeaponTargetValid(room, station, target, identity, now, range,
     if (!visible) return false;
   }
 
-  const pos = _targetPosition(target);
+  const pos = _targetPosition(target, options.originX, options.originY);
   const dist = fastHypot(pos.x - options.originX, pos.y - options.originY);
   if (dist > range) return false;
 

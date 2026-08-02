@@ -203,7 +203,6 @@ function validateCommandAura(commandAura, filePath, errors) {
 const INFRASTRUCTURE_NUMERIC_FIELDS = [
   "maximumShipGridWidth", "maximumShipGridHeight", "hangarClearanceCells", "hangarCorridorLength",
   "launchSpeed", "releaseDistance", "repairRadius", "repairRatePerSecond", "repairDelaySeconds",
-  "disabledRecoveryDelaySeconds", "disabledRepairRatePerSecond", "reactivationHpRatio",
   "productionBaseSeconds", "productionCostSecondsMultiplier", "launchRetrySeconds",
   "captureRadius", "captureRestoreHpRatio", "hullScale", "shieldScale"
 ];

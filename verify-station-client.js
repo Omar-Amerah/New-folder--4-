@@ -67,7 +67,32 @@ const previousStations = [{
   id: 'st1',
   stationType: 'home',
   design: [{ x: 0, y: 0, type: 'core' }, { x: 1, y: 0, type: 'laser' }],
-  hangar: { x: 1, y: 2 },
+  launchBays: [
+    {
+      id: 'forward',
+      localCentre: { x: 144, y: 0 },
+      localNormal: { x: 1, y: 0 },
+      apertureHalfWidth: 126,
+      corridorLength: 252,
+      rampDepth: 90
+    },
+    {
+      id: 'upper',
+      localCentre: { x: -144, y: -144 },
+      localNormal: { x: 0, y: -1 },
+      apertureHalfWidth: 126,
+      corridorLength: 252,
+      rampDepth: 90
+    },
+    {
+      id: 'lower',
+      localCentre: { x: -144, y: 144 },
+      localNormal: { x: 0, y: 1 },
+      apertureHalfWidth: 126,
+      corridorLength: 252,
+      rampDepth: 90
+    }
+  ],
   hardpoints: [null, { x: 36, y: 0 }],
   moduleScale: 36,
   shieldRadius: 405,
@@ -85,8 +110,9 @@ const compactStations = [{
 }];
 const merged = mergeCachedStationFields(previousStations, compactStations);
 assert.deepEqual(merged[0].design, previousStations[0].design, 'compact station inherits the cached design');
-assert.deepEqual(merged[0].hangar, previousStations[0].hangar, 'compact station inherits the cached hangar');
-assert.equal(merged[0].hangars, undefined, 'compact station never inherits a multi-hangar field');
+assert.deepEqual(merged[0].launchBays, previousStations[0].launchBays, 'compact station inherits cached launch-bay geometry');
+assert.equal(merged[0].hangar, undefined, 'compact station never inherits a singular compatibility hangar');
+assert.equal(merged[0].hangars, undefined, 'compact station never inherits a plural compatibility hangar');
 assert.deepEqual(merged[0].hardpoints, previousStations[0].hardpoints, 'compact station inherits cached hardpoints');
 assert.equal(merged[0].moduleScale, 36, 'compact station inherits cached module scale');
 assert.equal(merged[0].shieldRadius, 405, 'compact station inherits the authoritative shield hit radius');
@@ -217,7 +243,7 @@ assert.equal(dom.stationPanel.hidden, false, 'the panel defaults to your own hom
 assert.equal(panelStation()?.id, 'st-home', 'the default subject is your home station');
 assert.equal(ownHomeStation()?.id, 'st-home', 'your home station is resolved by team');
 assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the default subject is labelled as yours');
-assert(dom.stationPanelBody.innerHTML.includes('Hangar'), 'the default panel shows the hangar');
+assert(dom.stationPanelBody.innerHTML.includes('Launch Bays'), 'the default panel shows the launch bays');
 
 resetState();
 state.snapshot = { ...state.snapshot, stations: state.snapshot.stations.filter((s) => s.stationType === 'relay') };
@@ -232,7 +258,7 @@ assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the panel n
 assert(dom.stationPanelBody.innerHTML.includes('Operational'), 'the panel shows the operational state');
 assert(dom.stationPanelBody.innerHTML.includes('<strong>900</strong><small>/ 1000</small>'), 'the panel shows hull vitals');
 assert(dom.stationPanelBody.innerHTML.includes('<strong>40</strong><small>/ 80</small>'), 'the panel shows shield vitals');
-assert(dom.stationPanelBody.innerHTML.includes('Building'), 'the panel shows what the hangar is building');
+assert(dom.stationPanelBody.innerHTML.includes('Building'), 'the panel shows what the launch bays are building');
 assert(dom.stationPanelBody.innerHTML.includes('50%'), 'the panel shows build progress');
 assert(dom.stationPanelBody.innerHTML.includes('You'), 'the panel attributes the build to its owner');
 assert(dom.stationPanelBody.innerHTML.includes('--station-meter-start:#062f17'), 'healthy station hulls use the green ship-hull palette');
@@ -243,7 +269,7 @@ selection.selectAt({ x: 1200, y: 600 }, false);
 renderStationPanel();
 assert.equal(dom.stationPanelKind.textContent, 'Relay Station', 'relay stations are labelled as such');
 assert(dom.stationPanelBody.innerHTML.includes('Unclaimed'), 'a neutral relay reads as unclaimed');
-assert(!dom.stationPanelBody.innerHTML.includes('Hangar'), 'relays have no hangar section');
+assert(!dom.stationPanelBody.innerHTML.includes('Launch Bays'), 'relays have no launch-bay section');
 assert(!dom.stationPanelBody.innerHTML.includes('Bring ships inside'), 'the relay description is removed');
 
 state.rules = { ...state.rules, infrastructureMode: 'classic' };
@@ -260,7 +286,6 @@ assert.equal(stationColor(home, players), '#38d5ff', 'an allied station renders 
 assert.equal(stationColor({ ...home, team: 'red', ownerId: 'p2' }, players), '#ef4444', 'an enemy station renders hostile');
 assert.equal(stationColor(relay, players), '#9fb0c6', 'a neutral relay renders unclaimed');
 assert.equal(stationStateLabel(home), 'OPERATIONAL', 'operational home stations are labelled');
-assert.equal(stationStateLabel({ ...home, state: 'disabled' }), 'DISABLED', 'disabled stations are labelled');
 assert.equal(stationStateLabel({ ...home, state: 'destroyed' }), 'DESTROYED', 'destroyed home stations are labelled');
 // An uncaptured relay is not running for anybody, so it reads OFFLINE rather
 // than describing its ownership.

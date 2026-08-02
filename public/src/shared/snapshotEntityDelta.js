@@ -109,7 +109,7 @@
     "hp", "shield", "team", "ownerId", "state", "sensorRange", "weaponRange", "revision",
     "healthRevision", "componentDamageRevision", "stateRevision", "productionRevision",
     "captureProgress", "captureContested", "captureTeam", "weaponAngles", "weaponAnglePairs",
-    "conditionKnown", "productionQueue"
+    "conditionKnown", "productionQueue", "launches"
   ]);
 
   function cleanNumber(value, fallback = 0) {

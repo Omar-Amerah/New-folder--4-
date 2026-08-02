@@ -105,7 +105,6 @@ const DURATION_FIELDS = Object.freeze([
   "stationObjectiveRuntimeMs",
   "stationHangarRuntimeMs",
   "stationRepairRuntimeMs",
-  "stationRecoveryRuntimeMs",
   "stationControlVictoryMs",
   "classicCaptureRuntimeMs",
   "stationWeaponTargetPreparationMs",

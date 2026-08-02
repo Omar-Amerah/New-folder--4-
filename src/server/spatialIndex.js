@@ -55,7 +55,7 @@ function isLiveForKind(kind, entity) {
   if (kind === "drones") return !entity.destroyed && !entity.removed;
   if (kind === "projectiles") return entity.life > 0;
   if (kind === "interceptableProjectiles") return entity.life > 0 && entity.interceptable;
-  if (kind === "stations") return entity.alive !== false && entity.state !== "disabled";
+  if (kind === "stations") return entity.alive !== false && entity.state !== "destroyed";
   return true;
 }
 
@@ -631,7 +631,7 @@ class RoomSpatialIndex {
     }
     let stationOrder = 0;
     for (const station of room?.stations || []) {
-      if (!station || station.alive === false || station.state === "disabled") continue;
+      if (!station || station.alive === false || station.state === "destroyed") continue;
       this._putRecord("stations", station, stationBroadPhaseRadius(station), stationOrder++);
       inserted.stations += 1;
     }
