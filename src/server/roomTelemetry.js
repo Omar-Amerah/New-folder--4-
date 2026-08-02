@@ -87,7 +87,34 @@ const DURATION_FIELDS = Object.freeze([
   "visibilityStationQueriesMs",
   "visibilityRememberedMs",
   "visibilitySnapshotFilterMs",
-  "visibilityAuditMs"
+  "visibilityAuditMs",
+
+  // Phase 6F station/objective profiling. These fields are room-scoped so
+  // instrumentation never needs to attach a telemetry object to a station,
+  // weapon, ship candidate or queue item.
+  "stationRuntimeMs",
+  "stationWeaponRuntimeMs",
+  "stationObjectiveRuntimeMs",
+  "stationHangarRuntimeMs",
+  "stationRepairRuntimeMs",
+  "stationRecoveryRuntimeMs",
+  "stationControlVictoryMs",
+  "classicCaptureRuntimeMs",
+  "stationWeaponTargetPreparationMs",
+  "stationWeaponProfileLookupMs",
+  "stationWeaponValidationMs",
+  "stationWeaponOrdinaryAcquisitionMs",
+  "stationWeaponPointDefenceMs",
+  "stationWeaponAimMs",
+  "stationWeaponFireMs",
+  "stationCaptureCandidateCollectionMs",
+  "stationCaptureAggregationMs",
+  "stationCaptureStateTransitionMs",
+  "stationProductionQueueMs",
+  "stationSpawnAttemptMs",
+  "stationLaunchControlMs",
+  "stationLaunchReleaseMs",
+  "stationCorridorQueryMs"
 ]);
 
 const COUNTER_FIELDS = Object.freeze([
@@ -321,6 +348,55 @@ const COUNTER_FIELDS = Object.freeze([
   "visibilityDuplicateInvalidations",
   "visibilityComputesAfterFinalization",
   "visibilityReconciliations",
+
+  // Phase 6F station weapons.
+  "stationsWeaponProcessed",
+  "stationWeaponComponentsVisited",
+  "stationWeaponComponentsOperational",
+  "stationWeaponOrdinaryMounts",
+  "stationWeaponPointDefenceMounts",
+  "stationWeaponTargetValidations",
+  "stationWeaponTargetSearches",
+  "stationWeaponFullTargetScans",
+  "stationWeaponSpatialQueries",
+  "stationWeaponCandidatesVisited",
+  "stationWeaponRetainedTargets",
+  "stationWeaponImmediateReacquisitions",
+  "stationWeaponShotsCreated",
+  "stationWeaponCooldownSkips",
+  "stationWeaponArcRejects",
+  "stationWeaponRangeRejects",
+  "stationWeaponVisibilityRejects",
+
+  // Phase 6F station capture/objectives.
+  "stationRelaysProcessed",
+  "stationCaptureFullShipScans",
+  "stationCaptureSpatialQueries",
+  "stationCaptureCandidatesVisited",
+  "stationCaptureEligibleShips",
+  "stationCaptureTeamsPresent",
+  "stationCaptureContestedTicks",
+  "stationCaptureProgressChanges",
+  "stationCapturesCompleted",
+  "stationControlVictoryEvaluations",
+  "stationControlVictoryCacheHits",
+  "classicCapturePointsProcessed",
+  "classicCaptureCandidatesVisited",
+
+  // Phase 6F hangar/production.
+  "stationHomeStationsProcessed",
+  "stationQueuesVisited",
+  "stationQueueItemsVisited",
+  "stationSpawnAttempts",
+  "stationSpawnSuccesses",
+  "stationSpawnFleetCapBlocks",
+  "stationSpawnMissingPlayerBlocks",
+  "stationSpawnMissingHangarBlocks",
+  "stationActiveLaunchesVisited",
+  "stationLaunchesReleased",
+  "stationLaunchesRemovedMissingShip",
+  "stationEmptyQueueSkips",
+  "stationEmptyLaunchSkips",
 
   // Phase 4B incremental spatial-index counters
   "spatialFullRebuilds",
