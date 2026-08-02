@@ -302,8 +302,8 @@ function rollbackPushedShips(moved) {
   }
 }
 
-// Places in the arrival formation that are already spoken for. A station hangar
-// releases one hull at a time, so this runs with a single ship far more often
+// Places in the arrival formation that are already spoken for. The shared home
+// station launch path releases one hull at a time, so this runs with a single ship far more often
 // than with a whole batch -- and a lone ship is centred on the rally point by
 // the cursor below. Without the standing claims, every ship the hangar ever
 // produces is assigned that same centre slot: the one the previous ship is
@@ -422,9 +422,9 @@ function planSpawnRegions(room, options = {}) {
   const solo = room.rules?.gameMode === "solo";
   const groups = new Map();
   // One region per TEAM, not per player. A team shares a single home station
-  // with a launch bay per member, so drawing a separate circle around every
-  // team-mate's planned slot left several bases on the map with the station
-  // sitting in only one of them. Solo players still each get their own.
+  // and central launch path, so drawing a separate circle around every team-
+  // mate's planned slot left several bases on the map with the station sitting
+  // in only one of them. Solo players still each get their own.
   for (const spawn of spawns) {
     const player = players.get(spawn.playerId);
     const team = normalizeTeam(player?.team) || player?.team;

@@ -13,6 +13,7 @@
 //   * a new Move replaces the old path
 
 const assert = require("assert");
+const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
@@ -113,9 +114,7 @@ function simulate(room, ships, seconds, onTick = null) {
   const ticks = Math.round(seconds / DT);
   for (let tick = 0; tick < ticks; tick += 1) {
     const now = tick * DT * 1000;
-    buildRoomSpatialIndex(room, ships, now);
-    for (const ship of ships) updateShipMovement(room, ship, DT, now);
-    updateShipSeparation(room, ships, DT, now);
+    movementTestTick(room, ships, DT, now);
     if (onTick) onTick(tick);
   }
 }

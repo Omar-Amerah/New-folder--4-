@@ -28,16 +28,28 @@ function idOf(entry) {
   return entry?.id;
 }
 
-function hasOwn(entry, key) {
+function hasField(entry, key) {
   // Sparse v2 server rows may inherit viewer-independent fields from the
   // shared snapshot.  They are still real schema values even when they are
   // not own properties of the tiny viewer overlay.
   return entry != null && entry[key] !== undefined;
 }
 
+function hasOwnField(entry, key) {
+  return entry != null
+    && Object.prototype.hasOwnProperty.call(entry, key)
+    && entry[key] !== undefined;
+}
+
 function copyFields(entry, fields) {
   const result = {};
-  for (const field of fields || []) if (hasOwn(entry, field)) result[field] = entry[field];
+  for (const field of fields || []) if (hasField(entry, field)) result[field] = entry[field];
+  return result;
+}
+
+function copyOwnFields(entry, fields) {
+  const result = {};
+  for (const field of fields || []) if (hasOwnField(entry, field)) result[field] = entry[field];
   return result;
 }
 
@@ -95,10 +107,15 @@ function shipState(entry) {
 }
 
 function shipPrivate(entry) {
-  return copyFields(entry, PRIVATE_SHIP_FIELDS);
+  // `detail: "public"` is an absolute privacy boundary. A sparse public row
+  // may inherit fields from the viewer-independent base, but none of those
+  // inherited values can become a private overlay.
+  if (entry?.detail === "public") return {};
+  return copyOwnFields(entry, PRIVATE_SHIP_FIELDS);
 }
 
 function shipPrivateSignature(entry) {
+  if (entry?.detail === "public") return "#public";
   // Revisions carry the expensive array changes.  Small status blocks and
   // explicit component deltas are included so fixtures that update a field
   // without bumping a revision still receive the change.
@@ -120,11 +137,14 @@ function shipPrivateSignature(entry) {
 
 function makeShipRecord(entry) {
   const motion = packShipMotion(entry);
-  const stateKeys = SHIP_STATE_FIELDS.filter((field) => hasOwn(entry, field));
-  const privateKeys = PRIVATE_SHIP_FIELDS.filter((field) => hasOwn(entry, field));
+  const publicDetail = entry?.detail === "public";
+  const stateKeys = SHIP_STATE_FIELDS.filter((field) => hasField(entry, field));
+  const privateKeys = publicDetail
+    ? []
+    : PRIVATE_SHIP_FIELDS.filter((field) => hasField(entry, field));
   const sharedStateSignature = entry?.__entityDeltaStateSignature;
   return {
-    detail: entry?.detail || "full",
+    detail: publicDetail ? "public" : (entry?.detail || "full"),
     designRevision: Number(entry?.designRevision) || 0,
     motion,
     motionSignature: signature(motion),
@@ -153,7 +173,7 @@ function genericState(entry, kind) {
 
 function genericRemaining(entry, kind) {
   const result = {};
-  for (const key of GENERIC_REMAINING_FIELDS[kind] || []) if (hasOwn(entry, key)) result[key] = entry[key];
+  for (const key of GENERIC_REMAINING_FIELDS[kind] || []) if (hasField(entry, key)) result[key] = entry[key];
   return result;
 }
 
@@ -239,12 +259,16 @@ function buildShipPatch(entries, previous, options = {}) {
     if (stateClears.length) clearStateFields.push([id, stateClears]);
     const stateValue = shipState(entry);
     if (old.stateSignature !== record.stateSignature && Object.keys(stateValue).length) state.push([id, stateValue]);
-    const focusedRefresh = options.telemetryFocusShipId === id && hasOwn(entry, "powerThermal");
+    const focusedRefresh = options.telemetryFocusShipId === id && hasField(entry, "powerThermal");
     const oldPrivateFields = new Set(old.privatePresentFields || old.privateKeys || []);
     const privateClears = record.clearPrivateFields.filter((field) => oldPrivateFields.has(field));
     if (privateClears.length) clearPrivateFields.push([id, privateClears]);
     const privateValue = shipPrivate(entry);
-    if ((focusedRefresh || old.privateSignature !== record.privateSignature) && Object.keys(privateValue).length) privatePatch.push([id, privateValue]);
+    if (record.detail !== "public"
+      && (focusedRefresh || old.privateSignature !== record.privateSignature)
+      && Object.keys(privateValue).length) {
+      privatePatch.push([id, privateValue]);
+    }
     const statePresent = new Set(oldStateFields);
     for (const field of record.stateKeys) statePresent.add(field);
     for (const field of stateClears) statePresent.delete(field);
@@ -254,6 +278,12 @@ function buildShipPatch(entries, previous, options = {}) {
     for (const field of privateClears) privatePresent.delete(field);
     record.privatePresentFields = [...privatePresent];
     next.set(id, record);
+  }
+
+  for (const [id] of privatePatch) {
+    if (current.get(id)?.detail === "public") {
+      throw new Error(`Entity-delta privacy invariant violated: public ship ${String(id)} has a private patch`);
+    }
   }
 
   return {
@@ -387,7 +417,7 @@ function buildStateFromSnapshot(snapshot, stateEpoch) {
 function roomPatch(snapshot) {
   const patch = {};
   for (const key of ["phase", "adminId", "winner", "matchStartedAt", "controlVictory", "objectiveControl"]) {
-    if (hasOwn(snapshot, key)) patch[key] = snapshot[key];
+    if (hasField(snapshot, key)) patch[key] = snapshot[key];
   }
   return patch;
 }
@@ -396,7 +426,7 @@ function copyProjectileFields(snapshot, target) {
   for (const key of [
     "projectileEvents", "projectileEventBaseSeq", "projectileEventSeq", "projectileCorrectionBaseSeq",
     "projectileCorrectionSeq", "projectileStateEpoch", "projectileSimulationTimeMs", "projectileBaseline"
-  ]) if (hasOwn(snapshot, key)) target[key] = snapshot[key];
+  ]) if (hasField(snapshot, key)) target[key] = snapshot[key];
 }
 
 function patchStats(patches, currentCounts) {

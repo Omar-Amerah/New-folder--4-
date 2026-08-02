@@ -211,36 +211,30 @@ function resolveStationCollision(room, ship, shipRadius) {
 }
 
 // World-space hangar geometry for a placed home station. All of it is derived
-// from the authored template, transformed by the station's pose. Home stations
-// carry one bay per team member, up to three.
+// from the authored template, transformed by the station's pose. Every member
+// of a team uses the same central launch path.
 function buildHangarGeometry(station) {
   const geometry = homeStationGeometry;
   const envelope = maximumShipEnvelope();
-  const bays = [];
-  for (let i = 0; i < (geometry.bays || []).length; i += 1) {
-    const bay = geometry.bays[i];
-    const interiorSpawn = stationLocalToWorld(station, bay.interiorSpawn.x, bay.interiorSpawn.y);
-    const mouth = stationLocalToWorld(station, bay.mouthX, bay.centreY);
-    const rearWall = stationLocalToWorld(station, bay.rearWallX, bay.centreY);
-    const exitPoint = stationLocalToWorld(station, bay.releasePlaneX, bay.centreY);
-    bays.push({
-      index: i,
-      angle: station.angle,
-      interiorSpawn,
-      mouth,
-      rearWall,
-      exitPoint,
-      // Distance from the station centre at which a launching ship is clear.
-      releaseDistance: bay.releasePlaneX,
-      corridorHalfWidth: bay.halfWidth,
-      corridorLength: bay.corridor.length,
-      apertureHalfWidth: bay.halfWidth,
-      maximumShipWidth: envelope.width,
-      maximumShipHeight: envelope.height,
-      clearance: geometry.clearance
-    });
-  }
-  return bays;
+  const interiorSpawn = stationLocalToWorld(station, geometry.interiorSpawn.x, geometry.interiorSpawn.y);
+  const mouth = stationLocalToWorld(station, geometry.aperture.x, 0);
+  const rearWall = stationLocalToWorld(station, geometry.corridor.rearWallX, 0);
+  const exitPoint = stationLocalToWorld(station, geometry.releasePlaneX, 0);
+  return {
+    angle: station.angle,
+    interiorSpawn,
+    mouth,
+    rearWall,
+    exitPoint,
+    // Distance from the station centre at which a launching ship is clear.
+    releaseDistance: geometry.releasePlaneX,
+    corridorHalfWidth: geometry.corridor.halfWidth,
+    corridorLength: geometry.corridor.length,
+    apertureHalfWidth: geometry.aperture.halfWidth,
+    maximumShipWidth: envelope.width,
+    maximumShipHeight: envelope.height,
+    clearance: geometry.clearance
+  };
 }
 
 // Where each weapon module physically sits, in structure-local space.
@@ -343,9 +337,7 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
   // larger module scale; the client needs it to size the structure correctly.
   station.moduleScale = stationModuleScale(stationType);
   if (stationType === "home") {
-    station.hangars = buildHangarGeometry(station);
-    station.hangar = station.hangars[0] || null;
-    station.bayPlayerSlots = new Map();
+    station.hangar = buildHangarGeometry(station);
   }
   station.collisionPieces = stationCollisionPieces(station);
   station.shieldRadius = computeStationShieldCollisionRadius(station);
@@ -532,18 +524,20 @@ function spawnQueuedShip(room, station, queueItem, now) {
     if (detailed) bump(room, "stationSpawnFleetCapBlocks");
     return null;
   }
-  const hangars = station.hangars;
-  if (!hangars || hangars.length === 0) {
+  const hangar = station.hangar;
+  if (!hangar) {
     if (detailed) bump(room, "stationSpawnMissingHangarBlocks");
     return null;
   }
-  const bayIndex = station.bayPlayerSlots && station.bayPlayerSlots.has(queueItem.playerId)
-    ? station.bayPlayerSlots.get(queueItem.playerId)
-    : 0;
-  const hangar = hangars[bayIndex] || hangars[0];
   bumpCounter(room, "stationLaunchAttemptCount");
   const startedAt = detailed ? performanceNow() : 0;
   const physicalRadius = computeDesignCollisionRadius(queueItem.template.design, queueItem.template.stats);
+  if (!corridorIsClear(room, station)) {
+    queueItem.blocked = true;
+    station.productionRevision += 1;
+    bumpCounter(room, "stationLaunchBlockedCount");
+    return null;
+  }
   const spawn = hangar.interiorSpawn;
   const ship = spawnShip(room, player, now, active, {
     template: queueItem.template,
@@ -565,7 +559,6 @@ function spawnQueuedShip(room, station, queueItem, now) {
   // cannot manoeuvre or shoot through the structure it is still inside.
   ship.launchPhase = {
     stationId: station.id,
-    bayIndex,
     startedAt: now,
     angle: station.angle,
     releaseDistance: hangar.releaseDistance + physicalRadius
@@ -871,6 +864,23 @@ function updateStationCapture(room, station, dt, now) {
     if (detailed) bump(room, "stationCapturesCompleted");
   }
 
+  // An active owned relay must be disabled (HP below threshold) before it can change hands.
+  if (station.state === "operational") return;
+
+  // A new leader must first erase the previous team's capture bar. Otherwise
+  // changing `captureTeam` would let the new side inherit the old progress.
+  if (
+    station.captureProgress > 0 &&
+    station.captureTeam &&
+    station.captureTeam !== leaderTeam
+  ) {
+    setProgress(
+      Math.max(0, station.captureProgress - dt / duration),
+      station.captureTeam
+    );
+    return;
+  }
+
   // Taking an unclaimed relay runs the same clock as taking one off an enemy,
   // so the capture ring and the objective HUD percentage mean the same thing in
   // both cases. It used to flip owner on the first tick a hull was in range.
@@ -879,9 +889,6 @@ function updateStationCapture(room, station, dt, now) {
     if (station.captureProgress >= 1) captureStation(leader.ownerId, leaderTeam);
     return;
   }
-
-  // An active owned relay must be disabled (HP below threshold) before it can change hands.
-  if (station.state === "operational") return;
 
   if (station.state === "disabled") {
     if (leaderTeam === station.team) {
@@ -920,13 +927,6 @@ function createStationsForRoom(room, now) {
     const toCenter = Math.atan2(room.world.height / 2 - y, room.world.width / 2 - x);
     const angle = toCenter;
     const station = createStationEntity(room, homeStationTemplate, x, y, angle, "home", zone.team || zone.ownerId, zone.ownerId, now);
-    // Hand out one bay per player on the team, up to the number of bays.
-    const teamPlayers = [...room.players.values()]
-      .filter((p) => !p.removed && (room.rules?.gameMode === "solo" ? p.id === zone.ownerId : p.team === zone.team))
-      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    for (let i = 0; i < teamPlayers.length; i += 1) {
-      station.bayPlayerSlots.set(teamPlayers[i].id, i % station.hangars.length);
-    }
     room.stations.push(station);
     room.stationsById.set(station.id, station);
     if (room._visibilityRuntime) {

@@ -64,10 +64,10 @@ module.exports = Object.freeze({
   MAX_MOVEMENT_DT: 0.25,
 
   // --- Combat stance ------------------------------------------------------
-  // Hold closes to 90% of its reach and stops there. This is an approach
+  // Hold closes to 80% of its reach and stops there. This is an approach
   // threshold, not a station: once inside it the ship does not correct its range
   // and does not back away from anything.
-  HOLD_RANGE_RATIO: 0.9,
+  HOLD_RANGE_RATIO: 0.8,
   // ...and only resumes the chase once the target has opened past 98%, so a
   // target loitering near the edge cannot make the ship start and abandon an
   // approach every second. The gap between the two is the whole dead band.

@@ -32,7 +32,7 @@
 //        +--------+                      +-----------+   <- front face (y=0)
 //        | left   |   aperture 7 cells   | right     |
 //        | hull   |    (open corridor)   | hull      |   ^ 7 cells deep
-//        | 4 wide |        238u          | 4 wide    |   v
+//        | 4 wide |        252u          | 4 wide    |   v
 //        +--------+----------------------+-----------+
 //        |               rear body (8 cells)         |
 //        +-------------------------------------------+
@@ -47,11 +47,9 @@ const { getOccupiedCells } = require("./footprint");
 
 // The ship module scale. Ships are laid out at 13 world units per cell.
 const SHIP_MODULE_SCALE = 13;
-// Stations use the same 15x15 grid at a larger scale (see the note above). 59
-// is the smallest scale where three 3-cell bays each clear an 11-cell ship's
-// half-extent plus its per-cell hull collision radius, while the 15-cell front
-// stays inside the 4.0-4.6x visual ratio (885 / 195 = 4.54).
-const STATION_MODULE_SCALE = 59;
+// Stations use the same 15x15 grid at a larger scale. At scale 36 the authored
+// 15-cell frontage is 540 world units, matching the pre-multi-hangar design.
+const STATION_MODULE_SCALE = 36;
 const GRID_CENTER = 7;
 const GRID_CELLS = 15;
 
@@ -63,19 +61,16 @@ const MAX_SHIP_EXTENT = MAX_SHIP_CELLS * SHIP_MODULE_SCALE; // 195
 // so a hull's real swept envelope is its rendered bounds grown by this much.
 const HULL_CELL_PADDING = SHIP_MODULE_SCALE * Math.SQRT2 / 2;
 
-// One launch bay per team member, up to three.
-const HANGAR_BAY_COUNT = 3;
-
 // --- Home station cell layout ------------------------------------------------
 const HOME_X_MIN = 0;
 const HOME_X_MAX = GRID_CELLS - 1;
 const HOME_Y_MIN = 0;
 const HOME_Y_MAX = GRID_CELLS - 1;
 
-// Aperture: nine cells around the grid centre, split into three bays.
-const APERTURE_CELLS = 9;
-const APERTURE_X_MIN = Math.floor((GRID_CELLS - APERTURE_CELLS) / 2); // 3
-const APERTURE_X_MAX = APERTURE_X_MIN + APERTURE_CELLS - 1;           // 11
+// Aperture: one seven-cell-wide opening around the grid centre.
+const APERTURE_CELLS = 7;
+const APERTURE_X_MIN = Math.floor((GRID_CELLS - APERTURE_CELLS) / 2); // 4
+const APERTURE_X_MAX = APERTURE_X_MIN + APERTURE_CELLS - 1;           // 10
 
 // Corridor depth: seven cells (252u), so a full 195u ship sits entirely inside
 // the station before it moves.
@@ -93,9 +88,6 @@ function inAperture(x) {
 }
 function inCorridorVoid(x, y) {
   return inAperture(x) && y >= CORRIDOR_Y_MIN && y <= CORRIDOR_Y_MAX;
-}
-function isSolidCell(x, y) {
-  return x >= HOME_X_MIN && x <= HOME_X_MAX && y >= HOME_Y_MIN && y <= HOME_Y_MAX && !inCorridorVoid(x, y);
 }
 
 // Distance in cells to the nearest surface — the outer shell or a corridor wall.
@@ -312,41 +304,7 @@ function buildHomeStationGeometry() {
   const mouthX = shell.maxX;
   const rearWallX = aperture.minX;
   const halfWidth = (aperture.maxY - aperture.minY) / 2;
-  const interiorX = (rearWallX + mouthX) / 2;
   const releasePlaneX = mouthX + MAX_SHIP_EXTENT / 2 + HULL_CELL_PADDING;
-
-  // Split the front aperture into three team-member bays, top to bottom.
-  const fullMinY = aperture.minY;
-  const fullMaxY = aperture.maxY;
-  const wall = scale * 0.12; // narrow virtual wall between bays
-  const available = fullMaxY - fullMinY - (HANGAR_BAY_COUNT - 1) * wall;
-  const baySpan = available / HANGAR_BAY_COUNT;
-  const bays = [];
-  const doorRects = [];
-  for (let i = 0; i < HANGAR_BAY_COUNT; i += 1) {
-    const minY = fullMinY + i * (baySpan + wall);
-    const maxY = minY + baySpan;
-    const centreY = (minY + maxY) / 2;
-    const bayHalf = (maxY - minY) / 2;
-    bays.push({
-      index: i,
-      minY,
-      maxY,
-      centreY,
-      halfWidth: bayHalf,
-      mouthX,
-      rearWallX,
-      interiorSpawn: { x: interiorX, y: centreY },
-      releasePlaneX,
-      corridor: { rearWallX, mouthX, halfWidth: bayHalf, length: mouthX - rearWallX }
-    });
-    doorRects.push({
-      minX: mouthX - scale * 0.4,
-      maxX: mouthX,
-      minY,
-      maxY
-    });
-  }
 
   return {
     moduleScale: scale,
@@ -371,11 +329,9 @@ function buildHomeStationGeometry() {
       minY: aperture.minY,
       maxY: aperture.maxY
     },
-    doorRects,
-    bays,
     // Centred in the corridor: the deepest point where a maximum ship's whole
     // padded hull is both clear of the rear wall and still behind the mouth.
-    interiorSpawn: { x: interiorX, y: 0 },
+    interiorSpawn: { x: (rearWallX + mouthX) / 2, y: 0 },
     // Where a launching ship's whole padded hull is outside the structure.
     releasePlaneX,
     shell,
@@ -406,10 +362,6 @@ const HOME_STATION_CELLS = Object.freeze({
   apertureXMax: APERTURE_X_MAX,
   corridorYMin: CORRIDOR_Y_MIN,
   corridorYMax: CORRIDOR_Y_MAX,
-  hullColumns: Object.freeze([
-    { xMin: HOME_X_MIN, xMax: HOME_X_MIN + 1 },
-    { xMin: HOME_X_MAX - 1, xMax: HOME_X_MAX }
-  ])
 });
 
 module.exports = {
@@ -421,7 +373,6 @@ module.exports = {
   MAX_SHIP_CELLS,
   MAX_SHIP_EXTENT,
   HULL_CELL_PADDING,
-  HANGAR_BAY_COUNT,
   HOME_STATION_CELLS,
   RELAY_CELLS,
   stationModuleScale,
@@ -434,6 +385,5 @@ module.exports = {
   moduleCentreToLocal,
   outwardRotation,
   inCorridorVoid,
-  isSolidCell,
   PARTS_REFERENCE: PARTS
 };

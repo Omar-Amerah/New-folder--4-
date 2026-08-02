@@ -14,6 +14,7 @@ const {
 const { navigationClearanceRadius } = require("./movementCollision");
 const { bumpMovementMetric } = require("./movementMetrics");
 const { ensureMovementRuntime } = require("./movementRuntime");
+const { isSegmentStationClear } = require("./stationCollision");
 
 // Stations are solid: resolveStationCollision pushes any hull that touches one
 // back out. Until they were added here the navigator could not see them at all,
@@ -248,55 +249,38 @@ function segmentCircleClearance(x1, y1, x2, y2, centerX, centerY, radius) {
   };
 }
 
-// Segment against a rotated rectangle grown by `clearance`, done in the piece's
-// own frame where the box is axis aligned, by the standard slab test. The grid
-// alone is not enough: planPath takes a straight line whenever this says the
-// line is clear, and the path smoother uses it to cut corners -- so a station
-// invisible here is a station routed straight through however solid the grid
-// says it is.
-function segmentBoxBlocked(x1, y1, x2, y2, piece, clearance) {
-  const cos = Math.cos(-(piece.angle || 0));
-  const sin = Math.sin(-(piece.angle || 0));
-  const ax = x1 - piece.x;
-  const ay = y1 - piece.y;
-  const bx = x2 - piece.x;
-  const by = y2 - piece.y;
-  const localAx = ax * cos - ay * sin;
-  const localAy = ax * sin + ay * cos;
-  const localBx = bx * cos - by * sin;
-  const localBy = bx * sin + by * cos;
-  const halfWidth = (piece.halfWidth || 0) + clearance;
-  const halfHeight = (piece.halfHeight || 0) + clearance;
-  const dx = localBx - localAx;
-  const dy = localBy - localAy;
-  let enter = 0;
-  let exit = 1;
-  // One slab per axis; a zero-length component means the segment is parallel to
-  // that pair of faces, so it either lies inside the slab for its whole length
-  // or misses the box outright.
-  for (const [origin, delta, half] of [[localAx, dx, halfWidth], [localAy, dy, halfHeight]]) {
-    if (Math.abs(delta) < 1e-9) {
-      if (origin < -half || origin > half) return false;
-      continue;
-    }
-    const inverse = 1 / delta;
-    let near = (-half - origin) * inverse;
-    let far = (half - origin) * inverse;
-    if (near > far) { const swap = near; near = far; far = swap; }
-    if (near > enter) enter = near;
-    if (far < exit) exit = far;
-    if (enter > exit) return false;
+function isStaticObstacleLineClear(room, x1, y1, x2, y2, clearance, options = null) {
+  const scratch = room._segmentScratch || (room._segmentScratch = []);
+  const authoritativeAsteroids = room.map?.asteroids || [];
+  const index = room.spatialIndex;
+  const indexedAsteroids = index?.dynamicValid
+    && index.querySweptAabbUnordered
+    && typeof index.count === "function"
+    && index.count("asteroids") === authoritativeAsteroids.length;
+  const asteroids = indexedAsteroids
+    ? index.querySweptAabbUnordered(
+      "asteroids",
+      x1,
+      y1,
+      x2,
+      y2,
+      clearance,
+      scratch
+    )
+    : authoritativeAsteroids;
+  for (const asteroid of asteroids) {
+    if (!asteroid) continue;
+    if (segmentCircleClearance(
+      x1,
+      y1,
+      x2,
+      y2,
+      asteroid.x,
+      asteroid.y,
+      (asteroid.radius || 0) + clearance
+    ).blocked) return false;
   }
-  return true;
-}
-
-function isSegmentStationClear(room, x1, y1, x2, y2, clearance) {
-  for (const station of room?.stations || []) {
-    for (const piece of station?.collisionPieces || []) {
-      if (piece && segmentBoxBlocked(x1, y1, x2, y2, piece, clearance)) return false;
-    }
-  }
-  return true;
+  return isSegmentStationClear(room, x1, y1, x2, y2, clearance, options);
 }
 
 function isSegmentClear(room, x1, y1, x2, y2, clearance) {
@@ -310,32 +294,7 @@ function isSegmentClear(room, x1, y1, x2, y2, clearance) {
     || x2 > width - WORLD_MARGIN - clearance
     || y2 < WORLD_MARGIN + clearance
     || y2 > height - WORLD_MARGIN - clearance) return false;
-  const scratch = room._segmentScratch || (room._segmentScratch = []);
-  const asteroids = room.spatialIndex?.dynamicValid
-    && room.spatialIndex.querySweptAabbUnordered
-    ? room.spatialIndex.querySweptAabbUnordered(
-      "asteroids",
-      x1,
-      y1,
-      x2,
-      y2,
-      clearance,
-      scratch
-    )
-    : (room.map?.asteroids || []);
-  for (const asteroid of asteroids) {
-    if (!asteroid) continue;
-    if (segmentCircleClearance(
-      x1,
-      y1,
-      x2,
-      y2,
-      asteroid.x,
-      asteroid.y,
-      (asteroid.radius || 0) + clearance
-    ).blocked) return false;
-  }
-  return isSegmentStationClear(room, x1, y1, x2, y2, clearance);
+  return isStaticObstacleLineClear(room, x1, y1, x2, y2, clearance);
 }
 
 class BinaryHeap {
@@ -409,7 +368,13 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
   const nav = ensureRoomNavigation(room);
   const startClear = nearestClearPoint(room, startX, startY, clearance + nav.cellSize / 2);
   const goalClear = nearestClearPoint(room, goalX, goalY, clearance + nav.cellSize / 2);
-  if (!goalClear.clear) return { waypoints: [], reachedGoal: false };
+  if (!goalClear.clear) return {
+    waypoints: [],
+    reachedGoal: false,
+    requestedGoal: { x: goalX, y: goalY },
+    terminal: null,
+    adjustedGoal: false
+  };
   const start = cellFor(nav, startClear.x, startClear.y);
   const goal = cellFor(nav, goalClear.x, goalClear.y);
   const size = nav.cols * nav.rows;
@@ -437,11 +402,11 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
   // destination produce a sane partial route rather than nothing.
   let closestIndex = start.index;
   let closestHeuristic = heuristic(nav, start.col, start.row, goal.col, goal.row);
-  let reachedGoal = false;
+  let reachedSearchCell = false;
   while (open.length > 0) {
     const node = open.pop();
     if (node.index === goal.index) {
-      reachedGoal = true;
+      reachedSearchCell = true;
       break;
     }
     const row = Math.floor(node.index / nav.cols);
@@ -473,9 +438,10 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
       });
     }
   }
-  const terminal = reachedGoal ? goal.index : closestIndex;
+  const reachedGoal = reachedSearchCell && !goalClear.adjusted;
+  const terminalIndex = reachedSearchCell ? goal.index : closestIndex;
   const raw = [];
-  let index = terminal;
+  let index = terminalIndex;
   while (index !== -1) {
     const row = Math.floor(index / nav.cols);
     const col = index % nav.cols;
@@ -503,8 +469,15 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
   }
   // Only a route that arrives may end on the requested point. A partial one ends
   // on the cell the search actually settled, which is already the last entry.
-  if (reachedGoal) smoothed[smoothed.length - 1] = { x: goalClear.x, y: goalClear.y };
-  return { waypoints: smoothed, reachedGoal };
+  if (reachedGoal) smoothed[smoothed.length - 1] = { x: goalX, y: goalY };
+  const terminal = smoothed[smoothed.length - 1] || null;
+  return {
+    waypoints: smoothed,
+    reachedGoal,
+    requestedGoal: { x: goalX, y: goalY },
+    terminal: terminal ? { x: terminal.x, y: terminal.y } : null,
+    adjustedGoal: Boolean(goalClear.adjusted)
+  };
 }
 
 // Full routes only, for callers that want "is there a way through" rather than
@@ -631,7 +604,7 @@ function shouldReplan(room, ship, destination, now, intent = null) {
     navigation.progressAt = now;
   }
   return distance > navigationClearanceRadius(ship)
-    && now - (navigation.progressAt || now) > NAV_STUCK_TIME_MS;
+    && now - (navigation.progressAt ?? now) > NAV_STUCK_TIME_MS;
 }
 
 function selectWaypoint(ship) {
@@ -704,6 +677,8 @@ module.exports = {
   ensureRoomNavigation,
   findPathWorld,
   isSegmentClear,
+  isSegmentStationClear,
+  isStaticObstacleLineClear,
   navigationPlanningClearance,
   nearestClearPoint,
   resolveNavigation,

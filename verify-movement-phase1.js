@@ -15,6 +15,7 @@
 //   * different tick partitions produce the same trajectory
 
 const assert = require("assert");
+const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
@@ -117,8 +118,7 @@ function makeScenario(ships, asteroids = [], world = { width: 4000, height: 3000
 function simulate(room, ships, seconds, dt = DT, onTick = null) {
   const ticks = Math.round(seconds / dt);
   for (let tick = 0; tick < ticks; tick += 1) {
-    for (const ship of ships) updateShipMovement(room, ship, dt, tick * dt * 1000);
-    updateShipSeparation(room, ships, dt, tick * dt * 1000);
+    movementTestTick(room, ships, dt, tick * dt * 1000);
     if (onTick) onTick(tick);
   }
 }

@@ -140,8 +140,8 @@ function run() {
     segmentStationHullHit(home, emptyStart.x, emptyStart.y, emptyEnd.x, emptyEnd.y) === null,
     "a shot outside the rendered station footprint does not hit the old enclosing circle"
   );
-  const flankStart = worldPoint(1000, 300);
-  const flankEnd = worldPoint(-1000, 300);
+  const flankStart = worldPoint(1000, 200);
+  const flankEnd = worldPoint(-1000, 200);
   const flankHit = segmentStationHullHit(home, flankStart.x, flankStart.y, flankEnd.x, flankEnd.y);
   assert(flankHit && flankHit.t > 0 && flankHit.t < 1, "a shot through rendered flank plating hits the compound hull");
   const hangarStart = worldPoint(1000, 0);
@@ -198,7 +198,7 @@ function run() {
   hitRoom.bullets.length = 0;
   hitRoom.projectileById.clear();
   const hullBefore = targetHome.hp;
-  fireAcross(300);
+  fireAcross(200);
   assert(hitRoom.bullets.length === 0 && targetHome.hp < hullBefore, "the live projectile path damages rendered station plating");
   targetHome.shield = 100;
   targetHome.maxShield = Math.max(targetHome.maxShield, 100);
@@ -333,13 +333,17 @@ function runWeaponChecks() {
   };
   room.players.set("p2", { id: "p2", team: "red", ready: true, ships: [enemy], client: {}, purchaseRequests: new Map() });
   room.ships.set(enemy.id, enemy);
+  room.bullets = [{
+    id: "incoming-pd-test", ownerId: "p2", type: "bolt", interceptable: true,
+    x: enemy.x + 80, y: enemy.y, vx: -400, vy: 0, life: 5, damage: 20, hp: 20
+  }];
   home.team = "blue";
   home.ownerId = "p1";
   for (let tick = 0; tick < 300; tick += 1) updateStationWeapons(room, room.stations, [enemy], 1 / 30, tick * 33);
   // `weapon.reload` is 1000/fireRate; used directly as a seconds cooldown the
   // whole station managed a single volley per match.
   assert((room.bullets || []).length > 20, `stations lay down sustained fire (got ${(room.bullets || []).length} shots in 10s)`);
-  assert((room.bullets || []).some((b) => b.type === "pdShot"), "station point defence engages, using the shared interceptor selector");
+  assert((room.bullets || []).some((b) => b.type === "flak" || b.type === "pdShot"), "station point defence engages through the current interceptor weapon path");
 }
 
 function runCaptureChecks() {
@@ -352,6 +356,50 @@ function runCaptureChecks() {
   assert(cfg.captureDecayPerSecond > 0, "captureDecayPerSecond is configured");
 
   const hull = (id, ownerId, team) => ({ id, alive: true, ownerId, team, x: relay.x, y: relay.y, vx: 0, vy: 0, radius: 26, hp: 100, maxHp: 100 });
+
+  const handoffRoom = makeStationRoom("CAP-HANDOFF").room;
+  const handoffRelay = handoffRoom.stations.find((s) => s.stationType === "relay");
+  handoffRoom.players.set("p-red", {
+    id: "p-red",
+    team: "red",
+    ready: true,
+    ships: [],
+    client: {},
+    purchaseRequests: new Map()
+  });
+  const handoffHull = (id, ownerId, team) => ({
+    id, alive: true, ownerId, team, x: handoffRelay.x, y: handoffRelay.y,
+    vx: 0, vy: 0, radius: 26, hp: 100, maxHp: 100
+  });
+  handoffRoom.ships.set("red-handoff", handoffHull("red-handoff", "p-red", "red"));
+  let handoffNow = 0;
+  for (let tick = 0; tick < 12; tick += 1) updateStations(handoffRoom, 1 / 30, (handoffNow += 33));
+  const redProgress = handoffRelay.captureProgress;
+  const captureStep = (1 / 30) / duration;
+  assert(redProgress > 0 && handoffRelay.captureTeam === "red", "the handoff fixture establishes red capture progress");
+
+  handoffRoom.ships.delete("red-handoff");
+  handoffRoom.ships.set("blue-handoff", handoffHull("blue-handoff", "p1", "blue"));
+  updateStations(handoffRoom, 1 / 30, (handoffNow += 33));
+  assert(handoffRelay.captureTeam === "red", "a new leader does not immediately take ownership of the capture bar");
+  assert(
+    Math.abs(handoffRelay.captureProgress - (redProgress - captureStep)) < 1e-9,
+    "the new leader reverses one tick of the previous team's progress"
+  );
+
+  let drained = false;
+  for (let tick = 0; tick < duration * 60; tick += 1) {
+    updateStations(handoffRoom, 1 / 30, (handoffNow += 33));
+    if (handoffRelay.captureProgress === 0) {
+      drained = true;
+      break;
+    }
+  }
+  assert(drained, "the previous team's progress drains before the new team can build");
+  assert(handoffRelay.captureTeam === null, "draining the old capture bar clears its team");
+  updateStations(handoffRoom, 1 / 30, (handoffNow += 33));
+  assert(handoffRelay.captureTeam === "blue", "the new team starts a fresh capture after the bar is cleared");
+  assert(Math.abs(handoffRelay.captureProgress - captureStep) < 1e-9, "the fresh capture starts at one tick of progress");
   room.players.set("p2", {
     id: "p2",
     team: "red",
@@ -452,6 +500,7 @@ function runSnapshotChecks() {
   const fullHome = full.stations.find((s) => s.stationType === "home");
   assert(Array.isArray(fullHome.design) && fullHome.design.length > 0, "full snapshot carries station design");
   assert(fullHome.hangar && typeof fullHome.hangar.interiorSpawn === "object", "full snapshot carries hangar geometry");
+  assert(fullHome.hangars === undefined, "full snapshot contains no multi-hangar field");
   assert(fullHome.shieldRadius === home.shieldRadius, "full snapshot carries the authoritative shield radius");
   assert(Array.isArray(fullHome.productionQueue) && fullHome.productionQueue.length === 1, "full snapshot carries the production queue");
 
@@ -459,6 +508,7 @@ function runSnapshotChecks() {
   const compactHome = compact.stations.find((s) => s.id === fullHome.id);
   assert(compactHome.design === undefined, "compact snapshot omits cached station design");
   assert(compactHome.hangar === undefined, "compact snapshot omits cached hangar geometry");
+  assert(compactHome.hangars === undefined, "compact snapshot contains no multi-hangar field");
   assert(compactHome.hardpoints === undefined, "compact snapshot omits cached hardpoints");
   assert(compactHome.moduleScale === undefined, "compact snapshot omits cached module scale");
   assert(compactHome.shieldRadius === undefined, "compact snapshot omits the cached station shield radius");

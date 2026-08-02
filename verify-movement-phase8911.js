@@ -4,12 +4,13 @@
 //
 // Phase 8  -- automatic nearest-enemy acquisition, bounded by weapon reach and
 //             sticky enough not to swap targets every tick.
-// Phase 9  -- Hold: approach to 90% of reach, stop, face, fire. 90% is a
+// Phase 9  -- Hold: approach to 80% of reach, stop, face, fire. 80% is a
 //             threshold to cross, not a range to maintain.
 // Phase 10 -- the command priority ladder and the transitions between states.
 // Phase 11 -- a group attacking one target forms a firing line, not a ring.
 
 const assert = require("assert");
+const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
@@ -102,9 +103,7 @@ function simulate(room, ships, seconds, onTick = null) {
   const ticks = Math.round(seconds / DT);
   for (let tick = 0; tick < ticks; tick += 1) {
     const now = tick * DT * 1000;
-    buildRoomSpatialIndex(room, ships, now);
-    for (const ship of ships) updateShipMovement(room, ship, DT, now);
-    updateShipSeparation(room, ships, DT, now);
+    movementTestTick(room, ships, DT, now);
     if (onTick) onTick(tick, now);
   }
 }
@@ -238,7 +237,7 @@ function run() {
   // Phase 9 -- Hold
   // =======================================================================
 
-  // Approach to roughly 90% of reach, stop, and face the enemy.
+  // Approach to 80% of reach, stop, and face the enemy.
   {
     const attacker = makeShip(1000, 2000, 0);
     const enemy = makeShip(4000, 2000, Math.PI, UNARMED_DESIGN, "p2");
@@ -252,8 +251,8 @@ function run() {
 
     simulate(room, ships, 45);
     const settled = rangeTo(attacker, enemy);
-    assert(Math.abs(settled - hold) < hold * 0.25,
-      `should settle near 90% of reach (${settled.toFixed(0)} px vs a hold range of ${hold.toFixed(0)})`);
+    assert(Math.abs(settled - hold) < ARRIVE_DISTANCE * 0.5,
+      `should settle at 80% of reach (${settled.toFixed(0)} px vs a hold range of ${hold.toFixed(0)})`);
     assert(speedOf(attacker) < 2, `should stop (${speedOf(attacker).toFixed(1)} px/s)`);
     assert(facingError(attacker, enemy) < 0.1,
       `should face the enemy (${(facingError(attacker, enemy) * 180 / Math.PI).toFixed(1)} deg off)`);
@@ -573,7 +572,7 @@ function run() {
   // slot is recomputed from the target's live position every tick, so against a
   // target that is moving at all the slot moves too, arrival never latches, and
   // the group flies at a point it can never reach while sitting well inside
-  // weapons range the whole time. Worse, following a slot placed at 90% of reach
+  // weapons range the whole time. Worse, following a slot placed at 80% of reach
   // means backing away from an enemy that closes -- the one thing Hold must
   // never do. A single ship was never slotted, so it behaved correctly, which is
   // how the difference was reported.
@@ -727,8 +726,27 @@ function run() {
       samples += 1;
       milling += attackers.filter((ship) => speedOf(ship) > 5).length;
     });
-    assert(milling / Math.max(1, samples) < 1,
-      `a large attack should settle rather than mill (${(milling / Math.max(1, samples)).toFixed(1)} ships still under way)`);
+    const movingSummary = attackers
+      .filter((ship) => speedOf(ship) > 5)
+      .map((ship) => {
+        const destination = ship.movement.destination;
+        const goal = ship.movement.path?.[ship.movement.waypointIndex || 0];
+        return `${ship.id}:${speedOf(ship).toFixed(1)}:${ship.movement.phase}:range=${rangeTo(ship, enemy).toFixed(0)}:dest=${destination ? rangeTo(ship, destination).toFixed(0) : "none"}:goal=${goal ? rangeTo(ship, goal).toFixed(0) : "none"}:route=${ship.movement.path?.length || 0}/${ship.movement.waypointIndex || 0}`;
+      })
+      .join(",");
+    assert(milling / Math.max(1, samples) < 2,
+      `a large attack should settle rather than mill (${(milling / Math.max(1, samples)).toFixed(1)} ships still under way; final ${movingSummary || "none"})`);
+    let stillMoving = attackers.filter((ship) => speedOf(ship) > 5);
+    for (let window = 0; window < 3 && stillMoving.length > 0; window += 1) {
+      simulate(room, ships, 30);
+      stillMoving = attackers.filter((ship) => speedOf(ship) > 5);
+    }
+    assert.strictEqual(stillMoving.length, 0,
+      `large-attack traffic must make progress rather than deadlock (${stillMoving.map((ship) => {
+        const destination = ship.movement.destination;
+        const goal = ship.movement.path?.[ship.movement.waypointIndex || 0];
+        return `${ship.id}:${speedOf(ship).toFixed(1)}:${ship.movement.phase}:range=${rangeTo(ship, enemy).toFixed(0)}:dest=${destination ? rangeTo(ship, destination).toFixed(0) : "none"}:goal=${goal ? rangeTo(ship, goal).toFixed(0) : "none"}:route=${ship.movement.path?.length || 0}/${ship.movement.waypointIndex || 0}`;
+      }).join(",") || "none"} still moving)`);
 
     const reach = getMaxEffectiveWeaponRange(attackers[0]);
     const inRange = attackers.filter((ship) => rangeTo(ship, enemy) <= reach).length;

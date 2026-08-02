@@ -2,16 +2,16 @@
 
 // The Charge combat stance.
 //
-// Charge has one job: get as close to the enemy as it can and face it. Where
-// "as close as it can" is depends on what the hull is carrying -- a demolition
-// charge means the ship is the weapon and drives into contact; anything else
-// pulls up alongside.
+// Charge has one job: reach hull contact and face the enemy. A demolition
+// carrier keeps ram speed on the final leg; an ordinary charger brakes into the
+// same contact under the normal arrival controller.
 //
 // Every assertion here is a property of that, and the facing ones matter as much
 // as the range ones: a hull travels along its nose and fixed weapons only bear
 // where it points, so a charger that arrives sideways has not charged anything.
 
 const assert = require("assert");
+const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
@@ -112,9 +112,7 @@ function simulate(room, ships, seconds, onTick = null) {
   const ticks = Math.round(seconds / DT);
   for (let tick = 0; tick < ticks; tick += 1) {
     const now = tick * DT * 1000;
-    buildRoomSpatialIndex(room, ships, now);
-    for (const ship of ships) updateShipMovement(room, ship, DT, now);
-    updateShipSeparation(room, ships, DT, now);
+    movementTestTick(room, ships, DT, now);
     if (onTick) onTick(tick, now);
   }
 }
@@ -162,7 +160,7 @@ function run() {
       `...facing it (${(facingError(bomber, enemy) * 180 / Math.PI).toFixed(1)} deg off)`);
   }
 
-  // --- A ship with no charge closes just as far, but stops alongside --------
+  // --- A ship with no charge closes just as far, but brakes into contact -----
   {
     const gunship = makeShip(1000, 2000, 0, GUNSHIP);
     const enemy = makeShip(4000, 2000, Math.PI, UNARMED, "p2", "hold");
@@ -173,10 +171,10 @@ function run() {
     simulate(room, ships, 45);
     const contact = hullContact(gunship, enemy);
     const settled = rangeTo(gunship, enemy);
-    assert(settled > contact,
-      `a ship with no charge should not grind hulls (${settled.toFixed(1)} px vs ${contact.toFixed(1)})`);
-    assert(settled < contact * 2,
-      `...but should still be alongside (${settled.toFixed(1)} px)`);
+    assert(Math.abs(settled - contact) < 3,
+      `a ship with no charge should settle at contact (${settled.toFixed(1)} px vs ${contact.toFixed(1)})`);
+    assert(speedOf(gunship) < 2,
+      `...under the arrival controller rather than ramming (${speedOf(gunship).toFixed(1)} px/s)`);
     assert(facingError(gunship, enemy) < 0.1,
       `...facing it (${(facingError(gunship, enemy) * 180 / Math.PI).toFixed(1)} deg off)`);
 
@@ -230,11 +228,13 @@ function run() {
     // carries is a hull that overshoots and has to come round for another go.
     assert.strictEqual(ram.passes, 1, `it should connect on the first pass, not circle (${ram.passes} passes)`);
 
-    // A ship with no charge is not ramming anything: it still stops alongside,
+    // A ship with no charge is not ramming anything: it reaches the same contact
     // under the ordinary arrival profile, at a speed it can survive.
     const alongside = measure(GUNSHIP);
-    assert.strictEqual(alongside.impact, null,
-      "a ship with no charge should stop alongside rather than colliding");
+    assert(alongside.impact !== null,
+      "an ordinary Charge ship should reach hull contact");
+    assert(alongside.impact < alongside.cruise * 0.25,
+      `an ordinary Charge ship should brake into contact (${alongside.impact.toFixed(0)} px/s against ${alongside.cruise.toFixed(0)} cruise)`);
   }
 
   // --- Hold, for contrast ---------------------------------------------------

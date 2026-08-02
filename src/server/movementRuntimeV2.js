@@ -21,6 +21,11 @@ function finitePoint(point) {
     : null;
 }
 
+function finitePath(path) {
+  if (!Array.isArray(path)) return [];
+  return path.slice(0, 64).map(finitePoint).filter(Boolean);
+}
+
 function createMovementRuntime() {
   return {
     command: null,
@@ -39,6 +44,15 @@ function createMovementRuntime() {
     // Hold has reached its firing position. Also latched -- it is what makes the
     // ship ignore a target closing on it rather than backing away.
     holdEngaged: false,
+    // Charge has made a settled contact. It has its own latch because Hold's
+    // wide range hysteresis is not a valid contact controller.
+    chargeEngaged: false,
+    // The requested point cannot currently be reached. This is a stable state,
+    // not travelling at zero speed; route/world changes clear it.
+    blocked: false,
+    // Cached LOS-valid combat destination (or a short-lived failed search), so
+    // an occluded target does not run a ring of path searches every tick.
+    firingSolution: null,
     // On a ramming run: a Charge ship carrying a live demolition charge, closing
     // on the target it will detonate against. Recomputed every tick, never
     // latched -- see updateShipMovement.
@@ -81,6 +95,18 @@ function setMovementCommand(ship, command) {
       formationSpeed: Number.isFinite(command.formationSpeed) && command.formationSpeed > 0
         ? Number(command.formationSpeed)
         : null,
+      // One corridor belongs to the whole formation. Each ship carries the same
+      // centreline plus its deterministic lane/queue assignment, so independent
+      // A* searches cannot collapse the group onto one obstacle waypoint.
+      formationPath: finitePath(command.formationPath),
+      formationGroupId: command.formationGroupId == null ? null : String(command.formationGroupId),
+      formationLane: Number.isFinite(command.formationLane) ? Number(command.formationLane) : 0,
+      formationRank: Number.isFinite(command.formationRank)
+        ? Math.max(0, Math.floor(command.formationRank))
+        : 0,
+      formationSpacing: Number.isFinite(command.formationSpacing) && command.formationSpacing > 0
+        ? Number(command.formationSpacing)
+        : null,
       // This ship's place on a group's firing line: an angle either side of the
       // group's approach bearing, and how far in its rank stands as a fraction
       // of the ship's own engagement range. Stated as an arc rather than an
@@ -91,6 +117,12 @@ function setMovementCommand(ship, command) {
       firingRadiusScale: Number.isFinite(command.firingRadiusScale) && command.firingRadiusScale > 0
         ? Number(command.firingRadiusScale)
         : 1,
+      // Attack ranks are traffic priority only. They do not create a movement
+      // formation or a shared route: closer firing ranks pass through the outer
+      // firing line and establish their own ring.
+      firingRank: Number.isFinite(command.firingRank)
+        ? Math.max(0, Math.floor(command.firingRank))
+        : 0,
       // This ship's bearing around a target a group is charging, so a fleet
       // closing to contact shares the hull out between its sides instead of
       // every ship driving at the same point on it. Null for every other stance.
@@ -109,6 +141,9 @@ function setMovementCommand(ship, command) {
   runtime.arrived = false;
   runtime.orderComplete = false;
   runtime.holdEngaged = false;
+  runtime.chargeEngaged = false;
+  runtime.blocked = false;
+  runtime.firingSolution = null;
   if (!runtime.command) runtime.phase = "idle";
   else if (runtime.command.type === "stop") runtime.phase = "braking";
   else if (runtime.command.type === "move") runtime.phase = "travelling";

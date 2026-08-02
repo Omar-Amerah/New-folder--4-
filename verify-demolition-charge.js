@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { resolveDemolitionContacts, detonateProximityCharge, armedProximityChargeRanges, nearestDemolitionTargetPoint } = require('./src/server/combat');
 const { updateShipMovement } = require('./src/server/movement');
 const { physicalCollisionRadius } = require('./src/server/movementCollision');
+const { ARRIVE_DISTANCE } = require('./src/server/movementTuning');
 const { initComponentState, initProximityChargeState } = require('./src/server/componentHealth');
 const { PARTS } = require('./src/server/components');
 
@@ -314,13 +315,13 @@ function multiChargeDesign() {
   assert.equal(small.proximityCharge.damagesFriendlyShips, false, 'small protects friendly ships');
 }
 
-// 18. How close Charge gets depends on whether the charge is still aboard.
+// 18. Charge always closes to contact; the payload controls impact speed.
 //
 // A demolition ship IS the weapon, so it drives until the hulls touch and lets
 // the trigger radius do the rest. Take the charge away and the same stance still
 // closes -- it is the stance the player picked, not a consequence of the
-// loadout -- but it pulls up alongside instead of ramming, because there is no
-// longer anything to be gained by grinding hulls together.
+// loadout -- but without a payload it uses the ordinary arrival controller
+// instead of retaining ram speed.
 //
 // Asserted on the destination the stance produces rather than on a flown
 // trajectory: these fixtures carry no engine or turn stats, so the hull cannot
@@ -342,14 +343,19 @@ function multiChargeDesign() {
   };
   const hull = physicalCollisionRadius(carrier) + physicalCollisionRadius(enemy);
 
+  const contactDestination = Math.max(0, hull - ARRIVE_DISTANCE);
   assert.ok(armedProximityChargeRanges(carrier).armed, 'the carrier starts armed');
-  assert.ok(Math.abs(standoff() - hull) < 1e-6,
-    `an armed demolition ship closes to hull contact (${standoff().toFixed(1)} px vs ${hull.toFixed(1)})`);
+  const armedDestination = standoff();
+  assert.ok(Math.abs(armedDestination - contactDestination) < 1e-6,
+    `an armed demolition ship commands through the arrival radius (${armedDestination.toFixed(1)} px vs ${contactDestination.toFixed(1)})`);
+  assert.equal(carrier.movement.ramming, true, 'the armed final leg retains ram speed');
 
   carrier.componentHp[1] = 0;
   assert.ok(!armedProximityChargeRanges(carrier).armed, 'the charge is gone once destroyed');
-  assert.ok(standoff() > hull + 1,
-    `a ship whose charge is gone still charges, but pulls up alongside (${standoff().toFixed(1)} px vs ${hull.toFixed(1)})`);
+  const ordinaryDestination = standoff();
+  assert.ok(Math.abs(ordinaryDestination - contactDestination) < 1e-6,
+    `a ship whose charge is gone still closes to contact (${ordinaryDestination.toFixed(1)} px vs ${contactDestination.toFixed(1)})`);
+  assert.equal(carrier.movement.ramming, false, 'without a payload the final leg uses normal braking');
 }
 
 // 19. Demolition charges acquire, contact, and damage station hulls.

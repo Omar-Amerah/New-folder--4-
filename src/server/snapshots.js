@@ -43,6 +43,9 @@ const COMPONENT_HEAT_DELTA_STRIDE = 5;
 const ENTITY_DELTA_POWER_PRIVATE_FIELDS = Object.freeze(PRIVATE_SHIP_FIELDS.filter((field) => ![
   "chp", "chpD", "componentHeat", "componentHeatD", "storageCharge"
 ].includes(field)));
+const ENTITY_DELTA_SHARED_PRIVATE_REVISION_FIELDS = Object.freeze([
+  "componentHeatRevision", "heatTelemetryRevision", "powerRuntimeRevision"
+]);
 
 function entityDeltaClearStateFields(ship) {
   const clear = [];
@@ -61,6 +64,7 @@ function entityDeltaClearPrivateFields(entry, ship) {
   const hasPower = Boolean(ship.componentPower?.byComponentIndex);
   if (!hasPower) {
     for (const field of ENTITY_DELTA_POWER_PRIVATE_FIELDS) {
+      if (ENTITY_DELTA_SHARED_PRIVATE_REVISION_FIELDS.includes(field)) continue;
       if (entry[field] === undefined) clear.push(field);
     }
   }
@@ -173,7 +177,6 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     entry.moduleScale = station.moduleScale;
     entry.design = station.design || [];
     if (station.hangar) entry.hangar = station.hangar;
-    if (station.hangars) entry.hangars = station.hangars;
     if (station.hardpoints) entry.hardpoints = station.hardpoints;
     entry.weaponAngles = (station.weaponAngles || []).map(round);
     entry.maxHp = round(station.maxHp);
@@ -300,12 +303,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     entry.hot = ship.hotComponentCount || 0;
     entry.overheated = ship.overheatedComponentCount || 0;
     entry.heatRevision = ship.heatRevision || 0;
-    entry.componentHeatRevision = ship.componentHeatRevision || 0;
     entry.heatStateRevision = ship.heatStateRevision || 0;
-    entry.heatTelemetryRevision = ship.heatTelemetryRevision || 0;
-    entry.powerRuntimeRevision = (ship.powerRevision || 0)
-      + (ship.powerProtectionRevision || 0)
-      + (ship.heatTelemetryRevision || 0);
     if (ship.selfDestructAt && ship.alive) {
       const span = ship.selfDestructAt - ship.selfDestructStart;
       entry.destructProgress = span > 0 ? round(Math.max(0, Math.min(1, (now - ship.selfDestructStart) / span))) : 1;
@@ -512,6 +510,14 @@ function buildPowerWiringRuntimeSnapshot(ship) {
   return buildPowerWiringRuntime(ship);
 }
 
+function appendShipPrivateRevisionFields(entry, ship) {
+  entry.componentHeatRevision = ship.componentHeatRevision || 0;
+  entry.heatTelemetryRevision = ship.heatTelemetryRevision || 0;
+  entry.powerRuntimeRevision = (ship.powerRevision || 0)
+    + (ship.powerProtectionRevision || 0)
+    + (ship.heatTelemetryRevision || 0);
+}
+
 function appendComponentPowerState(entry, ship) {
   entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
   entry.powerStatus = ship.powerStatus;
@@ -535,6 +541,7 @@ function appendDetailedPowerTelemetry(entry, ship) {
 function appendFullShipBaseline(entry, ship, includeTelemetry = true) {
   delete entry.chpD;
   delete entry.componentHeatD;
+  appendShipPrivateRevisionFields(entry, ship);
   entry.design = ship.design || [];
   if (ship.componentPower?.byComponentIndex) {
     if (includeTelemetry) appendDetailedPowerTelemetry(entry, ship);
@@ -548,6 +555,7 @@ function appendFullShipBaseline(entry, ship, includeTelemetry = true) {
 function appendShipDeltas(entry, ship, client = null, options = {}) {
   const includeTelemetry = options.includeTelemetry !== false;
   const forceTelemetry = options.forceTelemetry === true;
+  appendShipPrivateRevisionFields(entry, ship);
   const knownPower = client?.knownShipPowerRevisions instanceof Map ? client.knownShipPowerRevisions : null;
   const known = knownPower ? knownPower.get(ship.id) : undefined;
   const currentPowerRevision = ship.powerRevision || 0;
@@ -885,7 +893,6 @@ function buildClientStations(room, sharedStations, client, sendStatic, options =
       entry.moduleScale = station.moduleScale;
       entry.design = station.design || [];
       if (station.hangar) entry.hangar = station.hangar;
-      if (station.hangars) entry.hangars = station.hangars;
       if (station.hardpoints) entry.hardpoints = station.hardpoints;
       entry.weaponAngles = (station.weaponAngles || []).map(round);
       delete entry.weaponAnglePairs;

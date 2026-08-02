@@ -14,6 +14,7 @@
 //   * slot assignment is stable, not re-decided every tick
 
 const assert = require("assert");
+const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
@@ -123,8 +124,7 @@ function makeBlock(count, x, y, spacing = 90, columns = 3, design = LIGHT_DESIGN
 function simulate(room, ships, seconds, onTick = null) {
   const ticks = Math.round(seconds / DT);
   for (let tick = 0; tick < ticks; tick += 1) {
-    for (const ship of ships) updateShipMovement(room, ship, DT, tick * DT * 1000);
-    updateShipSeparation(room, ships, DT, tick * DT * 1000);
+    movementTestTick(room, ships, DT, tick * DT * 1000);
     if (onTick) onTick(tick);
   }
 }

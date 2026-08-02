@@ -42,6 +42,7 @@ function ship(id, ownerId, team, x = 50, y = 50) {
     blasterRange: 0, missileRange: 0, railgunRange: 0, beamRange: 0, weaponRanges: [],
     beamRadius: 0, sensorRange: 0, sensorCones: [], respawnIn: 0, removeIn: 0,
     heat: 0, heatNow: 0, heatMax: 100, hot: 0, overheated: 0, heatRevision: 0,
+    powerRevision: 0,
     componentHeatRevision: 0, heatStateRevision: 0, heatTelemetryRevision: 0,
     powerRuntimeRevision: 0, stats: { unitCost: 1, radius: 12 },
     design: [{ type: "core" }, { type: "engine" }], componentHp: [100, 100],
@@ -323,6 +324,78 @@ async function run() {
     const redacted = merge.mergeSnapshotTransaction(base.snapshot, base.networkState, transition);
     assert.equal(redacted.ok, true);
     assert.equal(redacted.snapshot.ships[0].componentPower, undefined, "detail downgrade clears private fields");
+  }
+  {
+    const { room, ships } = roomFixture({ ships: 2 });
+    const client = attach(room, "p1", modernCapabilities());
+    const merge = await import("./public/src/snapshotMerge.js");
+    delivery.sendFullSnapshot(client, 1000, "reconnect");
+    const baseline = lastPacket(client);
+    const baselineResult = merge.mergeSnapshotTransaction(
+      null,
+      { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false },
+      baseline
+    );
+    assert.equal(baselineResult.ok, true, "public enemy baseline is accepted");
+    const publicEnemyBaseline = baseline.ships.find((entry) => entry.id === ships[1].id);
+    assert.equal(publicEnemyBaseline.detail, "public", "enemy baseline is public detail");
+    assert.equal(publicEnemyBaseline.componentHeatRevision, undefined, "enemy baseline has no Heat revision");
+    assert.equal(publicEnemyBaseline.heatTelemetryRevision, undefined, "enemy baseline has no telemetry revision");
+    assert.equal(publicEnemyBaseline.powerRuntimeRevision, undefined, "enemy baseline has no Power runtime revision");
+    let snapshot = baselineResult.snapshot;
+    let networkState = baselineResult.networkState;
+    const enemy = ships[1];
+
+    enemy.componentHeatRevision += 1;
+    enemy.heatTelemetryRevision += 1;
+    enemy.powerRevision += 1;
+    room.simulationTimeMs += 50;
+    delivery.broadcastSnapshot(room, room.simulationTimeMs);
+    const compact = lastPacket(client);
+    assert.equal(compact.snapshotFormatVersion, 2);
+    assert(!compact.shipsPatch.private.some(([id]) => id === enemy.id), "public enemy revisions never create a private patch");
+    const mergeResult = merge.mergeSnapshotTransaction(snapshot, networkState, compact);
+    assert.equal(mergeResult.ok, true, "compact with public enemy revision changes is accepted");
+    snapshot = mergeResult.snapshot;
+    networkState = mergeResult.networkState;
+
+    const recoveryRequestsBefore = client.snapshotDeliveryDiagnostics?.recoveryRequests || 0;
+    let rejectedSnapshots = 0;
+    let fullRecoveryRequests = 0;
+    let compactSnapshotsAccepted = 0;
+    for (let index = 0; index < 200; index += 1) {
+      enemy.x += 1.25;
+      enemy.y = 50 + ((index % 10) * 0.5);
+      enemy.vx = 1.25;
+      enemy.vy = 0.5;
+      enemy.angle = (index % 32) * 0.05;
+      enemy.targetX = ships[0].x;
+      enemy.targetY = ships[0].y;
+      enemy.combatTargetId = ships[0].id;
+      enemy.componentHeatRevision += 1;
+      enemy.heatTelemetryRevision += 1;
+      enemy.powerRevision += 1;
+      room.simulationTimeMs += 50;
+      delivery.broadcastSnapshot(room, room.simulationTimeMs);
+      const packet = lastPacket(client);
+      if (packet.snapshotKind === "full") fullRecoveryRequests += 1;
+      const result = merge.mergeSnapshotTransaction(snapshot, networkState, packet);
+      if (!result.ok) {
+        rejectedSnapshots += 1;
+        continue;
+      }
+      if (packet.snapshotKind === "compact") compactSnapshotsAccepted += 1;
+      snapshot = result.snapshot;
+      networkState = result.networkState;
+    }
+    assert.equal(rejectedSnapshots, 0, "moving/combat snapshots have no merge rejections");
+    assert.equal(fullRecoveryRequests, 0, "moving/combat snapshots request no full recovery");
+    assert.equal(compactSnapshotsAccepted, 200, "all moving/combat snapshots are accepted as compact packets");
+    assert.equal(
+      (client.snapshotDeliveryDiagnostics?.recoveryRequests || 0) - recoveryRequestsBefore,
+      0,
+      "moving/combat snapshots trigger no server recovery request"
+    );
   }
   {
     const { room } = roomFixture({ ships: 1 });

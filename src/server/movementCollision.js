@@ -55,6 +55,7 @@ function shipIsStopped(ship) {
     && (!ship.movement?.command
       || ship.movement.command.type === "stop"
       || phase === "positioned"
+      || phase === "blocked"
       || phase === "idle");
 }
 

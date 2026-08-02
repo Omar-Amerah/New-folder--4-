@@ -225,6 +225,30 @@ try {
     assert.ok(initial.own.every((ship) => ship.sensorRange > 0), "ship snapshots carry an effective sensor range");
     assert.equal(initial.renderer.fatalFrameError, null, "fog texture renders without a Pixi frame failure");
 
+    const homeId = initial.stations.find((station) => station.stationType === "home")?.id;
+    assert.ok(homeId, "browser snapshot includes a home station");
+    const homeRender = await page.evaluate(async (id) => {
+      const { stationLocalBoundsForTest } = await import("/src/game/pixi/pixiStations.js");
+      const home = window.__mfaState.snapshot.stations.find((station) => station.id === id);
+      const bounds = stationLocalBoundsForTest(home);
+      return {
+        moduleScale: home.moduleScale,
+        width: bounds.maxX - bounds.minX,
+        height: bounds.maxY - bounds.minY
+      };
+    }, homeId);
+    assert.equal(homeRender.moduleScale, 36, "browser home station uses the authoritative module scale");
+    assert.equal(homeRender.width, 540, "browser home station renderer bounds are 540 world units wide");
+    assert.equal(homeRender.height, 540, "browser home station renderer bounds are 540 world units high");
+    await page.evaluate((id) => {
+      const home = window.__mfaState.snapshot.stations.find((station) => station.id === id);
+      window.__mfaState.camera.follow = false;
+      window.__mfaState.camera.x = home.x;
+      window.__mfaState.camera.y = home.y;
+    }, homeId);
+    await sleep(250);
+    await page.screenshot({ path: `${artifactDir}/home-station-geometry.png`, fullPage: true });
+
     const relayId = initial.stations.find((station) => station.stationType === "relay").id;
     await page.evaluate((id) => {
       const relay = window.__mfaState.snapshot.stations.find((station) => station.id === id);

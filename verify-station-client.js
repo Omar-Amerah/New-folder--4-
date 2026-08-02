@@ -86,6 +86,7 @@ const compactStations = [{
 const merged = mergeCachedStationFields(previousStations, compactStations);
 assert.deepEqual(merged[0].design, previousStations[0].design, 'compact station inherits the cached design');
 assert.deepEqual(merged[0].hangar, previousStations[0].hangar, 'compact station inherits the cached hangar');
+assert.equal(merged[0].hangars, undefined, 'compact station never inherits a multi-hangar field');
 assert.deepEqual(merged[0].hardpoints, previousStations[0].hardpoints, 'compact station inherits cached hardpoints');
 assert.equal(merged[0].moduleScale, 36, 'compact station inherits cached module scale');
 assert.equal(merged[0].shieldRadius, 405, 'compact station inherits the authoritative shield hit radius');
@@ -250,7 +251,7 @@ renderStationPanel();
 assert.equal(dom.stationPanel.hidden, true, 'the panel never appears in a classic room');
 
 // --- Renderer ----------------------------------------------------------------
-const { stationColor, stationStateLabel } = await import('./public/src/game/pixi/pixiStations.js');
+const { stationColor, stationStateLabel, stationLocalBoundsForTest } = await import('./public/src/game/pixi/pixiStations.js');
 
 resetState();
 const [home, relay] = state.snapshot.stations;
@@ -277,6 +278,20 @@ assert.equal(
   'CONTROLLED',
   'legacy hidden captured relay snapshots also avoid the unscanned label'
 );
+
+// Renderer pixel-bounds proof: a full authored 15-cell station design is 540
+// world units at scale 36, including when a legacy-incomplete station record
+// omits moduleScale and has to use the home-station default.
+const fullStationDesign = [];
+for (let y = 0; y < 15; y += 1) for (let x = 0; x < 15; x += 1) fullStationDesign.push({ x, y, type: 'frame' });
+const fallbackBounds = stationLocalBoundsForTest({ stationType: 'home', design: fullStationDesign });
+const explicitBounds = stationLocalBoundsForTest({ stationType: 'home', moduleScale: 36, design: fullStationDesign });
+assert.equal(fallbackBounds.maxX - fallbackBounds.minX, 540, 'home renderer fallback measures a 540-unit frontage');
+assert.equal(fallbackBounds.maxY - fallbackBounds.minY, 540, 'home renderer fallback measures a 540-unit height');
+assert.deepEqual(fallbackBounds, explicitBounds, 'home renderer fallback is identical to explicit scale 36');
+const stationRendererJs = fs.readFileSync('public/src/game/pixi/pixiStations.js', 'utf8');
+assert(!/Number\(station\.moduleScale\)\s*\|\|\s*56\b/.test(stationRendererJs), 'home renderer has no scale-56 fallback');
+assert(stationRendererJs.includes('station.stationType === "home" ? 36'), 'home renderer fallback is explicitly scale 36');
 
 // The hangar build bar. Builds are sub-second for a light hull, so this is
 // checked by driving the drawing directly rather than trying to photograph it.
@@ -316,7 +331,8 @@ assert.equal(
 const rendererJs = fs.readFileSync('public/src/game/pixi/pixiRenderer.js', 'utf8');
 assert(rendererJs.includes('stations: new PIXI.Container()'), 'the renderer owns a dedicated stations layer');
 assert(rendererJs.includes('worldRoot.addChild(layers.stations)'), 'the stations layer is in the world draw order');
-assert(rendererJs.indexOf('worldRoot.addChild(layers.stations)') < rendererJs.indexOf('worldRoot.addChild(layers.ships)'), 'stations draw beneath ships');
+assert(rendererJs.includes('worldRoot.addChild(layers.friendlyShipBodies)'), 'friendly ships have a dedicated world layer');
+assert(rendererJs.indexOf('worldRoot.addChild(layers.stations)') < rendererJs.indexOf('worldRoot.addChild(layers.friendlyShipBodies)'), 'stations draw beneath friendly ships');
 assert(rendererJs.includes('updatePixiStations'), 'stations are updated every frame');
 assert(rendererJs.includes('destroyPixiStations'), 'the station pool is torn down with the renderer');
 

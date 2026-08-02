@@ -22,6 +22,58 @@ function segmentAabbFirstHit(x0, y0, x1, y1, halfWidth, halfHeight) {
   return first >= 0 && first <= 1 ? first : -1;
 }
 
+function pointInsideStationPiece(x, y, piece, margin = 0) {
+  const angle = Number(piece?.angle) || 0;
+  const cos = Math.cos(-angle);
+  const sin = Math.sin(-angle);
+  const dx = x - piece.x;
+  const dy = y - piece.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+  return Math.abs(localX) <= (Number(piece.halfWidth) || 0) + margin
+    && Math.abs(localY) <= (Number(piece.halfHeight) || 0) + margin;
+}
+
+function segmentStationPieceBlocked(x0, y0, x1, y1, piece, margin = 0) {
+  const angle = Number(piece?.angle) || 0;
+  const cos = Math.cos(-angle);
+  const sin = Math.sin(-angle);
+  const startDx = x0 - piece.x;
+  const startDy = y0 - piece.y;
+  const endDx = x1 - piece.x;
+  const endDy = y1 - piece.y;
+  const localX0 = startDx * cos - startDy * sin;
+  const localY0 = startDx * sin + startDy * cos;
+  const localX1 = endDx * cos - endDy * sin;
+  const localY1 = endDx * sin + endDy * cos;
+  return segmentAabbFirstHit(
+    localX0,
+    localY0,
+    localX1,
+    localY1,
+    Math.max(0, Number(piece.halfWidth) || 0) + margin,
+    Math.max(0, Number(piece.halfHeight) || 0) + margin
+  ) >= 0;
+}
+
+// Shared station segment geometry for movement navigation and weapon LOS. The
+// caller chooses whether one-way launch doors count as hull; all ordinary
+// collision pieces use identical rotated-box math in both systems.
+function isSegmentStationClear(room, x0, y0, x1, y1, margin = 0, options = null) {
+  for (const station of room?.stations || []) {
+    const pieces = station?.collisionPieces || [];
+    if (options?.ignoreStationContainingEndpoint
+      && pieces.some((piece) => piece && !piece.door && pointInsideStationPiece(x1, y1, piece, margin))) {
+      continue;
+    }
+    for (const piece of pieces) {
+      if (!piece || (options?.ignoreDoors && piece.door)) continue;
+      if (segmentStationPieceBlocked(x0, y0, x1, y1, piece, margin)) return false;
+    }
+  }
+  return true;
+}
+
 function segmentStationHullHit(station, x0, y0, x1, y1, margin = 0) {
   let best = null;
   const padding = Math.max(0, Number(margin) || 0);
@@ -124,6 +176,7 @@ function stationShieldCollisionRadius(station) {
 module.exports = {
   STATION_SHIELD_MARGIN_MULTIPLIER,
   segmentStationHullHit,
+  isSegmentStationClear,
   nearestStationHullPoint,
   computeStationShieldCollisionRadius,
   stationShieldCollisionRadius

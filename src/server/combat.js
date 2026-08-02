@@ -51,7 +51,7 @@ const { getCommandAuraMultiplier } = require("./commandAuras");
 const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
 
 const Relationships = require("./relationships");
-const { segmentStationHullHit, nearestStationHullPoint } = require("./stationCollision");
+const { segmentStationHullHit, nearestStationHullPoint, isSegmentStationClear } = require("./stationCollision");
 
 const TargetingTelemetry = require("./targetingTelemetry");
 const PointDefenceThreats = require("./pointDefenceThreats");
@@ -4674,20 +4674,16 @@ function getCadencedWeaponTarget(room, ship, ships, worldX, worldY, primary, ran
 // loop could not match and has been removed.
 
 function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
-
   const candidates = asteroidBroadPhase(room, x1, y1, x2, y2, margin, roomScratch(room, "lineBlock"));
-
   for (let i = 0; i < candidates.length; i += 1) {
-
     const asteroid = candidates[i];
-
     if (!asteroid) continue;
-
     if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
-
   }
-
-  return false;
+  return !isSegmentStationClear(room, x1, y1, x2, y2, margin, {
+    ignoreStationContainingEndpoint: true,
+    ignoreDoors: true
+  });
 
 }
 
