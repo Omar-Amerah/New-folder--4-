@@ -5,7 +5,7 @@
 // tests can override them via the __set* helpers.
 
 let _circularShipSeparation = true;
-let _redundantFleetMapCollisionPass = false;
+let _redundantFleetMapCollisionPass = true;
 
 function circularShipSeparation() {
   return _circularShipSeparation;
@@ -25,9 +25,9 @@ function __setRedundantFleetMapCollisionPass(value) {
 
 // --- Phase Two projectile performance flags ---
 
-let _projectileFlakSinglePass = false;
-let _projectileGuidanceCadence = false;
-let _projectileGridCollision = false;
+let _projectileFlakSinglePass = true;
+let _projectileGuidanceCadence = true;
+let _projectileGridCollision = true;
 
 function PROJECTILE_FLAK_SINGLE_PASS() {
   return _projectileFlakSinglePass;
@@ -55,11 +55,11 @@ function __setPROJECTILE_GRID_COLLISION(value) {
 
 // --- Phase Three weapon targeting and profile performance flags ---
 
-let _weaponTargetAcquisitionCadence = false;
+let _weaponTargetAcquisitionCadence = true;
 
 // --- Phase Four authoritative fixed-timestep simulation flag ---
 
-let _fixedAuthoritativeTimestep = false;
+let _fixedAuthoritativeTimestep = true;
 
 function FIXED_AUTHORITATIVE_TIMESTEP() {
   return _fixedAuthoritativeTimestep;
@@ -71,7 +71,7 @@ function __setFIXED_AUTHORITATIVE_TIMESTEP(value) {
 
 // --- Phase 4B incremental spatial-index updates flag ---
 
-let _incrementalSpatialIndex = false;
+let _incrementalSpatialIndex = true;
 
 function INCREMENTAL_SPATIAL_INDEX() {
   return _incrementalSpatialIndex;
@@ -85,8 +85,8 @@ function __setINCREMENTAL_SPATIAL_INDEX(value) {
 // Both paths remain opt-in. PACKED_FLEET_SOLVER is only honoured when the
 // shared pair set is enabled by the movement collision path.
 
-let _sharedMovementContactPairs = false;
-let _packedFleetSolver = false;
+let _sharedMovementContactPairs = true;
+let _packedFleetSolver = true;
 
 function SHARED_MOVEMENT_CONTACT_PAIRS() {
   return _sharedMovementContactPairs;
@@ -103,42 +103,42 @@ function __setSHARED_MOVEMENT_CONTACT_PAIRS(value) {
 function __setPACKED_FLEET_SOLVER(value) {
   _packedFleetSolver = Boolean(value);
 }
-let _pointDefenceSharedThreats = false;
-let _weaponProfileRevisionCache = false;
+let _pointDefenceSharedThreats = true;
+let _weaponProfileRevisionCache = true;
 
 // --- Phase Five entity/field-level snapshot delivery flag ---
 // This remains opt-in until the focused protocol, lifecycle and production
 // benchmark checks have established parity with the existing compact format.
-let _entityDeltaSnapshots = false;
+let _entityDeltaSnapshots = true;
 
 // --- Phase 6A authoritative Heat runtime flag ---
 // Keep the optimized path opt-in until the parity and soak evidence is
 // accepted.  Tests and benchmarks can switch it explicitly through the
 // setter while the legacy solver remains the production default.
-let _optimizedHeatRuntime = false;
+let _optimizedHeatRuntime = true;
 
 // --- Phase 6B authoritative drone decision/runtime flag ---
 // The optimized drone architecture remains opt-in until its differential and
 // production-path checks establish parity with the existing loop.
-let _optimizedDroneRuntime = false;
+let _optimizedDroneRuntime = true;
 
 // --- Phase 6C authoritative visibility runtime flag ---
 // Keep the incremental source/team/snapshot architecture disabled until its
 // differential and production-path checks establish parity with the legacy
 // visibility implementation.  This is intentionally one switch for the full
 // Phase 6C architecture; do not split it into sensor/filter/team flags.
-let _optimizedVisibilityRuntime = false;
+let _optimizedVisibilityRuntime = true;
 
 // --- Phase 6D authoritative incremental Command Aura runtime ---
 // Keep the cache/incremental path opt-in until differential and production-path
 // verification is accepted. This is intentionally one flag for the complete
 // Command Aura runtime rather than separate source/membership/winner switches.
-let _optimizedCommandAuraRuntime = false;
+let _optimizedCommandAuraRuntime = true;
 // --- Phase 6F station weapon runtime flag ---
 // The legacy station weapon loop remains the production default. The optimized
 // path is enabled only by focused parity/benchmark checks after the measured
 // Phase 6F station-weapon bottleneck evidence.
-let _optimizedStationWeaponRuntime = false;
+let _optimizedStationWeaponRuntime = true;
 
 function OPTIMIZED_STATION_WEAPON_RUNTIME() {
   return _optimizedStationWeaponRuntime;

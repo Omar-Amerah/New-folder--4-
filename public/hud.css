@@ -331,6 +331,70 @@
   overflow: hidden;
 }
 
+.report-team {
+  --report-team-color: #8da2bd;
+  --report-team-tint: rgba(141, 162, 189, 0.07);
+}
+
+.report-team-blue {
+  --report-team-color: #38d5ff;
+  --report-team-tint: rgba(56, 213, 255, 0.09);
+}
+
+.report-team-red {
+  --report-team-color: #ff5f7e;
+  --report-team-tint: rgba(255, 95, 126, 0.09);
+}
+
+.report-table .report-team-heading th {
+  padding: 9px 14px;
+  border-top: 8px solid #091019;
+  border-bottom: 1px solid color-mix(in srgb, var(--report-team-color) 36%, transparent);
+  border-left: 4px solid var(--report-team-color);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--report-team-color) 20%, transparent), transparent 58%);
+  color: var(--report-team-color);
+  text-transform: none;
+}
+
+.report-team:first-of-type .report-team-heading th {
+  border-top: 0;
+}
+
+.report-table .report-team-heading th,
+.report-table .report-team-heading th span {
+  font-size: 13px;
+  letter-spacing: 0.7px;
+}
+
+.report-table .report-team-heading th span {
+  color: inherit;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.report-team-heading small {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--report-team-color) 38%, transparent);
+  color: #b8c7da;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.report-team-winner .report-team-heading small {
+  color: #fff2c4;
+}
+
+.report-player-row {
+  background: var(--report-team-tint);
+}
+
+.report-player-row td:first-child {
+  border-left: 4px solid color-mix(in srgb, var(--report-team-color) 58%, transparent);
+}
+
 .report-table th,
 .report-table td {
   padding: 12px 14px;
@@ -348,7 +412,7 @@
   white-space: nowrap;
 }
 
-.report-table tr:hover {
+.report-player-row:hover {
   background: rgba(255, 255, 255, 0.03);
 }
 

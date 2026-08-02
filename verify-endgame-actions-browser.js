@@ -43,11 +43,25 @@ let browser;
       state.snapshot = {
         ...state.snapshot,
         phase: "ended",
-        winner: { id: state.myId, name: state.mine?.name || "Winner", team: state.mine?.team || "blue" }
+        rules: { ...state.snapshot?.rules, gameMode: "teams" },
+        winner: { id: "red-one", name: "Red wing", team: "red" },
+        players: [
+          { id: "blue-one", name: "Blue Pilot", team: "blue", teamName: "Blue wing", color: "#64b5ff", kills: 1 },
+          { id: "red-one", name: "Red Pilot", team: "red", teamName: "Red wing", color: "#ff7390", kills: 2 }
+        ]
       };
       state.adminId = state.myId;
       state.pendingEndGameAction = null;
       updateWinnerBanner();
+
+      const teamPresentation = [...document.querySelectorAll("[data-report-team]")].map((group) => ({
+        team: group.dataset.reportTeam,
+        heading: group.querySelector(".report-team-heading")?.textContent.replace(/\s+/g, " ").trim(),
+        player: group.querySelector(".report-player-row td")?.textContent,
+        winner: group.classList.contains("report-team-winner"),
+        accent: getComputedStyle(group.querySelector(".report-team-heading th")).borderLeftColor,
+        rowTint: getComputedStyle(group.querySelector(".report-player-row")).backgroundColor
+      }));
 
       const readAction = (buttonId, expectedPending) => {
         const before = (window.__mfaNetworkDiagnostics?.sentTypes || []).length;
@@ -95,6 +109,7 @@ let browser;
         pending: state.pendingEndGameAction
       };
       return {
+        teamPresentation,
         rematch,
         returnToLobby,
         closeLobby,
@@ -106,6 +121,10 @@ let browser;
       };
     });
 
+    assert.deepStrictEqual(result.teamPresentation, [
+      { team: "red", heading: "Red wing Winner", player: "Red Pilot", winner: true, accent: "rgb(255, 95, 126)", rowTint: "rgba(255, 95, 126, 0.09)" },
+      { team: "blue", heading: "Blue wing 1 pilot", player: "Blue Pilot", winner: false, accent: "rgb(56, 213, 255)", rowTint: "rgba(56, 213, 255, 0.09)" }
+    ]);
     assert.deepStrictEqual(result.rematch, { type: "returnToLobby", disabled: true, pending: "rematch" });
     assert.deepStrictEqual(result.returnToLobby, { type: "returnToLobby", disabled: true, pending: "return-to-lobby" });
     assert.deepStrictEqual(result.closeLobby, { type: "closeLobby", disabled: true, pending: "close-lobby" });
