@@ -129,6 +129,20 @@ let _optimizedDroneRuntime = false;
 // Phase 6C architecture; do not split it into sensor/filter/team flags.
 let _optimizedVisibilityRuntime = false;
 
+// --- Phase 6F station weapon runtime flag ---
+// The legacy station weapon loop remains the production default. The optimized
+// path is enabled only by focused parity/benchmark checks after the measured
+// Phase 6F station-weapon bottleneck evidence.
+let _optimizedStationWeaponRuntime = false;
+
+function OPTIMIZED_STATION_WEAPON_RUNTIME() {
+  return _optimizedStationWeaponRuntime;
+}
+
+function __setOPTIMIZED_STATION_WEAPON_RUNTIME(value) {
+  _optimizedStationWeaponRuntime = Boolean(value);
+}
+
 function OPTIMIZED_VISIBILITY_RUNTIME() {
   return _optimizedVisibilityRuntime;
 }
@@ -217,5 +231,7 @@ module.exports = {
   OPTIMIZED_HEAT_RUNTIME,
   __setOPTIMIZED_HEAT_RUNTIME,
   OPTIMIZED_VISIBILITY_RUNTIME,
-  __setOPTIMIZED_VISIBILITY_RUNTIME
+  __setOPTIMIZED_VISIBILITY_RUNTIME,
+  OPTIMIZED_STATION_WEAPON_RUNTIME,
+  __setOPTIMIZED_STATION_WEAPON_RUNTIME
 };

@@ -1,9 +1,8 @@
 "use strict";
 
-// Phase 6F profiling-only verifier. The paired runs use identical fixtures and
-// deterministic random streams, then compare authoritative state after every
-// step. There is no optimized path in this commit, so the verifier also checks
-// that no speculative station feature flag or per-entity telemetry was added.
+// Phase 6F verifier. The paired runs use identical fixtures and deterministic
+// random streams, then compare legacy and opt-in authoritative state after every
+// step. Only the measured station-weapon candidate has an opt-in flag.
 
 const assert = require("node:assert/strict");
 const {
@@ -31,15 +30,22 @@ function pairedRun(config, frames = 3) {
   prepareMeasuredFixture(left.room, config, left.homes);
   prepareMeasuredFixture(right.room, config, right.homes);
   const checksums = [];
-  for (let frame = 0; frame < frames; frame += 1) {
-    mutateBeforeFrame(left.room, config, frame);
-    mutateBeforeFrame(right.room, config, frame);
-    withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(left.room, config, frame));
-    withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(right.room, config, frame));
-    const leftChecksum = outcomeChecksum(left.room);
-    const rightChecksum = outcomeChecksum(right.room);
-    assert.equal(leftChecksum, rightChecksum, `${config.name}: authoritative state diverged at tick ${frame}`);
-    checksums.push(leftChecksum);
+  const previousFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
+  try {
+    for (let frame = 0; frame < frames; frame += 1) {
+      mutateBeforeFrame(left.room, config, frame);
+      mutateBeforeFrame(right.room, config, frame);
+      flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(false);
+      withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(left.room, config, frame));
+      flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(true);
+      withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(right.room, config, frame));
+      const leftChecksum = outcomeChecksum(left.room);
+      const rightChecksum = outcomeChecksum(right.room);
+      assert.equal(leftChecksum, rightChecksum, `${config.name}: legacy/optimized authoritative state diverged at tick ${frame}`);
+      checksums.push(leftChecksum);
+    }
+  } finally {
+    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousFlag);
   }
   return { left, right, checksums };
 }
@@ -81,7 +87,10 @@ function verifySchemaAndDefaults() {
   ];
   assert.equal(DURATION_FIELDS.filter((field) => field.startsWith("station") || field.startsWith("classicCapture")).length, expectedDurationCount, "all Phase 6F duration fields are registered");
   for (const field of expectedCounterNames) assert(COUNTER_FIELDS.includes(field), `Phase 6F counter ${field} is registered`);
-  for (const key of Object.keys(flags)) assert(!key.includes("STATION") || !key.includes("OPTIMIZED"), `speculative station optimization flag ${key} was added`);
+  assert.equal(typeof flags.OPTIMIZED_STATION_WEAPON_RUNTIME, "function", "station weapon optimization flag is available for evidence-gated checks");
+  assert.equal(flags.OPTIMIZED_STATION_WEAPON_RUNTIME(), false, "station weapon optimization remains disabled by default");
+  assert.equal(flags.OPTIMIZED_STATION_CAPTURE_RUNTIME, undefined, "capture has no speculative optimization flag");
+  assert.equal(flags.OPTIMIZED_STATION_HANGAR_RUNTIME, undefined, "hangar has no speculative optimization flag");
 }
 
 function verifyWeaponRuntime() {
@@ -102,6 +111,16 @@ function verifyWeaponRuntime() {
 
   const fog = pairedRun(scenario("sensors and fog enabled"), 2);
   assert(telemetry(fog.left.room).stationWeaponVisibilityRejects >= 0, "fog/safe-zone target rejections are counted");
+
+  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
+  let cadence;
+  try {
+    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
+    cadence = pairedRun(scenario("stable retained targets"), 5);
+  } finally {
+    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
+  }
+  assert(telemetry(cadence.left.room).stationWeaponRetainedTargets > 0, "cadenced station targets are retained");
 
   const destroyed = pairedRun(scenario("mostly destroyed station weapons"), 2);
   assert(telemetry(destroyed.left.room).stationWeaponComponentsVisited > 0, "destroyed station components remain visible to the profile");
@@ -200,7 +219,7 @@ function main() {
   verifyCaptureRuntime();
   verifyHangarRuntime();
   verifyAuthoritativeOrdering();
-  console.log("Phase 6F profiling-only station/objective checks passed");
+  console.log("Phase 6F station/objective profiling and legacy/optimized parity checks passed");
 }
 
 try {

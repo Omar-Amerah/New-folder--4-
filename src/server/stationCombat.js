@@ -50,6 +50,68 @@ function liveStations(room) {
   return (room.stations || []).filter((s) => s.alive !== false && s.state !== "disabled");
 }
 
+// Station designs are immutable during a match. Keep the derived weapon data
+// beside the station and invalidate it when the authoritative design revision
+// changes, so the hot loop does not repeatedly resolve PARTS, footprints and
+// turret rules for every mount on every tick.
+function getStationWeaponProfiles(station) {
+  const design = station.design || [];
+  const revision = station.revision || 0;
+  const moduleScale = station.moduleScale || STATION_MODULE_SCALE;
+  const cached = station._stationWeaponProfileCache;
+  if (cached && cached.design === design && cached.revision === revision && cached.moduleScale === moduleScale) {
+    return cached.profiles;
+  }
+
+  const profiles = new Array(design.length);
+  for (let i = 0; i < design.length; i += 1) {
+    const module = design[i];
+    const part = PARTS[module.type] || PARTS.frame;
+    const weapon = part.weapon;
+    const family = weapon?.type || "blaster";
+    const footprint = part.footprint || { width: 1, height: 1 };
+    const longTiles = Math.max(footprint.width || 1, footprint.height || 1);
+    profiles[i] = {
+      module,
+      part,
+      weapon,
+      defaultRelative: moduleRotationToRadians(module.rotation || 0),
+      arcRadians: (weapon?.arc || 360) * Math.PI / 180,
+      range: weapon?.range || 0,
+      family,
+      turnRate: weapon ? TurretRules.turnRateFor(weapon) : 0,
+      muzzleDistance: weapon
+        ? TurretRules.muzzleTiles(module.type, family, longTiles) * moduleScale
+        : 0
+    };
+  }
+
+  station._stationWeaponProfileCache = { design, revision, moduleScale, profiles };
+  return profiles;
+}
+
+function prepareStationWeaponTargets(room, ships, optimized) {
+  if (!optimized) return (ships || []).filter((s) => s && s.alive !== false);
+  if (Array.isArray(ships) && ships === room._liveShipScratch) return ships;
+  const source = Array.isArray(ships) ? ships : [];
+  const targets = room._stationWeaponTargetScratch || (room._stationWeaponTargetScratch = []);
+  targets.length = 0;
+  for (const ship of source) {
+    if (ship && ship.alive !== false) targets.push(ship);
+  }
+  return targets;
+}
+
+function prepareStationWeaponTargetLookup(room, targets) {
+  const lookup = room._stationWeaponTargetLookup || (room._stationWeaponTargetLookup = new Map());
+  lookup.clear();
+  for (const target of targets || []) {
+    if (!target || target.id === undefined || target.id === null || lookup.has(target.id)) continue;
+    lookup.set(target.id, target);
+  }
+  return lookup;
+}
+
 // A station's allegiance is its TEAM. `ownerId` is only populated when a player
 // personally captured a relay; a home station is built from a map safe zone,
 // which carries a team and no owner at all.
@@ -75,7 +137,7 @@ function stationCombatIdentity(room, station) {
   return station.ownerId || null;
 }
 
-function stationModuleWorldPosition(station, index) {
+function stationModuleWorldPosition(station, index, profile = null) {
   const hardpoint = station.hardpoints?.[index];
   if (hardpoint) {
     const cos = Math.cos(station.angle || 0);
@@ -85,14 +147,14 @@ function stationModuleWorldPosition(station, index) {
       y: station.y + hardpoint.x * sin + hardpoint.y * cos
     };
   }
-  const module = station.design[index];
+  const module = profile?.module || station.design[index];
   if (!module) return { x: station.x, y: station.y };
   // Same cell -> local mapping the hardpoints and the renderer use. Writing it
   // out by hand here had the axes transposed (+x is FORWARD, and it comes from
   // the cell's y), so this fallback used to place a module on the wrong side of
   // the structure entirely.
   const scale = station.moduleScale || STATION_MODULE_SCALE;
-  const { x: localX, y: localY } = moduleCentreToLocal(module, scale, PARTS[module.type]?.footprint);
+  const { x: localX, y: localY } = moduleCentreToLocal(module, scale, profile?.part?.footprint || PARTS[module.type]?.footprint);
   const cos = Math.cos(station.angle || 0);
   const sin = Math.sin(station.angle || 0);
   return {
@@ -101,29 +163,29 @@ function stationModuleWorldPosition(station, index) {
   };
 }
 
-function weaponFacingAngle(station, index) {
-  const module = station.design[index];
+function weaponFacingAngle(station, index, profile = null) {
+  const module = profile?.module || station.design[index];
   return (station.angle || 0) + moduleRotationToRadians((module && module.rotation) || 0);
 }
 
-function isTargetInWeaponArc(station, index, target) {
-  const module = station.design[index];
-  const part = PARTS[module.type] || PARTS.frame;
-  const weapon = part.weapon || { arc: 360 };
-  const arc = (weapon.arc || 360) * Math.PI / 180;
+function isTargetInWeaponArc(station, index, target, profile = null) {
+  const module = profile?.module || station.design[index];
+  const part = profile?.part || PARTS[module.type] || PARTS.frame;
+  const weapon = profile?.weapon || part.weapon || { arc: 360 };
+  const arc = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
   if (arc >= Math.PI * 2) return true;
-  const origin = stationModuleWorldPosition(station, index);
+  const origin = stationModuleWorldPosition(station, index, profile);
   const angleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
-  return Math.abs(angleDifference(weaponFacingAngle(station, index), angleToTarget)) <= arc / 2;
+  return Math.abs(angleDifference(weaponFacingAngle(station, index, profile), angleToTarget)) <= arc / 2;
 }
 
-function findStationWeaponTarget(room, station, index, targets, identity, now) {
-  const module = station.design[index];
-  const part = PARTS[module.type] || PARTS.frame;
-  const weapon = part.weapon;
+function findStationWeaponTarget(room, station, index, targets, identity, now, profile = null) {
+  const module = profile?.module || station.design[index];
+  const part = profile?.part || PARTS[module.type] || PARTS.frame;
+  const weapon = profile?.weapon || part.weapon;
   if (!weapon) return null;
-  const origin = stationModuleWorldPosition(station, index);
-  const range = weapon.range || 0;
+  const origin = stationModuleWorldPosition(station, index, profile);
+  const range = profile?.range ?? (weapon.range || 0);
   const rangeSq = range * range;
   let best = null;
   let bestDist = Infinity;
@@ -149,7 +211,7 @@ function findStationWeaponTarget(room, station, index, targets, identity, now) {
       bump(room, "stationWeaponRangeRejects");
       continue;
     }
-    if (!isTargetInWeaponArc(station, index, target)) {
+    if (!isTargetInWeaponArc(station, index, target, profile)) {
       bump(room, "stationWeaponArcRejects");
       continue;
     }
@@ -245,7 +307,7 @@ function _updateStationTargetState(station, i, target, now, kind) {
   state.nextSearchAt = TargetingCadence.nextAcquisitionAt(station, kind, i, now);
 }
 
-function getCadencedStationWeaponTarget(room, station, i, targets, identity, now) {
+function getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile = null, targetLookup = null) {
   TargetingTelemetry.bump(room, "stationTargetValidationAttempts");
   if (!station._weaponTargetState) station._weaponTargetState = [];
   let state = station._weaponTargetState[i];
@@ -253,18 +315,20 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
     state = station._weaponTargetState[i] = { id: null, category: "ship", nextSearchAt: 0, lastSearchAt: 0 };
   }
 
-  const module = station.design[i];
-  const part = PARTS[module.type] || PARTS.frame;
-  const weapon = part.weapon;
+  const module = profile?.module || station.design[i];
+  const part = profile?.part || PARTS[module.type] || PARTS.frame;
+  const weapon = profile?.weapon || part.weapon;
   if (!weapon) return null;
 
-  const origin = stationModuleWorldPosition(station, i);
-  const range = weapon.range || 0;
-  const arcRadians = (weapon.arc || 360) * Math.PI / 180;
-  const weaponAngle = weaponFacingAngle(station, i);
+  const origin = stationModuleWorldPosition(station, i, profile);
+  const range = profile?.range ?? (weapon.range || 0);
+  const arcRadians = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
+  const weaponAngle = weaponFacingAngle(station, i, profile);
 
   const hadCachedTarget = state.id !== null;
-  const cached = hadCachedTarget ? (targets || []).find((t) => t && t.id === state.id) : null;
+  const cached = hadCachedTarget
+    ? (targetLookup ? (targetLookup.get(state.id) || null) : (targets || []).find((t) => t && t.id === state.id))
+    : null;
   let currentValid = false;
   const validationStartedAt = performanceNow();
   if (cached) {
@@ -310,7 +374,7 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
   bump(room, "stationWeaponTargetSearches");
   const acquisitionStartedAt = performanceNow();
   const picked = TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledStationAcquisitionDuration", () =>
-    findStationWeaponTarget(room, station, i, targets, identity, now)
+    findStationWeaponTarget(room, station, i, targets, identity, now, profile)
   );
   recordDuration(room, "stationWeaponOrdinaryAcquisitionMs", acquisitionStartedAt);
   _updateStationTargetState(station, i, picked, now, "stationOrdinary");
@@ -325,9 +389,12 @@ function updateStationWeapons(room, stations, ships, dt, now) {
   const runtimeStartedAt = performanceNow();
   try {
   if (!Array.isArray(stations) || stations.length === 0) return;
+  const optimized = PerformanceFlags.OPTIMIZED_STATION_WEAPON_RUNTIME();
+  const cadenceEnabled = PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE();
   const preparationStartedAt = performanceNow();
-  const targets = (ships || []).filter((s) => s && s.alive !== false);
+  const targets = prepareStationWeaponTargets(room, ships, optimized);
   recordDuration(room, "stationWeaponTargetPreparationMs", preparationStartedAt);
+  const targetLookup = optimized && cadenceEnabled ? prepareStationWeaponTargetLookup(room, targets) : null;
   // Point-defence overkill reservations are per-firing-entity and the ship pass
   // has already run for this tick, so the stations start from a clean map.
   if (!room._pdReservations) room._pdReservations = new Map();
@@ -336,6 +403,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
     if (station.state !== "operational" || station.alive === false) continue;
     bump(room, "stationsWeaponProcessed");
     initStationCombatRuntime(station);
+    const profiles = optimized ? getStationWeaponProfiles(station) : null;
     // Resolved once per station per tick: targeting, point defence and every
     // round the station fires all key off the same identity.
     const identity = stationCombatIdentity(room, station);
@@ -358,13 +426,14 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       }
       bump(room, "stationWeaponComponentsOperational");
       const profileStartedAt = performanceNow();
-      const module = station.design[i];
-      const part = PARTS[module.type] || PARTS.frame;
-      const weapon = part.weapon;
+      const profile = profiles?.[i] || null;
+      const module = profile?.module || station.design[i];
+      const part = profile?.part || PARTS[module.type] || PARTS.frame;
+      const weapon = profile?.weapon || part.weapon;
       recordDuration(room, "stationWeaponProfileLookupMs", profileStartedAt);
       if (!weapon) continue;
 
-      const origin = stationModuleWorldPosition(station, i);
+      const origin = stationModuleWorldPosition(station, i, profile);
       // Point defence on a station defends the station: it engages incoming
       // missiles, torpedoes and drones through exactly the shared selector
       // ships use (priorities, line-of-sight and the per-tick overkill
@@ -380,7 +449,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         const pdCachedId = station.weaponAimTargetIds[i] ?? null;
         const pdCached = pdCachedId ? _lookupPointDefenceEntity(room, pdCachedId) : null;
         const worldWeaponAngle = (station.angle || 0) + (station.weaponAngles[i] || 0);
-        const pdArcRadians = (weapon.arc || 360) * Math.PI / 180;
+        const pdArcRadians = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
         let pdCurrentValid = false;
         if (pdCached) {
           const validationStartedAt = performanceNow();
@@ -423,13 +492,13 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         target = pdTarget.entity;
       } else {
         const acquisitionStartedAt = performanceNow();
-        target = PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()
-          ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now)
-          : findStationWeaponTarget(room, station, i, targets, identity, now);
+        target = cadenceEnabled
+          ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile, targetLookup)
+          : findStationWeaponTarget(room, station, i, targets, identity, now, profile);
         recordDuration(room, "stationWeaponOrdinaryAcquisitionMs", acquisitionStartedAt);
-        if (!PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()) bump(room, "stationWeaponTargetSearches");
+        if (!cadenceEnabled) bump(room, "stationWeaponTargetSearches");
       }
-      const defaultRelative = moduleRotationToRadians(module.rotation || 0);
+      const defaultRelative = profile?.defaultRelative ?? moduleRotationToRadians(module.rotation || 0);
       let desiredRelative = defaultRelative;
       let isTracking = false;
       const aimStartedAt = performanceNow();
@@ -437,7 +506,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       if (target) {
         const worldAngleToTarget = Math.atan2(target.y - origin.y, target.x - origin.x);
         const relativeAngleToTarget = angleDifference(station.angle || 0, worldAngleToTarget);
-        const arc = (weapon.arc || 360) * Math.PI / 180;
+        const arc = profile?.arcRadians ?? (weapon.arc || 360) * Math.PI / 180;
         if (Math.abs(angleDifference(defaultRelative, relativeAngleToTarget)) <= arc / 2) {
           desiredRelative = relativeAngleToTarget;
           isTracking = true;
@@ -446,7 +515,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         }
       }
 
-      const turnRate = TurretRules.turnRateFor(weapon);
+      const turnRate = profile?.turnRate ?? TurretRules.turnRateFor(weapon);
       const currentRelative = Number.isFinite(station.weaponAngles[i]) ? station.weaponAngles[i] : defaultRelative;
       station.weaponAngles[i] = TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponAimDuration", () =>
         rotateToward(currentRelative, desiredRelative, turnRate * dt)
@@ -474,14 +543,15 @@ function updateStationWeapons(room, stations, ships, dt, now) {
 
       const footprint = part.footprint || { width: 1, height: 1 };
       const longTiles = Math.max(footprint.width || 1, footprint.height || 1);
-      const muzzleDist = TurretRules.muzzleTiles(module.type, family, longTiles) * (station.moduleScale || STATION_MODULE_SCALE);
+      const muzzleDist = profile?.muzzleDistance
+        ?? TurretRules.muzzleTiles(module.type, family, longTiles) * (station.moduleScale || STATION_MODULE_SCALE);
       const muzzleX = origin.x + Math.cos(worldWeaponAngle) * muzzleDist;
       const muzzleY = origin.y + Math.sin(worldWeaponAngle) * muzzleDist;
 
       const spread = rngRange(() => Math.random(), -0.02, 0.02);
       const shotAngle = worldWeaponAngle + spread;
       const speed = weapon.projectileSpeed || 620;
-      const range = weapon.range || 0;
+      const range = profile?.range ?? (weapon.range || 0);
       // `weapon.reload` is MILLISECONDS in the balance data (1000 / fireRate).
       // Assigning it straight to a cooldown that is decremented in seconds gave
       // every station battery a reload a thousand times too long — a station

@@ -1,9 +1,10 @@
 "use strict";
 
-// Phase 6F profiling benchmark. This file intentionally contains no legacy vs
-// optimized mode: Stage A measures the current authoritative runtime and writes
-// evidence for the Stage B decision.
+// Phase 6F profiling benchmark. The production profile remains legacy by
+// default; Stage B also runs a deterministic opt-in station-weapon comparison
+// and rejects any authoritative divergence.
 
+const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
@@ -21,6 +22,7 @@ const { computeStats } = require("./src/server/shipStats");
 const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
 const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
 const { ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibility");
+const flags = require("./src/server/performanceFlags");
 
 const args = new Set(process.argv.slice(2));
 if (args.has("--quick") && args.has("--full")) throw new Error("Choose either --quick or --full");
@@ -541,7 +543,10 @@ function runFrame(room, config, frame) {
   const tickStartedAt = performance.now();
 
   const weaponStartedAt = performance.now();
-  updateStationWeapons(room, room.stations || [], [...room.ships.values()], DT, frame * 33);
+  const liveShips = room._liveShipScratch || (room._liveShipScratch = []);
+  liveShips.length = 0;
+  for (const ship of room.ships.values()) if (ship.alive) liveShips.push(ship);
+  updateStationWeapons(room, room.stations || [], liveShips, DT, frame * 33);
   const stationWeaponWallMs = performance.now() - weaponStartedAt;
 
   const projectileStartedAt = performance.now();
@@ -569,7 +574,7 @@ function runFrame(room, config, frame) {
   };
 }
 
-function summarizeFrames(frames, config, buildMs, memory) {
+function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeChecksums = frames.map((frame) => frame.checksum)) {
   const durationFields = [
     "stationRuntimeMs", "stationWeaponRuntimeMs", "stationObjectiveRuntimeMs", "stationHangarRuntimeMs",
     "stationRepairRuntimeMs", "stationRecoveryRuntimeMs", "stationControlVictoryMs", "classicCaptureRuntimeMs",
@@ -617,33 +622,90 @@ function summarizeFrames(frames, config, buildMs, memory) {
     counters,
     eventSpike: event,
     outcomeChecksums: checksums,
+    authoritativeOutcomeChecksums,
     deterministicOutcomeChecksum: checksums.every((checksum) => checksum === checksums[0]) ? checksums[0] : null,
     memory
   };
 }
 
-function runScenario(config, repeatIndex) {
-  const memoryBefore = roomMemory();
-  const buildStartedAt = performance.now();
-  const fixture = buildFixture(config, repeatIndex);
-  const buildMs = performance.now() - buildStartedAt;
-  const room = fixture.room;
-  for (let frame = 0; frame < WARMUP_SAMPLES; frame += 1) {
-    mutateBeforeFrame(room, config, frame);
-    runFrame(room, config, frame);
+function runScenario(config, repeatIndex, optimized = false) {
+  const previousFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
+  flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(optimized);
+  try {
+    const memoryBefore = roomMemory();
+    const buildStartedAt = performance.now();
+    const fixture = buildFixture(config, repeatIndex);
+    const buildMs = performance.now() - buildStartedAt;
+    const room = fixture.room;
+    const authoritativeChecksums = [];
+    for (let frame = 0; frame < WARMUP_SAMPLES; frame += 1) {
+      mutateBeforeFrame(room, config, frame);
+      authoritativeChecksums.push(runFrame(room, config, frame).checksum);
+    }
+    prepareMeasuredFixture(room, config, fixture.homes);
+    const measured = [];
+    for (let frame = 0; frame < MEASURED_SAMPLES; frame += 1) {
+      mutateBeforeFrame(room, config, frame);
+      const result = runFrame(room, config, WARMUP_SAMPLES + frame);
+      measured.push(result);
+      authoritativeChecksums.push(result.checksum);
+    }
+    const memoryAfter = roomMemory();
+    return summarizeFrames(measured, config, buildMs, {
+      heapBeforeBytes: memoryBefore,
+      heapAfterBytes: memoryAfter,
+      heapDeltaBytes: memoryAfter - memoryBefore
+    }, authoritativeChecksums);
+  } finally {
+    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousFlag);
   }
-  prepareMeasuredFixture(room, config, fixture.homes);
-  const measured = [];
-  for (let frame = 0; frame < MEASURED_SAMPLES; frame += 1) {
-    mutateBeforeFrame(room, config, frame);
-    measured.push(runFrame(room, config, WARMUP_SAMPLES + frame));
+}
+
+function runScenarioComparison(config, repeatIndex) {
+  const seed = 0x6f6f0000 + repeatIndex * 17 + config.name.length;
+  const legacy = withDeterministicRandom(seed, () => runScenario(config, repeatIndex, false));
+  const optimized = withDeterministicRandom(seed, () => runScenario(config, repeatIndex, true));
+  const legacyChecksums = legacy.authoritativeOutcomeChecksums;
+  const optimizedChecksums = optimized.authoritativeOutcomeChecksums;
+  assert.equal(optimizedChecksums.length, legacyChecksums.length, `${config.name}: legacy/optimized tick counts differ`);
+  let firstMismatchAt = null;
+  for (let i = 0; i < legacyChecksums.length; i += 1) {
+    if (legacyChecksums[i] !== optimizedChecksums[i]) {
+      firstMismatchAt = i;
+      break;
+    }
   }
-  const memoryAfter = roomMemory();
-  return summarizeFrames(measured, config, buildMs, {
-    heapBeforeBytes: memoryBefore,
-    heapAfterBytes: memoryAfter,
-    heapDeltaBytes: memoryAfter - memoryBefore
-  });
+  assert.equal(firstMismatchAt, null, `${config.name}: legacy/optimized state diverged at authoritative tick ${firstMismatchAt}`);
+  const legacyTick = legacy.timings.tickRuntimeMs;
+  const optimizedTick = optimized.timings.tickRuntimeMs;
+  const legacyStation = legacy.timings.stationWeaponRuntimeMs;
+  const optimizedStation = optimized.timings.stationWeaponRuntimeMs;
+  return {
+    scenario: config.name,
+    subsystem: config.subsystem,
+    repeatIndex,
+    authoritativeTicksCompared: legacyChecksums.length,
+    checksumsEqualAfterEveryTick: true,
+    legacy: {
+      stationWeaponRuntimeMs: legacyStation,
+      tickRuntimeMs: legacyTick,
+      heapDeltaBytes: legacy.memory.heapDeltaBytes,
+      eventSpike: legacy.eventSpike
+    },
+    optimized: {
+      stationWeaponRuntimeMs: optimizedStation,
+      tickRuntimeMs: optimizedTick,
+      heapDeltaBytes: optimized.memory.heapDeltaBytes,
+      eventSpike: optimized.eventSpike
+    },
+    delta: {
+      stationWeaponP50Ms: round(optimizedStation.p50 - legacyStation.p50),
+      stationWeaponP95Ms: round(optimizedStation.p95 - legacyStation.p95),
+      tickP50Ms: round(optimizedTick.p50 - legacyTick.p50),
+      tickP95Ms: round(optimizedTick.p95 - legacyTick.p95),
+      heapDeltaBytes: optimized.memory.heapDeltaBytes - legacy.memory.heapDeltaBytes
+    }
+  };
 }
 
 function aggregate(results) {
@@ -677,6 +739,7 @@ function aggregate(results) {
 function main() {
   const scenarios = MODE === "quick" ? ALL_SCENARIOS.filter((scenario) => QUICK_SCENARIO_NAMES.has(scenario.name)) : ALL_SCENARIOS;
   const runs = [];
+  const optimizationRuns = [];
   const previousLog = console.log;
   const previousWarn = console.warn;
   console.log = () => {};
@@ -685,6 +748,7 @@ function main() {
     for (const config of scenarios) {
       for (let repeat = 0; repeat < REPEATS; repeat += 1) {
         runs.push(withDeterministicRandom(0x6f6f0000 + repeat * 17 + config.name.length, () => runScenario(config, repeat)));
+        optimizationRuns.push(runScenarioComparison(config, repeat));
       }
     }
   } finally {
@@ -720,12 +784,22 @@ function main() {
     fixtureSizeAndDensity: scenarios.map((scenario) => ({ name: scenario.name, subsystem: scenario.subsystem, ships: scenario.ships, stations: 2 + (scenario.relays || 0), relays: scenario.relays || 0, density: scenario.density })),
     independentSubsystems: aggregate(scenarioResults),
     scenarios: scenarioResults,
+    optimizationEvidence: {
+      flag: "OPTIMIZED_STATION_WEAPON_RUNTIME",
+      productionDefault: false,
+      comparedScenarios: optimizationRuns.length,
+      checksumsEqualAfterEveryTick: optimizationRuns.every((entry) => entry.checksumsEqualAfterEveryTick),
+      authoritativeTicksCompared: optimizationRuns.reduce((sum, entry) => sum + entry.authoritativeTicksCompared, 0),
+      runs: optimizationRuns
+    },
     deterministicOutcomeChecksums: allChecksums,
     memoryGrowth: scenarioResults.map((result) => ({ scenario: result.scenario, heapDeltaBytes: result.memory.heapDeltaBytes, repeatDeltas: result.repeatMemory.map((memory) => memory.heapDeltaBytes) })),
     optimizationDecision: {
       rule: "Only optimize when representative tick share is at least 10 percent, p95 exceeds 1 ms, scaling is pathological, or an event spike threatens the tick budget.",
-      flagsEnabled: [],
-      stage: "profiling-only"
+      benchmarkedFlags: ["OPTIMIZED_STATION_WEAPON_RUNTIME"],
+      productionFlagsEnabled: [],
+      candidate: "station weapon profile cache and authoritative live-target reuse",
+      stage: "profiled-with-opt-in-parity"
     }
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
