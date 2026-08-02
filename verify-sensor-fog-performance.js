@@ -105,7 +105,7 @@ function fixture() {
       y: 500 + Math.floor(index / 5) * 1700,
       angle: 0,
       radius: stationType === "home" ? 360 : 180,
-      moduleScale: stationType === "home" ? 36 : 20,
+      moduleScale: stationType === "home" ? 56 : 20,
       design,
       hardpoints: new Array(design.length).fill(null),
       weaponAngles: new Array(design.length).fill(0),

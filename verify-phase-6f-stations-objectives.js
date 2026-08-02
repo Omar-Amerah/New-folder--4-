@@ -194,11 +194,13 @@ function verifyCaptureRuntime() {
 
   const victory = pairedRun(scenario("full-control countdown stable"), 2);
   const victoryTelemetry = telemetry(victory.left.room);
-  assert(victoryTelemetry.stationControlVictoryEvaluations > 0, "station control victory is evaluated independently");
-  assert.equal(victory.left.room.controlVictory.team, "blue", "same-tick full control starts the countdown");
+  assert.equal(victoryTelemetry.stationControlVictoryEvaluations, 0, "station relay control is not evaluated as a victory condition");
+  assert.equal(victory.left.room.controlVictory.team, null, "full relay control does not start a station-mode victory countdown");
+  assert.equal(victory.left.room.winner, null, "full relay control does not end a station-mode match");
 
   const interrupted = pairedRun(scenario("full-control countdown repeatedly interrupted"), 3);
-  assert(interrupted.left.room.controlVictory.team === "blue" || interrupted.left.room.controlVictory.team === null, "interrupted control remains authoritative");
+  assert.equal(interrupted.left.room.controlVictory.team, null, "station-mode relay control remains non-winning after interruption-shaped input");
+  assert.equal(interrupted.left.room.winner, null, "interrupted relay control does not end a station-mode match");
 
   const classic = pairedRun(scenario("classic capture reference"), 2);
   const classicTelemetry = telemetry(classic.left.room);
@@ -250,7 +252,7 @@ function verifyAuthoritativeOrdering() {
     assert(t.stationWeaponShotsCreated > 0, "station weapons create projectiles before projectile processing");
     assert(t.projectilesVisited > 0, "the same authoritative frame processes projectiles after station fire");
     assert(t.stationRuntimeMs >= t.stationObjectiveRuntimeMs, "station runtime contains station objective processing");
-    assert(t.stationControlVictoryMs >= 0, "control victory runs after station capture");
+    assert.equal(t.stationControlVictoryMs, 0, "station-mode control victory remains disabled after station capture");
     assert(frame.checksum === outcomeChecksum(fixture.room), "outcome checksum reflects the completed authoritative frame");
     // The direct production-shaped frame is followed by the same finalization
     // boundary used by tickRoom; visibility invalidation is after ownership and
@@ -316,7 +318,8 @@ function verifyAuthoritativeOrdering() {
   assert.equal(targetRelay.team, "blue", "projectile destruction gives ownership to the attacking team");
   assert.equal(targetRelay.ownerId, "p-blue", "projectile destruction records the attacking player");
   assert.equal(targetRelay.captureProgress, 0, "relay destruction clears stale capture progress");
-  assert.equal(tickRoomState.controlVictory.team, "blue", "control victory observes the same-tick ownership transition");
+  assert.equal(tickRoomState.controlVictory.team, null, "relay ownership transition cannot start station-mode control victory");
+  assert.equal(tickRoomState.winner, null, "relay ownership transition cannot end the station-mode match");
   assert.equal(tickRoomState._visibilityFinalizedAt, 77, "real tickRoom finalizes visibility after combat, capture, and control");
   assert(!tickRoomState.projectileById.has(injected.id), "the injected relay projectile is consumed during projectile processing");
 

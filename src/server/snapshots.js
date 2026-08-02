@@ -145,14 +145,15 @@ function roundStationPoint(point) {
   return { x: round(point.x), y: round(point.y) };
 }
 
-// Static station geometry is copied without runtime occupancy. The hangar's
-// current ship belongs to the dynamic launch state below, never to the cached
-// baseline.
+// Static station geometry is copied without runtime occupancy. The current
+// ships belong to the dynamic launch state below, never to the cached baseline.
 function buildStationHangarSnapshot(station) {
-  const hangar = station?.hangar;
-  if (!hangar) return undefined;
-  return {
+  const hangars = station?.hangars;
+  if (!Array.isArray(hangars) || hangars.length === 0) return undefined;
+  return hangars.map((hangar) => ({
     id: hangar.id,
+    index: hangar.index,
+    centreY: round(hangar.centreY),
     localCentre: roundStationPoint(hangar.localCentre),
     worldCentre: roundStationPoint(hangar.worldCentre),
     localNormal: roundStationPoint(hangar.localNormal),
@@ -181,13 +182,15 @@ function buildStationHangarSnapshot(station) {
     maximumShipHeight: round(hangar.maximumShipHeight),
     clearance: round(hangar.clearance),
     safetyMargin: round(hangar.safetyMargin)
-  };
+  }));
 }
 
 function buildStationLaunchState(station) {
   if (station?.stationType !== "home") return undefined;
   return (station.activeLaunches || []).map((launch) => ({
     shipId: launch.shipId,
+    bayIndex: launch.bayIndex,
+    bayId: launch.bayId,
     progress: round(clampNumber(Number(launch.progress) || 0, 0, 1)),
     doorOpen: launch.doorOpen !== false
   }));
@@ -230,8 +233,8 @@ function buildStationSnapshot(room, station, now, sendStatic) {
     entry.shieldRadius = station.shieldRadius || 0;
     entry.moduleScale = station.moduleScale;
     entry.design = station.design || [];
-    const hangar = buildStationHangarSnapshot(station);
-    if (hangar) entry.hangar = hangar;
+    const hangars = buildStationHangarSnapshot(station);
+    if (hangars) entry.hangars = hangars;
     if (station.hardpoints) entry.hardpoints = station.hardpoints;
     entry.weaponAngles = (station.weaponAngles || []).map(round);
     entry.maxHp = round(station.maxHp);
@@ -948,8 +951,8 @@ function buildClientStations(room, sharedStations, client, sendStatic, options =
       entry.radius = round(station.radius || station.stats?.radius || 0);
       entry.moduleScale = station.moduleScale;
       entry.design = station.design || [];
-      const hangar = buildStationHangarSnapshot(station);
-      if (hangar) entry.hangar = hangar;
+      const hangars = buildStationHangarSnapshot(station);
+      if (hangars) entry.hangars = hangars;
       if (station.hardpoints) entry.hardpoints = station.hardpoints;
       entry.weaponAngles = (station.weaponAngles || []).map(round);
       delete entry.weaponAnglePairs;

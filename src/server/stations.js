@@ -2,13 +2,17 @@
 
 const { PARTS } = require("./components");
 const { INFRASTRUCTURE } = require("./config");
-const { angleDifference, clampNumber, rotateToward, performanceNow } = require("./utils");
+const { angleDifference, clampNumber, rotateToward, performanceNow, compareEntityIds } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createGeneratedPowerWiring } = require("./shipDesign");
 const { initComponentState, isComponentAlive, repairShipComponents } = require("./componentHealth");
 const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
 const { initShipHeat } = require("./heat");
-const { computeDesignCollisionRadius } = require("./componentGeometry");
+const {
+  computeDesignCollisionRadius,
+  computeDesignAxisExtents,
+  shipHullCircles
+} = require("./componentGeometry");
 const { spawnShip, applyRallySlots } = require("./ships");
 const { usesStationInfrastructure } = require("./rooms");
 const {
@@ -29,6 +33,7 @@ const {
   SHIP_MODULE_SCALE,
   STATION_MODULE_SCALE,
   MAX_SHIP_EXTENT,
+  HULL_CELL_PADDING,
   stationModuleScale,
   moduleCentreToLocal,
   buildHomeStationDesign,
@@ -90,13 +95,14 @@ function stationLocalToWorld(station, px, py) {
 }
 
 // Compound collision pieces in world space: an oriented box per authored hull
-// section. The central hangar opening is deliberately not among them, so the
-// single launch path remains navigable.
+// section plus one-way mouth doors for each authored launch corridor. The
+// three hangar openings are deliberately not among the hull pieces, so ships
+// can travel through genuine gaps in the station.
 function stationCollisionPieces(station) {
   const geometry = station.stationType === "home" ? homeStationGeometry : relayStationGeometry;
   const cos = Math.cos(station.angle);
   const sin = Math.sin(station.angle);
-  const toPiece = (rect, door) => {
+  const toPiece = (rect, door, bayIndex = null) => {
     const cx = (rect.minX + rect.maxX) / 2;
     const cy = (rect.minY + rect.maxY) / 2;
     const centre = rotatePoint(cx, cy, cos, sin);
@@ -113,11 +119,16 @@ function stationCollisionPieces(station) {
       sin: sin,
       // Broad-phase circle so spatial queries can reject quickly.
       radius: Math.hypot(rect.maxX - rect.minX, rect.maxY - rect.minY) / 2,
-      door: Boolean(door)
+      door: Boolean(door),
+      bayIndex: door ? bayIndex : undefined
     };
   };
   const pieces = geometry.collisionRects.map((rect) => toPiece(rect, false));
-  if (geometry.doorRect) pieces.push(toPiece(geometry.doorRect, true));
+  if (Array.isArray(geometry.doorRects)) {
+    geometry.doorRects.forEach((rect, index) => pieces.push(toPiece(rect, true, index)));
+  } else if (geometry.doorRect) {
+    pieces.push(toPiece(geometry.doorRect, true, null));
+  }
   return pieces;
 }
 
@@ -156,18 +167,27 @@ function resolveStationCollision(room, ship, shipRadius) {
     const stationDx = shipX - station.x;
     const stationDy = shipY - station.y;
     if (stationDx * stationDx + stationDy * stationDy > reach * reach) continue;
-    // The blast door stands open only for the hull this station is currently
-    // launching, and only while it is still clearing the corridor. Everything
-    // else — including the launched ship the moment it is released — bounces
-    // off it, so the launch door is a one-way door.
+    // Only the hull this station is currently launching gets an own-station
+    // collision exemption, and only while it is still clearing its corridor.
+    // Every other ship — including the launched ship the moment it is released
+    // — collides with the solid hull and the one-way mouth doors normally.
     const launching = Boolean(ship.launchPhase) && ship.launchPhase.stationId === station.id;
-    for (const piece of station.collisionPieces) {
-      if (piece.door && launching) continue;
+    // During the controlled launch window the ship is allowed to overlap its
+    // own station geometry. This is what lets the historical three-cell bays
+    // release a maximum-size hull without trapping it in a divider or rear
+    // bulkhead. The exemption ends exactly at the recorded release plane.
+    if (launching) continue;
+    const circles = Array.isArray(ship.design) && ship.design.length
+      ? shipHullCircles(ship)
+      : [{ x: ship.x || 0, y: ship.y || 0, radius: shipRadius }];
+    for (const circle of circles) {
+      for (const piece of station.collisionPieces) {
       const cos = piece.cos !== undefined ? piece.cos : Math.cos(-piece.angle);
       const sin = piece.sin !== undefined ? -piece.sin : Math.sin(-piece.angle);
-      const local = rotatePoint((ship.x || 0) - piece.x, (ship.y || 0) - piece.y, cos, sin);
+      const local = rotatePoint(circle.x - piece.x, circle.y - piece.y, cos, sin);
       const halfW = piece.halfWidth;
       const halfH = piece.halfHeight;
+      const circleRadius = Number(circle.radius) || shipRadius;
       const nearestX = Math.max(-halfW, Math.min(halfW, local.x));
       const nearestY = Math.max(-halfH, Math.min(halfH, local.y));
       const lx = local.x - nearestX;
@@ -185,15 +205,15 @@ function resolveStationCollision(room, ship, shipRadius) {
         const minDist = Math.min(left, right, top, bottom);
         // The hull must travel from its centre to the nearest face, then one
         // full radius farther so the circle clears the solid piece.
-        penetration = minDist + shipRadius;
+        penetration = minDist + circleRadius;
         if (minDist === left) { nx = -1; ny = 0; }
         else if (minDist === right) { nx = 1; ny = 0; }
         else if (minDist === top) { nx = 0; ny = -1; }
         else { nx = 0; ny = 1; }
       } else {
         const dist = Math.sqrt(dist2);
-        if (dist >= shipRadius) continue;
-        penetration = shipRadius - dist;
+        if (dist >= circleRadius) continue;
+        penetration = circleRadius - dist;
         const inv = 1 / dist;
         nx = lx * inv;
         ny = ly * inv;
@@ -201,63 +221,51 @@ function resolveStationCollision(room, ship, shipRadius) {
       const worldCos = piece.cos !== undefined ? piece.cos : Math.cos(piece.angle);
       const worldSin = piece.sin !== undefined ? piece.sin : Math.sin(piece.angle);
       const worldN = rotatePoint(nx, ny, worldCos, worldSin);
-      ship.x += worldN.x * penetration;
-      ship.y += worldN.y * penetration;
-      ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + worldN.x * penetration;
-      ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + worldN.y * penetration;
+      const correctionX = worldN.x * penetration;
+      const correctionY = worldN.y * penetration;
+      ship.x += correctionX;
+      ship.y += correctionY;
+      circle.x += correctionX;
+      circle.y += correctionY;
+      ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + correctionX;
+      ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + correctionY;
       const inwardSpeed = (ship.vx || 0) * worldN.x + (ship.vy || 0) * worldN.y;
       if (inwardSpeed < 0) {
         ship.vx -= inwardSpeed * worldN.x;
         ship.vy -= inwardSpeed * worldN.y;
       }
       hit = true;
+      }
     }
   }
   return hit;
 }
 
-// World-space geometry for the single home hangar. The authored local record
-// is the authority; this only adds the station pose for launch and snapshots.
+// World-space geometry for every home hangar. The authored local records are
+// the authority; this only adds the station pose for launch and snapshots.
 function buildHangarGeometry(station) {
-  const authored = homeStationGeometry.hangar;
   const envelope = maximumShipEnvelope();
   const toWorld = (point) => stationLocalToWorld(station, point.x, point.y);
-  const hangar = {
-    id: authored.id,
+  return homeStationGeometry.hangars.map((authored) => ({
+    ...authored,
     localNormal: { ...authored.localNormal },
     localCentre: { ...authored.localCentre },
     worldCentre: toWorld(authored.localCentre),
-    apertureHalfWidth: authored.apertureHalfWidth,
-    apertureWidth: authored.apertureWidth,
-    corridorDepth: authored.corridorLength,
-    corridorLength: authored.corridorLength,
     interiorSpawn: toWorld(authored.interiorSpawn),
     mouth: toWorld(authored.mouth),
     innerWall: toWorld(authored.innerWall),
     releasePlane: toWorld(authored.releasePlane),
-    releaseDistance: authored.releaseDistance,
     collisionOpening: { ...authored.collisionOpening },
     doorRect: { ...authored.doorRect },
     maximumShipWidth: envelope.width,
     maximumShipHeight: envelope.height,
-    clearance: authored.clearance,
-    safetyMargin: authored.safetyMargin
-  };
-  // The legacy launch path also exposes the corridor points directly. Keep
-  // those names on the singular record so current launch code and diagnostics
-  // can share one geometry without recreating a second layout.
-  return {
-    ...hangar,
     angle: station.angle,
-    interiorSpawn: hangar.interiorSpawn,
-    rearWall: hangar.innerWall,
-    exitPoint: hangar.releasePlane,
-    releasePlane: hangar.releasePlane,
-    releaseDistance: authored.releaseDistance,
+    rearWall: toWorld(authored.innerWall),
+    exitPoint: toWorld(authored.releasePlane),
     corridorHalfWidth: authored.corridor.halfWidth,
     corridorLength: authored.corridor.length,
     apertureHalfWidth: authored.aperture.halfWidth
-  };
+  }));
 }
 
 // Where each weapon module physically sits, in structure-local space.
@@ -334,7 +342,8 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
     lastDamagedAt: 0,
     productionQueue: [],
     activeLaunches: [],
-    hangar: null,
+    hangars: null,
+    launchReservations: [],
     revision: 1,
     healthRevision: 1,
     stateRevision: 1,
@@ -399,7 +408,10 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
   // Stations are laid out on the ship grid but drawn and collided at their own
   // larger module scale; the client needs it to size the structure correctly.
   station.moduleScale = stationModuleScale(stationType);
-  if (stationType === "home") station.hangar = buildHangarGeometry(station);
+  if (stationType === "home") {
+    station.hangars = buildHangarGeometry(station);
+    station.launchReservations = new Array(station.hangars.length).fill(null);
+  }
   station.collisionPieces = stationCollisionPieces(station);
   station.shieldRadius = computeStationShieldCollisionRadius(station);
   // Broad-phase radius covering every solid piece, for spatial-index queries.
@@ -429,6 +441,35 @@ function queuedShipCount(room, playerId) {
     }
   }
   return total;
+}
+
+// Stable seat-to-corridor assignment from the historical three-hangar station:
+// one player uses the centre, two use the outer pair, and three use all three.
+// The assignment is a launch choice only; production queues and fleet limits
+// remain unchanged.
+const BAY_ASSIGNMENT_ORDER = Object.freeze({
+  1: Object.freeze([1]),
+  2: Object.freeze([0, 2]),
+  3: Object.freeze([0, 1, 2])
+});
+
+function stationCrew(room, station) {
+  const players = [...(room?.players?.values?.() || [])].filter((player) => !player.removed);
+  const crew = room?.rules?.gameMode === "solo"
+    ? players.filter((player) => player.id === station.ownerId)
+    : players.filter((player) => player.team && player.team === station.team);
+  return crew.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+function hangarBayForPlayer(room, station, playerId) {
+  const hangars = station.hangars || [];
+  if (hangars.length === 0) return null;
+  const crew = stationCrew(room, station);
+  const seat = crew.findIndex((player) => player.id === playerId);
+  const active = Math.max(1, Math.min(hangars.length, crew.length || 1));
+  const order = BAY_ASSIGNMENT_ORDER[active] || BAY_ASSIGNMENT_ORDER[hangars.length];
+  const bayIndex = order[(seat < 0 ? 0 : seat) % order.length];
+  return hangars[bayIndex] || hangars[0];
 }
 
 // How long a hull sits in the production queue.
@@ -525,13 +566,13 @@ function enqueueBotProduction(room, player, now) {
   return result.ok ? result : null;
 }
 
-// The corridor, in world space, as a swept segment from the interior spawn out
-// past the release plane. A launch may only begin when nothing occupies it.
-function corridorIsClear(room, station, ignoreShipId = null) {
+// A single corridor, in world space, as a swept segment from its rear wall to
+// its mouth. Independent bays can launch concurrently; a bay may only begin
+// when its own path is clear.
+function corridorIsClear(room, station, hangar, ignoreShipId = null) {
   const detailed = detailedProfileActive(room);
   const startedAt = detailed ? performanceNow() : 0;
   try {
-  const hangar = station.hangar;
   if (!hangar) return false;
   const normal = { x: Math.cos(station.angle), y: Math.sin(station.angle) };
   const from = hangar.innerWall;
@@ -562,7 +603,10 @@ function corridorIsClear(room, station, ignoreShipId = null) {
     // may overlap this band with its collision radius, but allowing that radius
     // to veto the launch lets enemies blockade production without entering the
     // one-way door. Normal separation handles contact with the launched hull.
-    if (along < -shipRadius || along > length) continue;
+    // A hull whose centre is at the mouth or beyond is already outside the
+    // station's spawn corridor. It must never blockade a new spawn from the
+    // open space in front of the hangar.
+    if (along < -shipRadius || along >= length) continue;
     // The launching ship fits inside halfWidth by construction, so any hull
     // reaching into the band obstructs it.
     if (Math.abs(across) <= halfWidth + shipRadius) return false;
@@ -585,15 +629,15 @@ function spawnQueuedShip(room, station, queueItem, now) {
     if (detailed) bump(room, "stationSpawnFleetCapBlocks");
     return null;
   }
-  const hangar = station.hangar;
-  if (!hangar || station.launchReservation) {
+  const hangar = hangarBayForPlayer(room, station, queueItem.playerId);
+  if (!hangar || station.launchReservations?.[hangar.index]) {
     if (detailed) bump(room, "stationSpawnOccupiedHangarBlocks");
     return null;
   }
   bumpCounter(room, "stationLaunchAttemptCount");
   const startedAt = detailed ? performanceNow() : 0;
   const physicalRadius = computeDesignCollisionRadius(queueItem.template.design, queueItem.template.stats);
-  if (!corridorIsClear(room, station)) {
+  if (!corridorIsClear(room, station, hangar)) {
     queueItem.blocked = true;
     station.productionRevision += 1;
     bumpCounter(room, "stationLaunchBlockedCount");
@@ -616,19 +660,38 @@ function spawnQueuedShip(room, station, queueItem, now) {
   const speed = INFRASTRUCTURE.homeStation.launchSpeed;
   ship.vx = Math.cos(launchAngle) * speed;
   ship.vy = Math.sin(launchAngle) * speed;
+  const normal = { x: Math.cos(launchAngle), y: Math.sin(launchAngle) };
+  const forwardExtents = computeDesignAxisExtents(queueItem.template.design, "x");
+  const lateralExtents = computeDesignAxisExtents(queueItem.template.design, "y");
+  const startAlong = hangar.corridor.rearWallX + hangar.corridor.length / 2;
+  const releaseDistance = hangar.corridor.mouthX + Math.max(
+    HULL_CELL_PADDING,
+    forwardExtents.negative
+  );
   // Launch phase: the ship is under station control until its whole hull clears
-  // the release plane. Ordinary stance, orders and weapons stay inert so it
-  // cannot manoeuvre or shoot through the structure it is still inside.
+  // the mouth. Ordinary stance, orders and weapons stay inert so it cannot
+  // manoeuvre or shoot through the structure it is still inside.
   ship.launchPhase = {
     stationId: station.id,
+    bayIndex: hangar.index,
     startedAt: now,
     angle: launchAngle,
-    normal: { x: Math.cos(launchAngle), y: Math.sin(launchAngle) },
-    releaseDistance: hangar.releaseDistance + physicalRadius
+    normal,
+    centreY: hangar.centreY,
+    startAlong,
+    along: startAlong,
+    rearExtent: Math.max(HULL_CELL_PADDING, forwardExtents.negative),
+    lateralExtent: Math.max(HULL_CELL_PADDING, Math.max(lateralExtents.negative, lateralExtents.positive)),
+    physicalRadius,
+    releaseDistance
   };
-  station.launchReservation = { shipId: ship.id, startedAt: now };
+  if (Array.isArray(station.launchReservations)) {
+    station.launchReservations[hangar.index] = { shipId: ship.id, startedAt: now };
+  }
   station.activeLaunches.push({
     shipId: ship.id,
+    bayIndex: hangar.index,
+    bayId: hangar.id,
     releasedAt: null,
     releasePlane: { ...hangar.releasePlane },
     progress: 0,
@@ -689,6 +752,61 @@ function processStationProduction(room, station, dt, now) {
   }
 }
 
+// Launches have right-of-way over moving hulls. This is deliberately a
+// station-owned operation rather than a side effect of generic separation:
+// separation may only see an overlap after it has already displaced the new
+// ship. Blockers are ordered by their outward distance and translated along the
+// launch normal, so a parked wall of ships is opened deterministically.
+function moveLaunchBlockers(room, station, hangar, ship, phase, along, now) {
+  const normal = phase.normal || { x: Math.cos(station.angle), y: Math.sin(station.angle) };
+  const lateral = { x: -normal.y, y: normal.x };
+  const launchRadius = Number(phase.physicalRadius) || Number(ship.physicalRadius) || 26;
+  const laneHalfWidth = Math.max(
+    Number(phase.lateralExtent) || 0,
+    Number(hangar.apertureHalfWidth) || 0
+  );
+  const blockers = [];
+  for (const candidate of room.ships?.values?.() || []) {
+    if (!candidate?.alive || candidate.id === ship.id || candidate.launchPhase) continue;
+    const dx = candidate.x - station.x;
+    const dy = candidate.y - station.y;
+    const candidateAlong = dx * normal.x + dy * normal.y;
+    const candidateAcross = dx * lateral.x + dy * lateral.y;
+    const candidateRadius = Number(candidate.physicalRadius) || Number(candidate.radius) || 26;
+    if (candidateAlong < -candidateRadius) continue;
+    if (Math.abs(candidateAcross - hangar.centreY) > laneHalfWidth + candidateRadius) continue;
+    blockers.push({ candidate, along: candidateAlong, across: candidateAcross, radius: candidateRadius });
+  }
+  blockers.sort((a, b) => {
+    if (Math.abs(a.along - b.along) > 0.001) return a.along - b.along;
+    return compareEntityIds(a.candidate, b.candidate);
+  });
+
+  let clearFront = along + launchRadius;
+  for (const blocker of blockers) {
+    const requiredAlong = clearFront + blocker.radius + 1;
+    let blockerAlong = blocker.along;
+    if (blockerAlong < requiredAlong) {
+      const displacement = requiredAlong - blockerAlong;
+      const candidate = blocker.candidate;
+      candidate.x += normal.x * displacement;
+      candidate.y += normal.y * displacement;
+      candidate._collisionCorrectionX = (candidate._collisionCorrectionX || 0) + normal.x * displacement;
+      candidate._collisionCorrectionY = (candidate._collisionCorrectionY || 0) + normal.y * displacement;
+      const inwardSpeed = (candidate.vx || 0) * normal.x + (candidate.vy || 0) * normal.y;
+      if (inwardSpeed < 0) {
+        candidate.vx -= inwardSpeed * normal.x;
+        candidate.vy -= inwardSpeed * normal.y;
+      }
+      candidate._launchYieldUntil = Math.max(Number(candidate._launchYieldUntil) || 0, Number(now) || 0) + 250;
+      candidate._launchYieldStationId = station.id;
+      blockerAlong = requiredAlong;
+      bumpCounter(room, "stationLaunchBlockersMoved");
+    }
+    clearFront = Math.max(clearFront, blockerAlong + blocker.radius);
+  }
+}
+
 // A launch record exists only while a freshly built ship is still clearing the
 // launch corridor. Without this sweep the list grows for the whole match, since
 // nothing else ever removes an entry.
@@ -711,7 +829,7 @@ function updateStationLaunches(room, station, dt, now) {
       launches.splice(i, 1);
       continue;
     }
-    const hangar = station.hangar;
+    const hangar = station.hangars?.[launch.bayIndex];
     if (!hangar) {
       releaseLaunch(station, launch.shipId);
       launches.splice(i, 1);
@@ -723,20 +841,47 @@ function updateStationLaunches(room, station, dt, now) {
       launches.splice(i, 1);
       continue;
     }
-    // Hold the ship on the corridor centreline at a controlled speed. It is not
-    // steering yet, so nothing can turn it into the structure.
+    // Station launch control owns the hull's position. Movement, avoidance and
+    // separation never get a chance to turn it or push it backward between
+    // these updates.
     const normal = phase.normal || {
       x: Math.cos(station.angle),
       y: Math.sin(station.angle)
     };
+    const lateral = { x: -normal.y, y: normal.x };
     const speed = INFRASTRUCTURE.homeStation.launchSpeed;
+    const safeDt = Number.isFinite(Number(dt)) ? Math.max(0, Number(dt)) : 0;
+    const startAlong = Number.isFinite(Number(phase.startAlong))
+      ? Number(phase.startAlong)
+      : hangar.corridor.rearWallX + hangar.corridor.length / 2;
+    const releaseDistance = Number.isFinite(Number(phase.releaseDistance))
+      ? Number(phase.releaseDistance)
+      : hangar.corridor.mouthX + Math.max(HULL_CELL_PADDING, Number(phase.rearExtent) || HULL_CELL_PADDING);
+    const previousAlong = Number.isFinite(Number(phase.along))
+      ? Math.max(startAlong, Number(phase.along))
+      : startAlong;
+    const along = Math.min(releaseDistance, previousAlong + speed * safeDt);
+    moveLaunchBlockers(room, station, hangar, ship, phase, along, now);
     ship.angle = phase.angle;
     ship.vx = normal.x * speed;
     ship.vy = normal.y * speed;
-    const along = (ship.x - station.x) * normal.x + (ship.y - station.y) * normal.y;
-    launch.progress = clampNumber(along / Math.max(1, phase.releaseDistance), 0, 1);
+    ship.x = station.x + normal.x * along + lateral.x * (Number(phase.centreY) || 0);
+    ship.y = station.y + normal.y * along + lateral.y * (Number(phase.centreY) || 0);
+    ship._integratedMovementX = 0;
+    ship._integratedMovementY = 0;
+    ship._collisionCorrectionX = 0;
+    ship._collisionCorrectionY = 0;
+    ship.turnActivity = 0;
+    phase.startAlong = startAlong;
+    phase.along = along;
+    phase.releaseDistance = releaseDistance;
+    launch.progress = clampNumber(
+      (along - startAlong) / Math.max(1, releaseDistance - startAlong),
+      0,
+      1
+    );
     launch.doorOpen = true;
-    if (along >= phase.releaseDistance) {
+    if (along >= releaseDistance) {
       // Fully clear: ordinary movement, orders and weapons resume, and the ship
       // heads for the player's rally point.
       const releaseStartedAt = detailed ? performanceNow() : 0;
@@ -756,7 +901,10 @@ function updateStationLaunches(room, station, dt, now) {
 }
 
 function releaseLaunch(station, shipId) {
-  if (station.launchReservation?.shipId === shipId) station.launchReservation = null;
+  if (!Array.isArray(station.launchReservations)) return;
+  for (let i = 0; i < station.launchReservations.length; i += 1) {
+    if (station.launchReservations[i]?.shipId === shipId) station.launchReservations[i] = null;
+  }
 }
 
 function updateStationRepair(room, station, dt, now) {
@@ -921,7 +1069,7 @@ function updateStationCapture(room, station, dt, now) {
 
   function captureStation(newOwnerId, newTeam) {
     setProgress(0);
-    transferRelayControl(room, station, newOwnerId, now);
+    transferRelayControl(room, station, newOwnerId, now, { captureMethod: "neutral" });
     if (detailed) bump(room, "stationCapturesCompleted");
   }
 
@@ -1077,14 +1225,23 @@ function updateStationHangarSystems(room, station, dt, now, phase = "all") {
   }
 }
 
-function updateStations(room, dt, now) {
+// Called at the movement boundary. A launch must be advanced before ordinary
+// movement, separation or combat consumes the room; otherwise those systems can
+// displace a new hull and station control only repairs the result one tick late.
+function updateStationLaunchControl(room, dt, now) {
   if (!usesStationInfrastructure(room) || !room.stations) return;
+  for (const station of room.stations) updateStationLaunches(room, station, dt, now);
+}
+
+function updateStations(room, dt, now, options = null) {
+  if (!usesStationInfrastructure(room) || !room.stations) return;
+  const skipLaunchControl = options?.skipLaunchControl === true;
   const startedAt = performanceNow();
   try {
     for (const station of room.stations) {
       updateStationCaptureSystems(room, station, dt, now);
       updateStationRepairSystems(room, station, dt, now, "self");
-      updateStationHangarSystems(room, station, dt, now, "launches");
+      if (!skipLaunchControl) updateStationHangarSystems(room, station, dt, now, "launches");
       updateStationRepairSystems(room, station, dt, now, "active");
       updateStationHangarSystems(room, station, dt, now, "production");
     }
@@ -1110,6 +1267,7 @@ module.exports = {
   updateStationCaptureSystems,
   updateStationRepairSystems,
   updateStationHangarSystems,
+  updateStationLaunchControl,
   enqueueStationProduction,
   enqueueBotProduction,
   queuedShipCount,

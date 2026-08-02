@@ -233,13 +233,15 @@ try {
       const bounds = stationLocalBoundsForTest(home);
       return {
         moduleScale: home.moduleScale,
+        hangarCount: home.hangars?.length || 0,
         width: bounds.maxX - bounds.minX,
         height: bounds.maxY - bounds.minY
       };
     }, homeId);
-    assert.equal(homeRender.moduleScale, 36, "browser home station uses the authoritative module scale");
-    assert.equal(homeRender.width, 540, "browser home station renderer bounds are 540 world units wide");
-    assert.equal(homeRender.height, 540, "browser home station renderer bounds are 540 world units high");
+    assert.equal(homeRender.moduleScale, 56, "browser home station uses the historical module scale");
+    assert.equal(homeRender.hangarCount, 3, "browser home station reconstructs all three launch hangars");
+    assert.equal(homeRender.width, 840, "browser home station renderer bounds are 840 world units wide");
+    assert.equal(homeRender.height, 840, "browser home station renderer bounds are 840 world units high");
     await page.evaluate((id) => {
       const home = window.__mfaState.snapshot.stations.find((station) => station.id === id);
       window.__mfaState.camera.follow = false;

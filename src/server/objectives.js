@@ -1,4 +1,5 @@
-// Controls relay capture progress, capture rewards, and full-control victory.
+// Controls relay capture progress, capture rewards, and classic full-control
+// victory. Station-mode victory is exclusively home-station destruction.
 
 const { ECONOMY, TEAM_COLORS } = require("./config");
 const { BALANCE } = require("./balanceConfig");
@@ -216,6 +217,15 @@ function finalizeHomeStationDestruction(room, station, attackerId, now) {
 
 function updateControlVictory(room, now) {
   if (room.phase !== "active" || room.winner) return;
+
+  // Relays remain capture/economy objectives in station mode, but controlling
+  // them must never end the match. The only station-mode victory authority is
+  // finalizeHomeStationDestruction(). Clear any stale countdown state without
+  // broadcasting a misleading interruption notice.
+  if (room.rules?.infrastructureMode === "stations") {
+    resetControlVictory(room, false);
+    return;
+  }
 
   const stationMode = room.rules?.infrastructureMode === "stations";
   const startedAt = stationMode ? performanceNow() : 0;

@@ -92,7 +92,7 @@ const HANGAR_SCENARIOS = [
   { name: "destroyed home station", subsystem: "hangar", ships: 0, relays: 3, density: "destroyed-home", variant: "destroyed-home", event: "destroyed-home-block" },
   { name: "one active launch", subsystem: "hangar", ships: 0, relays: 3, density: "active-launch", variant: "active-launch", queueQuantity: 1, event: "active-launch" },
   { name: "several simultaneous launches", subsystem: "hangar", ships: 0, relays: 3, density: "simultaneous", variant: "simultaneous", queueQuantity: 3, event: "simultaneous-launches" },
-  { name: "three queued players share the central hangar", subsystem: "hangar", ships: 0, relays: 3, density: "shared-central-hangar", variant: "shared-central-hangar", queueQuantity: 1, queuePlayers: ["p-blue", "p-blue-2", "p-blue-3"], event: "shared-central-hangar" },
+  { name: "three queued players use the three launch corridors", subsystem: "hangar", ships: 0, relays: 3, density: "three-launch-corridors", variant: "three-launch-corridors", queueQuantity: 1, queuePlayers: ["p-blue", "p-blue-2", "p-blue-3"], event: "three-launch-corridors" },
   { name: "ship destroyed while launching", subsystem: "hangar", ships: 0, relays: 3, density: "destroyed-launch", variant: "destroyed-launch", queueQuantity: 1, event: "launch-destruction" },
   { name: "launch completion and rally assignment", subsystem: "hangar", ships: 0, relays: 3, density: "release", variant: "release", queueQuantity: 1, event: "launch-release" },
   { name: "small ship template", subsystem: "hangar", ships: 0, relays: 3, density: "small-template", variant: "small-template", queueQuantity: 1, event: "small-template-spawn" },
@@ -506,7 +506,7 @@ function configureHangarFixture(room, config, home) {
 function prepareMeasuredFixture(room, config, homes) {
   const home = homes[0];
   if (!home) return;
-  if (config.variant === "one-queue" || config.variant === "ten-queue" || config.variant === "burst-queue" || config.variant === "fleet-cap" || config.variant === "active-launch" || config.variant === "simultaneous" || config.variant === "shared-central-hangar" || config.variant === "destroyed-launch" || config.variant === "release" || config.variant === "small-template" || config.variant === "large-template") {
+  if (config.variant === "one-queue" || config.variant === "ten-queue" || config.variant === "burst-queue" || config.variant === "fleet-cap" || config.variant === "active-launch" || config.variant === "simultaneous" || config.variant === "three-launch-corridors" || config.variant === "destroyed-launch" || config.variant === "release" || config.variant === "small-template" || config.variant === "large-template") {
     for (const playerId of config.queuePlayers || ["p-blue"]) enqueueBenchmarkItem(room, home, config, playerId);
   }
   if (config.variant === "churn" && config.subsystem === "hangar") enqueueBenchmarkItem(room, home, config);
@@ -566,11 +566,11 @@ function assertFixtureConstruction(room, config, homes) {
     if (config.variant === "ordinary") assert.equal(stats.pointDefenceMounts, 0, `${config.name}: no point-defence mounts remain operational`);
     if (config.variant === "destroyed") assert(stats.liveWeaponMounts < stats.totalWeaponMounts / 2, `${config.name}: most weapon mounts are destroyed`);
   }
-  if (config.variant === "shared-central-hangar") {
+  if (config.variant === "three-launch-corridors") {
     const home = homes[0];
     const queuePlayers = new Set((home.productionQueue || []).map((item) => item.playerId));
-    assert(home.hangar?.id === "central" && home.launchBays === undefined, `${config.name}: one shared central hangar exists`);
-    assert.equal(queuePlayers.size, 3, `${config.name}: three distinct players are queued through the shared path`);
+    assert(home.hangars?.length === 3 && home.hangar === undefined, `${config.name}: one shared home station exposes three launch hangars`);
+    assert.equal(queuePlayers.size, 3, `${config.name}: three distinct players are queued through one station`);
   }
   return stats;
 }
@@ -844,7 +844,7 @@ function runScenario(config, repeatIndex, optimized = false, cadenceEnabled = fa
       maxQueuedItems: Math.max(...measuredFixtureStats.map((stats) => stats.queuedItems), fixtureConstruction.queuedItems),
       maxQueuedQuantity: Math.max(...measuredFixtureStats.map((stats) => stats.queuedQuantity), fixtureConstruction.queuedQuantity)
     };
-    const launchExpected = ["one-queue", "ten-queue", "burst-queue", "active-launch", "simultaneous", "shared-central-hangar", "destroyed-launch", "release", "small-template", "large-template"].includes(config.variant);
+    const launchExpected = ["one-queue", "ten-queue", "burst-queue", "active-launch", "simultaneous", "three-launch-corridors", "destroyed-launch", "release", "small-template", "large-template"].includes(config.variant);
     if (launchExpected) assert(summaryResult.fixtureAssertions.observed.maxActiveLaunches > 0, `${config.name}: measured fixture produces an active launch`);
     summaryResult.fixtureAssertions.retainedState = {
       retainedTargetCount: (room.stations || []).reduce((sum, station) => sum + (station._weaponTargetState || []).filter((state) => state?.id !== null && state?.id !== undefined).length, 0),

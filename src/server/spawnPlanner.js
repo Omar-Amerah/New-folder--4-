@@ -560,10 +560,27 @@ function preferredSlots(world, solo, player, players, seed, radius, edgeRadius =
     return jitteredLine(x, y, left ? 0 : Math.PI, seed, player.id, edgeRadius, world, left ? "blue-side" : "red-side");
   }
   const soloIndex = ids.indexOf(player.id);
-  // With the default phase two solo players land on the short (vertical) axis,
-  // which on small worlds leaves no legal spot for the central relay's
-  // safe-zone clearance. Rotate the pair onto the long axis instead.
-  const phase = ids.length === 2 ? Math.PI / 2 : ids.length === 4 ? -Math.PI / 4 : 0;
+  // Small station arenas need the diagonal corners: their 840u home shell and
+  // relay clearance cannot both fit when two or four solo regions are placed on
+  // a cardinal ring. Corner sectors remain symmetric and leave a central relay
+  // plus its forward-clearance corridor available.
+  if (ids.length >= 2 && ids.length <= 4 && world.width <= 6400) {
+    const inset = edgeRadius + 80;
+    const positions = ids.length === 2
+      ? [[inset, inset], [world.width - inset, world.height - inset]]
+      : [
+        [inset, inset],
+        [world.width - inset, inset],
+        [world.width - inset, world.height - inset],
+        [inset, world.height - inset]
+      ];
+    const [x, y] = positions[Math.max(0, soloIndex) % positions.length];
+    const angle = Math.atan2(world.height / 2 - y, world.width / 2 - x);
+    return jitteredLine(x, y, angle, seed, player.id, edgeRadius, world, "solo-corner");
+  }
+  // Larger arenas retain the circular solo layout. Two-player rooms use the
+  // short axis here so the long axis remains available for relay symmetry.
+  const phase = ids.length === 2 ? 0 : ids.length === 4 ? -Math.PI / 4 : 0;
   const angle = -Math.PI + phase + (2 * Math.PI * (soloIndex + 0.5)) / Math.max(1, ids.length);
   // Solo fairness is measured in world units. A normalized ellipse made the
   // side spawns much farther from the centre than the top/bottom spawns on a
@@ -614,8 +631,13 @@ function isLegal(c, radius, edgeRadius, world, map, reservations) {
   // which in station mode has to hold the home station — cannot fall off the map.
   if (c.x < edgeRadius || c.x > world.width - edgeRadius || c.y < edgeRadius || c.y > world.height - edgeRadius) return false;
   for (const r of reservations) if (Math.hypot(c.x - r.x, c.y - r.y) < radius + r.radius) return false;
-  for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < radius + (a.radius || 0) + MAP_CLEARANCES.asteroidToSpawnSlot) return false;
-  for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < radius + (relay.radius || 0) + MAP_CLEARANCES.relayToSafeZone) return false;
+  // In station mode the slot is also the centre of a protected station region.
+  // Reserve map objects against that larger region, not only against the
+  // starter hull, so the later safe-zone validation cannot reject a plan that
+  // the slot solver had considered legal.
+  const regionFootprint = Math.max(radius, edgeRadius);
+  for (const a of map.asteroids || []) if (Math.hypot(c.x - a.x, c.y - a.y) < regionFootprint + (a.radius || 0) + MAP_CLEARANCES.asteroidToSpawnSlot) return false;
+  for (const relay of map.relays || []) if (Math.hypot(c.x - relay.x, c.y - relay.y) < regionFootprint + (relay.radius || 0) + MAP_CLEARANCES.relayToSafeZone) return false;
   return true;
 }
 function summarizeTeams(players) { return players.map((p) => ({ id: p.id, team: p.team, bot: !!p.isBot })); }

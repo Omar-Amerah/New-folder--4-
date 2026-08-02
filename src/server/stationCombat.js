@@ -430,8 +430,11 @@ function awardRelayTransfer(room, station, attacker, team, now) {
 
 // The only authority that can transfer a relay. Home stations intentionally do
 // not enter this path: their zero-hull branch below remains a match-ending
-// destruction, not a capture or recovery.
-function transferRelayControl(room, station, attackerId, now) {
+// destruction, not a capture or recovery. A timed capture from neutral is a
+// different lifecycle from a destroyed-relay handoff: it restores the relay
+// completely and makes it operational immediately, while destruction still
+// starts the configured reduced-health recovery state.
+function transferRelayControl(room, station, attackerId, now, options = {}) {
   if (!room || !station || station.stationType !== "relay") return false;
   const resolved = relayAttacker(room, attackerId);
   if (!resolved) return false;
@@ -439,14 +442,18 @@ function transferRelayControl(room, station, attackerId, now) {
   if (station.team && String(station.team) === team) return false;
 
   const cfg = BALANCE.infrastructure?.relayStation;
-  const restored = restoreRelayComponentHp(station, relayRestoreRatio(cfg));
+  const capturedFromNeutral = options.captureMethod === "neutral";
+  const restored = restoreRelayComponentHp(
+    station,
+    capturedFromNeutral ? 1 : relayRestoreRatio(cfg)
+  );
   if (!restored) return false;
 
   station.ownerId = attacker.id;
   station.team = team;
-  station.state = "recovering";
+  station.state = capturedFromNeutral ? "operational" : "recovering";
   station.alive = true;
-  station.shield = 0;
+  station.shield = capturedFromNeutral ? station.maxShield : 0;
   station.captureProgress = 0;
   station.captureTeam = null;
   station.captureContested = false;

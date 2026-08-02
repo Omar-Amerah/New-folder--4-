@@ -498,8 +498,12 @@ function buildStructuredFallbackMap(seed, world, gameMode, safeZones, clearances
     const transforms = symmetryTransforms(world, order, layoutCentre);
     const sine = Math.sin(Math.PI / order);
     const groupFloor = order > 1 ? minRelayGap / (2 * sine) : 0;
-    const maximumRadius = Math.min(world.width, world.height) * 0.5 - RELAY_RADIUS_RANGE.max - clearances.edgeInset;
-    for (let radiusStep = 0; radiusStep < 8; radiusStep += 1) {
+    // The pair may sit on the long axis when the short axis is occupied by
+    // solo home-station regions. The placement check below still rejects any
+    // image outside the rectangle, so using the long dimension here only makes
+    // those valid horizontal candidates reachable.
+    const maximumRadius = Math.max(world.width, world.height) * 0.5 - RELAY_RADIUS_RANGE.max - clearances.edgeInset;
+    for (let radiusStep = 0; radiusStep < 16; radiusStep += 1) {
       const radial = Math.min(maximumRadius, groupFloor + radiusStep * 90);
       if (!(radial > 0) || radial > maximumRadius) continue;
       for (let angleStep = 0; angleStep < Math.max(4, order * 2); angleStep += 1) {
@@ -736,22 +740,39 @@ function generateSafeZones(world, gameMode) {
     stationShell.maxY - stationShell.minY
   ) / 2 + 40;
   const spawnRadius = Math.max(275, Math.ceil(stationRadius));
-  const sideInset = spawnRadius;
+  // Match the authoritative team-slot inset used by spawnPlanner. Keeping the
+  // default map zones and the first roster plan on the same centres avoids a
+  // transient relay-clearance mismatch while a lobby roster is being assembled.
+  const sideInset = spawnRadius + 80;
   if (gameMode === "teams") {
     zones.push({ x: sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(63,214,255,0.06)", borderColor: "#38d5ff", isSpawn: true, team: "blue" });
     zones.push({ x: world.width - sideInset, y: world.height * 0.5, radius: spawnRadius, color: "rgba(255,95,126,0.06)", borderColor: "#ff5f7e", isSpawn: true, team: "red" });
   } else {
-    // Direct solo-map callers do not have a roster yet. Use the same physical
-    // circular cardinal layout as the authoritative spawn planner's four-player
-    // arrangement instead of assuming four fixed edge coordinates.
+    // Direct solo-map callers do not have a roster yet. Use a circular layout
+    // when the board has room; compact boards use symmetric corner sectors so
+    // the station-sized zones leave a fair corridor for the relays.
     const ringRadius = Math.max(0, Math.min(world.width, world.height) * 0.5 - spawnRadius - 80);
     const centreX = world.width * 0.5;
     const centreY = world.height * 0.5;
-    const defaultSoloAngles = world.width <= 5200 ? [0, Math.PI] : [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5];
-    const soloZones = defaultSoloAngles.map((angle, index) => ({
+    const compactSolo = world.width <= 6400;
+    const cornerInset = spawnRadius + 80;
+    const soloPositions = compactSolo
+      ? (world.width <= 5200
+        ? [[cornerInset, cornerInset], [world.width - cornerInset, world.height - cornerInset]]
+        : [
+          [cornerInset, cornerInset],
+          [world.width - cornerInset, cornerInset],
+          [world.width - cornerInset, world.height - cornerInset],
+          [cornerInset, world.height - cornerInset]
+        ])
+      : [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5].map((angle) => [
+        centreX + Math.cos(angle) * ringRadius,
+        centreY + Math.sin(angle) * ringRadius
+      ]);
+    const soloZones = soloPositions.map(([x, y], index) => ({
       id: `default-solo-${index + 1}`,
-      x: Math.round(centreX + Math.cos(angle) * ringRadius),
-      y: Math.round(centreY + Math.sin(angle) * ringRadius),
+      x: Math.round(x),
+      y: Math.round(y),
       radius: spawnRadius,
       color: "rgba(255,255,255,0.06)",
       isSpawn: true
@@ -881,7 +902,9 @@ function addSymmetricRelayGroup(rng, relays, world, safeZones, transforms, clear
   const minRadius = order > 1
     ? (RELAY_RADIUS_RANGE.max * 2 + clearances.relayToRelay) / (2 * sine)
     : 0;
-  const maxRadius = Math.max(minRadius, Math.min(world.width, world.height) * 0.5 - RELAY_RADIUS_RANGE.max - clearances.edgeInset);
+  // Use the long dimension as the radial ceiling. Physical world-bound and
+  // safe-zone checks below remain authoritative for non-axis-aligned images.
+  const maxRadius = Math.max(minRadius, Math.max(world.width, world.height) * 0.5 - RELAY_RADIUS_RANGE.max - clearances.edgeInset);
   if (minRadius >= maxRadius) return false;
   const attempts = 160;
   for (let attempt = 0; attempt < attempts; attempt += 1) {

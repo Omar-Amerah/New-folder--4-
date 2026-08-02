@@ -4,7 +4,7 @@ const { updateEconomy } = require("./economy");
 const { updateDestroyedShips, updateShipSupport, updateShipWeapons, updateSelfDestructingShips, updateProximityCharges } = require("./combat");
 const { updateShipMovement, updateShipSeparation } = require("./movement");
 const { updateBullets } = require("./projectiles");
-const { updateStations } = require("./stations");
+const { updateStations, updateStationLaunchControl } = require("./stations");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");
 const { updateShipPowerDemand } = require("./componentPower");
@@ -73,6 +73,12 @@ function tickRoom(room, dt, now) {
   let startedAt = performanceNow();
   updateBots(room, now); updateEconomy(room, dt); updateSelfDestructingShips(room, now); updateDestroyedShips(room, now);
   durations.botsEconomyLifecycle = performanceNow() - startedAt;
+  startedAt = performanceNow();
+  // Launch control owns launch-phase hulls before movement, separation and
+  // combat observe the tick. This makes outward progress and right-of-way
+  // authoritative instead of a correction applied after the fact.
+  updateStationLaunchControl(room, dt, now);
+  durations.stationLaunchControl = performanceNow() - startedAt;
   const ships = getLiveShips(room, room._liveShipScratch || (room._liveShipScratch = []));
   setCounter(room, "liveShips", ships.length);
   const sharedMovementContactPairs = SHARED_MOVEMENT_CONTACT_PAIRS();
@@ -230,7 +236,7 @@ function tickRoom(room, dt, now) {
   setCounter(room, "liveProjectiles", (room.bullets || []).length);
   durations.projectiles = performanceNow() - startedAt;
   startedAt = performanceNow();
-  updateStations(room, dt, now);
+  updateStations(room, dt, now, { skipLaunchControl: true });
   updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
   if (OPTIMIZED_VISIBILITY_RUNTIME() && room._visibilityRuntime) {
     require("./visibilityRuntime").maintainVisibilityRuntime(room);

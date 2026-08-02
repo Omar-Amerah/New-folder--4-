@@ -52,9 +52,7 @@ const MOVEMENT_TOGGLE_DEFAULTS = Object.freeze({
   // what it can reach, it just will not go anywhere about it.
   autoEngage: true,
   // Go after a target that opens the range again once already established.
-  pursue: true,
-  // Travel at the group's pace rather than the hull's own.
-  matchFormationSpeed: true
+  pursue: true
 });
 
 const MOVEMENT_TOGGLE_KEYS = Object.freeze(Object.keys(MOVEMENT_TOGGLE_DEFAULTS));

@@ -97,6 +97,13 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function angleDelta(a, b) {
+  let delta = (a || 0) - (b || 0);
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 function attack(room, players, attacker, target) {
   const result = commandShips(room, players.get("p1"), target.x, target.y, {
     shipIds: [attacker.id],
@@ -147,6 +154,54 @@ function runFriendlyScreen(style) {
 }
 
 function run() {
+  // A formation's stored course is only an arrival-facing preference. During
+  // travel the live route waypoint must own the hull heading, even when the
+  // command carries a different formation heading.
+  {
+    const mover = makeShip(1000, 1000, { angle: 0, design: UNARMED });
+    const { room, ships } = makeRoom({ p1: [mover] });
+    const destination = { x: 2200, y: 1800 };
+    setMovementCommand(mover, {
+      id: "waypoint-heading:mover",
+      type: "move",
+      destination,
+      formationHeading: 0,
+      manual: true
+    });
+    syncMovementTarget(mover);
+    movementTestTick(room, ships, DT, 0);
+    const index = mover.movement.waypointIndex || 0;
+    const waypoint = mover.movement.path[index] || destination;
+    // `desiredHeading` is the plan made at the start of the tick; compare it
+    // with the waypoint bearing from that same position, before integration
+    // moves the hull a few pixels closer to the goal.
+    const waypointBearing = Math.atan2(waypoint.y - 1000, waypoint.x - 1000);
+    assert(Math.abs(angleDelta(mover.movement.desiredHeading, waypointBearing)) < 1e-4,
+      "travelling movement must face its active route waypoint");
+    assert(Math.abs(angleDelta(mover.movement.desiredHeading, 0)) > 0.2,
+      "a stale formation heading must not override waypoint steering");
+  }
+
+  // A ground mover that has already slowed for a stationary friendly still
+  // needs one deterministic local bypass; avoidance must not switch off at a
+  // low forward speed and repeatedly drive it back into the blocker.
+  {
+    const mover = makeShip(1000, 2000, { angle: 0, design: UNARMED });
+    const blocker = makeShip(1260, 2000, { angle: 0, design: UNARMED });
+    const { room, ships, players } = makeRoom({ p1: [mover, blocker] });
+    commandShips(room, players.get("p1"), 3600, 2000, { shipIds: [mover.id] });
+    let peakDeviation = 0;
+    simulate(room, ships, 35, () => {
+      peakDeviation = Math.max(peakDeviation, Math.abs(mover.y - 2000));
+    });
+    assert(peakDeviation > 20,
+      `a slow follower should take a visible deterministic bypass (${peakDeviation.toFixed(1)} px)`);
+    assert(distance(mover, blocker) > physicalCollisionRadius(mover) + physicalCollisionRadius(blocker),
+      "the bypass should clear the stationary friendly");
+    assert(Math.hypot(mover.x - 3600, mover.y - 2000) <= ARRIVE_DISTANCE + 12,
+      "the bypass should still deliver the mover to its destination");
+  }
+
   // Hold's visible rest point, not its hidden route endpoint, is 80% of reach.
   {
     const attacker = makeShip(1000, 2000);

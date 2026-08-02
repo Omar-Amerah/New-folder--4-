@@ -1258,6 +1258,7 @@ function updateDroneBaysLegacy(room, ships, dt, now) {
     ...Object.values(CONFIG.types || {}).map((entry) => Number(entry?.speed) || 0)
   ) * Math.max(0, Number(dt) || 0) * 1.75 + 2;
   for (const ship of ships) {
+    if (ship.launchPhase) continue;
     if (!ship.droneBays) initializeDroneBays(room, ship, now);
     else indexDroneBays(ship);
     const inSpawnZone = isInOwnSpawnZone(room, ship);
@@ -1626,6 +1627,7 @@ function updateDroneBaysOptimized(room, ships, dt, now) {
 
   for (const members of room._droneContextMemberScratch?.values?.() || []) members.length = 0;
   for (const ship of ships) {
+    if (ship.launchPhase) continue;
     if (!ship.droneBays) initializeDroneBays(room, ship, now);
     else indexDroneBays(ship);
     const inSpawnZone = isInOwnSpawnZone(room, ship);

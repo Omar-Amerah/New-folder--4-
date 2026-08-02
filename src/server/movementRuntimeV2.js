@@ -21,11 +21,6 @@ function finitePoint(point) {
     : null;
 }
 
-function finitePath(path) {
-  if (!Array.isArray(path)) return [];
-  return path.slice(0, 64).map(finitePoint).filter(Boolean);
-}
-
 function createMovementRuntime() {
   return {
     command: null,
@@ -56,7 +51,18 @@ function createMovementRuntime() {
     // On a ramming run: a Charge ship carrying a live demolition charge, closing
     // on the target it will detonate against. Recomputed every tick, never
     // latched -- see updateShipMovement.
-    ramming: false
+    ramming: false,
+    // One deterministic local-traffic decision for the current encounter.
+    // This is route control, not a second movement command.
+    traffic: {
+      mode: "clear",
+      blockerId: null,
+      pairKey: null,
+      side: 0,
+      bypass: null,
+      priorityId: null,
+      crossing: false
+    }
   };
 }
 
@@ -76,9 +82,8 @@ function ensureMovementRuntime(ship) {
 // (station launch, formation assignment) leave it false so a freshly built ship
 // can still be re-tasked by its owner's next click without special-casing.
 //
-// `formationHeading` is the direction the whole selection is travelling, set by
-// commandShips. It is what stops the outer ships of a group from turning inward
-// to stare at the exact pixel the player clicked.
+// `formationHeading` is retained only as a final resting-facing preference for
+// multi-ship move orders. Travelling ships steer from their own route waypoint.
 function setMovementCommand(ship, command) {
   const runtime = ensureMovementRuntime(ship);
   runtime.command = command && MOVEMENT_TYPES.has(String(command.type))
@@ -90,43 +95,6 @@ function setMovementCommand(ship, command) {
       formationHeading: Number.isFinite(command.formationHeading)
         ? Number(command.formationHeading)
         : null,
-      // The pace of the slowest hull in the selection, so the group stays a
-      // group in flight rather than only at the destination.
-      formationSpeed: Number.isFinite(command.formationSpeed) && command.formationSpeed > 0
-        ? Number(command.formationSpeed)
-        : null,
-      // One corridor belongs to the whole formation. Each ship carries the same
-      // centreline plus its deterministic lane/queue assignment, so independent
-      // A* searches cannot collapse the group onto one obstacle waypoint.
-      formationPath: finitePath(command.formationPath),
-      formationGroupId: command.formationGroupId == null ? null : String(command.formationGroupId),
-      formationLane: Number.isFinite(command.formationLane) ? Number(command.formationLane) : 0,
-      formationRank: Number.isFinite(command.formationRank)
-        ? Math.max(0, Math.floor(command.formationRank))
-        : 0,
-      formationSpacing: Number.isFinite(command.formationSpacing) && command.formationSpacing > 0
-        ? Number(command.formationSpacing)
-        : null,
-      // This ship's place on a group's firing line: an angle either side of the
-      // group's approach bearing, and how far in its rank stands as a fraction
-      // of the ship's own engagement range. Stated as an arc rather than an
-      // offset from a straight line so that every ship in the group ends up at
-      // the range it was sent to, and so that a line too long for one arc gains
-      // depth instead of piling its outer ships onto the same point.
-      firingAngle: Number.isFinite(command.firingAngle) ? Number(command.firingAngle) : 0,
-      firingRadiusScale: Number.isFinite(command.firingRadiusScale) && command.firingRadiusScale > 0
-        ? Number(command.firingRadiusScale)
-        : 1,
-      // Attack ranks are traffic priority only. They do not create a movement
-      // formation or a shared route: closer firing ranks pass through the outer
-      // firing line and establish their own ring.
-      firingRank: Number.isFinite(command.firingRank)
-        ? Math.max(0, Math.floor(command.firingRank))
-        : 0,
-      // This ship's bearing around a target a group is charging, so a fleet
-      // closing to contact shares the hull out between its sides instead of
-      // every ship driving at the same point on it. Null for every other stance.
-      chargeBearing: Number.isFinite(command.chargeBearing) ? Number(command.chargeBearing) : null,
       finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null,
       manual: Boolean(command.manual)
     }
@@ -144,6 +112,15 @@ function setMovementCommand(ship, command) {
   runtime.chargeEngaged = false;
   runtime.blocked = false;
   runtime.firingSolution = null;
+  runtime.traffic = {
+    mode: "clear",
+    blockerId: null,
+    pairKey: null,
+    side: 0,
+    bypass: null,
+    priorityId: null,
+    crossing: false
+  };
   if (!runtime.command) runtime.phase = "idle";
   else if (runtime.command.type === "stop") runtime.phase = "braking";
   else if (runtime.command.type === "move") runtime.phase = "travelling";

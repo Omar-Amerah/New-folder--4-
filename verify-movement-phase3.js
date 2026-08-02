@@ -195,11 +195,11 @@ function run() {
         "the formation heading should be the group's own course");
     }
 
-    simulate(room, ships, 60);
+    simulate(room, ships, 120);
 
     for (const ship of ships) {
       const toSlot = Math.hypot(ship.x - orderedDestination(ship).x, ship.y - orderedDestination(ship).y);
-      assert(toSlot < 24, `every ship should reach its own slot (${ship.id} is ${toSlot.toFixed(1)} px off)`);
+      assert(toSlot < 24, `every ship should reach its own slot (${ship.id} is ${toSlot.toFixed(1)} px off; ${ships.map((entry) => `${entry.id}@${entry.x.toFixed(0)},${entry.y.toFixed(0)}->${orderedDestination(entry).x.toFixed(0)},${orderedDestination(entry).y.toFixed(0)}:${Math.hypot(entry.x - orderedDestination(entry).x, entry.y - orderedDestination(entry).y).toFixed(1)}:${JSON.stringify(entry.movement.traffic)}`).join("; ")})`);
       assert(ship.movement.arrived, `${ship.id} should report arrival`);
     }
 

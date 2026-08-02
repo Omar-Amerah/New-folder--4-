@@ -259,6 +259,7 @@ function updateDecoyLaunchers(room, ships, dt, now) {
 
   const { getComponentPowerMultiplier } = require("./componentPower");
   for (const ship of ships || []) {
+    if (ship.launchPhase) continue;
     if (!ship.decoyLaunchers) initializeDecoyLaunchers(room, ship, now);
     const launchers = ship.decoyLaunchers;
     const ready = ship._decoyLauncherReady || (ship._decoyLauncherReady = []);

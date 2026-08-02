@@ -49,6 +49,25 @@ function computeDesignCollisionRadius(design, fallback = 18) {
   return radius;
 }
 
+// Directional collision extents for a hull whose local +x axis is its forward
+// direction. Unlike computeDesignCollisionRadius(), this keeps the real rear
+// and lateral envelope instead of replacing the hull with one diagonal circle.
+// Launch control uses the rear extent so release happens exactly when the last
+// collision cell has cleared the station mouth.
+function computeDesignAxisExtents(design, axis = "x") {
+  const coordinate = axis === "y" ? "y" : "x";
+  let min = Infinity;
+  let max = -Infinity;
+  for (const module of design || []) {
+    for (const cell of componentCellLocalCoords(module)) {
+      min = Math.min(min, cell[coordinate] - SHIP_HULL_CELL_COLLISION_RADIUS);
+      max = Math.max(max, cell[coordinate] + SHIP_HULL_CELL_COLLISION_RADIUS);
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 0, negative: 0, positive: 0 };
+  return { min, max, negative: Math.max(0, -min), positive: Math.max(0, max) };
+}
+
 function computeDesignFootprintRadius(design) {
   let radius = 0;
   const halfCell = MODULE_SCALE / 2;
@@ -293,6 +312,7 @@ module.exports = {
   SHIP_HULL_CELL_COLLISION_RADIUS,
   componentCellLocalCoords,
   computeDesignCollisionRadius,
+  computeDesignAxisExtents,
   computeDesignFootprintRadius,
   getShipComponentCellWorldCoords,
   getShipCollisionGeometry,

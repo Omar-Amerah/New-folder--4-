@@ -1,7 +1,8 @@
 "use strict";
 
-// Guard the selective rollback. Ship drone bays and component hangars live in
-// unrelated systems, so this scan is limited to home-station production paths.
+// Guard the selective three-corridor restoration. Ship drone bays and component
+// hangars live in unrelated systems, so this scan is limited to home-station
+// production paths.
 
 const assert = require("assert");
 const fs = require("fs");
@@ -27,20 +28,15 @@ const files = [
 ];
 
 const forbidden = [
-  ["plural station field", /station\.hangars\b|\bhangars\b/gi],
-  ["multi-bay count", /\bHANGAR_BAY_COUNT\b|\bHANGAR_BAY_CELLS\b/],
-  ["bay assignment order", /\bBAY_ASSIGNMENT_ORDER\b/],
-  ["player bay resolver", /\bhangarBayForPlayer\b/],
-  ["client bay renderer", /\bstationHangarBaysLocal\b|\bstationBaySignature\b|\bbayWallGap\b/],
-  ["plural station launch geometry", /station\.launchBays\b|geometry\.launchBays\b|\bLAUNCH_BAY_/],
-  ["station launch bay index", /\bbayIndex\b/],
-  ["multi-bay player comment", /one bay per (?:player|team member)|three station bays/i],
-  ["old home frontage", /(?:home[- ]station|station)\D{0,40}840\s*(?:world )?units|840\s*(?:world )?units\D{0,40}(?:home[- ]station|station)/i],
+  ["singular station field", /station\.hangar\b/],
+  ["single-bay client renderer", /\bstationHangarLocal\b|\bstationBaySignature\b/],
+  ["plural launch-bay compatibility field", /station\.launchBays\b|geometry\.launchBays\b|\bLAUNCH_BAY_/],
+  ["old compact home scale", /(?:home[- ]station|station)[^\n]{0,80}(?:36|540)/i],
   ["disabled station state", /state\s*(?:===|!==|=)\s*["']disabled["']|station-disabled/]
 ];
 
 function run() {
-  console.log("verify-station-single-hangar");
+  console.log("verify-station-three-hangar");
   const failures = [];
   for (const relative of files) {
     const filename = path.join(root, relative);
@@ -52,10 +48,14 @@ function run() {
   }
 
   const renderer = fs.readFileSync(path.join(root, "public/src/game/pixi/pixiStations.js"), "utf8");
-  assert(!/moduleScale\)\s*\|\|\s*56\b/.test(renderer), "home renderer has no scale-56 fallback");
-  assert(!/Number\(station\.moduleScale\)\s*\|\|\s*56\b/.test(renderer), "station renderer never falls back to scale 56");
-  assert.deepStrictEqual(failures, [], `multi-hangar station remnants found: ${failures.join(", ")}`);
-  console.log("  no multi-hangar station symbols found in production paths");
+  assert(renderer.includes("station.stationType === \"home\" ? 56"), "home renderer fallback is the historical scale 56");
+  const templates = require("./src/server/stationTemplates");
+  const geometry = templates.buildHomeStationGeometry();
+  assert.strictEqual(templates.STATION_MODULE_SCALE, 56, "home template scale is 56");
+  assert.strictEqual(geometry.shell.maxX - geometry.shell.minX, 840, "home shell is 840 units wide");
+  assert.strictEqual(geometry.hangars.length, 3, "home template has three hangars");
+  assert.deepStrictEqual(failures, [], `invalid single-hangar remnants found: ${failures.join(", ")}`);
+  console.log("  three-hangar station symbols and geometry are present in production paths");
 }
 
 try {

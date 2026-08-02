@@ -6,9 +6,8 @@
 // friendlies: collision for local movement is circular, so a hull has no
 // orientation to be locked by.
 //
-// Phase 6 -- predictive local avoidance. One deterministic ship yields, by a
-// bounded heading offset and a speed reduction, and both continue to their
-// destinations.
+// Phase 6 -- deliberate local traffic. One deterministic ship bypasses or
+// queues, while the other keeps its own route and speed.
 //
 // Phase 7 -- explicit enemy targeting, kept separate from the movement
 // destination.
@@ -240,9 +239,12 @@ function run() {
     let closest = Infinity;
     const sideChanges = { a: 0, b: 0 };
     let previousSide = { a: 0, b: 0 };
+    const bypassSeen = { a: false, b: false };
     simulate(room, [a, b], 40, () => {
-      closest = Math.min(closest, Math.hypot(a.x - b.x, a.y - b.y));
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      closest = Math.min(closest, distance);
       for (const [key, ship] of [["a", a], ["b", b]]) {
+        if (ship.movement.traffic?.mode === "bypass") bypassSeen[key] = true;
         const side = Math.sign(ship._avoidance?.side || 0);
         if (side !== 0 && previousSide[key] !== 0 && side !== previousSide[key]) sideChanges[key] += 1;
         if (side !== 0) previousSide[key] = side;
@@ -257,7 +259,9 @@ function run() {
     assert(Math.hypot(b.x - 1200, b.y - 2000) <= ARRIVE_DISTANCE + 8,
       `ship B should still reach its destination (${Math.hypot(b.x - 1200, b.y - 2000).toFixed(1)} px away)`);
     assert(sideChanges.a + sideChanges.b <= 2,
-      `avoidance must not flip sides repeatedly (${sideChanges.a + sideChanges.b} changes)`);
+      `a bypass side must not flip repeatedly (${sideChanges.a + sideChanges.b} changes)`);
+    assert(bypassSeen.a !== bypassSeen.b,
+      "exactly one head-on ship should commit to the bypass");
   }
 
   // Crossing at 90 degrees. One deterministic ship yields -- and the same one
@@ -271,32 +275,32 @@ function run() {
       commandShips(room, players.get("p1"), 3700, 2000, { shipIds: [a.id] });
       commandShips(room, players.get("p2"), 2600, 3100, { shipIds: [b.id] });
       let closest = Infinity;
-      const yielded = { a: false, b: false };
+      const queued = { a: false, b: false };
       simulate(room, [a, b], 40, () => {
         closest = Math.min(closest, Math.hypot(a.x - b.x, a.y - b.y));
-        if (a._avoidance?.side) yielded.a = true;
-        if (b._avoidance?.side) yielded.b = true;
+        if (a.movement.traffic?.mode === "queue" && a.movement.traffic.crossing) queued.a = true;
+        if (b.movement.traffic?.mode === "queue" && b.movement.traffic.crossing) queued.b = true;
       });
-      return { a, b, closest, yielded };
+      return { a, b, closest, queued };
     };
 
     const first = runCrossing();
     const contact = physicalCollisionRadius(first.a) + physicalCollisionRadius(first.b);
     assert(first.closest > contact,
       `crossing ships should not collide (closest ${first.closest.toFixed(1)} px)`);
-    assert(first.yielded.a !== first.yielded.b,
-      "exactly one ship of a crossing pair should give way");
+    assert(first.queued.a !== first.queued.b,
+      "exactly one ship of a crossing pair should queue");
     assert(Math.hypot(first.a.x - 3700, first.a.y - 2000) <= ARRIVE_DISTANCE + 8,
       "the crossing ship A should still arrive");
     assert(Math.hypot(first.b.x - 2600, first.b.y - 3100) <= ARRIVE_DISTANCE + 8,
       "the crossing ship B should still arrive");
 
     const second = runCrossing();
-    assert.strictEqual(second.yielded.a, first.yielded.a,
-      "which ship yields must be deterministic");
+    assert.strictEqual(second.queued.a, first.queued.a,
+      "which ship queues must be deterministic");
   }
 
-  // Avoidance never speeds a ship up, and a group does not mill about.
+  // Traffic never speeds a ship up, and a group does not mill about.
   {
     const ships = [];
     for (let i = 0; i < 6; i += 1) ships.push(makeShip(1200, 1400 + i * 150, 0));
@@ -307,7 +311,7 @@ function run() {
       for (const ship of ships) peak = Math.max(peak, speedOf(ship));
     });
     const cap = Math.max(...ships.map((ship) => ship.stats.maxSpeed));
-    assert(peak <= cap + 1, `avoidance must never raise speed above the hull cap (${peak.toFixed(1)} vs ${cap.toFixed(1)})`);
+    assert(peak <= cap + 1, `traffic must never raise speed above the hull cap (${peak.toFixed(1)} vs ${cap.toFixed(1)}; ${ships.map((ship) => `${ship.id}:${speedOf(ship).toFixed(1)}/${ship.stats.maxSpeed}`).join(", ")})`);
     for (const ship of ships) {
       const off = Math.hypot(ship.x - orderedDestination(ship).x, ship.y - orderedDestination(ship).y);
       assert(off <= ARRIVE_DISTANCE + 10,
@@ -315,18 +319,8 @@ function run() {
     }
   }
 
-  // Avoidance is for friendlies. A plain move is not bent around hostiles.
-  //
-  // A move order is the player pointing at a spot: the ship goes there, past
-  // whatever happens to be in the way, and only the map -- asteroids, stations,
-  // the world edge -- is allowed to bend the course. Treating enemies as
-  // obstacles during ordinary movement curved a straight run by 109 px around a
-  // ship the player had never mentioned. Hostiles are steered around only when
-  // the ship has been sent at one (see verify-movement-phase8911).
-  //
-  // Note the fixtures elsewhere in this section: they read as p1-versus-p2 but
-  // every ship defaults to ownerId "p1", so they are friendly-avoidance cases.
-  // The owner has to be passed explicitly to make a real enemy.
+  // A plain move uses the same deliberate traffic rules for any ship in the
+  // route: the other ship keeps its course, while the mover passes or queues.
   {
     // The blocker sits just off the track: outside hull contact, so nothing is
     // rammed and separation never fires, but inside the clearance avoidance
@@ -340,21 +334,19 @@ function run() {
       const { room, players } = makeScenario(groups);
       commandShips(room, players.get("p1"), 3800, 2000, { shipIds: [mover.id] });
       let deviation = 0;
-      simulate(room, [mover, blocker], 40, () => {
+      simulate(room, [mover, blocker], 60, () => {
         deviation = Math.max(deviation, Math.abs(mover.y - 2000));
       });
       return { deviation, mover };
     };
 
     const pastEnemy = straightLine("p2");
-    assert(pastEnemy.deviation < 5,
-      `a plain move must not steer around an enemy (deviated ${pastEnemy.deviation.toFixed(1)} px)`);
+    assert(pastEnemy.deviation > 20,
+      `a plain move should use traffic around an enemy (deviated ${pastEnemy.deviation.toFixed(1)} px)`);
     assert(Math.hypot(pastEnemy.mover.x - 3800, pastEnemy.mover.y - 2000) <= ARRIVE_DISTANCE + 8,
       "...and must still arrive");
 
-    // The control: the identical geometry with a friendly in the way is steered
-    // around, so the assertion above is measuring the rule and not a fixture in
-    // which nothing would have happened anyway.
+    // The identical geometry with a friendly in the way follows the same rule.
     const pastFriend = straightLine("p1");
     assert(pastFriend.deviation > 20,
       `a friendly in the same place should still be avoided (deviated ${pastFriend.deviation.toFixed(1)} px)`);

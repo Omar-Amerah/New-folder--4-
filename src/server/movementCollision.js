@@ -8,18 +8,18 @@ const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
   ASTEROID_RESTITUTION,
-  SEPARATION_BIAS_SCALE,
   SEPARATION_BROAD_PHASE_PAD,
   SEPARATION_CORRECTION,
-  SEPARATION_IMPULSE_HEADROOM,
   SEPARATION_ITERATIONS,
-  SEPARATION_MAX_BIAS_SPEED,
-  SEPARATION_MIN_IMPULSE_CAP,
   SEPARATION_SLOP,
   STOPPED_SPEED,
   WORLD_MARGIN
 } = require("./movementTuning");
 const { bumpMovementMetric } = require("./movementMetrics");
+const {
+  trafficPriorityWinner,
+  trafficPairKey
+} = require("./movementTrafficPriority");
 
 let cachedResolveStationCollision = null;
 function resolveStationCollision(room, ship, shipRadius) {
@@ -60,22 +60,36 @@ function shipIsStopped(ship) {
       || phase === "idle");
 }
 
+// Remove only the yielding hull's component toward the right-of-way winner.
+// Tangential motion is retained, and the winner is never touched here.
+function cancelYieldingInwardMovement(yielding, normalTowardWinner) {
+  const dot = (yielding.vx || 0) * normalTowardWinner.x
+    + (yielding.vy || 0) * normalTowardWinner.y;
+  if (!(dot > 0)) return false;
+  yielding.vx -= dot * normalTowardWinner.x;
+  yielding.vy -= dot * normalTowardWinner.y;
+  return true;
+}
+
 
 function resolveMapCollision(room, ship) {
   const radius = physicalCollisionRadius(ship);
+  const launchControlled = Boolean(ship?.launchPhase);
   const width = room?.world?.width || WORLD.width;
   const height = room?.world?.height || WORLD.height;
   const scratch = room._mapCollisionScratch || (room._mapCollisionScratch = []);
-  const asteroids = room.spatialIndex?.dynamicValid && room.spatialIndex.queryAabbUnordered
-    ? room.spatialIndex.queryAabbUnordered(
-      "asteroids",
-      ship.x - radius - ASTEROID_QUERY_PAD,
-      ship.y - radius - ASTEROID_QUERY_PAD,
-      ship.x + radius + ASTEROID_QUERY_PAD,
-      ship.y + radius + ASTEROID_QUERY_PAD,
-      scratch
-    )
-    : (room.map?.asteroids || []);
+  const asteroids = launchControlled
+    ? []
+    : (room.spatialIndex?.dynamicValid && room.spatialIndex.queryAabbUnordered
+      ? room.spatialIndex.queryAabbUnordered(
+        "asteroids",
+        ship.x - radius - ASTEROID_QUERY_PAD,
+        ship.y - radius - ASTEROID_QUERY_PAD,
+        ship.x + radius + ASTEROID_QUERY_PAD,
+        ship.y + radius + ASTEROID_QUERY_PAD,
+        scratch
+      )
+      : (room.map?.asteroids || []));
   let hit = false;
   for (const asteroid of asteroids) {
     if (!asteroid) continue;
@@ -104,7 +118,7 @@ function resolveMapCollision(room, ship) {
       ship.vy -= inwardSpeed * normalY * ASTEROID_RESTITUTION;
     }
   }
-  if (resolveStationCollision(room, ship, radius)) hit = true;
+  if (!launchControlled && resolveStationCollision(room, ship, radius)) hit = true;
   const edge = WORLD_MARGIN + radius;
   const beforeX = ship.x;
   const beforeY = ship.y;
@@ -132,6 +146,10 @@ function findShipCircleOverlap(a, b, dx, dy, minimum) {
 }
 
 function resolveSeparationPair(room, a, b, options = null) {
+  // Simultaneous station launches occupy independently authored lanes. Their
+  // positions are owned by launch control, so generic separation must not turn
+  // a valid multi-bay launch into a lateral tug-of-war.
+  if (a?.launchPhase && b?.launchPhase) return null;
   bump(room, "separationPairsExamined");
   const broadDx = (b.x || 0) - (a.x || 0);
   const broadDy = (b.y || 0) - (a.y || 0);
@@ -161,14 +179,15 @@ function resolveSeparationPair(room, a, b, options = null) {
     normalY = 0;
   }
 
-  const inverseMassA = 1 / Math.max(1, Number(a.stats?.mass) || 1);
-  const inverseMassB = 1 / Math.max(1, Number(b.stats?.mass) || 1);
-  const inverseMassSum = inverseMassA + inverseMassB;
   const correctedPenetration = Math.max(0, overlap.penetration - SEPARATION_SLOP);
   const correction = correctedPenetration
     * (Number.isFinite(options?.correction) ? options.correction : SEPARATION_CORRECTION);
-  const moveA = correction * inverseMassA / inverseMassSum;
-  const moveB = correction * inverseMassB / inverseMassSum;
+  const tick = Number(a._simNow || b._simNow) || 0;
+  const releaseDistance = broadMinimum + 96;
+  const winnerId = trafficPriorityWinner(room, a, b, tick, releaseDistance);
+  const yielding = winnerId === a.id ? a : b;
+  const moveA = yielding === a ? correction : 0;
+  const moveB = yielding === b ? correction : 0;
   const width = room.world?.width || WORLD.width;
   const height = room.world?.height || WORLD.height;
   const edgeA = WORLD_MARGIN + physicalCollisionRadius(a);
@@ -186,44 +205,15 @@ function resolveSeparationPair(room, a, b, options = null) {
   b._collisionCorrectionX = (b._collisionCorrectionX || 0) + b.x - oldBX;
   b._collisionCorrectionY = (b._collisionCorrectionY || 0) + b.y - oldBY;
 
-  const relativeVx = (b.vx || 0) - (a.vx || 0);
-  const relativeVy = (b.vy || 0) - (a.vy || 0);
-  const closingSpeed = relativeVx * normalX + relativeVy * normalY;
-  // Only ships actually driving into each other get an impulse. The positional
-  // correction above already resolves overlap; adding a bias velocity to every
-  // touching pair regardless -- including two that are stationary -- injected
-  // energy the movers then had to fight, every tick.
-  let impulseMagnitude = 0;
-  if (closingSpeed < 0) {
-    const biasSpeed = Math.min(
-      SEPARATION_MAX_BIAS_SPEED,
-      correctedPenetration * SEPARATION_BIAS_SCALE
-    );
-    const maxImpulse = Math.max(
-      SEPARATION_MIN_IMPULSE_CAP,
-      (Math.abs(closingSpeed) + SEPARATION_IMPULSE_HEADROOM) / inverseMassSum
-    );
-    impulseMagnitude = clampNumber(
-      (-closingSpeed + biasSpeed) / inverseMassSum,
-      0,
-      maxImpulse
-    );
-  }
-  if (impulseMagnitude > 0) {
-    a.vx = (a.vx || 0) - impulseMagnitude * inverseMassA * normalX;
-    a.vy = (a.vy || 0) - impulseMagnitude * inverseMassA * normalY;
-    b.vx = (b.vx || 0) + impulseMagnitude * inverseMassB * normalX;
-    b.vy = (b.vy || 0) + impulseMagnitude * inverseMassB * normalY;
-    collisionBump(room, "shipCollisionImpulseApplied");
-  }
+  cancelYieldingInwardMovement(
+    yielding,
+    yielding === a ? { x: normalX, y: normalY } : { x: -normalX, y: -normalY }
+  );
   collisionBump(room, "shipCollisionPairs");
   collisionBump(room, "shipCollisionPenetrationCorrected", correctedPenetration);
-  const pairKey = String(a.id) < String(b.id)
-    ? `${a.id}|${b.id}`
-    : `${b.id}|${a.id}`;
+  const pairKey = trafficPairKey(a, b);
   const contacts = room._shipCollisionContacts || (room._shipCollisionContacts = new Map());
   const previous = contacts.get(pairKey);
-  const tick = Number(a._simNow || b._simNow) || 0;
   const stationary = [a, b].find((ship) =>
     shipIsStopped(ship)
     && fastHypot(ship._integratedMovementX || 0, ship._integratedMovementY || 0) < 0.5);
@@ -505,6 +495,7 @@ function resolveFleetMapCollisions(room) {
 module.exports = {
   navigationClearanceRadius,
   physicalCollisionRadius,
+  cancelYieldingInwardMovement,
   resolveFleetMapCollisions,
   resolveMapCollision,
   resolveSeparationPair,

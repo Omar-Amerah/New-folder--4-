@@ -530,6 +530,7 @@ function updateShipSupport(room, ships, dt, now) {
 
   for (const ship of ships) {
 
+    if (ship.launchPhase) continue;
     if (!ship.stats.repair) continue;
 
 
@@ -1339,6 +1340,14 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
 }
 
 function updateShipWeapons(room, ship, ships, dt, now) {
+
+  if (ship.launchPhase) {
+    ship.combatTargetId = null;
+    if (ship.weaponAimTargetIds) ship.weaponAimTargetIds.fill(null);
+    if (ship.weaponFireTargetIds) ship.weaponFireTargetIds.fill(null);
+    if (ship.weaponComponentTargetIds) ship.weaponComponentTargetIds.fill(null);
+    return;
+  }
 
   if (!ship.weaponCooldowns) {
 
@@ -4079,7 +4088,7 @@ function updateDestroyedShips(room, now) {
 
     for (const ship of player.ships) {
 
-      if (ship.alive && !ship.removed) {
+      if (ship.alive && !ship.removed && !ship.launchPhase) {
 
         evaluateShipCommandState(room, ship, now);
 
@@ -5313,7 +5322,7 @@ function resolveDemolitionContacts(room, ships, now) {
   }
   const processedPairs = new Set();
   for (const a of ships) {
-    if (!a.alive || !canDetonateDemolitionCharge(a)) continue;
+    if (!a.alive || a.launchPhase || !canDetonateDemolitionCharge(a)) continue;
     const aRadius = shipCoarseRadius(a);
     const aMovement = fastHypot((a.x - (a._prevX || a.x)), (a.y - (a._prevY || a.y)));
     const searchR = aRadius + maxShipRadius + aMovement + COMPONENT_CELL_COLLISION_RADIUS * 2 + DEMOLITION_TRIGGER_RANGE;
@@ -5325,7 +5334,7 @@ function resolveDemolitionContacts(room, ships, now) {
       candidates = ships;
     }
     for (const b of candidates) {
-      if (a === b || !b || !b.alive) continue;
+      if (a === b || !b || !b.alive || b.launchPhase) continue;
       if (!areEnemies(room, a.ownerId, b.ownerId)) continue;
       const ids = [String(a.id), String(b.id)].sort();
       const pairKey = `${ids[0]}|${ids[1]}`;

@@ -27,6 +27,10 @@ const { areEnemies } = require("./src/server/combat");
 const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
 const { resolveMapCollision } = require("./src/server/movement");
 const { updateEconomy } = require("./src/server/economy");
+const { spawnShip } = require("./src/server/ships");
+const { tickRoom } = require("./src/server/simulation");
+const { stopShips } = require("./src/server/movement");
+const { updateControlVictory } = require("./src/server/objectives");
 const {
   segmentStationHullHit,
   computeStationShieldCollisionRadius
@@ -89,8 +93,8 @@ function run() {
     if (station.stationType === "home") {
       assert(station.state === "operational", "home station starts operational");
       assert(isOperationalStation(station), "isOperationalStation returns true");
-      assert(station.hangar?.id === "central", "home station has one central hangar");
-      assert(station.launchBays === undefined && station.hangars === undefined, "home station has no multi-hangar compatibility fields");
+      assert(station.hangars?.length === 3, "home station has three launch hangars");
+      assert(station.hangar === undefined, "home station has no singular hangar compatibility field");
     }
     if (station.stationType === "relay") {
       assert(station.state === "neutral", "relay station starts neutral");
@@ -112,7 +116,7 @@ function run() {
   const expectedHomeShieldRadius = Math.hypot(7.5 * STATION_MODULE_SCALE, 7.5 * STATION_MODULE_SCALE) * 1.06;
   assert(
     Math.abs(home.shieldRadius - expectedHomeShieldRadius) < 0.001,
-    `home shield wraps the rendered 540x540 footprint (${home.shieldRadius} vs ${expectedHomeShieldRadius})`
+    `home shield wraps the rendered 840x840 footprint (${home.shieldRadius} vs ${expectedHomeShieldRadius})`
   );
   assert(
     shieldCollisionRadius(home) === home.shieldRadius
@@ -301,7 +305,7 @@ function runWeaponChecks() {
   assert(teamHome.team, "but it does have a team");
   const raider = {
     id: "e1", alive: true, ownerId: "p2", team: "red",
-    x: teamHome.x + Math.cos(teamHome.angle) * 350, y: teamHome.y + Math.sin(teamHome.angle) * 350,
+    x: teamHome.x + Math.cos(teamHome.angle) * 600, y: teamHome.y + Math.sin(teamHome.angle) * 600,
     vx: 0, vy: 0, radius: 26, hp: 5000, maxHp: 5000, shield: 0, maxShield: 0,
     design: [{ x: 7, y: 7, type: "core", rotation: 0 }], componentHp: [500], componentMaxHp: [500]
   };
@@ -408,6 +412,9 @@ function runCaptureChecks() {
   room.ships.set("r1", hull("r1", "p2", "red"));
 
   let now = 0;
+  relay.shield = 0;
+  damageStation(room, relay, relay.maxHp * 0.5, "p2", now, relay.x, relay.y);
+  assert(relay.hp < relay.maxHp, "the neutral relay can be damaged before capture");
   let capturedAfter = null;
   for (let tick = 0; tick < duration * 60 && capturedAfter === null; tick += 1) {
     updateStations(room, 1 / 30, (now += 33));
@@ -417,6 +424,12 @@ function runCaptureChecks() {
   // It used to flip owner on the first tick a hull entered the radius, which
   // made the capture ring and the objective HUD percentage meaningless.
   assert(Math.abs(capturedAfter - duration) < 0.5, `taking an unclaimed relay takes captureDurationSeconds (took ${capturedAfter}s)`);
+  assert(relay.state === "operational", "a neutral capture becomes operational immediately");
+  assert(relay.hp === relay.maxHp, "a neutral capture restores the relay to full hull health");
+  assert(relay.componentHp.every((hp, index) => Math.abs(hp - relay.componentMaxHp[index]) < 0.001), "a neutral capture restores every component to full health");
+  assert(relay.shield === relay.maxShield, "a neutral capture restores the relay shield");
+  updateControlVictory(room, now);
+  assert(room.winner === null && room.controlVictory.team === null, "capturing every relay does not win a station-mode match");
 
   damageStation(room, relay, relay.maxHp * 3, "p1", now, 0, 0);
   assert(relay.state === "recovering", "destroying a relay starts recovery for the destroyer's team");
@@ -485,17 +498,16 @@ function runSnapshotChecks() {
   assert(Array.isArray(full.stations) && full.stations.length === room.stations.length, "full snapshot lists every station");
   const fullHome = full.stations.find((s) => s.stationType === "home");
   assert(Array.isArray(fullHome.design) && fullHome.design.length > 0, "full snapshot carries station design");
-  assert(fullHome.hangar?.id === "central", "full snapshot carries central hangar geometry");
-  assert(fullHome.launchBays === undefined && fullHome.hangars === undefined, "full snapshot contains no multi-hangar fields");
+  assert(fullHome.hangars?.length === 3, "full snapshot carries all three hangar geometries");
+  assert(fullHome.hangar === undefined, "full snapshot contains no singular hangar compatibility field");
   assert(fullHome.shieldRadius === home.shieldRadius, "full snapshot carries the authoritative shield radius");
   assert(Array.isArray(fullHome.productionQueue) && fullHome.productionQueue.length === 1, "full snapshot carries the production queue");
 
   const compact = buildSharedSnapshot(room, 2000, false);
   const compactHome = compact.stations.find((s) => s.id === fullHome.id);
   assert(compactHome.design === undefined, "compact snapshot omits cached station design");
-  assert(compactHome.hangar === undefined, "compact snapshot omits cached hangar geometry");
-  assert(compactHome.launchBays === undefined, "compact snapshot contains no launch-bay array");
-  assert(compactHome.hangars === undefined, "compact snapshot contains no multi-hangar field");
+  assert(compactHome.hangars === undefined, "compact snapshot omits cached hangar geometry");
+  assert(compactHome.hangar === undefined, "compact snapshot contains no singular hangar field");
   assert(compactHome.hardpoints === undefined, "compact snapshot omits cached hardpoints");
   assert(compactHome.moduleScale === undefined, "compact snapshot omits cached module scale");
   assert(compactHome.shieldRadius === undefined, "compact snapshot omits the cached station shield radius");
@@ -626,6 +638,7 @@ function runEnemyStationVisibilityChecks() {
   // The renderer needs all four to draw the structure and mount the turrets;
   // without them an enemy station appeared as an unarmed blob.
   assert(Array.isArray(seen.design) && seen.design.length > 0, "its module layout is visible");
+  assert(Array.isArray(seen.hangars) && seen.hangars.length === 3, "its three public launch corridors are visible");
   assert(Array.isArray(seen.hardpoints) && seen.hardpoints.some(Boolean), "its gun hardpoints are visible");
   assert(seen.moduleScale > 0, "its scale is visible, so it is drawn at the right size");
   assert(Array.isArray(seen.weaponAngles) && seen.weaponAngles.length > 0, "its turrets track visibly");
@@ -694,7 +707,7 @@ function runHangarDoorChecks() {
   const cos = Math.cos(home.angle);
   const sin = Math.sin(home.angle);
   // Just inside the mouth, on the corridor centreline.
-  const hangar = home.hangar;
+  const hangar = home.hangars[1];
   const doorway = {
     x: hangar.mouth.x - cos * 8,
     y: hangar.mouth.y - sin * 8
@@ -756,24 +769,29 @@ function runHangarDoorChecks() {
   const prodHome = prodRoom.stations.find((s) => s.stationType === "home");
   prodHome.team = player.team;
   const outward = { x: Math.cos(prodHome.angle), y: Math.sin(prodHome.angle) };
-  // 40 units beyond the mouth: outside the structure, dead ahead of the door.
+  // 40 units beyond the central mouth: outside the structure, dead ahead of the door.
   // Give it a capital-sized collision radius so its edge reaches deep into the
   // corridor. Clearance follows the door plane, not an enemy's radius.
-  prodRoom.ships.set("block", {
-    id: "block", alive: true, ownerId: "p2", team: "red",
-    x: prodHome.hangar.mouth.x + outward.x * 40,
-    y: prodHome.hangar.mouth.y + outward.y * 40,
-    vx: 0, vy: 0, radius: 220, physicalRadius: 220, hp: 900, maxHp: 900
+  const blocker = spawnShip(prodRoom, player, 0, 0, {
+    design: player.design,
+    wiring: player.wiring,
+    stats: player.stats,
+    spawnPoint: {
+      x: prodHome.hangars[1].mouth.x + outward.x * 40,
+      y: prodHome.hangars[1].mouth.y + outward.y * 40,
+      ok: true,
+      angle: prodHome.angle
+    },
+    requestId: "front-blocker"
   });
+  assert(blocker, "a real ship can occupy the space in front of the mouth");
+  stopShips(prodRoom, player, [blocker.id]);
   assert(enqueueBotProduction(prodRoom, player, 0), "the build is queued");
   let launched = false;
   let clock = 0;
   for (let tick = 0; tick < 600 && !launched; tick += 1) {
-    updateStations(prodRoom, 1 / 30, (clock += 33));
-    for (const ship of prodRoom.ships.values()) {
-      if (ship.id !== "block" && ship.launchPhase) { ship.x += ship.vx / 30; ship.y += ship.vy / 30; }
-    }
-    launched = [...prodRoom.ships.keys()].some((id) => id !== "block");
+    tickRoom(prodRoom, 1 / 30, (clock += 33));
+    launched = [...prodRoom.ships.values()].some((ship) => ship.id !== blocker.id && ship.launchPhase);
   }
   assert(launched, "a hull still launches with a hostile parked in front of the mouth");
   assert(

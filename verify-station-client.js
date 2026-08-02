@@ -67,17 +67,14 @@ const previousStations = [{
   id: 'st1',
   stationType: 'home',
   design: [{ x: 0, y: 0, type: 'core' }, { x: 1, y: 0, type: 'laser' }],
-  hangar: {
-    id: 'central',
-    localCentre: { x: 144, y: 0 },
-    localNormal: { x: 1, y: 0 },
-    apertureHalfWidth: 126,
-    apertureWidth: 252,
-    corridorLength: 252
-  },
+  hangars: [
+    { id: 'left', index: 0, centreY: -224, localCentre: { x: 224, y: -224 }, localNormal: { x: 1, y: 0 }, apertureHalfWidth: 84, apertureWidth: 168, corridorLength: 392 },
+    { id: 'central', index: 1, centreY: 0, localCentre: { x: 224, y: 0 }, localNormal: { x: 1, y: 0 }, apertureHalfWidth: 84, apertureWidth: 168, corridorLength: 392 },
+    { id: 'right', index: 2, centreY: 224, localCentre: { x: 224, y: 224 }, localNormal: { x: 1, y: 0 }, apertureHalfWidth: 84, apertureWidth: 168, corridorLength: 392 }
+  ],
   hardpoints: [null, { x: 36, y: 0 }],
-  moduleScale: 36,
-  shieldRadius: 405,
+  moduleScale: 56,
+  shieldRadius: 630,
   weaponAngles: [0, 0],
   componentHp: [100, 50],
   hp: 100
@@ -92,12 +89,11 @@ const compactStations = [{
 }];
 const merged = mergeCachedStationFields(previousStations, compactStations);
 assert.deepEqual(merged[0].design, previousStations[0].design, 'compact station inherits the cached design');
-assert.deepEqual(merged[0].hangar, previousStations[0].hangar, 'compact station inherits cached central hangar geometry');
-assert.equal(merged[0].launchBays, undefined, 'compact station never inherits a plural launch-bay field');
-assert.equal(merged[0].hangars, undefined, 'compact station never inherits a plural compatibility hangar');
+assert.deepEqual(merged[0].hangars, previousStations[0].hangars, 'compact station inherits all cached launch hangar geometry');
+assert.equal(merged[0].hangar, undefined, 'compact station never inherits a singular hangar field');
 assert.deepEqual(merged[0].hardpoints, previousStations[0].hardpoints, 'compact station inherits cached hardpoints');
-assert.equal(merged[0].moduleScale, 36, 'compact station inherits cached module scale');
-assert.equal(merged[0].shieldRadius, 405, 'compact station inherits the authoritative shield hit radius');
+assert.equal(merged[0].moduleScale, 56, 'compact station inherits cached module scale');
+assert.equal(merged[0].shieldRadius, 630, 'compact station inherits the authoritative shield hit radius');
 assert.deepEqual(merged[0].weaponAngles, [0, 0.75], 'compact station applies sparse authoritative turret bearings');
 assert.deepEqual(merged[0].componentHp, previousStations[0].componentHp, 'unchanged station health inherits its baseline');
 assert.equal(merged[0].weaponAnglePairs, undefined, 'wire-only sparse bearing data is removed after merge');
@@ -225,7 +221,7 @@ assert.equal(dom.stationPanel.hidden, false, 'the panel defaults to your own hom
 assert.equal(panelStation()?.id, 'st-home', 'the default subject is your home station');
 assert.equal(ownHomeStation()?.id, 'st-home', 'your home station is resolved by team');
 assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the default subject is labelled as yours');
-assert(dom.stationPanelBody.innerHTML.includes('Central Hangar'), 'the default panel shows the central hangar');
+assert(dom.stationPanelBody.innerHTML.includes('Launch Hangars'), 'the default panel shows the three launch hangars');
 
 resetState();
 state.snapshot = { ...state.snapshot, stations: state.snapshot.stations.filter((s) => s.stationType === 'relay') };
@@ -240,7 +236,7 @@ assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the panel n
 assert(dom.stationPanelBody.innerHTML.includes('Operational'), 'the panel shows the operational state');
 assert(dom.stationPanelBody.innerHTML.includes('<strong>900</strong><small>/ 1000</small>'), 'the panel shows hull vitals');
 assert(dom.stationPanelBody.innerHTML.includes('<strong>40</strong><small>/ 80</small>'), 'the panel shows shield vitals');
-assert(dom.stationPanelBody.innerHTML.includes('Building'), 'the panel shows what the central hangar is building');
+assert(dom.stationPanelBody.innerHTML.includes('Building'), 'the panel shows what the launch hangars are building');
 assert(dom.stationPanelBody.innerHTML.includes('50%'), 'the panel shows build progress');
 assert(dom.stationPanelBody.innerHTML.includes('You'), 'the panel attributes the build to its owner');
 assert(dom.stationPanelBody.innerHTML.includes('--station-meter-start:#062f17'), 'healthy station hulls use the green ship-hull palette');
@@ -293,31 +289,31 @@ assert.equal(
   'legacy hidden captured relay snapshots also avoid the unscanned label'
 );
 
-// Renderer pixel-bounds proof: a full authored 15-cell station design is 540
-// world units at scale 36, including when a legacy-incomplete station record
+// Renderer pixel-bounds proof: a full authored 15-cell station design is 840
+// world units at scale 56, including when a legacy-incomplete station record
 // omits moduleScale and has to use the home-station default.
 const fullStationDesign = [];
 for (let y = 0; y < 15; y += 1) for (let x = 0; x < 15; x += 1) fullStationDesign.push({ x, y, type: 'frame' });
 const fallbackBounds = stationLocalBoundsForTest({ stationType: 'home', design: fullStationDesign });
-const explicitBounds = stationLocalBoundsForTest({ stationType: 'home', moduleScale: 36, design: fullStationDesign });
-assert.equal(fallbackBounds.maxX - fallbackBounds.minX, 540, 'home renderer fallback measures a 540-unit frontage');
-assert.equal(fallbackBounds.maxY - fallbackBounds.minY, 540, 'home renderer fallback measures a 540-unit height');
-assert.deepEqual(fallbackBounds, explicitBounds, 'home renderer fallback is identical to explicit scale 36');
+const explicitBounds = stationLocalBoundsForTest({ stationType: 'home', moduleScale: 56, design: fullStationDesign });
+assert.equal(fallbackBounds.maxX - fallbackBounds.minX, 840, 'home renderer fallback measures an 840-unit frontage');
+assert.equal(fallbackBounds.maxY - fallbackBounds.minY, 840, 'home renderer fallback measures an 840-unit height');
+assert.deepEqual(fallbackBounds, explicitBounds, 'home renderer fallback is identical to explicit scale 56');
 const stationRendererJs = fs.readFileSync('public/src/game/pixi/pixiStations.js', 'utf8');
-assert(!/Number\(station\.moduleScale\)\s*\|\|\s*56\b/.test(stationRendererJs), 'home renderer has no scale-56 fallback');
-assert(stationRendererJs.includes('station.stationType === "home" ? 36'), 'home renderer fallback is explicitly scale 36');
+assert(stationRendererJs.includes('station.stationType === "home" ? 56'), 'home renderer fallback is explicitly scale 56');
 
 const rendererStation = {
   stationType: 'home',
-  moduleScale: 36,
+  moduleScale: 56,
   design: fullStationDesign,
-  hangar: previousStations[0].hangar
+  hangars: previousStations[0].hangars
 };
 const localHangar = stationHangarLocalForTest(rendererStation);
-assert(localHangar, 'renderer reconstructs the central static hangar');
-assert.equal(localHangar.id, 'central', 'renderer preserves the central hangar id');
-assert.equal(localHangar.halfWidth, 126, 'renderer preserves the seven-cell aperture half-width');
-assert.equal(localHangar.length, 252, 'renderer preserves the seven-cell corridor depth');
+assert.equal(localHangar.length, 3, 'renderer reconstructs all three static hangars');
+assert.deepEqual(localHangar.map((bay) => bay.id), ['left', 'central', 'right'], 'renderer preserves stable hangar ids');
+assert.deepEqual(localHangar.map((bay) => bay.centreY), [-224, 0, 224], 'renderer preserves the three launch centrelines');
+assert.equal(localHangar[0].halfWidth, 84, 'renderer preserves each three-cell aperture half-width');
+assert.equal(localHangar[0].length, 392, 'renderer preserves each seven-cell corridor depth');
 const outline = stationShellOutlineForTest(rendererStation);
 const outlineBounds = outline.reduce((bounds, point) => ({
   minX: Math.min(bounds.minX, point.x),
@@ -325,10 +321,10 @@ const outlineBounds = outline.reduce((bounds, point) => ({
   minY: Math.min(bounds.minY, point.y),
   maxY: Math.max(bounds.maxY, point.y)
 }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
-assert.equal(outlineBounds.maxX - outlineBounds.minX, 540, 'renderer shell bounds are exactly 540 units wide');
-assert.equal(outlineBounds.maxY - outlineBounds.minY, 540, 'renderer shell bounds are exactly 540 units high');
-assert(outline.some((point) => Math.abs(point.x - 18) < 0.001), 'forward opening is recessed into the shell');
-assert(outline.filter((point) => Math.abs(point.x - 18) < 0.001).length >= 2, 'one broad central opening has a rear wall and two straight sides');
+assert.equal(outlineBounds.maxX - outlineBounds.minX, 840, 'renderer shell bounds are exactly 840 units wide');
+assert.equal(outlineBounds.maxY - outlineBounds.minY, 840, 'renderer shell bounds are exactly 840 units high');
+assert(outline.some((point) => Math.abs(point.x - 28) < 0.001), 'each forward opening is recessed into the shell');
+assert(outline.filter((point) => Math.abs(point.x - 28) < 0.001).length >= 6, 'three openings have rear walls and straight sides');
 
 // The hangar build bar. Builds are sub-second for a light hull, so this is
 // checked by driving the drawing directly rather than trying to photograph it.
