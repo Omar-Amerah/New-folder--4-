@@ -235,16 +235,25 @@ function createVisibilityMaskView(env, sprite) {
     worldH: 0,
     quality: null,
     lastSourcesKey: null,
-    lastDrawAt: Number.NEGATIVE_INFINITY
+    lastDrawAt: Number.NEGATIVE_INFINITY,
+    retiredTextures: []
   };
 }
 
-function disposeVisibilityMaskTexture(view) {
-  if (!view?.texture) return;
-  const emptyTexture = view.texture.constructor?.EMPTY;
+function disposeVisibilityMaskTexture(view, destroyRetired = false) {
+  if (!view) return;
+  if (view.sprite?.parent?.mask === view.sprite) view.sprite.parent.mask = null;
+  const textures = view.texture ? [view.texture] : [];
+  const emptyTexture = view.texture?.constructor?.EMPTY;
   if (emptyTexture) view.sprite.texture = emptyTexture;
-  view.texture.destroy(true);
   view.texture = null;
+  if (destroyRetired) {
+    textures.push(...view.retiredTextures);
+    view.retiredTextures = [];
+    for (const texture of textures) texture.destroy(true);
+  } else if (textures.length) {
+    view.retiredTextures.push(...textures);
+  }
 }
 
 function configureVisibilityMaskSurface(env, view, worldW, worldH) {
@@ -335,7 +344,7 @@ function drawVisibilityMask(view, sources) {
 export function updatePixiVisibilityMask(env, maskSprite, sources = []) {
   if (!env?.PIXI || !maskSprite) return false;
   if (!visibilityMaskView || visibilityMaskView.sprite !== maskSprite) {
-    if (visibilityMaskView) disposeVisibilityMaskTexture(visibilityMaskView);
+    if (visibilityMaskView) disposeVisibilityMaskTexture(visibilityMaskView, true);
     visibilityMaskView = createVisibilityMaskView(env, maskSprite);
   }
 
@@ -447,6 +456,10 @@ export function destroyPixiFog() {
     fogView = null;
   }
   if (visibilityMaskView) {
+    // Pixi keeps pooled alpha-mask filters after renderer teardown. Keep the
+    // canvas source alive so a later renderer reinitialization cannot reuse a
+    // filter whose mask resource has been destroyed; the application teardown
+    // releases the associated GPU resources.
     disposeVisibilityMaskTexture(visibilityMaskView);
     visibilityMaskView = null;
   }
