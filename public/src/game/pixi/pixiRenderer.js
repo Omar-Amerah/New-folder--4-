@@ -86,7 +86,7 @@ export async function initPixiRenderer() {
   const enemyShipBodiesMasked = new PIXI.Container();
   enemyShipBodiesMasked.label = "EnemyShipBodiesMasked";
   enemyShipBodiesMasked.addChild(enemyVisibilityMask);
-  enemyShipBodiesMasked.mask = enemyVisibilityMask;
+  enemyShipBodiesMasked.setMask({ mask: enemyVisibilityMask, channel: "alpha" });
   const stationCovers = new PIXI.Graphics();
   stationCovers.label = "StationHangarCovers";
   const stationWeapons = new PIXI.Container();

@@ -17,11 +17,7 @@ const DIAGNOSTIC_KEYS = [
   "spawnCandidatesRejectedByAsteroid", "spawnCandidatesRejectedByWorld",
   "spawnCandidatesRejectedByShip", "spawnCandidatesRejectedByReservation",
   "spawnReservationsCreated", "spawnReservationsReleased", "spawnOverlapDetected",
-  "rallySlotAssignments", "rallySlotFailures", "shipCollisionPairs",
-  "shipCollisionIterations", "shipCollisionPenetrationCorrected",
-  "shipCollisionImpulseApplied", "shipCollisionUnresolvedPairs",
-  "shipAvoidanceActivations", "shipAvoidanceSideChanges", "towingRegressionDetections",
-  "spawnShipsPushedAside"
+  "shipCollisionPairs", "shipCollisionPenetrationCorrected", "spawnShipsPushedAside"
 ];
 
 function diagnostics(room) {
@@ -303,85 +299,6 @@ function rollbackPushedShips(moved) {
   }
 }
 
-// Places in the arrival formation that are already spoken for. The shared home
-// station launch path releases one hull at a time, so this runs with a single ship far more often
-// than with a whole batch -- and a lone ship is centred on the rally point by
-// the cursor below. Without the standing claims, every ship the hangar ever
-// produces is assigned that same centre slot: the one the previous ship is
-// still flying toward. They converge on one point, the separation solver shoves
-// them apart, and the fleet mills about outside the hangar instead of forming
-// up. A ship under way owns where it is GOING, not where it currently is --
-// keying off its position would reserve a point halfway across the map.
-function claimedRallySlots(fleet, ships) {
-  if (!Array.isArray(fleet) || fleet.length === 0) return [];
-  const claiming = new Set(ships.map((ship) => ship?.id));
-  const claims = [];
-  for (const other of fleet) {
-    if (!other?.alive || claiming.has(other.id)) continue;
-    const destination = other.movement?.command?.type === "move"
-      ? other.movement.command.destination
-      : null;
-    const x = Number.isFinite(destination?.x) ? destination.x : other.x;
-    const y = Number.isFinite(destination?.y) ? destination.y : other.y;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    const physicalRadius = authoritativePhysicalRadius(other);
-    claims.push({ x, y, radius: physicalRadius, physicalRadius, id: `rally-claim:${other.id}` });
-  }
-  return claims;
-}
-
-function assignRallyArrivalSlots(room, ships, rallyPoint, options = {}) {
-  const initial = ships.filter((ship) => ship?.alive);
-  const approach = initial.length
-    ? Math.atan2(
-      rallyPoint.y - initial.reduce((sum, ship) => sum + ship.y, 0) / initial.length,
-      rallyPoint.x - initial.reduce((sum, ship) => sum + ship.x, 0) / initial.length
-    )
-    : 0;
-  const lateralX = -Math.sin(approach);
-  const lateralY = Math.cos(approach);
-  const ordered = initial.slice().sort((a, b) => {
-    const lateralA = a.x * lateralX + a.y * lateralY;
-    const lateralB = b.x * lateralX + b.y * lateralY;
-    return lateralA - lateralB || compareEntityIds(a, b);
-  });
-  const assigned = claimedRallySlots(options.fleet, ordered);
-  const slots = new Map();
-  const ignoredShips = new Set(ordered);
-  const totalWidth = ordered.reduce((sum, ship) => sum + authoritativePhysicalRadius(ship) * 2, 0)
-    + Math.max(0, ordered.length - 1) * SHIP_SPAWN_MARGIN;
-  let cursor = -totalWidth / 2;
-  for (let i = 0; i < ordered.length; i += 1) {
-    const ship = ordered[i];
-    const physicalRadius = authoritativePhysicalRadius(ship);
-    const lateralOffset = cursor + physicalRadius;
-    cursor += physicalRadius * 2 + SHIP_SPAWN_MARGIN;
-    const result = findClearShipSpawnPoint(room, {
-      preferredX: rallyPoint.x + lateralX * lateralOffset,
-      preferredY: rallyPoint.y + lateralY * lateralOffset,
-      physicalRadius,
-      navigationRadius: Math.max(physicalRadius + 8, physicalRadius * 1.2),
-      reservations: assigned,
-      ignoredShips,
-      ownerId: ship.ownerId,
-      requestId: `rally:${rallyPoint.x}:${rallyPoint.y}`,
-      shipIndex: i,
-      // Start on a row perpendicular to the fleet's approach. Retaining the
-      // fleet's lateral ordering avoids assigning crossing arrival paths.
-      spawnAngle: approach + Math.PI / 2
-    });
-    if (!result.ok) {
-      bump(room, "rallySlotFailures");
-      continue;
-    }
-    const slot = { x: result.x, y: result.y, radius: physicalRadius, physicalRadius, id: `rally:${ship.id}` };
-    assigned.push(slot);
-    slots.set(ship.id, slot);
-    bump(room, "rallySlotAssignments");
-  }
-  return slots;
-}
-
 function planSpawns(room, options = {}) {
   const players = [...(room.players?.values?.() || [])].sort((a, b) => compareIdStrings(a.id, b.id));
   const world = room.world || WORLD;
@@ -651,6 +568,6 @@ module.exports = {
   reservationRadius, invalidateSpawnPlan, authoritativePhysicalRadius,
   findClearShipSpawnPoint, planShipSpawns, createSpawnReservations,
   releaseSpawnReservations, expireSpawnReservations, assertNoShipOverlap,
-  assignRallyArrivalSlots, pushShipsOutOfSpawn, rollbackPushedShips,
+  pushShipsOutOfSpawn, rollbackPushedShips,
   SHIP_SPAWN_MARGIN, SHIP_SPAWN_RESERVATION_TTL_MS
 };

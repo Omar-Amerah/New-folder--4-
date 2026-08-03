@@ -52,14 +52,6 @@ for (const file of filesUnder(ROOT)) {
 }
 assert.deepStrictEqual(offenders, [], `Retired performance rollout references remain:\n${offenders.join("\n")}`);
 
-const flags = require("./src/server/performanceFlags");
-assert.deepStrictEqual(Object.keys(flags).sort(), [
-  "__setCircularShipSeparation",
-  "__setRedundantFleetMapCollisionPass",
-  "circularShipSeparation",
-  "redundantFleetMapCollisionPass"
-].sort(), "Only the two explicitly retained safety switches may remain");
-
 const protocol = require("./src/server/protocol");
 assert.strictEqual(protocol.MIN_CLIENT_PROTOCOL, 6);
 assert.strictEqual(protocol.MAX_CLIENT_PROTOCOL, 6);

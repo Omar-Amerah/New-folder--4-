@@ -6,7 +6,7 @@ const { findTeamHomeStation } = require("./stations");
 const { clampNumber, round } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
-const { spawnShip, applyRallySlots } = require("./ships");
+const { spawnShip, applyRallyPoint } = require("./ships");
 const { validateBuildShip } = require("./validation");
 const { getOrCreateTemplate, canonicalBlueprintSignature } = require("./shipTemplates");
 const { recordPurchaseStage } = require("./performanceTelemetry");
@@ -95,7 +95,7 @@ function buyShip(room, player, now, options = {}) {
   try {
     ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle, combatStyleRaw: options.combatStyleRaw, spawnPoint: plan.placements[0], requestId });
     if (process.env.NODE_ENV !== "production") assertNoShipOverlap(room, ship);
-    applyRallySlots(room, player, [ship]);
+    applyRallyPoint(room, player, [ship]);
   } catch (error) {
     for (const added of player.ships.slice(original.shipsLength)) {
       room.spatialIndex?.remove?.("ships", added);
@@ -312,7 +312,7 @@ function executePurchase(room, player, request, now) {
     if (process.env.NODE_ENV !== "production") {
       for (const ship of createdShips) assertNoShipOverlap(room, ship);
     }
-    applyRallySlots(room, player, createdShips);
+    applyRallyPoint(room, player, createdShips);
   } catch (error) {
     if (process.env.NODE_ENV !== "production") console.error("[Purchase] Post-spawn placement validation failed:", error);
     for (const ship of createdShips) {

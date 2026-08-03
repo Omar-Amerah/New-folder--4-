@@ -22,6 +22,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const GRID_SIZE = 15;
 
 const rules = () => globalThis.DataSupportRules;
+let dataLinksResizeObserver = null;
 
 globalThis.DataLinksUi = { renderDataLinksOverlay, refreshDataLinksPresentation, linkAllDataSourcesToWeapons };
 
@@ -61,9 +62,9 @@ function componentCenter(index) {
 
 // Build-grid geometry in CSS pixels. The grid is a CSS grid with a border,
 // padding and 2px gaps, so a cell is NOT a plain fifteenth of the host box.
-// Drawing the overlay as an even 15x15 division puts every pad a few pixels off
+// Drawing the overlay as an even 15x15 division puts its presentational boxes a few pixels off
 // the component it belongs to — worst at the far edges — which is what made the
-// hit areas feel wrong. Overlay geometry and pointer hit-testing share this.
+// hit areas feel wrong. Pointer hit-testing deliberately does not depend on it.
 function gridMetrics() {
   const grid = dom.grid;
   const rect = grid?.getBoundingClientRect();
@@ -135,9 +136,8 @@ function hasLink(sourceIndex, targetIndex) {
   return (state.dataLinks || []).some((l) => l.sourceIndex === sourceIndex && l.targetIndex === targetIndex);
 }
 
-// One transparent rect over the component's box: the player clicks the
-// component itself, and the click area is exactly what they see — no dead gaps
-// inside a multi-cell part, and nothing sticking out past its edges.
+// Keep a footprint-shaped rectangle for optional presentation. Its projected
+// geometry is not input authority, so it cannot drift a component's click area.
 function hitPadFor(index, role, { cursor, active, proj }) {
   const box = projectBox(proj, index);
   if (!box) return null;
@@ -146,7 +146,7 @@ function hitPadFor(index, role, { cursor, active, proj }) {
     fill: "transparent",
     class: `data-link-pad data-link-pad-${role}${active ? " is-active" : ""}`,
     [`data-${role}-index`]: String(index),
-    "pointer-events": "all",
+    "pointer-events": "none",
     style: `cursor:${cursor}`
   });
 }
@@ -259,16 +259,22 @@ export function renderDataLinksOverlay() {
   host.appendChild(svg);
 }
 
-// Which component occupies a grid point. Used for drop targets: a captured
-// pointer retargets its events to the capturing host, so the DOM under the
-// cursor cannot be hit-tested mid-drag — the geometry can.
-function componentIndexAtGridPoint(point) {
-  if (!point) return null;
-  const cellX = Math.floor(point.x);
-  const cellY = Math.floor(point.y);
-  const design = state.design || [];
-  for (let i = 0; i < design.length; i += 1) {
-    if (componentCells(i).some((cell) => cell.x === cellX && cell.y === cellY)) return i;
+// Resolve the component at a client point for both pointer-down and pointerup.
+// Pointerup is retargeted to the capturing host, so the DOM under the cursor
+// cannot be read from event.target mid-drag.
+function componentIndexAtClientPoint(clientX, clientY) {
+  if (!dom.grid || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+  for (const cell of dom.grid.querySelectorAll(".build-cell.occupied[data-part-index]")) {
+    const rect = cell.getBoundingClientRect();
+    if (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    ) {
+      const index = Number(cell.dataset.partIndex);
+      return Number.isInteger(index) ? index : null;
+    }
   }
   return null;
 }
@@ -657,13 +663,12 @@ const DRAG_THRESHOLD_CELLS = 0.35;
 
 function onDataLinksPointerDown(event) {
   if (state.blueprintView !== "dataLinks" || event.button !== 0) return;
-  const sourcePad = event.target.closest("[data-source-index]");
-  const targetPad = event.target.closest("[data-target-index]");
-  const linkLine = event.target.closest("[data-link-key]");
+  const componentIndex = componentIndexAtClientPoint(event.clientX, event.clientY);
+  const linkLine = event.target.closest?.("[data-link-key]");
 
-  if (sourcePad) {
+  if (componentIndex != null && isSourceIndex(componentIndex)) {
     event.preventDefault();
-    const sourceIndex = Number(sourcePad.dataset.sourceIndex);
+    const sourceIndex = componentIndex;
     // Press starts a potential drag; whether it was a click is decided on up.
     dataLinksUiState.drag = { sourceIndex, origin: pointerGridPoint(event.clientX, event.clientY), moved: false };
     dataLinksUiState.selectedLinkKey = null;
@@ -672,12 +677,12 @@ function onDataLinksPointerDown(event) {
     return;
   }
 
-  if (targetPad) {
+  if (componentIndex != null && isWeaponIndex(componentIndex)) {
     // Clicking a weapon while a source is armed toggles that link.
-    const targetIndex = Number(targetPad.dataset.targetIndex);
+    event.preventDefault();
+    const targetIndex = componentIndex;
     const armed = dataLinksUiState.armedSourceIndex;
     if (armed != null && isDataLinksWeaponTargetValid(armed, targetIndex)) {
-      event.preventDefault();
       toggleDataLink(armed, targetIndex);
     }
     return;
@@ -720,7 +725,7 @@ function onDataLinksPointerUp(event) {
 
   if (moved) {
     // Drag-to-connect: release over a weapon links it.
-    const targetIndex = componentIndexAtGridPoint(pointerGridPoint(event.clientX, event.clientY));
+    const targetIndex = componentIndexAtClientPoint(event.clientX, event.clientY);
     if (targetIndex != null && isDataLinksWeaponTargetValid(sourceIndex, targetIndex)) {
       dataLinksUiState.armedSourceIndex = sourceIndex;
       addDataLink(sourceIndex, targetIndex);
@@ -753,7 +758,17 @@ function onDataLinksKeyDown(event) {
 
 export function initDataLinksUi() {
   const host = dom.dataLinksOverlayHost;
-  if (!host || host.dataset.dataLinksBound) return;
+  if (!host) return;
+  if (!dataLinksResizeObserver && dom.grid && typeof ResizeObserver !== "undefined") {
+    dataLinksResizeObserver = new ResizeObserver(() => {
+      if (state.blueprintView !== "dataLinks") return;
+      requestAnimationFrame(() => {
+        if (state.blueprintView === "dataLinks") renderDataLinksOverlay();
+      });
+    });
+    dataLinksResizeObserver.observe(dom.grid);
+  }
+  if (host.dataset.dataLinksBound) return;
   host.addEventListener("pointerdown", onDataLinksPointerDown);
   host.addEventListener("pointermove", onDataLinksPointerMove);
   host.addEventListener("pointerup", onDataLinksPointerUp);

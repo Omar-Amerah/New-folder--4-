@@ -209,7 +209,6 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const commandAura = require("./commandAuras");
   commandAura.invalidateCommandAuraSource(room, ship, "spawn");
   commandAura.invalidateCommandAuraRecipient(room, ship, "spawn");
-  require("./movementContactPairs").noteShipSpawnedDuringMovementContactStep(room, ship);
   room.effects.push({ type: "warp", x: ship.x, y: ship.y, at: now });
 
   if (process.env.NODE_ENV !== "production") {
@@ -327,10 +326,7 @@ function updateBots(room, now) {
       for (const ship of ships) {
         if (!ship.combatStyle) ship.combatStyle = "hold";
       }
-      commandShips(room, player, nearestEnemy.x, nearestEnemy.y, {
-        targetId: nearestEnemy.id,
-        formation: ships.length > 2 ? "wedge" : "line"
-      });
+      commandShips(room, player, nearestEnemy.x, nearestEnemy.y, { targetId: nearestEnemy.id });
       continue;
     }
 
@@ -344,9 +340,7 @@ function updateBots(room, now) {
       });
     const objective = objectives[0] || objectiveList[0];
     if (!objective) continue;
-    commandShips(room, player, objective.x + rngRange(rng, -80, 80), objective.y + rngRange(rng, -80, 80), {
-      formation: ships.length > 3 ? "clump" : "line"
-    });
+    commandShips(room, player, objective.x + rngRange(rng, -80, 80), objective.y + rngRange(rng, -80, 80));
   }
 }
 
@@ -382,32 +376,16 @@ function getPlayerRallyPoint(room, player) {
   return null;
 }
 
-function applyRallySlots(room, player, ships) {
+function applyRallyPoint(room, player, ships) {
   // A default spawn marker is informational, not an implicit movement order.
   // Newly purchased ships already have collision-safe launch positions, so only
   // send them elsewhere when the player has explicitly placed a rally point.
   if (!player?.rallyPoint) return new Map();
   const rallyPoint = getPlayerRallyPoint(room, player);
   if (!rallyPoint || !ships?.length) return new Map();
-  const { assignRallyArrivalSlots } = require("./spawnPlanner");
-  // The rest of the fleet already holds places in the formation. A hangar
-  // launch calls this one ship at a time, so without them the new ship is
-  // handed the slot its predecessor is still flying toward.
-  const slots = assignRallyArrivalSlots(room, ships, rallyPoint, { fleet: player.ships });
-  const movingShips = [];
-  for (const ship of ships) {
-    const slot = slots.get(ship.id);
-    if (!slot || Math.hypot(slot.x - ship.x, slot.y - ship.y) <= 48) continue;
-    movingShips.push(ship);
-    if (ship.spawnState) ship.spawnState.slotId = slot.id;
-  }
-  require("./movement").commandShipsToAssignedSlots(
-    room,
-    movingShips,
-    slots,
-    { prefix: "rally" }
-  );
-  return slots;
+  const movingShips = ships.filter((ship) => Math.hypot(rallyPoint.x - ship.x, rallyPoint.y - ship.y) > 48);
+  require("./movement").commandShipsToDestination(room, movingShips, rallyPoint, { prefix: "rally" });
+  return rallyPoint;
 }
 
 function distanceToFleet(ships, target) {
@@ -448,7 +426,7 @@ module.exports = {
   chooseBotTeam,
   getPlayerSpawn,
   getPlayerRallyPoint,
-  applyRallySlots,
+  applyRallyPoint,
   distanceToFleet,
   getShipModuleWorldCoords,
   SpawnPlacementError

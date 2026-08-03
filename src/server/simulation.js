@@ -22,11 +22,7 @@ const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
   beginMovementContactStep,
-  buildMovementContactPairs,
-  markMovementContactPairsUnsafe,
-  rebuildMovementContactPairsForRecovery,
-  shouldRunMovementContactDiagnostics,
-  validateMovementContactPairs
+  buildMovementContactPairs
 } = require("./movementContactPairs");
 const { runMovementContactSafetyPass } = require("./movementContactSafety");
 const { TICK_HZ } = require("./config");
@@ -118,15 +114,6 @@ function tickRoom(room, dt, now) {
     buildRoomSpatialIndex(room, ships, now);
   }
   buildMovementContactPairs(room, ships, now, { stepId: movementContactStepId });
-  if (shouldRunMovementContactDiagnostics(room)) {
-    const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
-    if (!integrity.ok) {
-      bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
-      markMovementContactPairsUnsafe(room, "build-integrity-failure");
-      room._movementContactPairLastIntegrity = integrity;
-      rebuildMovementContactPairsForRecovery(room, ships, now);
-    }
-  }
   let modifiedShipIds = updateShipSeparation(room, ships, dt, now);
   const mapCollisionStart = performanceNow();
   const movementSafety = runMovementContactSafetyPass(
@@ -140,14 +127,6 @@ function tickRoom(room, dt, now) {
   invalidateCommandAuraMovement(room, movedForCommandAuras);
   invalidateCommandAuraMovement(room, modifiedShipIds);
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
-  if (shouldRunMovementContactDiagnostics(room)) {
-    const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
-    if (!integrity.ok) {
-      bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
-      markMovementContactPairsUnsafe(room, "post-correction-integrity-failure");
-      room._movementContactPairLastIntegrity = integrity;
-    }
-  }
   durations.movementSeparationMap = performanceNow() - startedAt;
   if (room._visibilityRuntime) {
     require("./visibilityRuntime").maintainVisibilityRuntime(room);

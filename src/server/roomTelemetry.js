@@ -10,11 +10,6 @@ const { performanceNow } = require("./utils");
 
 const DURATION_FIELDS = Object.freeze([
   "movementControllerMs",
-  "movementContactPairBuildMs",
-  "shipSeparationMs",
-  "separationNarrowPhaseMs",
-  "separationMapCollisionMs",
-  "separationSpatialRebuildMs",
   "movementMapCollisionMs",
   "shieldRuntimeMs",
   "projectileIntegrationMs",
@@ -53,8 +48,6 @@ const DURATION_FIELDS = Object.freeze([
   "fixedStepDurationMs",
   "fixedStepDiscardedBacklogMs",
   "fixedStepAccumulatorRemainingMs",
-  "packedFleetSolverMs",
-  "movementContactRecoveryScanMs",
 
   // Phase 6A authoritative Heat runtime timing
   "heatRuntimeMs",
@@ -128,43 +121,21 @@ const COUNTER_FIELDS = Object.freeze([
   // Ship separation counters
   "liveShips",
   "separationIterations",
-  "separationQueries",
-  "separationCandidatesReturned",
   "separationPairsExamined",
   "separationBroadPhaseRejected",
   "separationNarrowPhaseChecks",
   "separationOverlapsResolved",
-  "separationUnresolvedPairs",
-  "separationShipIndexRebuilds",
   "separationMapCollisionCalls",
   "staticCollisionCalls",
   "staticCollisionHits",
   "staticCollisionCorrectionDistance",
 
-  // Phase 4C shared movement contact-pair telemetry
+  // Shared movement contact-pair telemetry
   "movementContactPairBuilds",
   "movementContactPairsGenerated",
   "movementContactPairDuplicatesRejected",
   "movementContactPairCandidatesVisited",
   "movementContactPairMaxPerStep",
-  "movementContactPairRecoveryBuilds",
-  "movementContactPairMissDetections",
-  "movementContactRecoveryQueries",
-  "movementContactRecoveryCandidatesVisited",
-  "movementContactMovedShipsScanned",
-
-  // Phase 4D packed-fleet solver telemetry
-  "packedFleetSolverSteps",
-  "packedFleetIslands",
-  "packedFleetLargestIsland",
-  "packedFleetIterations",
-  "packedFleetEarlyExits",
-  "packedFleetPairsChecked",
-  "packedFleetOverlapsResolved",
-  "packedFleetRemainingOverlaps",
-  "packedFleetMaximumPenetration",
-  "packedFleetCorrectionApplications",
-  "packedFleetRecoveryOperations",
 
   // Projectile counters
   "liveProjectiles",

@@ -21,6 +21,26 @@ const DESIGN = [
 ];
 const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
 
+// Keep the regression indices explicit: the two adjacent Data sources are
+// deliberately far enough into the design array to catch index/geometry mixups.
+const ADJACENT_SOURCE_DESIGN = [
+  { type: "core", x: 7, y: 7, rotation: 0 },
+  { type: "frame", x: 1, y: 1, rotation: 0 },
+  { type: "blaster", x: 11, y: 11, rotation: 0 },
+  { type: "frame", x: 3, y: 1, rotation: 0 },
+  { type: "frame", x: 5, y: 1, rotation: 0 },
+  { type: "frame", x: 7, y: 1, rotation: 0 },
+  { type: "frame", x: 9, y: 1, rotation: 0 },
+  { type: "frame", x: 1, y: 3, rotation: 0 },
+  { type: "frame", x: 3, y: 3, rotation: 0 },
+  { type: "frame", x: 5, y: 3, rotation: 0 },
+  { type: "frame", x: 7, y: 3, rotation: 0 },
+  { type: "frame", x: 9, y: 3, rotation: 0 },
+  { type: "fireControl", x: 5, y: 5, rotation: 0 },
+  { type: "signalAmplifier", x: 6, y: 5, rotation: 0 }
+];
+const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
+
 (async () => {
   fs.mkdirSync(artifactDir, { recursive: true });
   const port = uniquePort();
@@ -140,6 +160,98 @@ const FIRE_CONTROL = 1, BLASTER = 2, RAILGUN = 3, AMPLIFIER = 4;
     });
     assert.equal(padCount.pads, padCount.expected, "one hit pad per Data source and weapon");
     const clickOn = async (index) => { const p = await centreOf(index); await page.mouse.click(p.x, p.y); };
+
+    // --- live build-cell hit-map regression ---
+    // Two adjacent sources make a stale overlay pad especially visible: after
+    // the grid moves, a pad can still sit over its neighbour. Every assertion
+    // below measures the point from the real occupied build-cell rectangle.
+    const prepareAdjacentSources = async () => page.evaluate(async (design) => {
+      const { state } = await import("/src/state.js");
+      const designer = await import("/src/ui/designerUi.js");
+      const linksUi = await import("/src/ui/dataLinksUi.js");
+      state.design = JSON.parse(JSON.stringify(design));
+      state.dataLinks = [];
+      state.selectedCell = null;
+      state.hoveredCell = null;
+      linksUi.resetDataLinksUiState();
+      state.blueprintView = "dataLinks";
+      designer.renderBuildGrid();
+    }, ADJACENT_SOURCE_DESIGN);
+    const resizeAdjacentGrid = async (delta) => {
+      await page.evaluate((amount) => {
+        const grid = document.getElementById("buildGrid");
+        grid.style.width = `calc(100% - ${amount}px)`;
+        grid.style.height = `calc(100% - ${amount + 2}px)`;
+      }, delta);
+      await page.waitForTimeout(40);
+    };
+    const edgePointOf = async (index, edge) => page.evaluate(({ index: i, edge: side }) => {
+      const cell = document.querySelector(`.build-cell.occupied[data-part-index="${i}"]`);
+      const rect = cell.getBoundingClientRect();
+      const inset = Math.min(4, Math.max(1, Math.min(rect.width, rect.height) / 4));
+      if (side === "left") return { x: rect.left + inset, y: rect.top + rect.height / 2 };
+      if (side === "right") return { x: rect.right - inset, y: rect.top + rect.height / 2 };
+      if (side === "top") return { x: rect.left + rect.width / 2, y: rect.top + inset };
+      if (side === "bottom") return { x: rect.left + rect.width / 2, y: rect.bottom - inset };
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }, { index, edge });
+    const assertAdjacentSourceClick = async (index, edge, expectedText, delta) => {
+      await prepareAdjacentSources();
+      await resizeAdjacentGrid(delta);
+      const point = await edgePointOf(index, edge);
+      await page.mouse.click(point.x, point.y);
+      const text = await hint();
+      assert.match(text, new RegExp(`${expectedText} selected`), `${edge} of source ${index} arms the matching source`);
+      const otherText = expectedText === "Fire Control" ? "Signal Amplifier" : "Fire Control";
+      assert.doesNotMatch(text, new RegExp(`${otherText} selected`), `${edge} of source ${index} does not arm its neighbour`);
+    };
+
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.querySelector(".data-link-pad")).pointerEvents),
+      "none",
+      "SVG component pads are presentational only"
+    );
+    for (const [offset, edge] of [[0, "center"], [1, "left"], [2, "right"], [3, "top"], [4, "bottom"]]) {
+      await assertAdjacentSourceClick(ADJACENT_SOURCE_A, edge, "Fire Control", 6 + offset);
+    }
+    await assertAdjacentSourceClick(ADJACENT_SOURCE_B, "center", "Signal Amplifier", 13);
+
+    // The same edge checks must survive an interface-density change and a full
+    // designer close/reopen, which are both real layout transitions.
+    await page.evaluate(() => {
+      const select = document.getElementById("interfaceScaleSelect");
+      select.value = "1.2";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.evaluate(async () => {
+      const screenUi = await import("/src/ui/designerScreenUi.js");
+      screenUi.closeBlueprintDesigner();
+      screenUi.openBlueprintDesigner();
+    });
+    await page.locator("#blueprintDesignerScreen:not([hidden])").waitFor({ state: "visible" });
+    for (const [offset, edge] of [[0, "center"], [1, "left"], [2, "right"], [3, "top"], [4, "bottom"]]) {
+      await assertAdjacentSourceClick(ADJACENT_SOURCE_A, edge, "Fire Control", 16 + offset);
+    }
+    await assertAdjacentSourceClick(ADJACENT_SOURCE_B, "center", "Signal Amplifier", 23);
+
+    // Restore the original fixture and the default interface scale before the
+    // rest of this verifier exercises normal link editing.
+    await page.evaluate(async (design) => {
+      const { state } = await import("/src/state.js");
+      const designer = await import("/src/ui/designerUi.js");
+      const linksUi = await import("/src/ui/dataLinksUi.js");
+      const grid = document.getElementById("buildGrid");
+      grid.style.removeProperty("width");
+      grid.style.removeProperty("height");
+      const select = document.getElementById("interfaceScaleSelect");
+      select.value = "1";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      state.design = JSON.parse(JSON.stringify(design));
+      state.dataLinks = [];
+      linksUi.resetDataLinksUiState();
+      state.blueprintView = "dataLinks";
+      designer.renderBuildGrid();
+    }, DESIGN);
 
     assert.match(await hint(), /Select: click a Data source/, "idle hint invites selecting a source");
     await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-before.png` }).catch(() => {});

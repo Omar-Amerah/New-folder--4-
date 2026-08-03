@@ -86,9 +86,10 @@
   stroke-dasharray: none;
 }
 
-/* Invisible footprint-shaped hit targets. */
+/* Presentational footprint boxes; build-cell DOM owns component hit-testing. */
 .data-link-pad {
   fill: transparent;
+  pointer-events: none;
 }
 
 .data-link-pad-source.is-active,

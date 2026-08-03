@@ -3,9 +3,8 @@
 // Per-ship movement state for the rewritten controller.
 //
 // One order, one destination, one phase. Everything the autopilot needs to fly
-// the ship this tick is here. Charge positioning adds one deliberate exception:
-// a target-relative contact slot is cached until the target/group/route genuinely
-// changes. Hold only caches its stable weapon-facing decision while stationary.
+// the ship this tick is here. Combat positioning is deliberately not shared
+// between ships: each hull decides when it can fire or when it has made contact.
 //
 // `path`, `waypointIndex` and `route` are reserved for the obstacle-avoidance
 // phase. A route is one committed A*/geometry/smoothing result, followed until
@@ -43,41 +42,23 @@ function createMovementRuntime() {
     // Charge has made a settled contact. It has its own latch because Hold's
     // wide range hysteresis is not a valid contact controller.
     chargeEngaged: false,
+    // Move orders share one arrival envelope, while a lone ship keeps the normal
+    // small arrival radius. This is a crowding tolerance, not a destination.
+    arrivalRadius: 16,
     // The requested point cannot currently be reached. This is a stable state,
     // not travelling at zero speed; route/world changes clear it.
     blocked: false,
-    // Cached LOS-valid combat destination (or a short-lived failed search), so
-    // an occluded target does not run a ring of path searches every tick.
+    // Per-ship Hold route cache. This is an individual firing solution, never
+    // a shared group position.
     firingSolution: null,
+    engageApproach: null,
     // On a ramming run: a Charge ship carrying a live demolition charge, closing
     // on the target it will detonate against. Recomputed every tick, never
     // latched -- see updateShipMovement.
     ramming: false,
-    // Stable target-relative combat positioning. Slot assignment is replaced
-    // only when the target/group changes or the static route proves it blocked.
-    combatSlot: null,
     // Stable Hold facing. This is a hull orientation, never a translation slot;
     // cooldown is intentionally not part of the cached decision.
     holdFacing: null,
-    // Stable pre-engagement Hold lane. It is an approach hint only; once Hold
-    // latches, the ship keeps its world position instead of returning to this
-    // lane point.
-    holdApproach: null,
-    // A short-lived static-obstacle contact decision. Collision resolution owns
-    // the normal and lifetime; steering owns the committed tangent side.
-    slide: null,
-    // One deterministic local-traffic decision for the current encounter.
-    // This is route control, not a second movement command.
-    traffic: {
-      mode: "clear",
-      blockerId: null,
-      pairKey: null,
-      side: 0,
-      bypass: null,
-      priorityId: null,
-      crossing: false,
-      blockedAt: null
-    }
   };
 }
 
@@ -89,20 +70,15 @@ function ensureMovementRuntime(ship) {
     ship.movement = createMovementRuntime();
     return ship.movement;
   }
-  if (!Object.prototype.hasOwnProperty.call(runtime, "slide")) runtime.slide = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "arrivalRadius")) runtime.arrivalRadius = 16;
   if (!Object.prototype.hasOwnProperty.call(runtime, "route")) runtime.route = null;
-  if (!Object.prototype.hasOwnProperty.call(runtime, "combatSlot")) runtime.combatSlot = null;
   if (!Object.prototype.hasOwnProperty.call(runtime, "holdFacing")) runtime.holdFacing = null;
-  if (!Object.prototype.hasOwnProperty.call(runtime, "holdApproach")) runtime.holdApproach = null;
   return runtime;
 }
 
-// `manual` marks an order the player issued directly. Internal rally moves
-// (station launch, formation assignment) leave it false so a freshly built ship
-// can still be re-tasked by its owner's next click without special-casing.
-//
-// `formationHeading` is retained only as a final resting-facing preference for
-// multi-ship move orders. Travelling ships steer from their own route waypoint.
+// `manual` marks an order the player issued directly. Internal rally moves leave
+// it false so a freshly built ship can still be re-tasked by its owner's next
+// click without special-casing.
 function setMovementCommand(ship, command) {
   const runtime = ensureMovementRuntime(ship);
   runtime.command = command && MOVEMENT_TYPES.has(String(command.type))
@@ -111,16 +87,17 @@ function setMovementCommand(ship, command) {
       type: String(command.type),
       destination: finitePoint(command.destination),
       targetId: command.targetId == null ? null : String(command.targetId),
-      formationHeading: Number.isFinite(command.formationHeading)
-        ? Number(command.formationHeading)
-        : null,
       finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null,
+      arrivalRadius: Number.isFinite(command.arrivalRadius)
+        ? Math.max(16, Number(command.arrivalRadius))
+        : 16,
       manual: Boolean(command.manual)
     }
     : null;
   runtime.destination = runtime.command?.type === "move"
     ? runtime.command.destination
     : null;
+  runtime.arrivalRadius = runtime.command?.arrivalRadius || 16;
   runtime.path = [];
   runtime.waypointIndex = 0;
   runtime.route = null;
@@ -132,20 +109,8 @@ function setMovementCommand(ship, command) {
   runtime.chargeEngaged = false;
   runtime.blocked = false;
   runtime.firingSolution = null;
-  runtime.combatSlot = null;
+  runtime.engageApproach = null;
   runtime.holdFacing = null;
-  runtime.holdApproach = null;
-  runtime.slide = null;
-  runtime.traffic = {
-    mode: "clear",
-    blockerId: null,
-    pairKey: null,
-    side: 0,
-    bypass: null,
-    priorityId: null,
-    crossing: false,
-    blockedAt: null
-  };
   if (!runtime.command) runtime.phase = "idle";
   else if (runtime.command.type === "stop") runtime.phase = "braking";
   else if (runtime.command.type === "move") runtime.phase = "travelling";
@@ -168,8 +133,8 @@ function setManualRotation(ship, direction) {
 }
 
 // ship.targetX/targetY is the published destination: snapshots ship it to the
-// client for order markers and thrust visuals, and the spawn planner reads it
-// to avoid handing a slot to a hull already flying at it.
+// client for order markers and thrust visuals; launch placement may use it for
+// diagnostics, but it does not assign movement destinations from it.
 function syncMovementTarget(ship) {
   const runtime = ensureMovementRuntime(ship);
   const destination = runtime.destination;

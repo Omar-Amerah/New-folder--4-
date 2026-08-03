@@ -139,6 +139,7 @@ async function main() {
         return {
           maskConstructor: mask?.constructor?.name || null,
           maskType: window.__mfaVisibilityMaskDiagnostics?.().maskType || null,
+          maskChannel: window.__mfaVisibilityMaskDiagnostics?.().maskChannel || null,
           maskTextureIsCanvas: Boolean(canvas && context),
           innerTextureAlpha: sample(1650, 950),
           fadeTextureAlpha: sample(1690, 950),
@@ -155,6 +156,7 @@ async function main() {
       });
       if (result.maskConstructor === "Graphics") throw new Error("enemy visibility mask is still Graphics-backed");
       if (result.maskType !== "sprite-alpha") throw new Error(`expected sprite-alpha mask, got ${result.maskType}`);
+      if (result.maskChannel !== "alpha") throw new Error(`expected alpha mask channel, got ${result.maskChannel}`);
       if (!result.maskTextureIsCanvas) throw new Error("expected a canvas-backed alpha texture");
       if (!(result.innerTextureAlpha > 0.9)) throw new Error(`inner body alpha was ${result.innerTextureAlpha}`);
       if (!(result.fadeTextureAlpha > 0.1 && result.fadeTextureAlpha < 0.9)) throw new Error(`fade body alpha was ${JSON.stringify(result)}`);

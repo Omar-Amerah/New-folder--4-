@@ -13,7 +13,7 @@ const {
   computeDesignAxisExtents,
   shipHullCircles
 } = require("./componentGeometry");
-const { spawnShip, applyRallySlots } = require("./ships");
+const { spawnShip, applyRallyPoint } = require("./ships");
 const { usesStationInfrastructure } = require("./rooms");
 const {
   initStationCombatRuntime,
@@ -151,7 +151,13 @@ function stationOverlapsCircle(station, x, y, radius) {
   return false;
 }
 
-function resolveStationCollision(room, ship, shipRadius, onContact = null) {
+function resolveStationCollision(
+  room,
+  ship,
+  shipRadius,
+  onContact = null,
+  maxCorrection = Number.POSITIVE_INFINITY
+) {
   if (!room?.stations?.length) return false;
   const staticContactEpsilon = 0.5;
   const shipX = ship.x || 0;
@@ -276,6 +282,13 @@ function resolveStationCollision(room, ship, shipRadius, onContact = null) {
     correctionY += candidateY;
   }
   if (correctionX !== 0 || correctionY !== 0) {
+    const correctionLength = Math.hypot(correctionX, correctionY);
+    const correctionLimit = Math.max(0, Number(maxCorrection));
+    if (Number.isFinite(correctionLimit) && correctionLength > correctionLimit && correctionLength > 0) {
+      const scale = correctionLimit / correctionLength;
+      correctionX *= scale;
+      correctionY *= scale;
+    }
     ship.x += correctionX;
     ship.y += correctionY;
     ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + correctionX;
@@ -1010,7 +1023,7 @@ function recoverLaunchPhase(room, ship, phase, station = null, hangar = null, no
   ship._simNow = Number.isFinite(Number(now)) ? Number(now) : (ship._simNow || 0);
   if (station) releaseLaunch(station, ship.id);
   const player = room?.players?.get?.(ship.ownerId);
-  if (player) applyRallySlots(room, player, [ship]);
+  if (player) applyRallyPoint(room, player, [ship]);
   bumpCounter(room, "stationLaunchOrphanRecoveryCount");
   if (detailedProfileActive(room)) bump(room, `stationLaunchRecoveries:${reason}`);
 }
@@ -1175,7 +1188,7 @@ function updateStationLaunches(room, station, dt, now) {
       releaseLaunch(station, launch.shipId);
       launches.splice(i, 1);
       const player = room.players.get(ship.ownerId);
-      if (player) applyRallySlots(room, player, [ship]);
+      if (player) applyRallyPoint(room, player, [ship]);
       if (detailed) bump(room, "stationLaunchesReleased");
       if (detailed) recordDuration(room, "stationLaunchReleaseMs", releaseStartedAt);
     }

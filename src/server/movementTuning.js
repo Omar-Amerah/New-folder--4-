@@ -42,25 +42,13 @@ module.exports = Object.freeze({
   BACKUP_CORE_TURN_SCALE: 0.9,
 
   // --- Hard collision / separation ---------------------------------------
-  SEPARATION_ITERATIONS: 4,
-  SEPARATION_SLOP: 0.2,
-  SEPARATION_CORRECTION: 0.88,
-  SEPARATION_MAX_BIAS_SPEED: 8,
-  SEPARATION_BIAS_SCALE: 0.8,
-  SEPARATION_MIN_IMPULSE_CAP: 20,
-  SEPARATION_IMPULSE_HEADROOM: 12,
-  SEPARATION_BROAD_PHASE_PAD: 192,
+  SEPARATION_BROAD_PHASE_PAD: 16,
   // A static or ship-contact correction may be collected by several
   // contacts in one authoritative tick. Keep that total bounded so a bad
   // spawn or dense pile-up is recovered over successive ticks instead of
   // becoming a visible one-frame relocation.
-  STATIC_COLLISION_MAX_TICK_CORRECTION: 32,
-  PACKED_FLEET_MAX_TICK_CORRECTION: 96,
-  PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION: 48,
-  PACKED_FLEET_LARGE_ISLAND_SIZE: 12,
-  ASTEROID_RESTITUTION: 1.5,
+  STATIC_COLLISION_MAX_TICK_CORRECTION: 8,
   ASTEROID_QUERY_PAD: 128,
-  STOPPED_SPEED: 3,
 
   // --- Navigation ---------------------------------------------------------
   NAV_GRID_CELL_SIZE: 24,

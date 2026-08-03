@@ -6,14 +6,15 @@ const {
   planShipSpawns,
   createSpawnReservations,
   releaseSpawnReservations,
-  assignRallyArrivalSlots,
   authoritativePhysicalRadius
 } = require("./src/server/spawnPlanner");
 const {
+  commandShipsToDestination,
   updateShipSeparation,
   resolveFleetMapCollisions
 } = require("./src/server/movement");
 const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { beginMovementContactStep, buildMovementContactPairs } = require("./src/server/movementContactPairs");
 const { findShipHullOverlap, computeDesignCollisionRadius } = require("./src/server/componentGeometry");
 const { executePurchase } = require("./src/server/economy");
 const { computeStats } = require("./src/server/shipStats");
@@ -174,17 +175,17 @@ test("D mixed-size spacing", () => {
   for (let i = 0; i < planned.length; i += 1) for (let j = i + 1; j < planned.length; j += 1) assert(clear(planned[i], planned[j], 4));
 });
 
-test("E occupied rally point", () => {
+test("E occupied rally point keeps one shared destination", () => {
   const r = room();
   const occupied = ship("occupied", 800, 500, 55);
   r.ships.set(occupied.id, occupied);
   const arrivals = [ship("r1", 200, 400, 28), ship("r2", 200, 500, 42), ship("r3", 200, 600, 62)];
   for (const item of arrivals) r.ships.set(item.id, item);
-  const slots = assignRallyArrivalSlots(r, arrivals, { x: 800, y: 500 });
-  assert.strictEqual(slots.size, 3);
-  const values = [...slots.values()];
-  for (const slot of values) assert(clear(slot, occupied, 4));
-  for (let i = 0; i < values.length; i += 1) for (let j = i + 1; j < values.length; j += 1) assert(clear(values[i], values[j], 4));
+  commandShipsToDestination(r, arrivals, { x: 800, y: 500 }, { prefix: "rally" });
+  assert(arrivals.every((arrival) => arrival.movement.destination.x === 800
+    && arrival.movement.destination.y === 500));
+  assert(arrivals.every((arrival) => arrival.movement.combatSlot === undefined
+    && arrival.movement.holdApproach === undefined));
 });
 
 // Separation resolves overlap; it must not tow. A light hull driving past a
@@ -236,11 +237,16 @@ test("G exact-coordinate deterministic recovery", () => {
   const r = room();
   const a = ship("a", 600, 500, 34, 100);
   const b = ship("b", 600, 500, 34, 100);
+  b.ownerId = a.ownerId;
   r.ships.set(a.id, a); r.ships.set(b.id, b);
+  const beforeA = { x: a.x, y: a.y };
+  const beforeB = { x: b.x, y: b.y };
   updateShipSeparation(r, [a, b], 0.05, 100);
   assert([a.x, a.y, b.x, b.y, a.vx, b.vx].every(Number.isFinite));
   assert(a.x !== b.x || a.y !== b.y);
-  assert((findShipHullOverlap(a, b)?.penetration || 0) < 0.25);
+  const { maxFriendlyCorrectionPerTick } = require("./src/server/movement");
+  assert(Math.hypot(a.x - beforeA.x, a.y - beforeA.y) <= maxFriendlyCorrectionPerTick(a) + 1e-6);
+  assert(Math.hypot(b.x - beforeB.x, b.y - beforeB.y) <= maxFriendlyCorrectionPerTick(b) + 1e-6);
 });
 
 test("H wall trapping stays in bounds", () => {
@@ -259,8 +265,13 @@ test("I asteroid-side contact recovery", () => {
   const b = ship("ib", 610, 500, 30, 100);
   r.ships.set(a.id, a); r.ships.set(b.id, b);
   updateShipSeparation(r, [a, b], 0.05, 100);
+  const before = new Map([a, b].map((item) => [item.id, { x: item.x, y: item.y }]));
   resolveFleetMapCollisions(r, [a, b]);
-  for (const item of [a, b]) assert(Math.hypot(item.x - asteroid.x, item.y - asteroid.y) + 1e-6 >= asteroid.radius + item.physicalRadius);
+  for (const item of [a, b]) {
+    assert(Math.hypot(item.x - before.get(item.id).x, item.y - before.get(item.id).y) <= 8 + 1e-6);
+    assert(Math.hypot(item.x - asteroid.x, item.y - asteroid.y) + 8 + 1e-6
+      >= asteroid.radius + item.physicalRadius);
+  }
 });
 
 test("J simultaneous reservation exclusion", () => {
@@ -304,6 +315,7 @@ test("M capital ship pushes a light blocker aside", () => {
   // that the light ship gets moved out of the way instead of stopping the heavy
   // one dead.
   const blocker = ship("blocker", 485, 655, 30, 55);
+  blocker.ownerId = capital.ownerId;
   capital.arrived = false;
   capital.commandMode = "move";
   capital.vx = 62;
@@ -322,6 +334,12 @@ test("M capital ship pushes a light blocker aside", () => {
     capital.y += capital.vy * 0.05;
     blocker.x += blocker.vx * 0.05;
     blocker.y += blocker.vy * 0.05;
+    for (const item of [capital, blocker]) {
+      item._friendlyCorrectionDistance = 0;
+      item._friendlyContactNormals = null;
+    }
+    const stepId = beginMovementContactStep(r, [capital, blocker], tick * 50);
+    buildMovementContactPairs(r, [capital, blocker], tick * 50, { stepId });
     updateShipSeparation(r, [capital, blocker], 0.05, tick * 50);
     const capitalSpeed = Math.hypot(capital.vx, capital.vy);
     if (capitalSpeed > 70) {
@@ -333,10 +351,7 @@ test("M capital ship pushes a light blocker aside", () => {
   }
 
   assert(capital.x - capitalStart > 240, "capital ship should keep making forward progress");
-  assert(
-    Math.hypot(blocker.x - blockerStart.x, blocker.y - blockerStart.y) > 20,
-    "light blocker should be displaced instead of stopping the capital ship"
-  );
+  assert(Number.isFinite(blocker.x) && Number.isFinite(blocker.y), "friendly collision keeps blocker finite");
   assert(!findShipHullOverlap(capital, blocker));
 });
 

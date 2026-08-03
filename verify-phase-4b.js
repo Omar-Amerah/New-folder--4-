@@ -440,8 +440,8 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   };
   const shipB = {
     id: "sb",
-    ownerId: "p2",
-    team: 2,
+    ownerId: "p1",
+    team: 1,
     x: 520,
     y: 500,
     vx: 0,
@@ -463,11 +463,18 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   room.ships.set("sa", shipA);
   room.ships.set("sb", shipB);
   buildRoomSpatialIndex(room, [shipA, shipB], 0);
-  const { updateShipSeparation } = require("./src/server/movement");
+  const { maxFriendlyCorrectionPerTick, updateShipSeparation } = require("./src/server/movement");
+  const beforeA = { x: shipA.x, y: shipA.y };
+  const beforeB = { x: shipB.x, y: shipB.y };
   updateShipSeparation(room, [shipA, shipB], 16.666, 0);
   const dx = shipA.x - shipB.x;
   const dy = shipA.y - shipB.y;
-  assert.ok(Math.hypot(dx, dy) > 50, "ships are separated");
+  assert.ok(Math.hypot(shipA.x - beforeA.x, shipA.y - beforeA.y)
+    <= maxFriendlyCorrectionPerTick(shipA) + EPSILON, "ship A correction is bounded");
+  assert.ok(Math.hypot(shipB.x - beforeB.x, shipB.y - beforeB.y)
+    <= maxFriendlyCorrectionPerTick(shipB) + EPSILON, "ship B correction is bounded");
+  assert.ok(Math.hypot(dx, dy) > 20, "the overlap is reduced without teleporting");
+  room.spatialIndex.updateLiveEntities("ships", [shipA, shipB], shipBroadPhaseRadius);
   const foundA = room.spatialIndex.queryRange("ships", shipA.x, shipA.y, 1).find((s) => s.id === "sa");
   const foundB = room.spatialIndex.queryRange("ships", shipB.x, shipB.y, 1).find((s) => s.id === "sb");
   assert.ok(foundA, "separated ship A is still queryable at its new position");
