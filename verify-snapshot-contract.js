@@ -2,10 +2,11 @@
 const assert = require("assert");
 const { encode, decode } = require("@msgpack/msgpack");
 const { snapshotRoom } = require("./src/server/snapshots");
+const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("./src/server/snapshotEntityDelta");
 (async () => {
   const m = await import("./public/src/snapshotMerge.js");
   const full = {
-    type:"state", room:"R", stateEpoch:1, snapshotSeq:1, snapshotKind:"full", staticRevision:1,
+    type:"state", room:"R", stateEpoch:1, snapshotSeq:1, snapshotKind:"full", snapshotFormatVersion:2, staticRevision:1,
     players:[{id:"p",design:[{type:"core"}],stats:{kills:0},name:"Pilot",team:"blue",colour:"#39f",captures:7}],
     ships:[{id:"s",ownerId:"p",alive:true,design:[{type:"core"},{type:"engine"},{type:"heatSink"}],chp:[10,20,30],componentHeat:[[1,0,0.1,10],[2,0,0.2,10],[0,0,0,10]]}],
     bullets:[], effects:[], map:{seed:1}, world:{width:1}, rules:{asteroidDensity:"none"}, mapSizeLabel:"small"
@@ -17,7 +18,15 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.deepEqual(r1.snapshot.ships[0].chp, [10,20,30]);
   assert.deepEqual(r1.snapshot.ships[0].componentHeat, [[1,0,0.1,10],[2,0,0.2,10],[0,0,0,10]]);
 
-  const compact2 = { type:"state", room:"R", stateEpoch:1, snapshotSeq:2, snapshotKind:"compact", baseSnapshotSeq:1, staticRevision:1, players:[{id:"p",captures:8}], ships:[{id:"s",ownerId:"p",alive:true,chpD:[0,9],componentHeatD:[1,3,0,0.3,10]}], bullets:[], effects:[] };
+  const compactSnapshot2 = {
+    ...full,
+    snapshotSeq: 2,
+    snapshotKind: "compact",
+    baseSnapshotSeq: 1,
+    players: [{ ...full.players[0], captures: 8 }],
+    ships: [{ ...full.ships[0], chp: undefined, componentHeat: undefined, chpD: [0, 9], componentHeatD: [1, 3, 0, 0.3, 10] }]
+  };
+  const compact2 = buildEntityDeltaSnapshot(compactSnapshot2, buildStateFromSnapshot(full, full.stateEpoch)).snapshot;
   const r2 = m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, compact2);
   assert.equal(r2.ok, true);
   assert.deepEqual(r2.snapshot.ships[0].design, full.ships[0].design);
@@ -28,7 +37,15 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.deepEqual(r1.snapshot.ships[0].chp, [10,20,30]);
   assert.deepEqual(r1.snapshot.ships[0].componentHeat[1], [2,0,0.2,10]);
 
-  const compact3 = { ...compact2, snapshotSeq:3, baseSnapshotSeq:2, players:[{id:"p",captures:9}], ships:[{id:"s",ownerId:"p",alive:true,chpD:[2,25],componentHeatD:[0,4,1,0.4,10,2,5,0,0.5,10]}] };
+  const compactSnapshot3 = {
+    ...r2.snapshot,
+    snapshotSeq: 3,
+    snapshotKind: "compact",
+    baseSnapshotSeq: 2,
+    players: [{ ...r2.snapshot.players[0], captures: 9 }],
+    ships: [{ ...r2.snapshot.ships[0], chp: undefined, componentHeat: undefined, chpD: [2, 25], componentHeatD: [0, 4, 1, 0.4, 10, 2, 5, 0, 0.5, 10] }]
+  };
+  const compact3 = buildEntityDeltaSnapshot(compactSnapshot3, buildStateFromSnapshot(r2.snapshot, r2.snapshot.stateEpoch)).snapshot;
   const r3 = m.mergeSnapshotTransaction(r2.snapshot, r2.networkState, compact3);
   assert.equal(r3.ok, true);
   assert.deepEqual(r3.snapshot.ships[0].chp, [9,20,25]);
@@ -47,7 +64,14 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.equal(r3.snapshot.mapSizeLabel, full.mapSizeLabel);
   assert.deepEqual(r2.snapshot.ships[0].componentHeat, [[1,0,0.1,10],[3,0,0.3,10],[0,0,0,10]]);
 
-  const compactMissingStatic = { type:"state", room:"R", stateEpoch:1, snapshotSeq:4, snapshotKind:"compact", baseSnapshotSeq:3, staticRevision:1, players:[{id:"p"}], ships:[{id:"s",ownerId:"p",alive:true}], bullets:[], effects:[] };
+  const compactMissingStatic = buildEntityDeltaSnapshot({
+    ...r3.snapshot,
+    snapshotSeq: 4,
+    snapshotKind: "compact",
+    baseSnapshotSeq: 3,
+    players: [{ ...r3.snapshot.players[0] }],
+    ships: [{ ...r3.snapshot.ships[0], chp: undefined, componentHeat: undefined }]
+  }, buildStateFromSnapshot(r3.snapshot, r3.snapshot.stateEpoch)).snapshot;
   const r4 = m.mergeSnapshotTransaction(r3.snapshot, r3.networkState, compactMissingStatic);
   assert.equal(r4.ok, true);
   assert.deepEqual(r4.snapshot.ships[0].design, full.ships[0].design);
@@ -62,13 +86,24 @@ const { snapshotRoom } = require("./src/server/snapshots");
 
 
 
-  const nullStaticCompact = {
-    type:"state", room:"R", stateEpoch:1, snapshotSeq:5, snapshotKind:"compact", baseSnapshotSeq:4, staticRevision:1,
-    map:null, world:null, rules:null, mapSizeLabel:null,
-    players:[{id:"p",design:null,stats:null,name:null,team:null,colour:null,color:null,captures:0,money:0,ready:false,connected:false}],
-    ships:[{id:"s",ownerId:"p",alive:true,design:null,chp:null,componentHeat:null,chpD:[1,18],componentHeatD:[1,6,0,0.6,10]}],
-    bullets:[], effects:[], emptyObject:{}, emptyArray:[], falseValue:false, zeroValue:0
-  };
+  const nullStaticCompact = buildEntityDeltaSnapshot({
+    ...r4.snapshot,
+    snapshotSeq: 5,
+    snapshotKind: "compact",
+    baseSnapshotSeq: 4,
+    players: [{ ...r4.snapshot.players[0], captures: 0, money: 0, ready: false, connected: false }],
+    ships: [{ ...r4.snapshot.ships[0], chp: undefined, componentHeat: undefined, chpD: [1, 18], componentHeatD: [1, 6, 0, 0.6, 10] }]
+  }, buildStateFromSnapshot(r4.snapshot, r4.snapshot.stateEpoch)).snapshot;
+  Object.assign(nullStaticCompact, {
+    map: null,
+    world: null,
+    rules: null,
+    mapSizeLabel: null,
+    emptyObject: {},
+    emptyArray: [],
+    falseValue: false,
+    zeroValue: 0
+  });
   const r5 = m.mergeSnapshotTransaction(r4.snapshot, r4.networkState, nullStaticCompact);
   assert.equal(r5.ok, true);
   assert.deepEqual(r5.snapshot.map, full.map, "decoded null map preserves baseline");
@@ -94,15 +129,18 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.equal(r5.snapshot.zeroValue, 0, "legitimate zero top-level value remains authoritative");
 
   const undefinedWireCompact = decode(encode({
-    ...nullStaticCompact,
-    snapshotSeq:6,
-    baseSnapshotSeq:5,
-    map:undefined,
-    world:undefined,
-    rules:undefined,
-    mapSizeLabel:undefined,
-    players:[{id:"p",design:undefined,stats:undefined,name:undefined,team:undefined,colour:undefined,color:undefined,captures:10}],
-    ships:[{id:"s",ownerId:"p",alive:true,design:undefined,chp:undefined,componentHeat:undefined,chpD:[0,7],componentHeatD:[0,8,0,0.8,10]}]
+    ...buildEntityDeltaSnapshot({
+      ...r5.snapshot,
+      snapshotSeq: 6,
+      snapshotKind: "compact",
+      baseSnapshotSeq: 5,
+      players: [{ ...r5.snapshot.players[0], captures: 10 }],
+      ships: [{ ...r5.snapshot.ships[0], chp: undefined, componentHeat: undefined, chpD: [0, 7], componentHeatD: [0, 8, 0, 0.8, 10] }]
+    }, buildStateFromSnapshot(r5.snapshot, r5.snapshot.stateEpoch)).snapshot,
+    map: undefined,
+    world: undefined,
+    rules: undefined,
+    mapSizeLabel: undefined
   }));
   assert.equal(undefinedWireCompact.map, null, "MessagePack decodes explicit undefined properties as null");
   const r6 = m.mergeSnapshotTransaction(r5.snapshot, r5.networkState, undefinedWireCompact);
@@ -117,7 +155,10 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.deepEqual(r6.snapshot.ships[0].chp, [7,18,25]);
   assert.deepEqual(r6.snapshot.ships[0].componentHeat, [[8,0,0.8,10],[6,0,0.6,10],[5,0,0.5,10]]);
 
-  assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, {...compact2, ships:[{id:"new-null",design:null,chp:[1],componentHeat:[]}] }).reason, "missing-baseline");
+  assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, {
+    ...compact2,
+    shipsPatch: { ...compact2.shipsPatch, upsert: [{ id: "new-public", detail: "public", ownerId: "p", design: [], chp: [1], componentHeat: [] }] }
+  }).reason, "invalid-detail-transition");
 
   assert.equal(m.inspectSnapshotEnvelope(r2.networkState, compact2).reason, "duplicate-sequence");
   assert.equal(m.inspectSnapshotEnvelope(r2.networkState, {...compact2,snapshotSeq:1}).reason, "stale-sequence");
@@ -128,11 +169,22 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.equal(m.inspectSnapshotEnvelope({stateEpoch:1,snapshotSeq:0,hasFullBaseline:false}, compact2).reason, "missing-baseline");
   assert.equal(m.inspectSnapshotEnvelope({...r1.networkState, staticRevision:2}, compact2).reason, "static-revision-mismatch");
   for (const bad of [[0], [0, 1, 0, 2], [3, 1], [0, 1, 0, 2]]) {
-    const msg = {...compact2, snapshotSeq:2, chaff:1, ships:[{id:"s", chpD:bad}]};
+    const msg = {
+      ...compact2,
+      snapshotSeq: 2,
+      chaff: 1,
+      shipsPatch: { ...compact2.shipsPatch, private: [], motion: [["s", ...bad]] }
+    };
     assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, msg).ok, false);
   }
-  assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, {...compact2, ships:[{id:"new",design:[],chp:[1],componentHeat:[]}] }).ok, true);
-  assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, {...compact2, ships:[] }).snapshot.ships.length, 0);
+  assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, {
+    ...compact2,
+    shipsPatch: { ...compact2.shipsPatch, upsert: [{ id: "new", detail: "full", ownerId: "p", design: [], chp: [1], componentHeat: [] }] }
+  }).ok, true);
+  assert.equal(m.mergeSnapshotTransaction(r1.snapshot, r1.networkState, {
+    ...compact2,
+    shipsPatch: { ...compact2.shipsPatch, private: [], remove: ["s"] }
+  }).snapshot.ships.length, 0);
 
 
   const room = {
@@ -161,8 +213,8 @@ const { snapshotRoom } = require("./src/server/snapshots");
   assert.equal(Object.prototype.hasOwnProperty.call(compactPacket, "mapSizeLabel"), false, "compact snapshotRoom omits mapSizeLabel key");
   assert.equal(Object.prototype.hasOwnProperty.call(compactPacket.players[0], "design"), false, "compact player omits design key");
   assert.equal(Object.prototype.hasOwnProperty.call(compactPacket.players[0], "stats"), false, "compact player omits stats key");
-  const legacyCompactWire = decode(encode({ ...compactPacket, map:undefined, world:undefined, rules:undefined, mapSizeLabel:undefined, players: compactPacket.players.map((p) => ({...p, design:undefined, stats:undefined, name:undefined, team:undefined, color:undefined})), ships: compactPacket.ships.map((s) => ({...s, design:undefined, chp:undefined, componentHeat:undefined})) }));
-  const mergedWire = m.mergeSnapshotTransaction(acceptedFull.snapshot, acceptedFull.networkState, legacyCompactWire);
+  const canonicalCompactWire = buildEntityDeltaSnapshot(compactPacket, buildStateFromSnapshot(fullWire, fullWire.stateEpoch)).snapshot;
+  const mergedWire = m.mergeSnapshotTransaction(acceptedFull.snapshot, acceptedFull.networkState, canonicalCompactWire);
   assert.equal(mergedWire.ok, true);
   assert.deepEqual(mergedWire.snapshot.map, fullWire.map);
   assert.deepEqual(mergedWire.snapshot.world, fullWire.world);

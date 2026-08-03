@@ -1,7 +1,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const flags = require("./src/server/performanceFlags");
 const { createRoom } = require("./src/server/rooms");
 const {
   computeTeamVisibility,
@@ -114,8 +113,7 @@ function addStation(room, id, stationType, team, x, y) {
   return station;
 }
 
-function makeRoom(mode = "legacy", visibilityMode = "sensors", infrastructureMode = "stations") {
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(mode === "optimized");
+function makeRoom(mode = "canonical", visibilityMode = "sensors", infrastructureMode = "stations") {
   const room = createRoom(`phase-6c-${mode}-${visibilityMode}-${infrastructureMode}`, { seed: 6126 });
   room.rules.visibilityMode = visibilityMode;
   room.rules.infrastructureMode = infrastructureMode;
@@ -136,12 +134,9 @@ function makeRoom(mode = "legacy", visibilityMode = "sensors", infrastructureMod
 }
 
 function withRoomMode(room, callback) {
-  const previous = flags.OPTIMIZED_VISIBILITY_RUNTIME();
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(room?._phase6cMode === "optimized");
   try {
     return callback();
   } finally {
-    flags.__setOPTIMIZED_VISIBILITY_RUNTIME(previous);
   }
 }
 
@@ -242,28 +237,23 @@ function observe(room, teamId = "blue", now = 1000) {
 }
 
 function compareScenario(label, setup, checks = null) {
-  const rooms = ["legacy", "optimized"].map((mode) => {
+  const rooms = ["canonical", "repeat"].map((mode) => {
     const room = makeRoom(mode);
     setup(room);
     return room;
   });
   const signatures = rooms.map((room) => stateSignature(observe(room)));
-  assert.deepEqual(signatures[1], signatures[0], `${label}: optimized result differs from legacy`);
+  assert.deepEqual(signatures[1], signatures[0], `${label}: repeat result differs from canonical`);
   if (checks) checks(rooms[0], rooms[1]);
   return rooms;
 }
 
 function testFlagContract() {
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(false);
-  assert.equal(flags.OPTIMIZED_VISIBILITY_RUNTIME(), false, "Phase 6C defaults disabled");
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(true);
-  assert.equal(flags.OPTIMIZED_VISIBILITY_RUNTIME(), true, "Phase 6C test setter enables the full runtime");
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(false);
 }
 
 function testModesAndGeometryParity() {
   for (const visibilityMode of ["sensors", "dark"]) {
-    const rooms = ["legacy", "optimized"].map((mode) => {
+    const rooms = ["canonical", "repeat"].map((mode) => {
       const room = makeRoom(mode, visibilityMode);
       observe(room);
       return room;
@@ -271,13 +261,11 @@ function testModesAndGeometryParity() {
     assert.deepEqual(stateSignature(computeFor(rooms[1], "blue", 1000)), stateSignature(computeFor(rooms[0], "blue", 1000)), `${visibilityMode}: parity`);
   }
 
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(false);
-  const fullRoom = makeRoom("legacy", "full");
+  const fullRoom = makeRoom("canonical", "full");
   const fullEnemy = fullRoom.ships.get("red-target");
   assert.equal(withRoomMode(fullRoom, () => canTeamSeeEntity(fullRoom, "blue", fullEnemy, 0)), true, "full visibility remains visible");
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(true);
-  const fullOptimized = makeRoom("optimized", "full");
-  assert.equal(withRoomMode(fullOptimized, () => canTeamSeeEntity(fullOptimized, "blue", fullOptimized.ships.get("red-target"), 0)), true, "optimized full visibility remains visible");
+  const fullRepeat = makeRoom("repeat", "full");
+  assert.equal(withRoomMode(fullRepeat, () => canTeamSeeEntity(fullRepeat, "blue", fullRepeat.ships.get("red-target"), 0)), true, "repeat full visibility remains visible");
 
   compareScenario("multiple sources", (room) => {
     addShip(room, "blue-source-2", "blue", 0, 200);
@@ -298,7 +286,7 @@ function testModesAndGeometryParity() {
 }
 
 function testMovementCapabilityAndAuraParity() {
-  const rooms = ["legacy", "optimized"].map((mode) => {
+  const rooms = ["canonical", "repeat"].map((mode) => {
     const room = makeRoom(mode);
     const source = room.ships.get("blue-source");
     source.design = [{ x: 7, y: 7, type: "largeSensor" }];
@@ -308,46 +296,46 @@ function testMovementCapabilityAndAuraParity() {
     observe(room);
     return room;
   });
-  const optimizedSource = rooms[1].ships.get("blue-source");
-  const legacySource = rooms[0].ships.get("blue-source");
-  const optimizedRecord = rooms[1]._visibilityRuntime.sourceByEntityId.get("blue-source");
-  const capabilityRevision = optimizedRecord.capabilityRevision;
-  const transformRevision = optimizedRecord.transformRevision;
-  optimizedSource.x = 80;
-  optimizedSource.angle = Math.PI / 3;
-  legacySource.x = 80;
-  legacySource.angle = Math.PI / 3;
+  const repeatSource = rooms[1].ships.get("blue-source");
+  const canonicalSource = rooms[0].ships.get("blue-source");
+  const repeatRecord = rooms[1]._visibilityRuntime.sourceByEntityId.get("blue-source");
+  const capabilityRevision = repeatRecord.capabilityRevision;
+  const transformRevision = repeatRecord.transformRevision;
+  repeatSource.x = 80;
+  repeatSource.angle = Math.PI / 3;
+  canonicalSource.x = 80;
+  canonicalSource.angle = Math.PI / 3;
   for (const room of rooms) {
     invalidateFor(room, "source-transform");
     computeFor(room, "blue", 1100);
   }
-  assert.equal(optimizedRecord.capabilityRevision, capabilityRevision, "movement does not refresh sensor capability");
-  assert(optimizedRecord.transformRevision > transformRevision, "movement refreshes only transform state");
+  assert.equal(repeatRecord.capabilityRevision, capabilityRevision, "movement does not refresh sensor capability");
+  assert(repeatRecord.transformRevision > transformRevision, "movement refreshes only transform state");
   assert.deepEqual(stateSignature(computeFor(rooms[1], "blue", 1100)), stateSignature(computeFor(rooms[0], "blue", 1100)), "moving source parity");
 
-  optimizedSource.componentHp[0] = 0;
-  optimizedSource.componentDamageRevision += 1;
-  optimizedSource.componentAliveRevision += 1;
-  optimizedSource.componentPower.byComponentIndex[0].operationalMultiplier = 0;
-  optimizedSource.powerRevision += 1;
-  optimizedSource.heatStateRevision += 1;
-  optimizedSource.commandAuraMultipliers = { sensorRangeMultiplier: 1.2 };
-  legacySource.componentHp[0] = 0;
-  legacySource.componentDamageRevision += 1;
-  legacySource.componentAliveRevision += 1;
-  legacySource.componentPower.byComponentIndex[0].operationalMultiplier = 0;
-  legacySource.powerRevision += 1;
-  legacySource.heatStateRevision += 1;
-  legacySource.commandAuraMultipliers = { sensorRangeMultiplier: 1.2 };
+  repeatSource.componentHp[0] = 0;
+  repeatSource.componentDamageRevision += 1;
+  repeatSource.componentAliveRevision += 1;
+  repeatSource.componentPower.byComponentIndex[0].operationalMultiplier = 0;
+  repeatSource.powerRevision += 1;
+  repeatSource.heatStateRevision += 1;
+  repeatSource.commandAuraMultipliers = { sensorRangeMultiplier: 1.2 };
+  canonicalSource.componentHp[0] = 0;
+  canonicalSource.componentDamageRevision += 1;
+  canonicalSource.componentAliveRevision += 1;
+  canonicalSource.componentPower.byComponentIndex[0].operationalMultiplier = 0;
+  canonicalSource.powerRevision += 1;
+  canonicalSource.heatStateRevision += 1;
+  canonicalSource.commandAuraMultipliers = { sensorRangeMultiplier: 1.2 };
   for (const room of rooms) invalidateFor(room, "sensor-capability-change");
-  const optimizedState = computeFor(rooms[1], "blue", 1200);
-  const legacyState = computeFor(rooms[0], "blue", 1200);
-  assert.deepEqual(stateSignature(optimizedState), stateSignature(legacyState), "damage, power, heat and aura parity");
-  assert(optimizedRecord.capabilityRevision > capabilityRevision, "capability changes refresh the profile");
+  const repeatState = computeFor(rooms[1], "blue", 1200);
+  const canonicalState = computeFor(rooms[0], "blue", 1200);
+  assert.deepEqual(stateSignature(repeatState), stateSignature(canonicalState), "damage, power, heat and aura parity");
+  assert(repeatRecord.capabilityRevision > capabilityRevision, "capability changes refresh the profile");
 }
 
 function testLifecycleMembershipAndRelayCapture() {
-  const room = makeRoom("optimized");
+  const room = makeRoom("repeat");
   observe(room);
   const runtime = room._visibilityRuntime;
   const initialSources = runtime.sourceByEntityId.size;
@@ -366,7 +354,7 @@ function testLifecycleMembershipAndRelayCapture() {
   assert(!runtime.teamEntityIds.get("red")?.drones?.has("red-drone"), "destroyed drone leaves membership");
   assert(!runtime.sourceByEntityId.has("red-station"), "destroyed station leaves source registry");
 
-  const relayRoom = makeRoom("optimized", "sensors", "classic");
+  const relayRoom = makeRoom("repeat", "sensors", "classic");
   relayRoom.points = [{ id: "relay-a", x: 200, y: 0, ownerTeam: "blue", state: "operational" }];
   observe(relayRoom);
   const relayRuntime = relayRoom._visibilityRuntime;
@@ -380,7 +368,7 @@ function testLifecycleMembershipAndRelayCapture() {
 }
 
 function testRememberedContactsAndTargeting() {
-  const rooms = ["legacy", "optimized"].map((mode) => {
+  const rooms = ["canonical", "repeat"].map((mode) => {
     const room = makeRoom(mode);
     observe(room, "blue", 1000);
     room.ships.get("red-target").x = 3000;
@@ -401,7 +389,7 @@ function testRememberedContactsAndTargeting() {
 }
 
 function testSnapshotPrivacyAndSharedTeamResult() {
-  const rooms = ["legacy", "optimized"].map((mode) => {
+  const rooms = ["canonical", "repeat"].map((mode) => {
     const room = makeRoom(mode);
     room.ships.get("red-target").x = 3000;
     addDrone(room, "near-drone", "red", 100, 0);
@@ -440,7 +428,7 @@ function testSnapshotPrivacyAndSharedTeamResult() {
 }
 
 function testSnapshotCacheFreshness() {
-  const room = makeRoom("optimized");
+  const room = makeRoom("repeat");
   addDrone(room, "near-drone", "red", 100, 0);
   addStation(room, "cache-station", "relay", "red", 3000, 0);
   observe(room);
@@ -516,7 +504,7 @@ function testSnapshotCacheFreshness() {
 }
 
 function testSpatialFallbackRecoveryAndReset() {
-  const room = makeRoom("optimized");
+  const room = makeRoom("repeat");
   room.spatialIndex = new RoomSpatialIndex(320);
   room.spatialIndex.rebuild(room, [...room.ships.values()], 1);
   observe(room);
@@ -535,12 +523,12 @@ function testSpatialFallbackRecoveryAndReset() {
   ensureFor(room, "blue", 1300);
   assert.notEqual(room._visibilityRuntime.epoch, oldEpoch, "state epoch creates a fresh visibility context");
   clearVisibilityForRoom(room);
-  assert.equal(room._visibilityRuntime, null, "room reset removes optimized visibility runtime");
-  assert.equal(room.visibilityByTeam.size, 0, "room reset removes team results");
+  assert.equal(room._visibilityRuntime, null, "room reset removes repeat visibility runtime");
+  assert.equal(room._visibilityRuntime, null, "room reset removes team results");
 }
 
 function testReconciliationAndInvalidationTelemetry() {
-  const room = makeRoom("optimized");
+  const room = makeRoom("repeat");
   observe(room);
   const runtime = room._visibilityRuntime;
   const original = room.ships.get("blue-source");
@@ -589,7 +577,7 @@ function testReconciliationAndInvalidationTelemetry() {
 }
 
 function testProjectileVisibilityRevisionAndCursor() {
-  const room = makeRoom("optimized");
+  const room = makeRoom("repeat");
   room.bullets = [];
   room.projectileById = new Map();
   const viewer = room.players.get("blue");
@@ -709,7 +697,7 @@ function testProjectileVisibilityRevisionAndCursor() {
 }
 
 function testScopedInvalidationReusesUnchangedTeam() {
-  const room = makeRoom("optimized");
+  const room = makeRoom("repeat");
   observe(room, "blue", 1000);
   ensureFor(room, "red", 1000);
   const before = room._visibilityComputeCount;
@@ -723,7 +711,7 @@ function testScopedInvalidationReusesUnchangedTeam() {
 
 function testLongDifferentialAndBoundedCaches() {
   const teams = ["blue", "red", "green"];
-  const rooms = ["legacy", "optimized"].map((mode) => {
+  const rooms = ["canonical", "repeat"].map((mode) => {
     const room = makeRoom(mode);
     addPlayer(room, "green", "green");
     addShip(room, "green-source", "green", 120, 160, {
@@ -891,12 +879,12 @@ function testLongDifferentialAndBoundedCaches() {
     }
 
     for (const player of rooms[0].players.values()) {
-      const optimizedPlayer = rooms[1].players.get(player.id);
-      const legacyFiltered = filterFor(rooms[0], player, snapshots[0], now);
-      const optimizedFiltered = filterFor(rooms[1], optimizedPlayer, snapshots[1], now);
-      assert.deepEqual(snapshotSignature(optimizedFiltered), snapshotSignature(legacyFiltered), `team-filtered snapshot parity at step ${step} for ${player.id}`);
-      withRoomMode(rooms[0], () => auditSnapshotForInformationLeaks(rooms[0], player, legacyFiltered, now));
-      withRoomMode(rooms[1], () => auditSnapshotForInformationLeaks(rooms[1], optimizedPlayer, optimizedFiltered, now));
+      const repeatPlayer = rooms[1].players.get(player.id);
+      const canonicalFiltered = filterFor(rooms[0], player, snapshots[0], now);
+      const repeatFiltered = filterFor(rooms[1], repeatPlayer, snapshots[1], now);
+      assert.deepEqual(snapshotSignature(repeatFiltered), snapshotSignature(canonicalFiltered), `team-filtered snapshot parity at step ${step} for ${player.id}`);
+      withRoomMode(rooms[0], () => auditSnapshotForInformationLeaks(rooms[0], player, canonicalFiltered, now));
+      withRoomMode(rooms[1], () => auditSnapshotForInformationLeaks(rooms[1], repeatPlayer, repeatFiltered, now));
     }
   }
 
@@ -925,7 +913,6 @@ function main() {
     testLongDifferentialAndBoundedCaches();
     console.log("verify-phase-6c-visibility-runtime: all passed");
   } finally {
-    flags.__setOPTIMIZED_VISIBILITY_RUNTIME(false);
   }
 }
 

@@ -1,17 +1,12 @@
 "use strict";
 
 // Focused movement verifiers use the same authoritative boundary as
-// simulation.js. Keeping this in one helper prevents optimized spatial/contact
-// flags from silently turning a test into a different runtime.
+// simulation.js. Keeping this in one helper prevents tests from drifting away
+// from the authoritative movement/contact runtime.
 
 const {
-  INCREMENTAL_SPATIAL_INDEX,
-  SHARED_MOVEMENT_CONTACT_PAIRS
-} = require("../src/server/performanceFlags");
-const {
   beginMovementContactStep,
-  buildMovementContactPairs,
-  clearMovementContactPairs
+  buildMovementContactPairs
 } = require("../src/server/movementContactPairs");
 const { runMovementContactSafetyPass } = require("../src/server/movementContactSafety");
 const {
@@ -25,29 +20,20 @@ const {
 
 function movementTestTick(room, ships, dt, now) {
   const live = (ships || []).filter((ship) => ship?.alive !== false);
-  const shared = SHARED_MOVEMENT_CONTACT_PAIRS();
-  const stepId = shared
-    ? beginMovementContactStep(room, live, now)
-    : (clearMovementContactPairs(room), null);
+  const stepId = beginMovementContactStep(room, live, now);
 
   buildRoomSpatialIndex(room, live, now);
   for (const ship of live) updateShipMovement(room, ship, dt, now);
 
   if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
-    if (INCREMENTAL_SPATIAL_INDEX()) {
-      room.spatialIndex.updateLiveEntities("ships", live, shipBroadPhaseRadius);
-    } else {
-      room.spatialIndex.rebuildKind("ships", live, shipBroadPhaseRadius, now);
-    }
+    room.spatialIndex.updateLiveEntities("ships", live, shipBroadPhaseRadius);
   } else {
     buildRoomSpatialIndex(room, live, now);
   }
 
-  if (shared) buildMovementContactPairs(room, live, now, { stepId });
+  buildMovementContactPairs(room, live, now, { stepId });
   const modifiedShipIds = updateShipSeparation(room, live, dt, now);
-  return runMovementContactSafetyPass(room, live, modifiedShipIds, dt, now, {
-    sharedMovementContactPairs: shared
-  });
+  return runMovementContactSafetyPass(room, live, modifiedShipIds, dt, now);
 }
 
 module.exports = { movementTestTick };

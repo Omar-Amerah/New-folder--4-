@@ -7,7 +7,6 @@
 const assert = require("assert");
 const { EventEmitter } = require("events");
 const { decode } = require("@msgpack/msgpack");
-const flags = require("./src/server/performanceFlags");
 const delivery = require("./src/server/snapshotDelivery");
 const outbound = require("./src/server/outbound");
 const { protocolInfo, negotiate } = require("./src/server/protocol");
@@ -125,20 +124,20 @@ function modernCapabilities() {
 
 async function run() {
   setupOutboundCapture();
-  assert.equal(flags.ENTITY_DELTA_SNAPSHOTS(), false, "ENTITY_DELTA_SNAPSHOTS defaults off");
   assert.ok(protocolInfo().capabilities.includes("entityDeltaSnapshotsV1"));
-  assert.equal(negotiate({ protocolVersion: 5, capabilities: ["messagepack"] }).ok, true);
-  flags.__setENTITY_DELTA_SNAPSHOTS(true);
+  assert.equal(negotiate({ protocolVersion: 5, capabilities: ["messagepack"] }).ok, false);
+  assert.equal(negotiate({ protocolVersion: 6, capabilities: ["messagepack"] }).ok, false);
+  assert.equal(negotiate({ protocolVersion: 6, capabilities: modernCapabilities() }).ok, true);
 
   // 1-5: capability and baseline negotiation.
   {
     const { room } = roomFixture({ ships: 1 });
-    const legacy = attach(room, "p1", ["messagepack"]);
-    delivery.sendFullSnapshot(legacy, 1000, "reconnect");
+    const canonical = attach(room, "p1", modernCapabilities());
+    delivery.sendFullSnapshot(canonical, 1000, "reconnect");
     room.simulationTimeMs += 50;
     delivery.broadcastSnapshot(room, 1050);
-    assert.equal(packetList(legacy)[0].snapshotFormatVersion, 1, "legacy full uses v1");
-    assert.equal(lastPacket(legacy).snapshotFormatVersion, 1, "legacy compact uses v1");
+    assert.equal(packetList(canonical)[0].snapshotFormatVersion, 2, "canonical full uses entity-delta format");
+    assert.equal(lastPacket(canonical).snapshotFormatVersion, 2, "canonical delta uses entity-delta format");
   }
   {
     const { room, ships } = roomFixture({ ships: 1, projectiles: 1 });
@@ -589,9 +588,9 @@ async function run() {
   // 51-54: projectile compatibility and capability fallback.
   {
     const { room } = roomFixture({ ships: 1, projectiles: 2 });
-    const legacy = attach(room, "p1", ["messagepack"]);
-    delivery.sendFullSnapshot(legacy, 1000, "reconnect");
-    assert.ok(Array.isArray(lastPacket(legacy).bullets), "legacy bullet fallback remains available");
+    const canonical = attach(room, "p1", modernCapabilities());
+    delivery.sendFullSnapshot(canonical, 1000, "reconnect");
+    assert.ok(Array.isArray(lastPacket(canonical).bullets), "canonical full snapshot includes projectile state");
   }
   {
     const { room } = roomFixture({ ships: 1 });
@@ -603,12 +602,10 @@ async function run() {
     assert.ok(lastPacket(modern).projectileEvents !== undefined || lastPacket(modern).bullets !== undefined, "projectile stream remains explicit");
   }
 
-  flags.__setENTITY_DELTA_SNAPSHOTS(false);
   console.log("Phase 5 snapshot and network scaling verification passed");
 }
 
 run().catch((error) => {
-  flags.__setENTITY_DELTA_SNAPSHOTS(false);
   console.error(error);
   process.exit(1);
 });

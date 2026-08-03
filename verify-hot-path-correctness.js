@@ -49,8 +49,10 @@ const room = {
 };
 const first = spawnShip(room, player, 0, 0, { template });
 const second = spawnShip(room, player, 0, 1, { template });
-assert.notStrictEqual(first._heatScratch, second._heatScratch);
-assert.notStrictEqual(first._heatScratch.delta, second._heatScratch.delta);
+assert.strictEqual(first._heatScratch, undefined, "canonical Heat runtime does not allocate a compatibility scratch object");
+assert.strictEqual(second._heatScratch, undefined, "canonical Heat runtime does not allocate a compatibility scratch object");
+assert.notStrictEqual(first._thermalRuntime, second._thermalRuntime);
+assert.notStrictEqual(first._thermalRuntime.delta, second._thermalRuntime.delta);
 addComponentHeat(first, 0, 40);
 assert.equal(first.hasPendingHeatInput, true);
 const heatRevisionBefore = first.heatRevision;
@@ -81,10 +83,12 @@ for (const ship of [a, b]) {
 }
 
 const simulation = fs.readFileSync("src/server/simulation.js", "utf8");
-const separationAt = simulation.indexOf("updateShipSeparation");
-const finalRefreshAt = simulation.indexOf('rebuildKind("ships"', separationAt);
+const separationAt = simulation.lastIndexOf("updateShipSeparation(");
+const safetyCallAt = simulation.lastIndexOf("runMovementContactSafetyPass(");
+const finalRefresh = fs.readFileSync("src/server/movementContactSafety.js", "utf8");
+const finalRefreshAt = finalRefresh.indexOf('updateLiveEntities("ships"');
 const proximityAt = simulation.indexOf("updateProximityCharges", separationAt);
-assert(separationAt >= 0 && finalRefreshAt > separationAt && proximityAt > finalRefreshAt,
+assert(separationAt >= 0 && safetyCallAt > separationAt && proximityAt > safetyCallAt && finalRefreshAt >= 0,
   "final ship-index refresh must follow correction and precede proximity/support/weapons");
 
 const focusedShip = { id: "focus", heatTelemetryRevision: 4 };

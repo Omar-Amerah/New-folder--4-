@@ -29,7 +29,7 @@ Fallback client/server definitions exist only as resilience for missing local da
 | Component balance | root `component-balance.json` after server validation/normalization | The server-normalized `PARTS` object is the runtime source of truth. |
 | Design validity | server `shipDesign.js` | Client validation is a deterministic preview and must preserve messages where possible. |
 | Derived ship stats/cost | server `shipStats.js` | Client `componentStats.js` previews the same fields for UX; parity tests should compare representative designs. |
-| Starter affordability | server lifecycle/deploy handling | The client displays starter cost, but the server decides readiness. |
+| Starter readiness | server lifecycle/message handling | Readiness does not inspect the blueprint or money; purchase validation remains server-authoritative. |
 | Purchase affordability | server `economy.js` | Saving an active-match blueprint is local and must not deduct money. |
 | Rendering/art | client render modules | Art may exceed logical footprint but must not change occupied cells. |
 | Saved local blueprints | client `blueprintStorage.js` / localStorage | Malformed saved entries are isolated during migration/normalization. |
@@ -81,7 +81,7 @@ Pointer-to-grid conversion reads the current grid DOM rectangle at interaction t
 | Valid rotations | client rotation capability | server sanitization/validation |
 | Engine/exhaust validity | preview + stats warnings | authoritative stats/movement |
 | Power warnings | advisory preview | authoritative stats/warnings |
-| Starter affordability | display only | deploy/ready handling |
+| Starter affordability | display only | `economy.js` purchase handling |
 | Purchase affordability | purchase UI display | `economy.js` buy handling |
 | Component count/payload shape/finite coordinates | UI normalization | server message validation |
 
@@ -93,7 +93,7 @@ Pointer-to-grid conversion reads the current grid DOM rectangle at interaction t
 4. Click placement commits the same candidate result if valid.
 5. Client stats, cost, and thermal analysis update from the normalized design.
 6. Saving writes local blueprint data without changing live ships or money.
-7. Pre-match deploy sends the exact current design; the server validates starter affordability and creates one starter ship when the match starts.
+7. Pre-match `ready` sends no blueprint; readiness is accepted regardless of design validity or funds. After the match starts, `buyShip` sends the exact selected design and the server validates it before purchase.
 8. Active-match purchase sends the selected blueprint; the server validates and charges authoritative cost only on successful buy.
 9. Spawned ships keep design array order stable for component HP, heat, weapon cooldowns, weapon angles, destroyed-engine indexes, and diagrams.
 10. Snapshots and rendering consume those arrays by design index; client display normalization must not reorder live server designs.

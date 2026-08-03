@@ -3,14 +3,12 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const { performance } = require("node:perf_hooks");
-const flags = require("./src/server/performanceFlags");
 const { PARTS } = require("./src/server/components");
 const { effectiveSensorProfile } = require("./src/server/sensorCapability");
 const { createRoom } = require("./src/server/rooms");
 const {
   ensureTeamVisibility,
   invalidateVisibility,
-  getSensorSourcesForTeam,
   canTeamSeeEntity,
   canTeamTargetEntity,
   isPointVisibleToTeam
@@ -28,9 +26,9 @@ const WARMUP_FRAMES = QUICK ? 5 : 8;
 const MEASURED_FRAMES = QUICK ? 30 : 30;
 const SMALL_REGRESSION_THRESHOLD = Object.freeze({ ratio: 0.15, absoluteMs: 0.5 });
 
-// Every scenario is executed against the same freshly-built deterministic room
-// in both modes.  A scenario's mutation profile is deliberately explicit so a
-// stationary cache hit cannot be confused with a source-transform benchmark.
+// Every scenario is executed against freshly-built deterministic rooms twice.
+// A scenario's mutation profile is deliberately explicit so a stationary cache
+// hit cannot be confused with a source-transform benchmark.
 const SCENARIOS = QUICK
   ? [
     { name: "Small", teams: 2, ships: 20, sensors: "mostly-omni", clientsPerTeam: 2, drones: 0, stations: 2, movementProfile: "none" },
@@ -523,27 +521,12 @@ function canonicalFiltered(snapshot) {
   };
 }
 
-function discoverLegacySourceCount(room, teams) {
-  const ids = new Set();
-  const scratch = [];
-  for (const team of teams) {
-    for (const source of getSensorSourcesForTeam(room, team, scratch)) {
-      if (source?.entity?.id !== undefined) ids.add(source.entity.id);
-    }
-  }
-  return ids.size;
-}
-
-function fixtureSummary(room, config, mode, teams) {
+function fixtureSummary(room, config) {
   const stats = room._phase6cFixtureStats || {};
   const effectiveProfiles = [...room.ships.values()].map((ship) => effectiveSensorProfile(ship, room));
   const effectiveDirected = effectiveProfiles.reduce((sum, profile) => sum + (profile.directed?.length || 0), 0);
-  const sourceCount = mode === "optimized"
-    ? new Set([...room._visibilityRuntime?.sourcesByTeam?.values?.() || []].flat().map((record) => record.key)).size
-    : discoverLegacySourceCount(room, teams);
-  const sourceRegistryCount = mode === "optimized"
-    ? (room._visibilityRuntime?.sourceByEntityId?.size || 0)
-    : sourceCount;
+  const sourceCount = new Set([...room._visibilityRuntime?.sourcesByTeam?.values?.() || []].flat().map((record) => record.key)).size;
+  const sourceRegistryCount = room._visibilityRuntime?.sourceByEntityId?.size || 0;
   assert(stats.shipsWithSensorDesign > 0, `${config.name}: fixture has no sensor-component ships`);
   if (config.sensors === "mostly-omni") {
     assert.equal(stats.shipsWithSensorDesign, config.ships, `${config.name}: mostly-omni fixture lost its sensor components`);
@@ -661,55 +644,47 @@ function roomMemory() {
   return process.memoryUsage().heapUsed;
 }
 
-function runMode(config, mode, repeatIndex) {
-  const previous = flags.OPTIMIZED_VISIBILITY_RUNTIME();
-  flags.__setOPTIMIZED_VISIBILITY_RUNTIME(mode === "optimized");
-  try {
-    const room = buildRoom(config, repeatIndex);
-    const teams = teamsFor(config);
-    const viewers = [...room.players.values()];
-    const memoryBefore = roomMemory();
-    const frames = [];
-    frames.push(runFrame(room, config, teams, viewers, 0, "cold", true));
-    for (let frame = 1; frame <= WARMUP_FRAMES; frame += 1) {
-      frames.push(runFrame(room, config, teams, viewers, frame, "warmup"));
-    }
-    const measured = [];
-    for (let index = 0; index < MEASURED_FRAMES; index += 1) {
-      const frame = WARMUP_FRAMES + 1 + index;
-      const result = runFrame(room, config, teams, viewers, frame, "measured");
-      frames.push(result);
-      measured.push(result);
-    }
-    const memoryAfter = roomMemory();
-    const runtime = room._visibilityRuntime;
-    const telemetry = room._roomTelemetry || {};
-    const fixture = fixtureSummary(room, config, mode, teams);
-    const finalSourceCount = mode === "optimized"
-      ? new Set([...runtime?.sourcesByTeam?.values?.() || []].flat().map((record) => record.key)).size
-      : discoverLegacySourceCount(room, teams);
-    return {
-      mode,
-      fixture,
-      room,
-      frames,
-      measured,
-      firstBuild: frames[0].timings,
-      memory: { heapBefore: memoryBefore, heapAfter: memoryAfter, heapDelta: memoryAfter - memoryBefore },
-      sourceCountInitial: fixture.effectiveSourceCount,
-      sourceCountFinal: finalSourceCount,
-      telemetry: { ...telemetry },
-      runtimeSizes: mode === "optimized" ? {
-        sources: runtime?.sourceByEntityId?.size || 0,
-        sourceTeams: runtime?.sourcesByTeam?.size || 0,
-        entityTeams: runtime?.teamEntityIds?.size || 0,
-        teamStates: runtime?.teamStates?.size || 0
-      } : null,
-      sequenceChecksum: digest(frames.map((frame) => frame.observation))
-    };
-  } finally {
-    flags.__setOPTIMIZED_VISIBILITY_RUNTIME(previous);
+function runCanonicalMode(config, repeatIndex) {
+  const room = buildRoom(config, repeatIndex);
+  const teams = teamsFor(config);
+  const viewers = [...room.players.values()];
+  const memoryBefore = roomMemory();
+  const frames = [];
+  frames.push(runFrame(room, config, teams, viewers, 0, "cold", true));
+  for (let frame = 1; frame <= WARMUP_FRAMES; frame += 1) {
+    frames.push(runFrame(room, config, teams, viewers, frame, "warmup"));
   }
+  const measured = [];
+  for (let index = 0; index < MEASURED_FRAMES; index += 1) {
+    const frame = WARMUP_FRAMES + 1 + index;
+    const result = runFrame(room, config, teams, viewers, frame, "measured");
+    frames.push(result);
+    measured.push(result);
+  }
+  const memoryAfter = roomMemory();
+  const runtime = room._visibilityRuntime;
+  const telemetry = room._roomTelemetry || {};
+  const fixture = fixtureSummary(room, config);
+  const finalSourceCount = new Set([...runtime?.sourcesByTeam?.values?.() || []].flat().map((record) => record.key)).size;
+  return {
+    mode: "canonical",
+    fixture,
+    room,
+    frames,
+    measured,
+    firstBuild: frames[0].timings,
+    memory: { heapBefore: memoryBefore, heapAfter: memoryAfter, heapDelta: memoryAfter - memoryBefore },
+    sourceCountInitial: fixture.effectiveSourceCount,
+    sourceCountFinal: finalSourceCount,
+    telemetry: { ...telemetry },
+    runtimeSizes: {
+      sources: runtime?.sourceByEntityId?.size || 0,
+      sourceTeams: runtime?.sourcesByTeam?.size || 0,
+      entityTeams: runtime?.teamEntityIds?.size || 0,
+      teamStates: runtime?.teamStates?.size || 0
+    },
+    sequenceChecksum: digest(frames.map((frame) => frame.observation))
+  };
 }
 
 function summarizeTiming(runs, key) {
@@ -761,52 +736,52 @@ function summarizeSteps(runs) {
   }]));
 }
 
-function compareRuns(config, legacyRuns, optimizedRuns) {
-  for (let repeat = 0; repeat < legacyRuns.length; repeat += 1) {
-    const legacyFrames = legacyRuns[repeat].frames;
-    const optimizedFrames = optimizedRuns[repeat].frames;
-    assert.equal(optimizedFrames.length, legacyFrames.length, `${config.name}: frame count parity`);
-    for (let frame = 0; frame < legacyFrames.length; frame += 1) {
+function compareRuns(config, canonicalRuns, repeatRuns) {
+  for (let repeat = 0; repeat < canonicalRuns.length; repeat += 1) {
+    const canonicalFrames = canonicalRuns[repeat].frames;
+    const repeatFrames = repeatRuns[repeat].frames;
+    assert.equal(repeatFrames.length, canonicalFrames.length, `${config.name}: frame count parity`);
+    for (let frame = 0; frame < canonicalFrames.length; frame += 1) {
       assert.equal(
-        optimizedFrames[frame].observationJson,
-        legacyFrames[frame].observationJson,
-        `${config.name}: legacy/optimized parity failed at repeat ${repeat}, ${legacyFrames[frame].phase} frame ${frame}`
+        repeatFrames[frame].observationJson,
+        canonicalFrames[frame].observationJson,
+        `${config.name}: canonical repeat parity failed at repeat ${repeat}, ${canonicalFrames[frame].phase} frame ${frame}`
       );
     }
-    assert.equal(optimizedRuns[repeat].sequenceChecksum, legacyRuns[repeat].sequenceChecksum, `${config.name}: sequence checksum parity`);
-    assert.equal(optimizedRuns[repeat].fixture.effectiveSourceCount, legacyRuns[repeat].fixture.effectiveSourceCount, `${config.name}: source count parity`);
+    assert.equal(repeatRuns[repeat].sequenceChecksum, canonicalRuns[repeat].sequenceChecksum, `${config.name}: sequence checksum parity`);
+    assert.equal(repeatRuns[repeat].fixture.effectiveSourceCount, canonicalRuns[repeat].fixture.effectiveSourceCount, `${config.name}: source count parity`);
   }
 
   const metric = (key) => ({
-    absoluteMs: round(optimizedSummary[key].p50 - legacySummary[key].p50, 4),
-    percentageReduction: legacySummary[key].p50 > 0
-      ? round(((legacySummary[key].p50 - optimizedSummary[key].p50) / legacySummary[key].p50) * 100, 2)
+    absoluteMs: round(repeatSummary[key].p50 - canonicalSummary[key].p50, 4),
+    percentageReduction: canonicalSummary[key].p50 > 0
+      ? round(((canonicalSummary[key].p50 - repeatSummary[key].p50) / canonicalSummary[key].p50) * 100, 2)
       : 0
   });
-  const legacySummary = {
-    visibility: summarizeTiming(legacyRuns, "visibility"),
-    filter: summarizeTiming(legacyRuns, "filter"),
-    total: summarizeTiming(legacyRuns, "total")
+  const canonicalSummary = {
+    visibility: summarizeTiming(canonicalRuns, "visibility"),
+    filter: summarizeTiming(canonicalRuns, "filter"),
+    total: summarizeTiming(canonicalRuns, "total")
   };
-  const optimizedSummary = {
-    visibility: summarizeTiming(optimizedRuns, "visibility"),
-    filter: summarizeTiming(optimizedRuns, "filter"),
-    total: summarizeTiming(optimizedRuns, "total")
+  const repeatSummary = {
+    visibility: summarizeTiming(repeatRuns, "visibility"),
+    filter: summarizeTiming(repeatRuns, "filter"),
+    total: summarizeTiming(repeatRuns, "total")
   };
   const smallRegression = config.name === "Small"
-    ? ["p50", "p95"].filter((stat) => optimizedSummary.total[stat] > legacySummary.total[stat] * (1 + SMALL_REGRESSION_THRESHOLD.ratio)
-      && optimizedSummary.total[stat] - legacySummary.total[stat] > SMALL_REGRESSION_THRESHOLD.absoluteMs)
+    ? ["p50", "p95"].filter((stat) => repeatSummary.total[stat] > canonicalSummary.total[stat] * (1 + SMALL_REGRESSION_THRESHOLD.ratio)
+      && repeatSummary.total[stat] - canonicalSummary.total[stat] > SMALL_REGRESSION_THRESHOLD.absoluteMs)
     : [];
-  assert.equal(smallRegression.length, 0, `${config.name}: optimized total timing exceeded the small-fixture threshold (${SMALL_REGRESSION_THRESHOLD.ratio * 100}% and ${SMALL_REGRESSION_THRESHOLD.absoluteMs}ms) for ${smallRegression.join(", ")}`);
-  const fallbackScans = optimizedRuns.reduce(
+  assert.equal(smallRegression.length, 0, `${config.name}: repeated canonical total timing exceeded the small-fixture threshold (${SMALL_REGRESSION_THRESHOLD.ratio * 100}% and ${SMALL_REGRESSION_THRESHOLD.absoluteMs}ms) for ${smallRegression.join(", ")}`);
+  const fallbackScans = repeatRuns.reduce(
     (sum, run) => sum + (Number(run.telemetry.visibilityFullCollectionFallbacks) || 0),
     0
   );
   assert.equal(fallbackScans, 0, `${config.name}: indexed benchmark used a full-collection fallback`);
   return {
     checksumsEqual: true,
-    legacy: legacySummary,
-    optimized: optimizedSummary,
+    canonical: canonicalSummary,
+    repeat: repeatSummary,
     difference: { visibility: metric("visibility"), snapshotFiltering: metric("filter"), total: metric("total") },
     smallRegressionThreshold: config.name === "Small" ? SMALL_REGRESSION_THRESHOLD : null,
     regressionGate: { passed: smallRegression.length === 0, exceededMetrics: smallRegression.map((stat) => `total.${stat}`) }
@@ -835,13 +810,13 @@ function summarizeMode(runs) {
 }
 
 function runScenario(config) {
-  const legacyRuns = [];
-  const optimizedRuns = [];
+  const canonicalRuns = [];
+  const repeatRuns = [];
   for (let repeat = 0; repeat < REPEATS; repeat += 1) {
-    legacyRuns.push(runMode(config, "legacy", repeat));
-    optimizedRuns.push(runMode(config, "optimized", repeat));
+    canonicalRuns.push(runCanonicalMode(config, repeat));
+    repeatRuns.push(runCanonicalMode(config, repeat));
   }
-  const comparison = compareRuns(config, legacyRuns, optimizedRuns);
+  const comparison = compareRuns(config, canonicalRuns, repeatRuns);
   return {
     scenario: config.name,
     teams: config.teams,
@@ -852,29 +827,25 @@ function runScenario(config) {
     warmupFrames: WARMUP_FRAMES,
     measuredFrames: MEASURED_FRAMES,
     repeats: REPEATS,
-    fixture: optimizedRuns[0].fixture,
-    legacy: summarizeMode(legacyRuns),
-    optimized: summarizeMode(optimizedRuns),
+    fixture: canonicalRuns[0].fixture,
+    canonical: summarizeMode(canonicalRuns),
+    repeat: summarizeMode(repeatRuns),
     comparison
   };
 }
 
 function main() {
   const results = [];
-  try {
-    for (const scenario of SCENARIOS) results.push(runScenario(scenario));
-    console.log(JSON.stringify({
-      status: "passed",
-      mode: QUICK ? "quick" : "full",
-      warmupFrames: WARMUP_FRAMES,
-      measuredFrames: MEASURED_FRAMES,
-      repeats: REPEATS,
-      smallRegressionThreshold: SMALL_REGRESSION_THRESHOLD,
-      results
-    }, null, 2));
-  } finally {
-    flags.__setOPTIMIZED_VISIBILITY_RUNTIME(false);
-  }
+  for (const scenario of SCENARIOS) results.push(runScenario(scenario));
+  console.log(JSON.stringify({
+    status: "passed",
+    mode: QUICK ? "quick" : "full",
+    warmupFrames: WARMUP_FRAMES,
+    measuredFrames: MEASURED_FRAMES,
+    repeats: REPEATS,
+    smallRegressionThreshold: SMALL_REGRESSION_THRESHOLD,
+    results
+  }, null, 2));
 }
 
 main();

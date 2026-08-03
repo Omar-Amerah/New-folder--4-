@@ -184,7 +184,7 @@ async function failConnectionAttempt(attempt, category, event) {
     if (health.category === "timeout") category = "health-timeout";
     else if (health.category === "online" && !attempt.joinedReceived) {
       const pv = Number(health.body?.protocolVersion);
-      const max = Number(globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 5);
+      const max = Number(globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 6);
       if (Number.isFinite(pv) && pv > max) category = "incompatible-protocol";
       else category = "health-online-ws-rejected";
     } else if (health.category === "offline") category = "offline";
@@ -394,12 +394,11 @@ export function normalizeSocketUrl(value) {
 
 export function withClientProtocol(message) {
   return {
-    protocolVersion: globalThis.MFAProtocol?.PROTOCOL_VERSION ?? 5,
-    minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 5,
-    maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 5,
+    protocolVersion: globalThis.MFAProtocol?.PROTOCOL_VERSION ?? 6,
+    minProtocolVersion: globalThis.MFAProtocol?.MIN_SUPPORTED_PROTOCOL ?? 6,
+    maxProtocolVersion: globalThis.MFAProtocol?.MAX_SUPPORTED_PROTOCOL ?? 6,
     frontendBuildSha: globalThis.MFA_FRONTEND_BUILD_SHA || "dev",
-    // The server still gates the format by ENTITY_DELTA_SNAPSHOTS; advertising
-    // this capability explicitly is what lets old clients stay on v1.
+    // Entity-delta snapshots are required by protocol 6.
     capabilities: ["messagepack", "resume-v1", "heartbeat-v1", "telemetry-focus-v1", "projectileEventsV1", "entityDeltaSnapshotsV1"],
     ...message
   };

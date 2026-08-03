@@ -5,10 +5,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { performance } = require("node:perf_hooks");
 const {
-  INCREMENTAL_SPATIAL_INDEX,
-  __setINCREMENTAL_SPATIAL_INDEX
-} = require("./src/server/performanceFlags");
-const {
   RoomSpatialIndex,
   shipBroadPhaseRadius,
   droneBroadPhaseRadius
@@ -163,8 +159,7 @@ function buildRoomStub(fixture) {
   };
 }
 
-function measure(baseFixture, steps, incremental) {
-  __setINCREMENTAL_SPATIAL_INDEX(incremental);
+function measure(baseFixture, steps) {
   const fixture = cloneFixture(baseFixture);
   const index = new RoomSpatialIndex(320);
   let spatialMs = 0;
@@ -177,25 +172,15 @@ function measure(baseFixture, steps, incremental) {
     const liveBullets = fixture.bullets.filter((b) => b.life > 0);
     const liveInterceptable = liveBullets.filter((b) => b.interceptable);
     const liveDrones = [...fixture.drones.values()].filter((d) => !d.destroyed && !d.removed);
-
     const spatialStart = performance.now();
-    if (incremental) {
-      if (step === 0) {
-        index.rebuild(roomStub, liveShips, step);
-      }
-    } else {
-      index.rebuild(roomStub, liveShips, step);
-    }
+    if (step === 0) index.rebuild(roomStub, liveShips, step);
     spatialMs += performance.now() - spatialStart;
-
-    if (incremental) {
-      const updateStart = performance.now();
-      index.updateLiveEntities("ships", liveShips, shipBroadPhaseRadius);
-      index.updateLiveEntities("drones", liveDrones, droneBroadPhaseRadius);
-      index.updateLiveEntities("projectiles", liveBullets, () => 0);
-      index.updateLiveEntities("interceptableProjectiles", liveInterceptable, () => 0);
-      updateMs += performance.now() - updateStart;
-    }
+    const updateStart = performance.now();
+    index.updateLiveEntities("ships", liveShips, shipBroadPhaseRadius);
+    index.updateLiveEntities("drones", liveDrones, droneBroadPhaseRadius);
+    index.updateLiveEntities("projectiles", liveBullets, () => 0);
+    index.updateLiveEntities("interceptableProjectiles", liveInterceptable, () => 0);
+    updateMs += performance.now() - updateStart;
   }
   return {
     totalMs: performance.now() - start,
@@ -224,21 +209,16 @@ function runScenario(shipCount, mode) {
   baseFixture.mode = mode;
   const steps = 60;
   const runs = 5;
-  const fullTimes = [];
-  const incTimes = [];
-  let fullMetrics = null;
-  let incMetrics = null;
+  const canonicalTimes = [];
+  let canonicalMetrics = null;
   for (let i = 0; i < runs; i += 1) {
-    fullMetrics = measure(baseFixture, steps, false);
-    fullTimes.push(fullMetrics.totalMs);
-    incMetrics = measure(baseFixture, steps, true);
-    incTimes.push(incMetrics.totalMs);
+    canonicalMetrics = measure(baseFixture, steps);
+    canonicalTimes.push(canonicalMetrics.totalMs);
   }
   return {
     shipCount,
     mode,
-    full: { ...summary(fullTimes), ...fullMetrics, runs },
-    incremental: { ...summary(incTimes), ...incMetrics, runs }
+    canonical: { ...summary(canonicalTimes), ...canonicalMetrics, runs }
   };
 }
 

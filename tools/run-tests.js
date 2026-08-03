@@ -29,6 +29,7 @@ function unique(items) {
 const GROUPS = {
   // Fast deterministic module/static tests: no server process, no sockets, no browser.
   unit: [
+    "verify-no-performance-rollout-branches.js",
     "verify-module-boundaries.js",
     "verify-module-imports.js",
     "verify-blueprint-storage.js",
@@ -50,6 +51,8 @@ const GROUPS = {
     "verify-movement-phase4.js",
     "verify-movement-phase567.js",
     "verify-movement-phase8911.js",
+    "verify-movement-hold-facing.js",
+    "verify-movement-hold-approach.js",
     "verify-movement-charge.js",
     "verify-movement-toggles.js",
     "verify-movement-routing-regressions.js",

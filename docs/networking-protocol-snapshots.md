@@ -66,7 +66,7 @@ Epochs increment when arena or match state is regenerated, when rules regenerate
 
 Component HP deltas remain flat `[index, hp]` pairs and heat deltas remain `[index, heat, state, ratio, capacity]`. Delta indexes must be sorted, unique, finite, in range, and exact stride; malformed deltas reject the entire compact snapshot and trigger `requestFullState` with a structured reason.
 
-Clients process snapshots through a pure transaction (`inspectSnapshotEnvelope`, `mergeFullSnapshot`, `mergeCompactSnapshot`) so stale sequence, duplicate sequence, gaps, wrong bases, static revision mismatch, malformed deltas, and incompatible snapshots cannot partially mutate UI state. UI updates run only after acceptance.
+Clients process snapshots through a pure protocol-6 transaction (`inspectSnapshotEnvelope`, `mergeFullSnapshot`, `mergeEntityDeltaSnapshot`) so stale sequence, duplicate sequence, gaps, wrong bases, static revision mismatch, malformed deltas, and incompatible snapshots cannot partially mutate UI state. UI updates run only after acceptance.
 
 Clients may send `requestFullState` with their observed epoch/sequence and a reason. The server rate-limits the request, ignores client values as authority, and sends one viewer-filtered full snapshot only to the requester. This is not a reconnect and does not alter gameplay state.
 

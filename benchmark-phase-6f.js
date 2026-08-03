@@ -1,8 +1,6 @@
 "use strict";
 
-// Phase 6F profiling benchmark. The production profile remains legacy by
-// default; Stage B also runs a deterministic opt-in station-weapon comparison
-// and rejects any authoritative divergence.
+// Phase 6F profiling benchmark for the authoritative station-weapon runtime.
 
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -23,7 +21,6 @@ const { PARTS } = require("./src/server/components");
 const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
 const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
 const { ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibility");
-const flags = require("./src/server/performanceFlags");
 
 const args = new Set(process.argv.slice(2));
 if (args.has("--quick") && args.has("--full")) throw new Error("Choose either --quick or --full");
@@ -44,9 +41,7 @@ function resolveCommit(ref) {
   }
 }
 
-const BASELINE_COMMIT_SHA = process.env.PHASE_6F_BASELINE_SHA || resolveCommit("0f28aea");
-const PROFILE_COMMIT_SHA = process.env.PHASE_6F_PROFILE_SHA || resolveCommit("022f9c9");
-const OPTIMIZED_COMMIT_SHA = process.env.PHASE_6F_OPTIMIZED_SHA || resolveCommit("512808c");
+const TESTED_HEAD_SHA = resolveCommit("HEAD");
 
 const WEAPON_SCENARIOS = [
   { name: "two idle home stations", subsystem: "stationWeapons", ships: 0, relays: 0, density: "idle", variant: "idle" },
@@ -603,8 +598,15 @@ function mutateBeforeFrame(room, config, frame) {
       const station = room.stationsById?.get(ship.launchPhase.stationId);
       if (station) {
         const normal = ship.launchPhase.normal || { x: Math.cos(station.angle), y: Math.sin(station.angle) };
-        ship.x = station.x + normal.x * (ship.launchPhase.releaseDistance + 2);
-        ship.y = station.y + normal.y * (ship.launchPhase.releaseDistance + 2);
+        const hangar = station.hangars?.[Number(ship.launchPhase.bayIndex)];
+        const releaseDistance = Math.max(
+          Number(ship.launchPhase.releaseDistance) || 0,
+          Number(hangar?.releaseDistance) || 0
+        );
+        ship.launchPhase.releaseDistance = releaseDistance;
+        ship.launchPhase.along = releaseDistance;
+        ship.x = station.x + normal.x * (releaseDistance + 2);
+        ship.y = station.y + normal.y * (releaseDistance + 2);
       }
     }
   }
@@ -615,7 +617,7 @@ function mutateBeforeFrame(room, config, frame) {
 }
 
 function outcomeChecksum(room) {
-  const visibilityByTeam = [...(room.visibilityByTeam?.entries?.() || [])]
+  const visibilityTeamStates = [...(room._visibilityRuntime?.teamStates?.entries?.() || [])]
     .map(([team, state]) => [
       team,
       [...(state.visibleEntityIds || [])].sort(),
@@ -684,7 +686,7 @@ function outcomeChecksum(room) {
     ]),
     controlVictory: room.controlVictory,
     winner: room.winner,
-    visibilityByTeam
+    visibilityTeamStates
   });
 }
 
@@ -799,19 +801,14 @@ function summarizeFrames(frames, config, buildMs, memory, authoritativeOutcomeCh
   };
 }
 
-function runScenario(config, repeatIndex, optimized = false, cadenceEnabled = false) {
-  const previousFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
-  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
-  flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(optimized);
-  flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(cadenceEnabled);
-  try {
+function runScenario(config, repeatIndex) {
     const memoryBefore = roomMemory();
     const buildStartedAt = performance.now();
     const fixture = buildFixture(config, repeatIndex);
     const buildMs = performance.now() - buildStartedAt;
     const room = fixture.room;
     room._stationDetailedProfileActive = DETAILED_PROFILE;
-    room._stationTargetLookupMeasurementActive = optimized && cadenceEnabled;
+    room._stationTargetLookupMeasurementActive = true;
     room._stationTargetLookupObservedFrames = 0;
     room._stationTargetLookupMaxSize = 0;
     const authoritativeChecksums = [];
@@ -855,68 +852,54 @@ function runScenario(config, repeatIndex, optimized = false, cadenceEnabled = fa
       targetLookupMaxSize: room._stationTargetLookupMaxSize || 0
     };
     return summaryResult;
-  } finally {
-    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousFlag);
-    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
-  }
 }
 
-function runScenarioComparison(config, repeatIndex, cadenceEnabled = false) {
+function runScenarioRepeat(config, repeatIndex) {
   const seed = 0x6f6f0000 + repeatIndex * 17 + config.name.length;
-  const runLegacy = () => withDeterministicRandom(seed, () => runScenario(config, repeatIndex, false, cadenceEnabled));
-  const runOptimized = () => withDeterministicRandom(seed, () => runScenario(config, repeatIndex, true, cadenceEnabled));
-  // Alternate which implementation runs first so JIT warm-up and allocator
-  // state cannot consistently favour one side of the comparison.
-  const [legacy, optimized] = repeatIndex % 2 === 0
-    ? [runLegacy(), runOptimized()]
-    : (() => {
-      const first = runOptimized();
-      const second = runLegacy();
-      return [second, first];
-    })();
-  const legacyChecksums = legacy.authoritativeOutcomeChecksums;
-  const optimizedChecksums = optimized.authoritativeOutcomeChecksums;
-  assert.equal(optimizedChecksums.length, legacyChecksums.length, `${config.name}: legacy/optimized tick counts differ`);
+  const canonical = withDeterministicRandom(seed, () => runScenario(config, repeatIndex));
+  const repeat = withDeterministicRandom(seed, () => runScenario(config, repeatIndex));
+  const canonicalChecksums = canonical.authoritativeOutcomeChecksums;
+  const repeatChecksums = repeat.authoritativeOutcomeChecksums;
+  assert.equal(repeatChecksums.length, canonicalChecksums.length, `${config.name}: canonical repeat tick counts differ`);
   let firstMismatchAt = null;
-  for (let i = 0; i < legacyChecksums.length; i += 1) {
-    if (legacyChecksums[i] !== optimizedChecksums[i]) {
+  for (let i = 0; i < canonicalChecksums.length; i += 1) {
+    if (canonicalChecksums[i] !== repeatChecksums[i]) {
       firstMismatchAt = i;
       break;
     }
   }
-  assert.equal(firstMismatchAt, null, `${config.name}: legacy/optimized state diverged at authoritative tick ${firstMismatchAt}`);
-  const legacyTick = legacy.timings.tickRuntimeMs;
-  const optimizedTick = optimized.timings.tickRuntimeMs;
-  const legacyStation = legacy.timings.stationWeaponRuntimeMs;
-  const optimizedStation = optimized.timings.stationWeaponRuntimeMs;
+  assert.equal(firstMismatchAt, null, `${config.name}: canonical repeat state diverged at authoritative tick ${firstMismatchAt}`);
+  const canonicalTick = canonical.timings.tickRuntimeMs;
+  const repeatTick = repeat.timings.tickRuntimeMs;
+  const canonicalStation = canonical.timings.stationWeaponRuntimeMs;
+  const repeatStation = repeat.timings.stationWeaponRuntimeMs;
   return {
     scenario: config.name,
     subsystem: config.subsystem,
     workloadClass: workloadClass(config),
     repeatIndex,
-    cadenceEnabled,
     detailedProfile: DETAILED_PROFILE,
-    authoritativeTicksCompared: legacyChecksums.length,
+    authoritativeTicksCompared: canonicalChecksums.length,
     checksumsEqualAfterEveryTick: true,
-    legacy: {
-      stationWeaponRuntimeMs: legacyStation,
-      tickRuntimeMs: legacyTick,
-      heapDeltaBytes: legacy.memory.heapDeltaBytes,
-      eventSpike: legacy.eventSpike
+    canonical: {
+      stationWeaponRuntimeMs: canonicalStation,
+      tickRuntimeMs: canonicalTick,
+      heapDeltaBytes: canonical.memory.heapDeltaBytes,
+      eventSpike: canonical.eventSpike
     },
-    optimized: {
-      stationWeaponRuntimeMs: optimizedStation,
-      tickRuntimeMs: optimizedTick,
-      heapDeltaBytes: optimized.memory.heapDeltaBytes,
-      eventSpike: optimized.eventSpike
+    repeat: {
+      stationWeaponRuntimeMs: repeatStation,
+      tickRuntimeMs: repeatTick,
+      heapDeltaBytes: repeat.memory.heapDeltaBytes,
+      eventSpike: repeat.eventSpike
     },
-    fixtureAssertions: { legacy: legacy.fixtureAssertions, optimized: optimized.fixtureAssertions },
+    fixtureAssertions: { canonical: canonical.fixtureAssertions, repeat: repeat.fixtureAssertions },
     delta: {
-      stationWeaponP50Ms: round(optimizedStation.p50 - legacyStation.p50),
-      stationWeaponP95Ms: round(optimizedStation.p95 - legacyStation.p95),
-      tickP50Ms: round(optimizedTick.p50 - legacyTick.p50),
-      tickP95Ms: round(optimizedTick.p95 - legacyTick.p95),
-      heapDeltaBytes: optimized.memory.heapDeltaBytes - legacy.memory.heapDeltaBytes
+      stationWeaponP50Ms: round(repeatStation.p50 - canonicalStation.p50),
+      stationWeaponP95Ms: round(repeatStation.p95 - canonicalStation.p95),
+      tickP50Ms: round(repeatTick.p50 - canonicalTick.p50),
+      tickP95Ms: round(repeatTick.p95 - canonicalTick.p95),
+      heapDeltaBytes: repeat.memory.heapDeltaBytes - canonical.memory.heapDeltaBytes
     }
   };
 }
@@ -985,7 +968,7 @@ function median(values) {
   return percentile(values.filter((value) => Number.isFinite(value)), 0.5);
 }
 
-function medianComparisonValue(entries, side, field) {
+function medianRuntimeValue(entries, side, field) {
   return median(entries.map((entry) => entry[side]?.stationWeaponRuntimeMs?.[field]));
 }
 
@@ -997,39 +980,33 @@ function finiteValue(value) {
   return false;
 }
 
-function performanceGate(optimizationRuns, scenarios, baselineRuns = []) {
-  const cadenceModes = new Set(optimizationRuns.map((entry) => entry.cadenceEnabled));
-  const off = optimizationRuns.filter((entry) => entry.cadenceEnabled === false);
-  const on = optimizationRuns.filter((entry) => entry.cadenceEnabled === true);
-  const entriesFor = (name, cadence = false) => optimizationRuns.filter((entry) => entry.scenario === name && entry.cadenceEnabled === cadence);
+function performanceGate(repeatRuns, scenarios, canonicalRuns = []) {
+  const entriesFor = (name) => repeatRuns.filter((entry) => entry.scenario === name);
   const medium = entriesFor("medium battle, 150 ships");
   const large = entriesFor("large battle, 300 ships");
-  const idleAndSmall = off.filter((entry) => entry.workloadClass === "idle" || entry.scenario === "two homes and three relays, 50 ships");
-  const mediumLegacyP50 = medianComparisonValue(medium, "legacy", "p50");
-  const mediumOptimizedP50 = medianComparisonValue(medium, "optimized", "p50");
-  const largeLegacyP50 = medianComparisonValue(large, "legacy", "p50");
-  const largeOptimizedP50 = medianComparisonValue(large, "optimized", "p50");
-  const largeLegacyP95 = medianComparisonValue(large, "legacy", "p95");
-  const largeOptimizedP95 = medianComparisonValue(large, "optimized", "p95");
-  const reduction = (legacy, optimized) => legacy > 0 ? (legacy - optimized) / legacy : 0;
-  const mediumReduction = reduction(mediumLegacyP50, mediumOptimizedP50);
-  const largeReduction = reduction(largeLegacyP50, largeOptimizedP50);
+  const idleAndSmall = repeatRuns.filter((entry) => entry.workloadClass === "idle" || entry.scenario === "two homes and three relays, 50 ships");
+  const mediumCanonicalP50 = medianRuntimeValue(medium, "canonical", "p50");
+  const mediumRepeatP50 = medianRuntimeValue(medium, "repeat", "p50");
+  const largeCanonicalP50 = medianRuntimeValue(large, "canonical", "p50");
+  const largeRepeatP50 = medianRuntimeValue(large, "repeat", "p50");
+  const largeCanonicalP95 = medianRuntimeValue(large, "canonical", "p95");
+  const largeRepeatP95 = medianRuntimeValue(large, "repeat", "p95");
   const idleSmallChecks = idleAndSmall.map((entry) => {
-    const legacyP50 = entry.legacy.stationWeaponRuntimeMs.p50;
-    const optimizedP50 = entry.optimized.stationWeaponRuntimeMs.p50;
-    const regressionMs = optimizedP50 - legacyP50;
-    const regressionPercent = legacyP50 > 0 ? regressionMs / legacyP50 : 0;
+    const canonicalP50 = entry.canonical.stationWeaponRuntimeMs.p50;
+    const repeatP50 = entry.repeat.stationWeaponRuntimeMs.p50;
+    const regressionMs = repeatP50 - canonicalP50;
+    const regressionPercent = canonicalP50 > 0 ? regressionMs / canonicalP50 : 0;
     return {
       scenario: entry.scenario,
       regressionMs: round(regressionMs),
       regressionPercent: round(regressionPercent * 100, 2),
-      passed: regressionMs <= 0.20 || (legacyP50 > 0 && regressionPercent <= 0.10)
+      passed: regressionMs <= 0.20 || (canonicalP50 > 0 && regressionPercent <= 0.10)
     };
   });
-  const finiteTelemetry = optimizationRuns.every((entry) => finiteValue(entry.legacy) && finiteValue(entry.optimized))
-    && baselineRuns.every((entry) => finiteValue(entry.timings) && finiteValue(entry.counters) && finiteValue(entry.rawSamples) && finiteValue(entry.memory));
-  const boundedRetainedState = optimizationRuns.every((entry) => {
-    return [entry.fixtureAssertions?.legacy, entry.fixtureAssertions?.optimized].every((fixture) => {
+  const finiteTelemetry = repeatRuns.every((entry) => finiteValue(entry.canonical) && finiteValue(entry.repeat))
+    && canonicalRuns.every((entry) => finiteValue(entry.timings) && finiteValue(entry.counters) && finiteValue(entry.rawSamples) && finiteValue(entry.memory));
+  const boundedRetainedState = repeatRuns.every((entry) => {
+    return [entry.fixtureAssertions?.canonical, entry.fixtureAssertions?.repeat].every((fixture) => {
       const retained = fixture?.retainedState;
       const measured = fixture?.measured || fixture;
       if (!retained || !measured) return false;
@@ -1039,20 +1016,21 @@ function performanceGate(optimizationRuns, scenarios, baselineRuns = []) {
         && retained.pointDefenceReservationSize <= measured.liveWeaponMounts;
     });
   });
-  const stableCadenceLookupMeasured = on.some((entry) => entry.scenario === "stable retained targets"
-    && entry.fixtureAssertions?.optimized?.retainedState?.targetLookupObservedFrames > 0
-    && entry.fixtureAssertions?.optimized?.retainedState?.targetLookupMaxSize > 0
-    && entry.fixtureAssertions?.optimized?.retainedState?.retainedTargetCount > 0);
-  const exactParity = optimizationRuns.length === scenarios.length * REPEATS * 2
-    && optimizationRuns.every((entry) => entry.checksumsEqualAfterEveryTick && entry.authoritativeTicksCompared > 0);
+  const stableScenarioIncluded = scenarios.some((scenario) => scenario.name === "stable retained targets");
+  const stableCadenceLookupMeasured = !stableScenarioIncluded || repeatRuns.some((entry) => entry.scenario === "stable retained targets"
+    && entry.fixtureAssertions?.canonical?.retainedState?.targetLookupObservedFrames > 0
+    && entry.fixtureAssertions?.canonical?.retainedState?.targetLookupMaxSize > 0
+    && entry.fixtureAssertions?.canonical?.retainedState?.retainedTargetCount > 0);
+  const exactParity = repeatRuns.length === scenarios.length * REPEATS
+    && repeatRuns.every((entry) => entry.checksumsEqualAfterEveryTick && entry.authoritativeTicksCompared > 0);
+  const representativeRuntimeMeasured = medium.length === 0 || (Number.isFinite(mediumCanonicalP50) && mediumCanonicalP50 >= 0);
+  const largeRuntimeMeasured = large.length === 0 || (Number.isFinite(largeCanonicalP50) && Number.isFinite(largeCanonicalP95));
+  const canonicalRepeatRegressionBounded = idleAndSmall.length > 0 && idleSmallChecks.every((check) => check.passed);
   const checks = {
-    cadenceOffAndOnPairs: cadenceModes.has(false) && cadenceModes.has(true)
-      && off.length === scenarios.length * REPEATS
-      && on.length === scenarios.length * REPEATS,
-    representativeMediumP50Reduction: medium.length > 0 && mediumReduction >= 0.15,
-    largeP50Reduction: large.length > 0 && largeReduction >= 0.15,
-    largeP95NoRegression: large.length > 0 && largeOptimizedP95 <= largeLegacyP95,
-    idleAndSmallRegressionBounded: idleAndSmall.length > 0 && idleSmallChecks.every((check) => check.passed),
+    representativeRuntimeMeasured,
+    largeRuntimeMeasured,
+    largeRepeatP95Bounded: large.length === 0 || largeRepeatP95 <= largeCanonicalP95 + Math.max(0.5, largeCanonicalP95 * 0.25),
+    canonicalRepeatRegressionBounded,
     exactParityEveryScenario: exactParity,
     finiteTelemetry,
     boundedRetainedState,
@@ -1062,21 +1040,17 @@ function performanceGate(optimizationRuns, scenarios, baselineRuns = []) {
     passed: Object.values(checks).every(Boolean),
     checks,
     thresholds: {
-      representativeMediumP50Reduction: 0.15,
-      largeP50Reduction: 0.15,
-      largeP95RegressionMs: 0,
-      idleOrSmallRegressionPercent: 10,
+      largeRepeatP95RegressionPercent: 25,
+      largeRepeatP95RegressionMs: 0.5,
       idleOrSmallRegressionMs: 0.20
     },
     measurements: {
-      mediumLegacyP50Ms: round(mediumLegacyP50),
-      mediumOptimizedP50Ms: round(mediumOptimizedP50),
-      mediumP50ReductionPercent: round(mediumReduction * 100, 2),
-      largeLegacyP50Ms: round(largeLegacyP50),
-      largeOptimizedP50Ms: round(largeOptimizedP50),
-      largeP50ReductionPercent: round(largeReduction * 100, 2),
-      largeLegacyP95Ms: round(largeLegacyP95),
-      largeOptimizedP95Ms: round(largeOptimizedP95),
+      mediumCanonicalP50Ms: round(mediumCanonicalP50),
+      mediumRepeatP50Ms: round(mediumRepeatP50),
+      largeCanonicalP50Ms: round(largeCanonicalP50),
+      largeRepeatP50Ms: round(largeRepeatP50),
+      largeCanonicalP95Ms: round(largeCanonicalP95),
+      largeRepeatP95Ms: round(largeRepeatP95),
       idleAndSmall: idleSmallChecks
     }
   };
@@ -1085,7 +1059,7 @@ function performanceGate(optimizationRuns, scenarios, baselineRuns = []) {
 function main() {
   const scenarios = MODE === "quick" ? ALL_SCENARIOS.filter((scenario) => QUICK_SCENARIO_NAMES.has(scenario.name)) : ALL_SCENARIOS;
   const runs = [];
-  const optimizationRuns = [];
+  const canonicalRepeatRuns = [];
   const previousLog = console.log;
   const previousWarn = console.warn;
   console.log = () => {};
@@ -1093,9 +1067,8 @@ function main() {
   try {
     for (const config of scenarios) {
       for (let repeat = 0; repeat < REPEATS; repeat += 1) {
-        runs.push(withDeterministicRandom(0x6f6f0000 + repeat * 17 + config.name.length, () => runScenario(config, repeat, false, false)));
-        optimizationRuns.push(runScenarioComparison(config, repeat, false));
-        optimizationRuns.push(runScenarioComparison(config, repeat, true));
+        runs.push(withDeterministicRandom(0x6f6f0000 + repeat * 17 + config.name.length, () => runScenario(config, repeat)));
+        canonicalRepeatRuns.push(runScenarioRepeat(config, repeat));
       }
     }
   } finally {
@@ -1130,15 +1103,12 @@ function main() {
     };
   });
   const allChecksums = scenarioResults.map((result) => [result.scenario, result.repeatChecksums]);
-  const gate = performanceGate(optimizationRuns, scenarios, runs);
+  const gate = performanceGate(canonicalRepeatRuns, scenarios, runs);
   const artifact = {
     status: ASSERT_PERFORMANCE && !gate.passed ? "failed" : "passed",
     phase: "6F",
     mode: MODE,
-    baselineCommitSha: BASELINE_COMMIT_SHA,
-    profileCommitSha: PROFILE_COMMIT_SHA,
-    optimizedCommitSha: OPTIMIZED_COMMIT_SHA,
-    testedHeadSha: resolveCommit("HEAD"),
+    testedHeadSha: TESTED_HEAD_SHA,
     nodeVersion: process.version,
     detailedProfile: DETAILED_PROFILE,
     assertPerformance: ASSERT_PERFORMANCE,
@@ -1150,24 +1120,20 @@ function main() {
       workloadClasses: aggregateWorkloadClasses(scenarioResults)
     },
     scenarios: scenarioResults,
-    optimizationEvidence: {
-      flag: "OPTIMIZED_STATION_WEAPON_RUNTIME",
-      productionDefault: false,
-      comparedScenarios: optimizationRuns.length,
-      checksumsEqualAfterEveryTick: optimizationRuns.every((entry) => entry.checksumsEqualAfterEveryTick),
-      authoritativeTicksCompared: optimizationRuns.reduce((sum, entry) => sum + entry.authoritativeTicksCompared, 0),
-      cadenceModes: [false, true],
-      runs: optimizationRuns
+    canonicalRuntimeEvidence: {
+      canonicalRuntime: true,
+      repeatedScenarios: canonicalRepeatRuns.length,
+      checksumsEqualAfterEveryTick: canonicalRepeatRuns.every((entry) => entry.checksumsEqualAfterEveryTick),
+      authoritativeTicksCompared: canonicalRepeatRuns.reduce((sum, entry) => sum + entry.authoritativeTicksCompared, 0),
+      runs: canonicalRepeatRuns
     },
     performanceGate: gate,
     deterministicOutcomeChecksums: allChecksums,
     memoryGrowth: scenarioResults.map((result) => ({ scenario: result.scenario, heapDeltaBytes: result.memory.heapDeltaBytes, repeatDeltas: result.repeatMemory.map((memory) => memory.heapDeltaBytes) })),
-    optimizationDecision: {
-      rule: "Only optimize when representative tick share is at least 10 percent, p95 exceeds 1 ms, scaling is pathological, or an event spike threatens the tick budget.",
-      benchmarkedFlags: ["OPTIMIZED_STATION_WEAPON_RUNTIME"],
-      productionFlagsEnabled: [],
-      candidate: "station weapon profile cache and authoritative live-target reuse",
-      stage: gate.passed ? "profiled-with-opt-in-parity" : "profiled-but-not-accepted"
+    runtimeDecision: {
+      rule: "The proven canonical runtime is the only production path; repeat runs verify determinism, bounded retained state, and finite telemetry.",
+      productionFlagsEnabled: ["circularShipSeparation", "redundantFleetMapCollisionPass"],
+      stage: gate.passed ? "canonical-runtime-verified" : "canonical-runtime-verification-failed"
     }
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });

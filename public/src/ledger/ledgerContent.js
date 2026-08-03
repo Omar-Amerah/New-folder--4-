@@ -724,7 +724,7 @@ const MANUAL_ARTICLES_PART_3 = [
     howItWorks: "Repair modules restore hull HP over time. Multiple repair sources on the same ship stack with diminishing returns — each additional source contributes less. Repair beams project repair at range toward friendly ships. The repair range determines how far the beam can reach. Drones can also repair their parent ship and nearby allies.",
     importantStats: [
       { label: "Repair Range", value: formatDistance(GENERATED_BALANCE.repair?.repairRange ?? 410) },
-      { label: "Stacking Multiplier", value: `${GENERATED_BALANCE.repair?.stackingMultiplier ?? 0.62}×` }
+      { label: "Stacking Multiplier", value: `${GENERATED_BALANCE.repair?.stackingMultiplier ?? 0.8}×` }
     ],
     practicalUse: "Multiple repair modules stack but with 62% efficiency per additional source. Repair beams are directional — aim them at the ship you want to heal. Repair drones automatically target the parent ship first, then nearby allies.",
     commonProblems: [

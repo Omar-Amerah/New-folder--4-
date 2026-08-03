@@ -9,11 +9,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const {
-  __setINCREMENTAL_SPATIAL_INDEX,
-  __setSHARED_MOVEMENT_CONTACT_PAIRS,
-  __setPACKED_FLEET_SOLVER
-} = require("./src/server/performanceFlags");
 const { RoomSpatialIndex, buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./src/server/spatialIndex");
 const { beginMovementContactStep, buildMovementContactPairs } = require("./src/server/movementContactPairs");
 const { updateShipSeparation } = require("./src/server/movementCollision");
@@ -27,15 +22,7 @@ const REPEATS = Math.max(1, Number(process.env.MFA_PHASE4CD_REPEATS) || 2);
 const WORLD = { width: 12000, height: 8000 };
 const PRODUCTION_RECOVERY = process.argv.includes("--production-recovery");
 
-const BASE_MODES = [
-  { name: "legacy-full-rebuild", shared: false, packed: false, incremental: false },
-  { name: "legacy-incremental", shared: false, packed: false, incremental: true },
-  { name: "shared-pairs-full-rebuild", shared: true, packed: false, incremental: false },
-  { name: "shared-pairs-incremental", shared: true, packed: false, incremental: true },
-  { name: "packed-fleet-full-rebuild", shared: true, packed: true, incremental: false },
-  { name: "packed-fleet-incremental", shared: true, packed: true, incremental: true }
-];
-const MODES = BASE_MODES.map((mode) => ({ ...mode, productionRecovery: PRODUCTION_RECOVERY }));
+const MODES = [{ name: "canonical-packed-fleet", productionRecovery: PRODUCTION_RECOVERY }];
 
 const SCENARIOS = [
   "sparse-no-contact",
@@ -122,7 +109,7 @@ function fixtureDefinitions(count, scenario, seed) {
       radius: 46,
       mass: 1 + (index % 7) * 2,
       // A launch congestion fixture has a bounded batch of newcomers. Marking
-      // every synthetic hull as freshly launched makes legacy recovery invoke
+      // every synthetic hull as freshly launched makes contact recovery invoke
       // the spawn planner once per unresolved contact and turns the benchmark
       // into a spawn-planner soak rather than a movement/contact comparison.
       spawnState: scenario === "station-launch-congestion" && index < 8
@@ -179,12 +166,6 @@ function cloneFixture(definitions, code) {
   return { room, ships };
 }
 
-function setMode(mode) {
-  __setINCREMENTAL_SPATIAL_INDEX(mode.incremental);
-  __setSHARED_MOVEMENT_CONTACT_PAIRS(mode.shared);
-  __setPACKED_FLEET_SOLVER(mode.packed);
-}
-
 function percentile(values, p) {
   if (!values.length) return 0;
   const ordered = values.slice().sort((a, b) => a - b);
@@ -192,13 +173,11 @@ function percentile(values, p) {
   return ordered[index];
 }
 
-function runStep(room, ships, mode, step) {
+function runStep(room, ships, step) {
   const dt = 1 / 30;
   const now = step * dt * 1000;
   resetRoomTelemetry(room);
-  const contactStep = mode.shared
-    ? beginMovementContactStep(room, ships, now)
-    : null;
+  const contactStep = beginMovementContactStep(room, ships, now);
   // The production boundary captures previous positions before movement. Keep
   // that ordering here so swept previous/current bounds are actually exercised.
   for (const entity of ships) {
@@ -207,19 +186,17 @@ function runStep(room, ships, mode, step) {
   }
   const stepStart = performanceNow();
   const spatialStart = performanceNow();
-  if (mode.incremental && room.spatialIndex.dynamicValid) {
+  if (room.spatialIndex.dynamicValid) {
     room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
   } else {
     buildRoomSpatialIndex(room, ships, step);
   }
   const spatialIndexMs = performanceNow() - spatialStart;
   let pairBuildMs = 0;
-  if (mode.shared) {
-    buildMovementContactPairs(room, ships, now, { stepId: contactStep });
-  }
+  buildMovementContactPairs(room, ships, now, { stepId: contactStep });
   const modifiedShipIds = updateShipSeparation(room, ships, dt, now, { circular: true });
   let finalSpatialMs = 0;
-  if (mode.productionRecovery) {
+  if (PRODUCTION_RECOVERY) {
     const safety = runMovementContactSafetyPass(
       room,
       ships,
@@ -227,7 +204,6 @@ function runStep(room, ships, mode, step) {
       dt,
       now,
       {
-        sharedMovementContactPairs: mode.shared,
         circular: true,
         measureSpatialPublication: true
       }
@@ -235,8 +211,7 @@ function runStep(room, ships, mode, step) {
     finalSpatialMs = safety.spatialPublicationMs;
   } else {
     const finalSpatialStart = performanceNow();
-    if (mode.incremental) room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
-    else room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, step);
+    room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
     finalSpatialMs = performanceNow() - finalSpatialStart;
   }
   const telemetry = room._roomTelemetry;
@@ -294,8 +269,7 @@ function shouldIncludeScenario(count, scenario) {
 
 const startedAt = new Date().toISOString();
 const results = [];
-try {
-  for (const count of COUNTS) {
+for (const count of COUNTS) {
     for (const scenario of SCENARIOS) {
       if (!shouldIncludeScenario(count, scenario)) continue;
       for (const mode of MODES) {
@@ -303,19 +277,13 @@ try {
         for (let repeat = 0; repeat < REPEATS; repeat += 1) {
           const definitions = fixtureDefinitions(count, scenario, 12345 + repeat);
           const { room, ships } = cloneFixture(definitions, `${mode.name}:${count}:${scenario}:${repeat}`);
-          setMode(mode);
-          for (let step = 0; step < STEPS; step += 1) samples.push(runStep(room, ships, mode, step));
+          for (let step = 0; step < STEPS; step += 1) samples.push(runStep(room, ships, step));
         }
         const summary = aggregate(samples);
         results.push({ count, scenario, mode: mode.name, aggregate: summary });
         console.log(`${count} ${scenario} ${mode.name}: p50=${summary.p50.stepMs.toFixed(3)}ms p95=${summary.p95.stepMs.toFixed(3)}ms pairs=${summary.mean.pairsGenerated.toFixed(1)} recoveryQueries=${summary.mean.recoveryQueries.toFixed(1)} recoveryScan=${summary.mean.recoveryScanMs.toFixed(3)}ms remaining=${summary.max.remainingOverlaps}`);
       }
     }
-  }
-} finally {
-  __setINCREMENTAL_SPATIAL_INDEX(false);
-  __setSHARED_MOVEMENT_CONTACT_PAIRS(false);
-  __setPACKED_FLEET_SOLVER(false);
 }
 
 const artifact = {

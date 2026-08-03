@@ -28,9 +28,9 @@ const {
 } = require("./snapshots");
 const { recordSnapshot, recordSnapshotWaste } = require("./performanceTelemetry");
 const { markProjectilesWritten, markProjectilesReplaced, getClientProjectileSignature, clientSupportsProjectileEvents } = require("./projectileReplication");
-const { ENTITY_DELTA_SNAPSHOTS } = require("./performanceFlags");
 const {
   ENTITY_DELTA_FORMAT_VERSION,
+  PRIVATE_SHIP_FIELDS,
   createSnapshotEntityState,
   buildStateFromSnapshot,
   buildEntityDeltaSnapshot
@@ -48,12 +48,11 @@ function patchRowCount(patch, key) {
 function phase5MetricsForBuilt(wireSnapshot, payloadBytes, formatVersion, full, constructionMs, encodingMs) {
   const metrics = {
     snapshotFullBytes: full ? payloadBytes : 0,
-    snapshotLegacyCompactBytes: !full && formatVersion === 1 ? payloadBytes : 0,
-    snapshotEntityDeltaBytes: !full && formatVersion === ENTITY_DELTA_FORMAT_VERSION ? payloadBytes : 0,
+    snapshotEntityDeltaBytes: !full ? payloadBytes : 0,
     snapshotConstructionViewerMs: constructionMs,
     snapshotEncodingMs: encodingMs
   };
-  if (!full && formatVersion === ENTITY_DELTA_FORMAT_VERSION) {
+  if (!full) {
     if (process.env.MFA_PHASE5_SECTION_TELEMETRY === "1") {
       const motion = {
         ships: wireSnapshot.shipsPatch?.motion || [],
@@ -165,11 +164,6 @@ function phase5MetricsForBuilt(wireSnapshot, payloadBytes, formatVersion, full, 
 }
 
 function diag(client) { return client.snapshotDeliveryDiagnostics ||= { fullBuilt: 0, compactBuilt: 0, queued: 0, written: 0, replaced: 0, dropped: 0, reset: 0, promotions: 0, recoveryRequests: 0, completedRecoveries: 0 }; }
-function clientSupportsEntityDeltaSnapshots(client) {
-  return ENTITY_DELTA_SNAPSHOTS()
-    && Array.isArray(client?.protocol?.capabilities)
-    && client.protocol.capabilities.includes("entityDeltaSnapshotsV1");
-}
 function ensureSnapshotEntityState(client, room) {
   const epoch = Number(room?.stateEpoch) || 1;
   if (!client.snapshotEntityState || client.snapshotEntityState.stateEpoch !== epoch) {
@@ -181,11 +175,10 @@ function ensureSnapshotBaseline(client, room) {
   if (!client.snapshotBaseline) client.snapshotBaseline = {};
   const b = client.snapshotBaseline; const epoch = room.stateEpoch || 1;
   if (b.stateEpoch !== epoch) {
-    Object.assign(b, { stateEpoch: epoch, lastWrittenSeq: 0, lastWrittenFullSeq: 0, lastQueuedSeq: 0, queuedSnapshotKind: null, queuedBaseSeq: null, queuedStaticRevision: 0, fullRequired: true, staticRevisionKnown: 0, lastWrittenFormatVersion: 0 });
+    Object.assign(b, { stateEpoch: epoch, lastWrittenSeq: 0, lastWrittenFullSeq: 0, lastQueuedSeq: 0, queuedSnapshotKind: null, queuedBaseSeq: null, queuedStaticRevision: 0, fullRequired: true, staticRevisionKnown: 0 });
     client.snapshotEntityState = createSnapshotEntityState(epoch);
   }
   if (b.fullRequired === undefined) b.fullRequired = true;
-  if (b.lastWrittenFormatVersion === undefined) b.lastWrittenFormatVersion = 0;
   b.lastSentSeq = b.lastWrittenSeq || 0; // compatibility alias: written, not merely generated/queued.
   return b;
 }
@@ -201,8 +194,7 @@ function resetSnapshotClientState(client) {
     queuedBaseSeq: null,
     queuedStaticRevision: 0,
     fullRequired: true,
-    staticRevisionKnown: 0,
-    lastWrittenFormatVersion: 0
+    staticRevisionKnown: 0
   };
   client._knownSignature = null;
   for (const key of [
@@ -226,7 +218,6 @@ function onSnapshotLifecycle(client, outcome, meta) {
     if (outcome !== 'reset') b.fullRequired = true;
     if (outcome === 'reset') {
       client.snapshotEntityState = createSnapshotEntityState(b.stateEpoch);
-      b.lastWrittenFormatVersion = 0;
       b.fullRequired = true;
     }
   }
@@ -253,14 +244,10 @@ function onSnapshotLifecycle(client, outcome, meta) {
       b.lastWrittenFullSeq = meta.snapshotSeq;
       b.fullRequired = false;
       b.staticRevisionKnown = meta.staticRevision || 1;
-      b.lastWrittenFormatVersion = meta.snapshotFormatVersion || 1;
       client.snapshotEntityState = meta.entityState || createSnapshotEntityState(b.stateEpoch);
       d.completedRecoveries += 1;
-    } else if (meta.snapshotFormatVersion === ENTITY_DELTA_FORMAT_VERSION && meta.entityState) {
-      b.lastWrittenFormatVersion = ENTITY_DELTA_FORMAT_VERSION;
+    } else if (meta.entityState) {
       client.snapshotEntityState = meta.entityState;
-    } else if (meta.snapshotFormatVersion && meta.snapshotFormatVersion !== ENTITY_DELTA_FORMAT_VERSION) {
-      client.snapshotEntityState = createSnapshotEntityState(b.stateEpoch);
     }
     client._knownSignature = buildClientKnownSignature(client);
     if (meta.telemetryFocusShipId) {
@@ -286,18 +273,34 @@ function telemetryFocusForPayload(client, now, full) {
   if (full || client.telemetryLastWrittenFocusId !== focus || elapsed >= TELEMETRY_INTERVAL_MS) return focus;
   return null;
 }
-function buildPayload(room, client, now, full, seq, baseSeq, shared = null, formatVersion = 1) {
+function assertEntityDeltaPrivacy(snapshot, wireSnapshot) {
+  if (process.env.NODE_ENV === "production") return;
+  const publicIds = new Set((snapshot.ships || [])
+    .filter((ship) => ship?.detail === "public")
+    .map((ship) => String(ship.id)));
+  for (const [id] of wireSnapshot.shipsPatch?.private || []) {
+    if (publicIds.has(String(id))) throw new Error(`Entity-delta privacy invariant violated: public ship ${String(id)} has a private patch`);
+  }
+  for (const ship of wireSnapshot.shipsPatch?.upsert || []) {
+    if (ship?.detail !== "public") continue;
+    const leaked = PRIVATE_SHIP_FIELDS.filter((field) => Object.prototype.hasOwnProperty.call(ship, field));
+    if (leaked.length) throw new Error(`Entity-delta privacy invariant violated: public ship ${String(ship.id)} has ${leaked.join(",")}`);
+  }
+}
+
+function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
+  const formatVersion = ENTITY_DELTA_FORMAT_VERSION;
   const constructionStartedAt = performanceNow();
   room._buildingSnapshotSeq = seq; room._buildingBaseSnapshotSeq = baseSeq;
-  if (!shared) shared = buildSharedSnapshot(room, now, false, true, !clientSupportsProjectileEvents(client), formatVersion === ENTITY_DELTA_FORMAT_VERSION);
+  if (!shared) shared = buildSharedSnapshot(room, now, false, true, !clientSupportsProjectileEvents(client), true);
   const telemetryFocusShipId = telemetryFocusForPayload(client, now, full);
   const previousEntityState = ensureSnapshotEntityState(client, room);
-  const baselineIds = !full && formatVersion === ENTITY_DELTA_FORMAT_VERSION
+  const baselineIds = !full
     ? collectEntityDeltaBaselineIds(room, client, shared, previousEntityState, now)
     : { ships: new Set(), stations: new Set(), players: new Set() };
   const snap = snapshotRoom(room, now, client.player, full, shared, client, {
     telemetryFocusShipId,
-    entityDeltaSparse: !full && formatVersion === ENTITY_DELTA_FORMAT_VERSION,
+    entityDeltaSparse: !full,
     baselineShipIds: baselineIds.ships,
     baselineStationIds: baselineIds.stations,
     baselinePlayerIds: baselineIds.players
@@ -307,10 +310,10 @@ function buildPayload(room, client, now, full, seq, baseSeq, shared = null, form
   let entityState = null;
   let entityDeltaStats = null;
   let wireSnapshot = snap;
-  if (full && formatVersion === ENTITY_DELTA_FORMAT_VERSION) {
+  if (full) {
     entityState = buildStateFromSnapshot(snap, snap.stateEpoch);
   }
-  if (!full && formatVersion === ENTITY_DELTA_FORMAT_VERSION) {
+  if (!full) {
     const delta = buildEntityDeltaSnapshot(snap, previousEntityState, {
       baselineShipIds: baselineIds.ships,
       baselineStationIds: baselineIds.stations,
@@ -321,6 +324,7 @@ function buildPayload(room, client, now, full, seq, baseSeq, shared = null, form
     entityState = delta.nextState;
     entityDeltaStats = delta.stats;
   }
+  assertEntityDeltaPrivacy(snap, wireSnapshot);
   const constructionMs = performanceNow() - constructionStartedAt;
   const encodingStartedAt = performanceNow();
   const payload = encodeMessage(wireSnapshot);
@@ -356,10 +360,9 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
   const room = client.room;
   ensureSnapshotBaseline(client, room);
   const seq = nextSeq(room);
-  const formatVersion = clientSupportsEntityDeltaSnapshots(client) ? ENTITY_DELTA_FORMAT_VERSION : 1;
   const meta = { stateEpoch: room.stateEpoch || 1, snapshotSeq: seq, baseSnapshotSeq: null, snapshotKind: 'full', staticRevision: room.staticRevision || 1, completeStatic: true, reason };
-  const built = buildPayload(room, client, now, true, seq, null, null, formatVersion);
-  meta.snapshotFormatVersion = formatVersion;
+  const built = buildPayload(room, client, now, true, seq, null);
+  meta.snapshotFormatVersion = ENTITY_DELTA_FORMAT_VERSION;
   meta.entityState = built.entityState;
   meta.entityDeltaStats = built.entityDeltaStats;
   meta.payloadBytes = built.payload.length;
@@ -381,7 +384,7 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
     snapshotVisibilityRemovals: built.entityDeltaStats?.visibilityRemovals || 0
   } });
 }
-function canSendCompact(room, b, broadcastSeq, forceStatic, formatVersion = 1) {
+function canSendCompact(room, b, broadcastSeq, forceStatic) {
   const revision = room.staticRevision || 1;
   return !forceStatic
     && !b.fullRequired
@@ -389,8 +392,7 @@ function canSendCompact(room, b, broadcastSeq, forceStatic, formatVersion = 1) {
     && b.lastWrittenFullSeq > 0
     && b.lastWrittenSeq === broadcastSeq - 1
     && !b.queuedSnapshotKind
-    && b.staticRevisionKnown === revision
-    && (b.lastWrittenFormatVersion || 1) === formatVersion;
+    && b.staticRevisionKnown === revision;
 }
 function stableRevisionMap(map) {
   if (!(map instanceof Map) || map.size === 0) return "";
@@ -443,7 +445,7 @@ function buildClientKnownSignature(client) {
 function getClientKnownSignature(client) {
   return client?._knownSignature ?? (client._knownSignature = buildClientKnownSignature(client));
 }
-function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId, formatVersion }) {
+function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId }) {
   const player = client?.player;
   if (!player?.id) return null;
   // Deliberately strict. Player identity is included because own-ship/private
@@ -453,7 +455,6 @@ function snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, t
     player.team ?? null,
     room.rules?.gameMode || "teams",
     full ? "full" : "compact",
-    formatVersion,
     base,
     seq,
     revision,
@@ -492,8 +493,7 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   // as O(clients x ships) on the viewer-independent work too.
   const sharedStartedAt = performanceNow();
   const needsFallback = [...(room.clients || [])].some((c) => !clientSupportsProjectileEvents(c));
-  const needsEntityDeltaKeys = [...(room.clients || [])].some((c) => clientSupportsEntityDeltaSnapshots(c));
-  const shared = buildSharedSnapshot(room, now, false, true, needsFallback, needsEntityDeltaKeys);
+  const shared = buildSharedSnapshot(room, now, false, true, needsFallback, true);
   let constructionMs = performanceNow() - sharedStartedAt;
   const sharedConstructionMs = constructionMs;
   let encodingMs = 0;
@@ -509,27 +509,26 @@ function broadcastSnapshot(room, now, forceStatic = false) {
   for (const client of room.clients) {
     const b = ensureSnapshotBaseline(client, room);
     const existing = getOutbound(client).snapshot;
-    const formatVersion = clientSupportsEntityDeltaSnapshots(client) ? ENTITY_DELTA_FORMAT_VERSION : 1;
-    const full = !canSendCompact(room, b, seq, forceStatic, formatVersion);
+    const full = !canSendCompact(room, b, seq, forceStatic);
     if (existing?.meta?.snapshotKind && full) { diag(client).promotions += 1; fullPromotions += 1; }
     const base = full ? null : b.lastWrittenSeq;
-    const meta = { stateEpoch: epoch, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', snapshotFormatVersion: formatVersion, staticRevision: revision, completeStatic: full };
+    const meta = { stateEpoch: epoch, snapshotSeq: seq, baseSnapshotSeq: base, snapshotKind: full ? 'full' : 'compact', snapshotFormatVersion: ENTITY_DELTA_FORMAT_VERSION, staticRevision: revision, completeStatic: full };
     const telemetryFocusShipId = telemetryFocusForPayload(client, now, full);
     const key = duplicatePlayerIds?.has(client?.player?.id)
-      ? snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId, formatVersion })
+      ? snapshotGroupingKey(room, client, { full, base, seq, revision, epoch, telemetryFocusShipId })
       : null;
     // A null key is intentionally unique: when identity/visibility cannot be
     // proven, fall back to per-client construction.
     const groupKey = key === null ? Symbol("per-client-snapshot") : key;
     let group = groups.get(groupKey);
     if (!group) {
-      group = { client, full, base, formatVersion, meta, recipients: [] };
+      group = { client, full, base, meta, recipients: [] };
       groups.set(groupKey, group);
     }
     group.recipients.push({ client, meta });
   }
   for (const group of groups.values()) {
-    const built = buildPayload(room, group.client, now, group.full, seq, group.base, shared, group.formatVersion);
+    const built = buildPayload(room, group.client, now, group.full, seq, group.base, shared);
     constructionMs += built.constructionMs;
     encodingMs += built.encodingMs;
     for (const [name, value] of Object.entries(built.phase5Metrics || {})) {
@@ -581,6 +580,6 @@ module.exports = {
   sendFullSnapshot,
   broadcastSnapshot,
   onSnapshotLifecycle,
-  _test: { stableRevisionMap, snapshotGroupingKey, duplicateSnapshotPlayerIds, telemetryFocusForPayload, clientSupportsEntityDeltaSnapshots, stableEntityStateSignature },
+  _test: { stableRevisionMap, snapshotGroupingKey, duplicateSnapshotPlayerIds, telemetryFocusForPayload, stableEntityStateSignature },
   constants: { TELEMETRY_INTERVAL_MS }
 };

@@ -26,6 +26,7 @@ const { stationBroadPhaseRadius } = require("./src/server/spatialIndex");
 const { createRoom } = require("./src/server/rooms");
 const {
   createStationsForRoom,
+  destroyStationsForRoom,
   enqueueStationProduction,
   resolveStationCollision
 } = require("./src/server/stations");
@@ -267,6 +268,17 @@ function run() {
     assert(!resolveStationCollision(launchRoom, ship, ship.physicalRadius || 26), "launching ship is not trapped by its own station");
   }
 
+  section("A missing active-launch record is repaired before movement");
+  const orphanCandidate = [...launchRoom.ships.values()].find((ship) => ship.launchPhase);
+  assert(orphanCandidate, "an active launch is available for orphan recovery");
+  const orphanStartAlong = orphanCandidate.launchPhase.along;
+  launchStation.activeLaunches = launchStation.activeLaunches.filter((launch) => launch.shipId !== orphanCandidate.id);
+  assert(!launchStation.activeLaunches.some((launch) => launch.shipId === orphanCandidate.id), "the launch index is actually missing for the regression case");
+  tickRoom(launchRoom, 1 / 30, 66);
+  assert(orphanCandidate.launchPhase, "a live launch phase survives a missing index entry");
+  assert(orphanCandidate.launchPhase.along > orphanStartAlong, "the repaired launch advances on the authoritative tick");
+  assert(launchStation.activeLaunches.some((launch) => launch.shipId === orphanCandidate.id), "the station launch index is rebuilt from the live phase");
+
   const frontBlockerOwner = launchRoom.players.get("blue-1");
   const centralHangar = launchStation.hangars[1];
   const launchNormal = { x: Math.cos(launchStation.angle), y: Math.sin(launchStation.angle) };
@@ -342,6 +354,16 @@ function run() {
   assert.strictEqual(full.hangar, undefined, "full snapshot emits no singular hangar compatibility field");
   assert.strictEqual(compact.hangars, undefined, "compact snapshot omits cached hangar geometry");
   assert.strictEqual(compact.hangar, undefined, "compact snapshot emits no singular hangar field");
+
+  section("Rebuilding station objects cannot leave a hull launch-locked");
+  const rebuildingShip = [...launchRoom.ships.values()].find((ship) => ship.launchPhase);
+  assert(rebuildingShip, "an active launch is available for station recreation");
+  destroyStationsForRoom(launchRoom);
+  assert(!rebuildingShip.launchPhase, "station teardown clears the launch phase and releases the hull");
+  assert(launchRoom.stations.length === 0, "station teardown removes the old authority");
+  createStationsForRoom(launchRoom, 18000);
+  assert(launchRoom.stations.length > 0, "station recreation restores the station authority");
+  assert([...launchRoom.ships.values()].every((ship) => !ship.launchPhase), "station recreation leaves no launch orphan behind");
 
   section("Spawn regions fit the restored footprint");
   const regionPlan = planSpawnRegions(makeStationRoom({ blue: 3, red: 2, id: "station-spawn" }));

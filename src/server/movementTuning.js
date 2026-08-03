@@ -50,13 +50,21 @@ module.exports = Object.freeze({
   SEPARATION_MIN_IMPULSE_CAP: 20,
   SEPARATION_IMPULSE_HEADROOM: 12,
   SEPARATION_BROAD_PHASE_PAD: 192,
+  // A static or ship-contact correction may be collected by several
+  // contacts in one authoritative tick. Keep that total bounded so a bad
+  // spawn or dense pile-up is recovered over successive ticks instead of
+  // becoming a visible one-frame relocation.
+  STATIC_COLLISION_MAX_TICK_CORRECTION: 32,
+  PACKED_FLEET_MAX_TICK_CORRECTION: 96,
+  PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION: 48,
+  PACKED_FLEET_LARGE_ISLAND_SIZE: 12,
   ASTEROID_RESTITUTION: 1.5,
   ASTEROID_QUERY_PAD: 128,
   STOPPED_SPEED: 3,
 
   // --- Navigation ---------------------------------------------------------
   NAV_GRID_CELL_SIZE: 24,
-  NAV_STUCK_TIME_MS: 1500,
+  NAV_STUCK_TIME_MS: 2500,
   NAV_WAYPOINT_CAPTURE_RATIO: 0.75,
   NAV_PROGRESS_EPSILON: 8,
 
@@ -64,14 +72,13 @@ module.exports = Object.freeze({
   MAX_MOVEMENT_DT: 0.25,
 
   // --- Combat stance ------------------------------------------------------
-  // Hold closes to 80% of its reach and stops there. This is an approach
+  // Hold enters at the first usable firing envelope. This is an approach
   // threshold, not a station: once inside it the ship does not correct its range
   // and does not back away from anything.
-  HOLD_RANGE_RATIO: 0.8,
-  // ...and only resumes the chase once the target has opened past 98%, so a
-  // target loitering near the edge cannot make the ship start and abandon an
-  // approach every second. The gap between the two is the whole dead band.
-  HOLD_RESUME_RATIO: 0.98,
+  HOLD_RANGE_RATIO: 0.92,
+  // Resume only after the target has opened beyond the usable range. The gap is
+  // deliberate hysteresis, not a preferred combat distance.
+  HOLD_RESUME_RATIO: 1.05,
   // A ship with nothing that reaches still has to stop somewhere short of
   // wearing its target as a hat.
   REPAIR_STANDOFF_PAD: 30,

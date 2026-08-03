@@ -1,16 +1,11 @@
 "use strict";
 
-// Target-relative combat positioning. This module only assigns stable slots;
-// movementV2 remains responsible for proving the slot reachable, routing around
-// static geometry, and flying the resulting point with the normal hull model.
+// Target-relative combat positioning for Charge. Hold has no destination slot;
+// movementV2 owns its ordinary route and first-valid-firing-position latch.
 
 const { angleDifference, compareEntityIds, fastHypot } = require("./utils");
-const { getMaxEffectiveWeaponRange } = require("./componentData");
 const { physicalCollisionRadius } = require("./movementCollision");
 
-const HOLD_SLOT_RANGE_RATIO = 0.76;
-const HOLD_SLOT_EDGE_MARGIN = 8;
-const HOLD_RING_RANGE_BAND = 96;
 const COMBAT_SLOT_CONTACT_PADDING = 8;
 const COMBAT_SLOT_SPACING_MIN = 64;
 const COMBAT_SLOT_SPACING_PAD = 24;
@@ -176,47 +171,18 @@ function assignRing(entries, ringRadius, spacing, blockedAngles = null) {
   );
 }
 
-function entryFor(ship, target, mode) {
+function entryFor(ship, target) {
   const targetRadius = targetBoundaryRadius(target);
   const targetCollision = targetIsStation(target) ? 0 : physicalCollisionRadius(target);
   const shipCollision = physicalCollisionRadius(ship);
   const minimumFromAim = targetCollision + shipCollision + COMBAT_SLOT_CONTACT_PADDING;
-  const range = Math.max(1, Number(getMaxEffectiveWeaponRange(ship)) || 0);
   const bearing = currentBearing(ship, target);
-
-  if (mode === "charge") {
-    const contactFromBoundary = shipCollision + targetCollision + COMBAT_SLOT_CONTACT_PADDING;
-    return {
-      ship,
-      bearing,
-      range,
-      minCenterRadius: targetRadius + contactFromBoundary,
-      maxCenterRadius: Infinity,
-      desiredRadius: targetRadius + contactFromBoundary,
-      contactRadius: targetRadius + contactFromBoundary,
-      distanceFromAim: contactFromBoundary,
-      currentDistance: fastHypot(
-        (Number(ship.x) || 0) - (Number(target.x) || 0),
-        (Number(ship.y) || 0) - (Number(target.y) || 0)
-      )
-    };
-  }
-
-  const comfortableDistance = range * HOLD_SLOT_RANGE_RATIO;
-  const maxComfortableDistance = Math.max(minimumFromAim, range - HOLD_SLOT_EDGE_MARGIN);
-  const distanceFromAim = Math.max(
-    minimumFromAim,
-    Math.min(comfortableDistance, maxComfortableDistance)
-  );
+  const contactFromBoundary = shipCollision + targetCollision + COMBAT_SLOT_CONTACT_PADDING;
   return {
     ship,
     bearing,
-    range,
     minCenterRadius: targetRadius + minimumFromAim,
-    maxCenterRadius: targetRadius + maxComfortableDistance,
-    desiredRadius: targetRadius + distanceFromAim,
-    contactRadius: targetRadius + minimumFromAim,
-    distanceFromAim,
+    contactRadius: targetRadius + contactFromBoundary,
     currentDistance: fastHypot(
       (Number(ship.x) || 0) - (Number(target.x) || 0),
       (Number(ship.y) || 0) - (Number(target.y) || 0)
@@ -241,67 +207,6 @@ function applyAssignment(assignments, target, mode, signature, now, entry, resul
     unreachable: false
   };
   assignments.set(entry.ship.id, slot);
-}
-
-function assignHoldSlots(entries, target, spacing, signature, now, blockedAngles, assignments) {
-  const remaining = entries.slice().sort((a, b) => {
-    if (Math.abs(a.desiredRadius - b.desiredRadius) > 0.001) return a.desiredRadius - b.desiredRadius;
-    const bearingOrder = a.bearing - b.bearing;
-    return Math.abs(bearingOrder) > 1e-9 ? bearingOrder : compareEntityIds(a.ship, b.ship);
-  });
-  let ringIndex = 0;
-  let radiusHint = null;
-  while (remaining.length) {
-    const seed = remaining[0];
-    const bandLimit = seed.desiredRadius + Math.max(HOLD_RING_RANGE_BAND, spacing * 0.75);
-    let ringRadius = Number.isFinite(radiusHint) ? radiusHint : seed.desiredRadius;
-    const compatible = remaining.filter((entry) => entry.desiredRadius <= bandLimit
-      && ringRadius >= entry.minCenterRadius - 1e-6
-      && ringRadius <= entry.maxCenterRadius + 1e-6);
-    if (!compatible.length) {
-      radiusHint = null;
-      ringRadius = seed.desiredRadius;
-    }
-    const eligible = remaining.filter((entry) => entry.desiredRadius <= bandLimit
-      && ringRadius >= entry.minCenterRadius - 1e-6
-      && ringRadius <= entry.maxCenterRadius + 1e-6);
-    const capacity = ringCapacity(ringRadius, spacing);
-    const selected = eligible.slice(0, capacity);
-    if (!selected.length) {
-      // A pathological hull/range combination still receives a stable slot;
-      // the movement path will report it unreachable rather than discarding it.
-      selected.push(seed);
-      ringRadius = seed.desiredRadius;
-    }
-    const ringAssignments = assignRing(selected, ringRadius, spacing, blockedAngles);
-    for (const result of ringAssignments) {
-      applyAssignment(assignments, target, "hold", signature, now, result.entry, {
-        angle: result.angle,
-        radius: Math.max(result.radius, result.entry.minCenterRadius),
-        ringIndex
-      });
-    }
-    const selectedIds = new Set(selected.map((entry) => entry.ship.id));
-    for (let index = remaining.length - 1; index >= 0; index -= 1) {
-      if (selectedIds.has(remaining[index].ship.id)) remaining.splice(index, 1);
-    }
-
-    const sameBandRemains = remaining.some((entry) => entry.desiredRadius <= bandLimit);
-    if (sameBandRemains) {
-      const inner = ringRadius - Math.max(spacing * 0.85, 48);
-      const canUseInner = remaining.some((entry) => entry.desiredRadius <= bandLimit
-        && inner >= entry.minCenterRadius - 1e-6
-        && inner <= entry.maxCenterRadius + 1e-6);
-      const outer = ringRadius + Math.max(spacing * 0.85, 48);
-      const canUseOuter = remaining.some((entry) => entry.desiredRadius <= bandLimit
-        && outer >= entry.minCenterRadius - 1e-6
-        && outer <= entry.maxCenterRadius + 1e-6);
-      radiusHint = canUseInner ? inner : (canUseOuter ? outer : null);
-    } else {
-      radiusHint = null;
-    }
-    ringIndex += 1;
-  }
 }
 
 function assignChargeSlots(entries, target, spacing, signature, now, blockedAngles, assignments) {
@@ -362,13 +267,15 @@ function assignChargeSlots(entries, target, spacing, signature, now, blockedAngl
 }
 
 function assignCombatSlots(room, ships, target, mode, now, options = {}) {
+  const assignments = new Map();
+  if (!target || mode !== "charge") return assignments;
+
   const group = (ships || [])
     .filter((ship) => ship?.alive !== false && combatModeForShip(ship) === mode)
     .sort((a, b) => compareEntityIds(a, b));
-  const assignments = new Map();
-  if (!target || !group.length || (mode !== "hold" && mode !== "charge")) return assignments;
+  if (!group.length) return assignments;
 
-  const entries = group.map((ship) => entryFor(ship, target, mode));
+  const entries = group.map((ship) => entryFor(ship, target));
   const largestShipRadius = entries.reduce(
     (largest, entry) => Math.max(largest, physicalCollisionRadius(entry.ship)),
     0
@@ -379,8 +286,7 @@ function assignCombatSlots(room, ships, target, mode, now, options = {}) {
   );
   const signature = combatGroupSignature(group);
   const blockedAngles = options.blockedAngles || new Map();
-  if (mode === "charge") assignChargeSlots(entries, target, spacing, signature, now, blockedAngles, assignments);
-  else assignHoldSlots(entries, target, spacing, signature, now, blockedAngles, assignments);
+  assignChargeSlots(entries, target, spacing, signature, now, blockedAngles, assignments);
 
   for (const ship of group) {
     if (!assignments.has(ship.id)) assignments.set(ship.id, null);
@@ -398,7 +304,6 @@ function applyCombatSlotAssignments(ships, assignments) {
 
 module.exports = {
   COMBAT_SLOT_TARGET_REASSIGN_DISTANCE,
-  HOLD_SLOT_RANGE_RATIO,
   applyCombatSlotAssignments,
   assignCombatSlots,
   combatGroupForTarget,

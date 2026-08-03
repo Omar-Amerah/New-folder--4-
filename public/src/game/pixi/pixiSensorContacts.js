@@ -23,7 +23,7 @@ function contactMarker(PIXI, contact, now) {
   gfx.stroke({ width: 1 / zoom, color });
 
   const label = new PIXI.Text({
-    text: contact.contactClass || "?",
+    text: "Contact",
     style: {
       fontFamily: "system-ui, sans-serif",
       fontSize: 10,
@@ -37,7 +37,7 @@ function contactMarker(PIXI, contact, now) {
   container.addChild(gfx, label);
   container.x = contact.lastKnownX;
   container.y = contact.lastKnownY;
-  container.alpha = 0.7;
+  container.alpha = 0.8;
   return container;
 }
 

@@ -19,13 +19,14 @@
   //   4 = explicit compatibility negotiation, connectionId/playerId split,
   //       MessagePack-only production client traffic and stable error codes.
   //   5 = relay-control-only victory snapshots; abstract match/player totals removed.
-  const PROTOCOL_VERSION = 5;
+  //   6 = entity-delta snapshots are canonical.
+  const PROTOCOL_VERSION = 6;
 
   // Highest protocol this client build understands. A server reporting a newer
   // protocol is actually incompatible and is rejected with a clear message
   // (differing build SHAs alone never block play).
-  const MIN_SUPPORTED_PROTOCOL = 5;
-  const MAX_SUPPORTED_PROTOCOL = 5;
+  const MIN_SUPPORTED_PROTOCOL = 6;
+  const MAX_SUPPORTED_PROTOCOL = 6;
 
   // Minimum protocol that guarantees authoritative weapon angles. Backends
   // below (or not reporting) this need redeploying; turret verification cannot

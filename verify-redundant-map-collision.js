@@ -2,13 +2,23 @@
 
 const assert = require("assert");
 const { updateShipSeparation, resolveFleetMapCollisions } = require("./src/server/movement");
-const { __setCircularShipSeparation, __setRedundantFleetMapCollisionPass } = require("./src/server/performanceFlags");
+const {
+  __setCircularShipSeparation,
+  __setRedundantFleetMapCollisionPass,
+  redundantFleetMapCollisionPass
+} = require("./src/server/performanceFlags");
 const { computeStats } = require("./src/server/shipStats");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
 const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { movementTestTick } = require("./tools/movementTestTick");
+const {
+  STATIC_COLLISION_MAX_TICK_CORRECTION,
+  PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION,
+  PACKED_FLEET_MAX_TICK_CORRECTION
+} = require("./src/server/movementTuning");
 
 const DT = 1 / 30;
 
@@ -73,6 +83,72 @@ function positions(ships) {
 }
 
 function run() {
+  __setRedundantFleetMapCollisionPass(false);
+  assert.strictEqual(redundantFleetMapCollisionPass(), false, "the production collision safety path must be targeted by default");
+
+  // --- Movement substeps do not receive a second fleet-wide map pass --------
+  {
+    const room = makeRoom();
+    const ships = [makeShip("step-a", 700, 700), makeShip("step-b", 1100, 700), makeShip("step-c", 1500, 700)];
+    for (const ship of ships) room.ships.set(ship.id, ship);
+    movementTestTick(room, ships, DT, 0);
+    assert.strictEqual(room._roomTelemetry.staticCollisionCalls, ships.length * 2,
+      "a 30 Hz tick should perform exactly one static check per 60 Hz substep");
+    assert.strictEqual(room._roomTelemetry.separationMapCollisionCalls, 0,
+      "an empty tick should not run a fleet-wide final map pass");
+  }
+
+  // --- Deep static contact is recovered without a one-frame relocation ------
+  {
+    const room = makeRoom();
+    const ship = makeShip("deep-static", 2000, 1500);
+    ship._staticCollisionCorrectionDistance = 0;
+    room.ships.set(ship.id, ship);
+    room.stations = [{
+      id: "solid-test-station",
+      x: 2000,
+      y: 1500,
+      radius: 500,
+      collisionPieces: [{
+        id: "solid-piece",
+        x: 2000,
+        y: 1500,
+        angle: 0,
+        halfWidth: 160,
+        halfHeight: 160
+      }]
+    }];
+    const before = { x: ship.x, y: ship.y };
+    require("./src/server/movement").resolveMapCollision(room, ship);
+    const displacement = Math.hypot(ship.x - before.x, ship.y - before.y);
+    assert(displacement <= STATIC_COLLISION_MAX_TICK_CORRECTION + 1e-6,
+      `deep station contact must be capped (${displacement.toFixed(3)} px)`);
+    assert(room._roomTelemetry.staticCollisionCorrectionDistance <= STATIC_COLLISION_MAX_TICK_CORRECTION + 1e-6,
+      "static correction telemetry must report the bounded applied displacement");
+  }
+
+  // --- Dense ship overlap is bounded across all packed-solver iterations -----
+  {
+    const room = makeRoom();
+    const ships = [];
+    for (let i = 0; i < 20; i += 1) {
+      const ship = makeShip(`packed-${i}`, 2000, 1500);
+      room.ships.set(ship.id, ship);
+      ships.push(ship);
+    }
+    buildRoomSpatialIndex(room, ships, 0);
+    const before = ships.map((ship) => ({ x: ship.x, y: ship.y }));
+    updateShipSeparation(room, ships, DT, 0);
+    const largest = ships.reduce((max, ship, index) => Math.max(
+      max,
+      Math.hypot(ship.x - before[index].x, ship.y - before[index].y)
+    ), 0);
+    assert(largest <= PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION + 1e-6,
+      `large-island packed correction must use the lower bound (${largest.toFixed(3)} px)`);
+    assert(PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION < PACKED_FLEET_MAX_TICK_CORRECTION,
+      "large packed islands must have a stricter correction budget");
+  }
+
   __setCircularShipSeparation(true);
   __setRedundantFleetMapCollisionPass(true);
 

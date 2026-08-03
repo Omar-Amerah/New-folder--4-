@@ -653,14 +653,10 @@ export function deployDesign() {
   if (isDesignStage && !ready) {
     state.pendingDeploy = true;
     invalidatePresentation("deployment");
-    // Deploying during the design phase marks the player ready server-side;
-    // there is no separate "ready" message in the protocol.
+    // Readiness is deliberately independent of the current blueprint. The
+    // server validates the selected design only when the player buys a ship.
     const sent = send({
-      type: "deploy",
-      design: state.design,
-      wiring: state.wiring,
-      dataLinks: state.dataLinks,
-      combatStyle: state.combatStyle || dom.combatStyleSelect?.value || "hold"
+      type: "ready"
     });
     if (!sent) {
       state.pendingDeploy = false;

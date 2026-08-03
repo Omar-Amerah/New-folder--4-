@@ -262,7 +262,7 @@ function noticeTone(text, team) {
 
 function isInlineOnlyNotice(text) {
   // These are reflected directly by the deploy button, blueprint status, or lobby UI.
-  return /^(Design saved — you are ready|Editor blueprint saved\.)/i.test(text);
+  return /^(Ready confirmed —|Design saved — you are ready|Editor blueprint saved\.)/i.test(text);
 }
 
 function isUrgentNotice(text) {

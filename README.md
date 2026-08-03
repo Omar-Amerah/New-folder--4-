@@ -79,7 +79,7 @@ The game remembers that server URL locally and includes it when you copy invites
 - Friends join using the same room code. The admin can add bots, kick players, start ship design, and close the lobby.
 - Choose Blue wing or Red wing for teams, or Solo for free-for-all before ship design starts.
 - When the admin starts ship design, the server picks the map size from the current player count and generates the arena.
-- Edit the blueprint grid, then press Ready ship. Right-click a blueprint part to remove it.
+- Edit the blueprint grid if desired, then press Ready Up. Ship validity and affordability are checked when you buy a ship after the match starts. Right-click a blueprint part to remove it.
 - When everyone is ready, the match starts. Spend money to build ships. Relays increase income.
 - At match end, an end screen appears. The admin can restart into a fresh ship design phase or close the lobby.
 - Left-click or drag-select your ships.

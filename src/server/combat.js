@@ -57,7 +57,6 @@ const TargetingTelemetry = require("./targetingTelemetry");
 const PointDefenceThreats = require("./pointDefenceThreats");
 const TargetingCadence = require("./targetingCadence");
 const Targeting = require("./targetingEligibility");
-const PerformanceFlags = require("./performanceFlags");
 
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { sanitizeCombatStyle } = require("./validation");
@@ -1002,227 +1001,23 @@ function isCandidateBetter(candidate, candidateDistSq, bestCandidate, bestDistSq
 
 function findPointDefenseTarget(room, worldX, worldY, shipOwnerId, weapon, ships, protectedShipId = null, now = 0) {
 
-  const defender = room?.ships?.get?.(protectedShipId) || (room?.stations || []).find((s) => s.id === protectedShipId);
+  const defender = room?.ships?.get?.(protectedShipId)
+    || (room?.stations || []).find((s) => s.id === protectedShipId)
+    || (ships || []).find((s) => s?.id === protectedShipId);
 
-  if (PerformanceFlags.POINT_DEFENCE_SHARED_THREATS()) {
-    if (defender) {
-      const threatSet = PointDefenceThreats.ensurePointDefenceThreatSet(room, defender, shipOwnerId, now);
-      const canSee = (cand) => TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledLineOfSightDuration", () => {
-        const margin = cand.type === "ship" ? 8 : cand.type === "drone" ? 3 : 4;
-        return !isLineBlocked(room, worldX, worldY, cand.entity.x, cand.entity.y, margin);
-      });
-      const selected = TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledPDSelectionDuration", () =>
-        PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations)
-      );
-      if (selected) TargetingTelemetry.bump(room, "pointDefenceSharedSetHits");
-      else TargetingTelemetry.bump(room, "pointDefenceSharedSetMisses");
-      TargetingTelemetry.bump(room, "pointDefenceLegacyScansAvoided");
-      return selected;
-    }
-    TargetingTelemetry.bump(room, "pointDefenceSharedFallbacks");
-    TargetingTelemetry.bump(room, "pointDefenceSharedFallbackNoDefender");
-  }
-
-  const rangeSq = weapon.range * weapon.range;
-
-  const priorityList = weapon.targetPriority || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
-
-  const nowTs = gameplayNow(room, now || performanceNow());
-  const viewerPlayer = room.players?.get?.(shipOwnerId);
-  const viewerTeam = viewerPlayer?.team;
-
-  // Per-tick reservation map: multiple defensive weapons on the same ship can
-  // see what damage has already been committed to each fragile target so they
-  // avoid overkilling the same projectile/drone/decoy.
-  const reservations = room._pdReservations || new Map();
-  function isReserved(entity, type) {
-    const reserved = reservations.get(entity.id) || 0;
-    if (type === "projectile") return (entity.hp !== undefined ? entity.hp : (entity.damage || 20)) - reserved <= 0.001;
-    if (type === "drone") return (entity.hull || 0) - reserved <= 0.001;
-    if (type === "decoy") return 1 - reserved <= 0.001;
-    return false;
-  }
-
-  let best = null;
-
-  let bestDistSq = Infinity;
-
-  const scratch = room._pointDefenseSpatialScratch || (room._pointDefenseSpatialScratch = {
-
-    projectiles: [], drones: [], ships: []
-
+  if (!defender) return null;
+  const threatSet = PointDefenceThreats.ensurePointDefenceThreatSet(room, defender, shipOwnerId, now);
+  const canSee = (cand) => TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledLineOfSightDuration", () => {
+    const margin = cand.type === "ship" ? 8 : cand.type === "drone" ? 3 : 4;
+    return !isLineBlocked(room, worldX, worldY, cand.entity.x, cand.entity.y, margin);
   });
+  const selected = TargetingTelemetry.withSampledDuration(room, now, defender, 0, "sampledPDSelectionDuration", () =>
+    PointDefenceThreats.selectPointDefenceTarget(room, worldX, worldY, shipOwnerId, weapon, protectedShipId, now, threatSet, canSee, room._pdReservations)
+  );
+  if (selected) TargetingTelemetry.bump(room, "pointDefenceThreatSetHits");
+  else TargetingTelemetry.bump(room, "pointDefenceThreatSetMisses");
+  return selected;
 
-  const projectileCandidates = room.spatialIndex
-
-    ? room.spatialIndex.queryRangeUnordered("interceptableProjectiles", worldX, worldY, weapon.range, scratch.projectiles)
-
-    : (room.bullets || []);
-
-
-
-  for (const bullet of projectileCandidates) {
-
-    if (!bullet.interceptable || bullet.life <= 0 || !areEnemies(room, shipOwnerId, bullet.ownerId)) continue;
-
-    const dx = bullet.x - worldX;
-
-    const dy = bullet.y - worldY;
-
-    const distSq = dx * dx + dy * dy;
-
-    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, bullet.x, bullet.y, 4))) continue;
-
-
-
-    const cand = { type: "projectile", entity: bullet };
-
-    const pIdx = getCandidatePriorityIndex(cand, priorityList);
-
-    if (pIdx === -1) continue;
-
-    if (isReserved(bullet, "projectile")) continue;
-
-
-
-    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
-
-      best = cand;
-
-      bestDistSq = distSq;
-
-    }
-
-  }
-
-
-
-  const droneCandidates = room.spatialIndex
-
-    ? room.spatialIndex.queryRangeUnordered("drones", worldX, worldY, weapon.range + (Number(room.droneSpatialPadding) || 0), scratch.drones)
-
-    : (room.drones?.values?.() || []);
-
-  for (const drone of droneCandidates) {
-
-    if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, shipOwnerId, drone.ownerId)) continue;
-    if (usesSensorVisibility(room) && viewerTeam && !canTeamTargetEntity(room, viewerTeam, drone, nowTs)) continue;
-
-    const dx = drone.x - worldX;
-
-    const dy = drone.y - worldY;
-
-    const distSq = dx * dx + dy * dy;
-
-    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, drone.x, drone.y, 3))) continue;
-
-
-
-    const cand = { type: "drone", entity: drone };
-
-    const pIdx = getCandidatePriorityIndex(cand, priorityList);
-
-    if (pIdx === -1) continue;
-
-    if (isReserved(drone, "drone")) continue;
-
-
-
-    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
-
-      best = cand;
-
-      bestDistSq = distSq;
-
-    }
-
-  }
-
-
-
-  const shipCandidates = room.spatialIndex
-
-    ? room.spatialIndex.queryRangeUnordered("ships", worldX, worldY, weapon.range, scratch.ships)
-
-    : (ships || []);
-
-  for (const other of shipCandidates) {
-
-    if (!other.alive || !areEnemies(room, shipOwnerId, other.ownerId)) continue;
-    if (usesSensorVisibility(room) && viewerTeam && !canTeamTargetEntity(room, viewerTeam, other, nowTs)) continue;
-
-    const dx = other.x - worldX;
-
-    const dy = other.y - worldY;
-
-    const distSq = dx * dx + dy * dy;
-
-    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, other.x, other.y, 8))) continue;
-
-
-
-    const cand = { type: "ship", entity: other };
-
-    const pIdx = getCandidatePriorityIndex(cand, priorityList);
-
-    if (pIdx === -1) continue;
-
-    if (isReserved(other, "ship")) continue;
-
-
-
-    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
-
-      best = cand;
-
-      bestDistSq = distSq;
-
-    }
-
-  }
-
-
-
-  const decoyCandidates = room.decoys?.values?.() || [];
-
-  for (const decoy of decoyCandidates) {
-
-    if (now >= decoy.expiresAt || !areEnemies(room, shipOwnerId, decoy.ownerId)) continue;
-
-    const dx = decoy.x - worldX;
-
-    const dy = decoy.y - worldY;
-
-    const distSq = dx * dx + dy * dy;
-
-    if (distSq > rangeSq || TargetingTelemetry.withSampledDuration(room, nowTs, defender, 0, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, decoy.x, decoy.y, 4))) continue;
-
-
-
-    const cand = { type: "decoy", entity: decoy };
-
-    const pIdx = getCandidatePriorityIndex(cand, priorityList);
-
-    if (pIdx === -1) continue;
-
-    if (isReserved(decoy, "decoy")) continue;
-
-
-
-    if (isCandidateBetter(cand, distSq, best, bestDistSq, priorityList, protectedShipId, room, shipOwnerId)) {
-
-      best = cand;
-
-      bestDistSq = distSq;
-
-    }
-
-  }
-
-
-
-  TargetingTelemetry.bump(room, "pointDefenceMountSelections");
-  return best;
 
 }
 
@@ -1271,12 +1066,6 @@ function isInSafeZone(room, x, y, shipOrPlayer = null) {
 
 
 function getCadencedShipCombatTarget(room, ship, ships, now) {
-  if (!PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()) {
-    const t = findTarget(room, ship, ships);
-    ship.combatTargetId = t ? t.id : null;
-    return t;
-  }
-
   if (!ship._combatTargetState) ship._combatTargetState = { id: null, focusId: null, nextSearchAt: 0 };
   const state = ship._combatTargetState;
   const focusId = ship.focusTargetId || null;
@@ -1420,22 +1209,20 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   const weaponIndices = getShipComponentIndexes(ship).weaponIndices;
 
-  if (PerformanceFlags.WEAPON_PROFILE_REVISION_CACHE()) {
-    const cache = TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledProfileBuildDuration", () =>
-      ensureEffectiveWeaponProfileCache(ship)
-    );
-    if (cache) {
-      const prev = ship._effectiveWeaponProfileCacheRevision;
-      if (prev !== cache.revision) {
-        TargetingTelemetry.bump(room, "effectiveWeaponProfileCacheMisses");
-        TargetingTelemetry.bump(room, "effectiveWeaponProfileBuilds");
-        ship._effectiveWeaponProfileCacheRevision = cache.revision;
-      } else {
-        TargetingTelemetry.bump(room, "effectiveWeaponProfileCacheHits");
-      }
+  const cache = TargetingTelemetry.withSampledDuration(room, now, ship, 0, "sampledProfileBuildDuration", () =>
+    ensureEffectiveWeaponProfileCache(ship)
+  );
+  if (cache) {
+    const prev = ship._effectiveWeaponProfileCacheRevision;
+    if (prev !== cache.revision) {
+      TargetingTelemetry.bump(room, "effectiveWeaponProfileCacheMisses");
+      TargetingTelemetry.bump(room, "effectiveWeaponProfileBuilds");
+      ship._effectiveWeaponProfileCacheRevision = cache.revision;
     } else {
-      TargetingTelemetry.bump(room, "effectiveWeaponProfileInvalidations");
+      TargetingTelemetry.bump(room, "effectiveWeaponProfileCacheHits");
     }
+  } else {
+    TargetingTelemetry.bump(room, "effectiveWeaponProfileInvalidations");
   }
 
   for (const i of weaponIndices) {
@@ -1526,9 +1313,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       ? { type: "beam", arc: 360, range: ship.stats?.repairRange || 400, aimSpeed: TurretRules.turnRateFor("beam") }
 
-      : (PerformanceFlags.WEAPON_PROFILE_REVISION_CACHE()
-        ? (getEffectiveWeaponStatsCached(ship, i) || part.weapon)
-        : (getEffectiveWeaponStatsInternal(ship, i) || part.weapon));
+      : (getEffectiveWeaponStatsCached(ship, i) || part.weapon);
 
     const family = effectiveWeapon.type || part.weapon?.type || "beam";
 
@@ -1663,9 +1448,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       const pdBaseWeapon = part.weapon || effectiveWeapon;
       const pdCachedId = ship.pdAcquiredTargetIds[i] ?? null;
       const pdCached = pdCachedId ? _lookupPointDefenceEntity(room, pdCachedId) : null;
-      let pdCurrentValid = false;
-      if (pdCached) {
-        pdCurrentValid = Targeting.isPointDefenceTargetValid(room, ship.ownerId, pdCached, effectiveWeapon.range || 0, now, {
+      const isPdCandidateValid = (candidate) => {
+        if (!candidate) return false;
+        const valid = Targeting.isPointDefenceTargetValid(room, ship.ownerId, candidate, effectiveWeapon.range || 0, now, {
           originX: worldX,
           originY: worldY,
           arcRadians: pdArcRadians,
@@ -1674,7 +1459,14 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           priorityList: pdBaseWeapon.targetPriority,
           team: ship.team
         });
-        if (pdCurrentValid && TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () => isLineBlocked(room, worldX, worldY, pdCached.entity.x, pdCached.entity.y, 4))) pdCurrentValid = false;
+        if (!valid) return false;
+        return !TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledLineOfSightDuration", () =>
+          isLineBlocked(room, worldX, worldY, candidate.entity.x, candidate.entity.y, 4)
+        );
+      };
+      let pdCurrentValid = false;
+      if (pdCached) {
+        pdCurrentValid = isPdCandidateValid(pdCached);
         if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
       }
 
@@ -1685,7 +1477,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         currentPdTarget = pdCached;
       } else if (!pdDue && !pdForce) {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
-        currentPdTarget = null;
+        const pendingPdId = ship.pdPendingTargetIds[i] ?? null;
+        const pendingPd = pendingPdId ? _lookupPointDefenceEntity(room, pendingPdId) : null;
+        currentPdTarget = isPdCandidateValid(pendingPd) ? pendingPd : null;
       } else {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
         currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
@@ -1774,9 +1568,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       if (!ship.weaponPendingTargetIds) ship.weaponPendingTargetIds = new Array(wLen).fill(null);
       if (!ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt = new Array(wLen).fill(0);
 
-      weaponTarget = PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()
-        ? getCadencedWeaponTarget(room, ship, ships, worldX, worldY, target, range, { weapon: effectiveWeapon, module }, i, now, "ordinaryShip")
-        : pickWeaponFireTarget(room, ship, ships, worldX, worldY, target, range, { weapon: effectiveWeapon, module });
+      weaponTarget = getCadencedWeaponTarget(room, ship, ships, worldX, worldY, target, range, { weapon: effectiveWeapon, module }, i, now, "ordinaryShip");
 
       const newTargetId = weaponTarget ? (weaponTarget.id ?? null) : null;
       const acquiredId = ship.weaponAcquiredTargetIds[i] ?? null;
@@ -2668,15 +2460,15 @@ function moduleFootprintLocalPosition(module, scale = MODULE_SCALE) {
 
 
 
-function weaponFacingAngle(ship, module) {
+function weaponFacingAngle(ship, module, hullAngle = ship.angle) {
 
-  return ship.angle + moduleRotationToRadians(normalizeRotation(module.rotation));
+  return hullAngle + moduleRotationToRadians(normalizeRotation(module.rotation));
 
 }
 
 
 
-function weaponModuleWorldPosition(ship, module) {
+function weaponModuleWorldPosition(ship, module, hullAngle = ship.angle) {
 
   // Multi-cell turret artwork pivots around the footprint centre, not the
 
@@ -2684,9 +2476,9 @@ function weaponModuleWorldPosition(ship, module) {
 
   const local = moduleFootprintLocalPosition(module);
 
-  const cos = Math.cos(ship.angle);
+  const cos = Math.cos(hullAngle);
 
-  const sin = Math.sin(ship.angle);
+  const sin = Math.sin(hullAngle);
 
   return {
 
@@ -3522,19 +3314,171 @@ function isDamageFromFront(ship, sourceX, sourceY, frontArcDegrees) {
 
 
 
-function isTargetInWeaponArc(ship, module, target, arcRadians) {
+function isTargetInWeaponArc(ship, module, target, arcRadians, hullAngle = ship.angle) {
 
   if (arcRadians >= Math.PI * 2) return true;
 
-  const origin = weaponModuleWorldPosition(ship, module);
+  const origin = weaponModuleWorldPosition(ship, module, hullAngle);
 
-  const weaponFacing = weaponFacingAngle(ship, module);
+  const weaponFacing = weaponFacingAngle(ship, module, hullAngle);
 
   const point = targetAttackPoint(origin.x, origin.y, target);
   const angleToTarget = Math.atan2(point.y - origin.y, point.x - origin.x);
 
   return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
 
+}
+
+function holdFacingAngle(angle) {
+  let normalized = Number(angle) || 0;
+  normalized %= Math.PI * 2;
+  if (normalized <= -Math.PI) normalized += Math.PI * 2;
+  if (normalized > Math.PI) normalized -= Math.PI * 2;
+  return normalized;
+}
+
+// This signature intentionally contains no weapon cooldowns. Cooldown affects
+// the next shot, not which hull orientation gives the best sustained coverage.
+function getHoldWeaponFacingSignature(ship) {
+  const cache = ensureEffectiveWeaponProfileCache(ship);
+  const indexes = getShipComponentIndexes(ship).weaponIndices;
+  const states = indexes.map((index) => [
+    index,
+    isComponentAlive(ship, index) ? 1 : 0,
+    Math.round((Number(getComponentPowerMultiplier(ship, index)) || 0) * 1000),
+    Math.round((Number(componentPerformance(ship, index)) || 0) * 1000)
+  ].join(":"));
+  return [
+    cache?.revision || 0,
+    ship?.designRevision || 0,
+    ship?.componentAliveRevision || 0,
+    ship?.powerRevision || 0,
+    ship?.heatStateRevision || 0,
+    states.join(",")
+  ].join("|");
+}
+
+function holdFacingWeapons(ship) {
+  const weapons = [];
+  for (const index of getShipComponentIndexes(ship).weaponIndices) {
+    const module = ship.design?.[index];
+    const part = module ? PARTS[module.type] : null;
+    if (!module || !part?.weapon || module.type === "repairBeam") continue;
+    if (!isComponentAlive(ship, index)) continue;
+
+    const power = Math.max(0, Number(getComponentPowerMultiplier(ship, index)) || 0);
+    const thermal = Math.max(0, Number(componentPerformance(ship, index)) || 0);
+    const activity = power * thermal;
+    if (!(activity > 0)) continue;
+
+    const effectiveWeapon = getEffectiveWeaponStatsInternal(ship, index) || part.weapon;
+    const family = effectiveWeapon.type || part.weapon.type || "beam";
+    // These weapons are defensive/interception systems in the firing path and
+    // should not pull an offensive Hold hull toward a defensive bearing.
+    if (family === "pointDefense" || family === "flak") continue;
+
+    const range = Number(effectiveWeapon.range) || 0;
+    const dps = Number(effectiveWeapon.dps)
+      || ((Number(effectiveWeapon.damage) || 0) * (Number(effectiveWeapon.fireRate) || 0));
+    if (!(range > 0) || !(dps > 0)) continue;
+
+    weapons.push({
+      index,
+      module,
+      range,
+      arcRadians: Math.max(0, Math.min(Math.PI * 2, (Number(effectiveWeapon.arc) || 360) * Math.PI / 180)),
+      mountAngle: moduleRotationToRadians(normalizeRotation(module.rotation)),
+      expectedDps: dps * activity
+    });
+  }
+  return weapons;
+}
+
+function evaluateHoldFacing(room, ship, target, weapons, heading, now) {
+  let score = 0;
+  let weaponCount = 0;
+
+  for (const weapon of weapons) {
+    const origin = weaponModuleWorldPosition(ship, weapon.module, heading);
+    const point = targetAttackPoint(origin.x, origin.y, target);
+    const distance = fastHypot(point.x - origin.x, point.y - origin.y);
+    if (distance > weapon.range) continue;
+
+    // This is the same ordinary-weapon eligibility predicate used by firing,
+    // parameterized with the candidate hull heading. It owns relationship,
+    // visibility, range and fixed-arc details; movement only supplies LOS.
+    if (!Targeting.isOrdinaryWeaponTargetValid(room, ship, target, now, weapon.range, {
+      originX: origin.x,
+      originY: origin.y,
+      arcRadians: weapon.arcRadians,
+      weaponAngle: heading + weapon.mountAngle
+    })) continue;
+    if (isLineBlocked(room, origin.x, origin.y, point.x, point.y, 8)) continue;
+
+    score += weapon.expectedDps;
+    weaponCount += 1;
+  }
+
+  return { score, weaponCount };
+}
+
+// Choose a hull orientation only. This helper deliberately has no movement
+// side effects and does not alter the weapon firing state. Candidate headings
+// are the current/previous heading plus the centres and edges of each fixed
+// weapon arc, which is sufficient to find every deterministic coverage change.
+function chooseHoldWeaponFacing(room, ship, target, now, previousHeading = null) {
+  const weapons = holdFacingWeapons(ship);
+  const currentHeading = holdFacingAngle(ship.angle || 0);
+  const preferredHeading = Number.isFinite(Number(previousHeading))
+    ? holdFacingAngle(previousHeading)
+    : currentHeading;
+  const targetPoint = targetAttackPoint(ship.x || 0, ship.y || 0, target);
+  const targetBearing = Math.atan2(targetPoint.y - (ship.y || 0), targetPoint.x - (ship.x || 0));
+  const candidates = [];
+  const addCandidate = (angle) => {
+    const candidate = holdFacingAngle(angle);
+    if (candidates.some((existing) => Math.abs(angleDifference(existing, candidate)) < 1e-6)) return;
+    candidates.push(candidate);
+  };
+
+  addCandidate(currentHeading);
+  addCandidate(preferredHeading);
+  for (const weapon of weapons) {
+    if (weapon.arcRadians >= Math.PI * 2 - 1e-6) continue;
+    const centre = targetBearing - weapon.mountAngle;
+    addCandidate(centre);
+    addCandidate(centre - weapon.arcRadians / 2);
+    addCandidate(centre + weapon.arcRadians / 2);
+  }
+
+  const current = evaluateHoldFacing(room, ship, target, weapons, preferredHeading, now);
+  let best = null;
+  for (const heading of candidates) {
+    const evaluated = evaluateHoldFacing(room, ship, target, weapons, heading, now);
+    const turn = Math.min(
+      Math.abs(angleDifference(currentHeading, heading)),
+      Math.abs(angleDifference(preferredHeading, heading))
+    );
+    const candidate = { heading, ...evaluated, turn };
+    const better = !best
+      || candidate.score > best.score + 1e-6
+      || (Math.abs(candidate.score - best.score) <= 1e-6 && candidate.weaponCount > best.weaponCount)
+      || (Math.abs(candidate.score - best.score) <= 1e-6
+        && candidate.weaponCount === best.weaponCount
+        && (candidate.turn < best.turn - 1e-6
+          || (Math.abs(candidate.turn - best.turn) <= 1e-6
+            && candidate.heading < best.heading)));
+    if (better) best = candidate;
+  }
+
+  return {
+    heading: best?.heading ?? preferredHeading,
+    score: best?.score || 0,
+    weaponCount: best?.weaponCount || 0,
+    currentScore: current.score,
+    currentWeaponCount: current.weaponCount,
+    signature: getHoldWeaponFacingSignature(ship)
+  };
 }
 
 
@@ -5826,6 +5770,10 @@ module.exports = {
   weaponMuzzleWorldPosition,
 
   isTargetInWeaponArc,
+
+  getHoldWeaponFacingSignature,
+
+  chooseHoldWeaponFacing,
 
   damageShip,
 

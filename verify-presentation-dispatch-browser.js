@@ -142,12 +142,13 @@ let browser;
       const epoch = (state.snapshotNetwork?.stateEpoch || 1) + 100;
       const full = {
         type: "state",
-        protocolVersion: state.server?.protocolVersion || 2,
+        protocolVersion: state.server?.protocolVersion || 6,
         serverBuildSha: state.server?.buildSha || "browser-test",
         balanceRevision: state.server?.balanceRevision || window.MFA_BALANCE_REVISION || null,
         stateEpoch: epoch,
         snapshotSeq: 1,
         snapshotKind: "full",
+        snapshotFormatVersion: 2,
         baseSnapshotSeq: null,
         staticRevision: 1,
         staticRevisions: { componentCatalogue: 1 },
@@ -229,11 +230,36 @@ let browser;
         const message = structuredClone(state.snapshot);
         message.type = "state";
         message.snapshotKind = "compact";
+        message.snapshotFormatVersion = 2;
         message.stateEpoch = state.snapshotNetwork.stateEpoch;
         message.baseSnapshotSeq = state.snapshotNetwork.snapshotSeq;
         message.snapshotSeq = state.snapshotNetwork.snapshotSeq + 1;
         mutate(message);
-        handleServerMessage(message);
+        const patch = (entries) => ({
+          upsert: Array.isArray(entries) ? entries : [], remove: [], motion: [], state: [],
+          private: [], remaining: [], dynamic: [], clearPrivate: [], clearStateFields: [], clearPrivateFields: []
+        });
+        const wire = {
+          ...message,
+          roomPatch: Object.fromEntries([
+            "phase", "adminId", "winner", "matchStartedAt", "controlVictory", "objectiveControl"
+          ].filter((key) => message[key] !== undefined).map((key) => [key, message[key]])),
+          playersPatch: patch(message.players),
+          shipsPatch: patch(message.ships),
+          dronesPatch: patch(message.drones),
+          decoysPatch: patch(message.decoys),
+          stationsPatch: patch(message.stations),
+          pointsPatch: patch(message.points),
+          effectsPatch: patch(message.effects)
+        };
+        delete wire.players;
+        delete wire.ships;
+        delete wire.drones;
+        delete wire.decoys;
+        delete wire.stations;
+        delete wire.points;
+        delete wire.effects;
+        handleServerMessage(wire);
       };
 
       resetDiagnostics();
@@ -420,7 +446,8 @@ let browser;
     assert.equal(report.power.selectedPower, 1);
     assert.equal(report.power.staticWiring, 0);
     assert.equal(report.wiring.selectedPower, 1);
-    assert.equal(report.wiring.staticWiring, 1);
+    // Wiring remains disabled, so the action must not build static geometry.
+    assert.equal(report.wiring.staticWiring, 0);
     assert.equal(report.rally.rally, 1);
     assert.equal(report.rally.catalogue, 0);
     assert.equal(report.objectiveProgress.relayStatus, 1);

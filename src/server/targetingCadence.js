@@ -4,8 +4,6 @@
 // All intervals live in one file; staggering is stable and keyed on entity and
 // weapon identity.
 
-const PerformanceFlags = require("./performanceFlags");
-
 const ACQUISITION_INTERVALS = Object.freeze({
   ordinaryShip: 1000 / 8,        // 8 Hz
   shipCombat: 1000 / 5,          // 5 Hz ship-level primary target refresh
@@ -75,7 +73,6 @@ function nextAcquisitionAt(entity, kind, weaponIndex, now) {
 }
 
 function isAcquisitionDue(entity, kind, weaponIndex, now) {
-  if (!PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE()) return true;
   const schedule = _ensureSchedule(entity);
   if (schedule === null) return true;
 

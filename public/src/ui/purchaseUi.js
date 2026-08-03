@@ -270,7 +270,7 @@ export function updateEconomyUi({ refreshCatalogue = true } = {}) {
 
   if (mine) {
     const status = state.phase === "design"
-      ? mine.ready ? "Ready. Waiting for the rest of the room." : "Design your starting ship, then ready with this design."
+      ? mine.ready ? "Ready. Waiting for the rest of the room." : "Ready up whenever you are ready. Buy a valid ship after the match starts."
       : mine.ready
         ? economyStatusText({ income, relays })
         : "Waiting for ship design";
@@ -285,13 +285,6 @@ export function updateEconomyUi({ refreshCatalogue = true } = {}) {
   } else {
     updatePurchaseAvailability();
   }
-}
-
-function readyBlockerButtonText(reason) {
-  if (reason.includes("missing core")) return "Cannot Ready - Missing Core";
-  if (reason.includes("disconnected")) return "Cannot Ready - Disconnected";
-  if (reason.includes("blueprint is empty")) return "Cannot Ready - Empty Design";
-  return "Cannot Ready";
 }
 
 function economyStatusText({ income, relays }) {
@@ -553,7 +546,7 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   if (pending) reason = pending.timedOut ? "Request timeout" : "Building...";
   else if (error) reason = error.message || "Purchase failed";
   else if (state.phase !== "active") reason = "Match not active";
-  else if (!mine?.ready) reason = "Complete your starting ship first";
+  else if (!mine?.ready) reason = "Ready up before buying ships";
   else if (!validity.ok) reason = validity.reason;
   else if (activeShips + quantity > shipCap) reason = quantity === 1 ? "Fleet full" : `Need ${quantity} fleet slots`;
   else if (money < totalCost) reason = `Need $${Math.ceil(totalCost - money).toLocaleString()} more`;

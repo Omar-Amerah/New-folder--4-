@@ -1,8 +1,8 @@
 "use strict";
 
-// Phase 6F verifier. The paired runs use identical fixtures and deterministic
-// random streams, then compare legacy and opt-in authoritative state after every
-// step. Only the measured station-weapon candidate has an opt-in flag.
+// Phase 6F verifier. Paired runs use identical fixtures and deterministic
+// random streams, then compare the canonical station-weapon state after every
+// step.
 
 const assert = require("node:assert/strict");
 const {
@@ -17,7 +17,6 @@ const { clearStationWeaponRuntime } = require("./src/server/stationCombat");
 const { clearRoomRuntimeScratch, bumpStateEpoch } = require("./src/server/rooms");
 const { createMovementRuntime } = require("./src/server/movementRuntime");
 const { PARTS } = require("./src/server/components");
-const flags = require("./src/server/performanceFlags");
 const benchmark = require("./benchmark-phase-6f");
 
 const {
@@ -47,24 +46,15 @@ function pairedRun(config, frames = 3) {
   assertFixtureConstruction(left.room, config, left.homes);
   assertFixtureConstruction(right.room, config, right.homes);
   const checksums = [];
-  const previousFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
-  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
-  try {
-    for (let frame = 0; frame < frames; frame += 1) {
-      mutateBeforeFrame(left.room, config, frame);
-      mutateBeforeFrame(right.room, config, frame);
-      flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(false);
-      withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(left.room, config, frame));
-      flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(true);
-      withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(right.room, config, frame));
-      const leftChecksum = outcomeChecksum(left.room);
-      const rightChecksum = outcomeChecksum(right.room);
-      assert.equal(leftChecksum, rightChecksum, `${config.name}: legacy/optimized authoritative state diverged at tick ${frame}`);
-      checksums.push(leftChecksum);
-    }
-  } finally {
-    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousFlag);
-    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
+  for (let frame = 0; frame < frames; frame += 1) {
+    mutateBeforeFrame(left.room, config, frame);
+    mutateBeforeFrame(right.room, config, frame);
+    withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(left.room, config, frame));
+    withDeterministicRandom(0x6f6f1000 + frame, () => runFrame(right.room, config, frame));
+    const leftChecksum = outcomeChecksum(left.room);
+    const rightChecksum = outcomeChecksum(right.room);
+    assert.equal(leftChecksum, rightChecksum, `${config.name}: canonical station state diverged at tick ${frame}`);
+    checksums.push(leftChecksum);
   }
   return { left, right, checksums };
 }
@@ -106,11 +96,6 @@ function verifySchemaAndDefaults() {
   ];
   assert.equal(DURATION_FIELDS.filter((field) => field.startsWith("station") || field.startsWith("classicCapture")).length, expectedDurationCount, "all Phase 6F duration fields are registered");
   for (const field of expectedCounterNames) assert(COUNTER_FIELDS.includes(field), `Phase 6F counter ${field} is registered`);
-  assert.equal(typeof flags.OPTIMIZED_STATION_WEAPON_RUNTIME, "function", "station weapon optimization flag is available for evidence-gated checks");
-  assert.equal(flags.OPTIMIZED_STATION_WEAPON_RUNTIME(), false, "station weapon optimization remains disabled by default");
-  assert.equal(flags.OPTIMIZED_STATION_CAPTURE_RUNTIME, undefined, "capture has no speculative optimization flag");
-  assert.equal(flags.OPTIMIZED_STATION_HANGAR_RUNTIME, undefined, "hangar has no speculative optimization flag");
-
   const gatedFixture = buildFixture(scenario("medium battle, 150 ships"), 0);
   gatedFixture.room._stationDetailedProfileActive = false;
   runFrame(gatedFixture.room, scenario("medium battle, 150 ships"), 0);
@@ -163,13 +148,10 @@ function verifyWeaponRuntime() {
   const fog = pairedRun(scenario("sensors and fog enabled"), 2);
   assert(telemetry(fog.left.room).stationWeaponVisibilityRejects > 0, "fog/safe-zone target rejections are counted");
 
-  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
   let cadence;
   try {
-    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
     cadence = pairedRun(scenario("stable retained targets"), 5);
   } finally {
-    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
   }
   assert(telemetry(cadence.left.room).stationWeaponRetainedTargets > 0, "cadenced station targets are retained");
 
@@ -302,18 +284,9 @@ function verifyAuthoritativeOrdering() {
   injected.life = 100;
   injected.shieldDamageMultiplier = 1;
   injected.hullDamageMultiplier = 1;
-  const previousWeaponFlag = flags.OPTIMIZED_STATION_WEAPON_RUNTIME();
-  const previousCadence = flags.WEAPON_TARGET_ACQUISITION_CADENCE();
-  try {
-    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(false);
-    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
-    // Use a compressed authoritative interval so the real tickRoom path reaches
-    // the capture threshold in the same invocation after the projectile hit.
-    tickRoom(tickRoomState, 10, 77);
-  } finally {
-    flags.__setOPTIMIZED_STATION_WEAPON_RUNTIME(previousWeaponFlag);
-    flags.__setWEAPON_TARGET_ACQUISITION_CADENCE(previousCadence);
-  }
+  // Use a compressed authoritative interval so the real tickRoom path reaches
+  // the capture threshold in the same invocation after the projectile hit.
+  tickRoom(tickRoomState, 10, 77);
   assert.equal(targetRelay.state, "operational", "projectile destruction immediately reactivates the relay");
   assert.equal(targetRelay.team, "blue", "projectile destruction gives ownership to the attacking team");
   assert.equal(targetRelay.ownerId, "p-blue", "projectile destruction records the attacking player");
@@ -350,7 +323,7 @@ function main() {
   verifyCaptureRuntime();
   verifyHangarRuntime();
   verifyAuthoritativeOrdering();
-  console.log("Phase 6F station/objective profiling and legacy/optimized parity checks passed");
+  console.log("Phase 6F station/objective canonical-runtime checks passed");
 }
 
 try {

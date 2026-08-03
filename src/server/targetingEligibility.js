@@ -3,7 +3,7 @@
 // Authoritative target eligibility and selection helpers for Phase Three.
 // These helpers mirror the exact predicates used by combat.js and stationCombat.js
 // so that cadenced, cached and shared-targeting paths do not drift from the
-// legacy paths.
+// authoritative targeting rules.
 
 const Relationships = require("./relationships");
 const Visibility = require("./visibility");

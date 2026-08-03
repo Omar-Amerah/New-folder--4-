@@ -13,6 +13,7 @@ const {
   markSnapshotStationComponentWritten,
   markSnapshotConditionStationsWritten
 } = require("./src/server/snapshots");
+const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("./src/server/snapshotEntityDelta");
 const { encodeMessage } = require("./src/server/wsCodec");
 
 function makePlayer(id, team) {
@@ -49,6 +50,22 @@ function markWritten(client, snapshot) {
   markSnapshotConditionStationsWritten(client, collectSnapshotConditionStationIds(snapshot));
 }
 
+function assertFiniteNumbers(value, path) {
+  if (typeof value === "number") {
+    assert.ok(Number.isFinite(value), `${path} contains a non-finite number`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertFiniteNumbers(entry, `${path}[${index}]`));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, entry] of Object.entries(value)) {
+      assertFiniteNumbers(entry, `${path}.${key}`);
+    }
+  }
+}
+
 (async () => {
   const room = createRoom("SPER");
   room.rules = sanitizeRoomRules({
@@ -70,6 +87,7 @@ function markWritten(client, snapshot) {
   // recipient needs a full baseline. Exercise that exact layering contract.
   const fullShared = buildSharedSnapshot(room, 1000, false, true);
   const full = snapshotRoom(room, 1000, blue, true, fullShared, client);
+  assertFiniteNumbers(full.stations, "full.stations");
   markWritten(client, full);
 
   room._buildingSnapshotSeq = 2;
@@ -127,7 +145,9 @@ function markWritten(client, snapshot) {
   const merge = await import("./public/src/snapshotMerge.js");
   const fullMerged = merge.mergeFullSnapshot(full);
   assert.equal(fullMerged.ok, true);
-  const compactMerged = merge.mergeCompactSnapshot(fullMerged.snapshot, compact);
+  const compactBuild = buildEntityDeltaSnapshot(compact, buildStateFromSnapshot(full, full.stateEpoch));
+  const compactWire = compactBuild.snapshot;
+  const compactMerged = merge.mergeSnapshotTransaction(fullMerged.snapshot, fullMerged.networkState, compactWire);
   assert.equal(compactMerged.ok, true, compactMerged.reason);
   const mergedAllied = compactMerged.snapshot.stations.find((station) => station.id === alliedFull.id);
   assert.deepEqual(mergedAllied.design, alliedFull.design, "client retains full station geometry through compact updates");
@@ -135,6 +155,12 @@ function markWritten(client, snapshot) {
   assert.equal(mergedAllied.hangar, undefined, "merged station retains no singular hangar field");
   assert.deepEqual(mergedAllied.componentHp, alliedFull.componentHp, "client retains unchanged component condition");
   assert.equal(mergedAllied.weaponAngles.length, alliedFull.weaponAngles.length, "client reconstructs the dense turret-angle API");
+
+  const damagedBuild = buildEntityDeltaSnapshot(damaged, compactBuild.nextState);
+  const damagedMerged = merge.mergeSnapshotTransaction(compactMerged.snapshot, compactMerged.networkState, damagedBuild.snapshot);
+  assert.equal(damagedMerged.ok, true, damagedMerged.reason);
+  const damagedMergedAllied = damagedMerged.snapshot.stations.find((station) => station.id === alliedFull.id);
+  assert.deepEqual(damagedMergedAllied.componentHp, damagedAllied.componentHp, "client accepts dynamic station condition updates");
 
   delete room._buildingSnapshotSeq;
   delete room._buildingBaseSnapshotSeq;

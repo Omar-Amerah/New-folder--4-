@@ -56,7 +56,7 @@ let peer;
     peer = new Client(port);
     await peer.connect();
     await until(() => peer.latest.hello, 5000, "peer hello");
-    peer.send({ type: "join", room, name: "Peer", team: "red", protocolVersion: 5, minProtocolVersion: 5, maxProtocolVersion: 5, capabilities: ["messagepack"] });
+    peer.send({ type: "join", room, name: "Peer", team: "red", protocolVersion: 6, minProtocolVersion: 6, maxProtocolVersion: 6, capabilities: ["messagepack", "entityDeltaSnapshotsV1"] });
     await until(() => peer.latest.joined, 5000, "peer join");
 
     await page.click("#startDesignButton");

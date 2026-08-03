@@ -61,7 +61,8 @@ assert(dom.infrastructureModeSelect, 'Infrastructure selector is registered in t
 assert(dom.stationPanel && dom.stationPanelBody && dom.stationPanelKind, 'Station panel elements are registered');
 
 // --- Snapshot merge ----------------------------------------------------------
-const { mergeCachedStationFields, mergeCompactSnapshot } = await import('./public/src/snapshotMerge.js');
+const { mergeCachedStationFields, mergeSnapshotTransaction } = await import('./public/src/snapshotMerge.js');
+const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = await import('./src/server/snapshotEntityDelta.js');
 
 const previousStations = [{
   id: 'st1',
@@ -115,18 +116,26 @@ assert.deepEqual(redacted[0].design, previousStations[0].design, 'fog redaction 
 const unknown = mergeCachedStationFields(previousStations, [{ id: 'st2', stationType: 'relay', hp: 50 }]);
 assert.equal(unknown[0].design, undefined, 'a station with no baseline gains no invented geometry');
 
-const compactMerge = mergeCompactSnapshot(
-  { players: [], ships: [], stations: previousStations, world: {}, map: {}, rules: {}, mapSizeLabel: 'Duel' },
-  { type: 'state', snapshotKind: 'compact', players: [], ships: [], stations: compactStations }
-);
-assert(compactMerge.ok, 'compact merge with stations succeeds');
-assert.deepEqual(compactMerge.snapshot.stations[0].design, previousStations[0].design, 'merged snapshot carries station geometry forward');
+const fullWire = {
+  type: 'state', stateEpoch: 1, snapshotSeq: 1, snapshotKind: 'full', snapshotFormatVersion: 2,
+  staticRevision: 1, players: [], ships: [], stations: previousStations,
+  drones: [], decoys: [], points: [], effects: [], bullets: []
+};
+const fullMerge = mergeSnapshotTransaction(null, { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false }, fullWire);
+assert(fullMerge.ok, 'entity-delta baseline merge with stations succeeds');
+const compactWire = buildEntityDeltaSnapshot({
+  ...fullWire, snapshotSeq: 2, snapshotKind: 'compact', baseSnapshotSeq: 1,
+  stations: compactStations
+}, buildStateFromSnapshot(fullWire, 1)).snapshot;
+const compactMerge = mergeSnapshotTransaction(fullMerge.snapshot, fullMerge.networkState, compactWire);
+assert(compactMerge.ok, compactMerge.reason);
+assert.deepEqual(compactMerge.snapshot.stations[0].design, previousStations[0].design, 'entity-delta merge carries station geometry forward');
+assert.equal(compactMerge.snapshot.stations[0].hangar, undefined, 'entity-delta merge retains no singular compatibility hangar');
 
-const classicMerge = mergeCompactSnapshot(
-  { players: [], ships: [], world: {}, map: {}, rules: {}, mapSizeLabel: 'Duel' },
-  { type: 'state', snapshotKind: 'compact', players: [], ships: [] }
-);
-assert.equal(classicMerge.snapshot.stations, undefined, 'classic snapshots stay free of a stations field');
+const classicFull = { ...fullWire, stations: [] };
+const classicBaseline = mergeSnapshotTransaction(null, { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false }, classicFull);
+assert(classicBaseline.ok, 'classic entity-delta baseline merge succeeds');
+assert.deepEqual(classicBaseline.snapshot.stations, [], 'classic snapshots stay free of station entities');
 
 // --- Selection ---------------------------------------------------------------
 const { state } = await import('./public/src/state.js');

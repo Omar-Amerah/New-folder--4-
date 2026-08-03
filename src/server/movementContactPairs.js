@@ -2,10 +2,9 @@
 
 // Phase 4C: one room-local, authoritative-step ship contact broad phase.
 //
-// The legacy separation loop asks the spatial index for every ship on every
-// iteration.  This module owns the replacement candidate set.  It deliberately
-// contains only ship references and deterministic ranks; narrow-phase geometry,
-// mass weighting and recovery remain in movementCollision.js.
+// This module owns the room-local candidate set. It deliberately contains only
+// ship references and deterministic ranks; narrow-phase geometry, mass weighting
+// and recovery remain in movementCollision.js.
 
 const { compareEntityIds, fastHypot, performanceNow } = require("./utils");
 const { bump, setCounter, recordDuration } = require("./roomTelemetry");

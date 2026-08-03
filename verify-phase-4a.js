@@ -3,7 +3,6 @@
 
 const assert = require("node:assert/strict");
 const { TICK_HZ } = require("./src/server/config");
-const { FIXED_AUTHORITATIVE_TIMESTEP, __setFIXED_AUTHORITATIVE_TIMESTEP } = require("./src/server/performanceFlags");
 const { createRoom, bumpStateEpoch } = require("./src/server/rooms");
 const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS, FIXED_STEP_S, MAX_CATCH_UP_STEPS } = require("./src/server/simulation");
 const { getRoomTelemetry } = require("./src/server/roomTelemetry");
@@ -13,7 +12,6 @@ const { addBullet } = require("./src/server/projectiles");
 
 const EPSILON = 1e-6;
 
-__setFIXED_AUTHORITATIVE_TIMESTEP(true);
 
 function activeRoom(code) {
   const room = createRoom(code, { seed: 1 });
@@ -58,10 +56,6 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 
 // 1. Flag defaults to false and can be toggled for tests.
 {
-  __setFIXED_AUTHORITATIVE_TIMESTEP(false);
-  assert.strictEqual(FIXED_AUTHORITATIVE_TIMESTEP(), false, "FIXED_AUTHORITATIVE_TIMESTEP defaults to false");
-  __setFIXED_AUTHORITATIVE_TIMESTEP(true);
-  assert.strictEqual(FIXED_AUTHORITATIVE_TIMESTEP(), true, "FIXED_AUTHORITATIVE_TIMESTEP test setter works");
 }
 
 // 2. A steady callback cadence produces the expected number of fixed steps.
@@ -210,14 +204,12 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 
 // 12. Existing flag-disabled behaviour still works.
 {
-  __setFIXED_AUTHORITATIVE_TIMESTEP(false);
   const room = activeRoom("PH4ADISABLED");
   const dt = 0.05;
   const now = 8_000_000;
   tickRoom(room, dt, now);
   assert.strictEqual(room.simulationTimeMs, now, "disabled path stamps simulation time with the callback wall time");
   assert.strictEqual(getRoomTelemetry(room).fixedStepCallbacks, 0, "disabled path does not emit fixed-step telemetry");
-  __setFIXED_AUTHORITATIVE_TIMESTEP(true);
 }
 
 // 13. Room reset or recreation clears timing runtime correctly.
@@ -302,5 +294,3 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 }
 
 console.log("Phase 4A fixed authoritative timestep verification passed");
-
-__setFIXED_AUTHORITATIVE_TIMESTEP(false);

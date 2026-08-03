@@ -3,8 +3,7 @@
 // What a hull can actually do right now, and what doing it costs in heat.
 //
 // This is the boundary between "the ship's paper statistics" and "the autopilot
-// flying it". Both movement implementations -- the frozen legacy steering and
-// the rewritten controller -- ask this module the same two questions:
+// flying it". The movement controller asks this module the same two questions:
 //
 //   * heatAdjustedMovementStats: given live component damage, heat derating,
 //     Power allocation and command auras, what are maxSpeed / accel / turnRate
@@ -13,9 +12,8 @@
 //   * applyEngineHeat / applyTurnHeat: burning thrust and torque is not free.
 //     Heat is charged to the specific components that produced the force.
 //
-// Keeping this here rather than inside a steering module is what lets the
-// movement controller be replaced without also replacing the ship's physics
-// envelope or its thermal behaviour.
+// Keeping this here rather than inside the steering module keeps the ship's
+// physics envelope and thermal behaviour in one authoritative boundary.
 
 const { angleDifference } = require("./utils");
 const { PARTS } = require("./components");

@@ -14,7 +14,6 @@ const { initComponentState } = require("./src/server/componentHealth");
 const { computeStats } = require("./src/server/shipStats");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const Heat = require("./src/server/heat");
-const Flags = require("./src/server/performanceFlags");
 const RoomTelemetry = require("./src/server/roomTelemetry");
 const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
 const { spawnShip } = require("./src/server/ships");
@@ -258,33 +257,21 @@ function approximateRuntimeBytes(ship) {
   return typedBytes + publicArrays + reusableLists + n * 32;
 }
 
-// This is an estimate, not a V8 heap snapshot.  It explicitly includes the
-// mutable compatibility object graph when legacy mode materializes it, which
-// the previous benchmark omitted.
-function approximateCompatibilityAdjacencyBytes(ship) {
-  const adjacency = ship._componentAdjacencyValue;
-  if (!adjacency) return 0;
-  const edgeCount = adjacency.reduce((sum, edges) => sum + edges.length, 0);
-  return adjacency.length * 24 + edgeCount * 56;
-}
-
 function approximateTopologyBytes(topology) {
   if (!topology) return 0;
   const edges = topology.edgeA.length;
   const scalarArrays = [
     topology.edgeA, topology.edgeB, topology.edgeSharedEdges, topology.edgeBaseConductivity,
     topology.edgeRouteMultiplier, topology.edgeThroughFrame, topology.incidentEdgeIds,
-    topology.incidentEdgeOffsets, topology.legacyTransferOrder, topology.legacyTransferRank,
+    topology.incidentEdgeOffsets, topology.transferOrder, topology.transferRank,
     topology.powerSourceIndices, topology.dataSourceIndices, topology.radiatorIndices,
     topology.heatSinkIndices, topology.thermalRouteIndices
   ];
   const packedBytes = scalarArrays.reduce((sum, values) => sum + values.length * 8, 0);
-  const immutableAdjacencyBytes = topology.componentAdjacency.reduce((sum, values) => sum + values.length * 48, 0) + topology.componentAdjacency.length * 24;
-  return packedBytes + immutableAdjacencyBytes + edges * 32;
+  return packedBytes + edges * 32;
 }
 
-function runMode({ shipCount, componentCount, scenario, optimized, templateShared }) {
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(optimized);
+function runCanonicalMode({ shipCount, componentCount, scenario, templateShared }) {
   const heapBeforeRun = process.memoryUsage().heapUsed;
   const { fleet, template } = makeFleet(shipCount, componentCount, scenario, templateShared);
   prepareFleet(fleet, scenario);
@@ -293,7 +280,6 @@ function runMode({ shipCount, componentCount, scenario, optimized, templateShare
   const visitedComponents = [];
   const visitedEdges = [];
   const transfers = [];
-  const transferAllocations = [];
   const stableSkipped = [];
   const wakeups = [];
 
@@ -308,7 +294,6 @@ function runMode({ shipCount, componentCount, scenario, optimized, templateShare
       visitedComponents.push(room._roomTelemetry.heatComponentsVisited || 0);
       visitedEdges.push(room._roomTelemetry.heatEdgesVisited || 0);
       transfers.push(room._roomTelemetry.heatTransfersApplied || 0);
-      transferAllocations.push(room._roomTelemetry.heatTransferObjectsAllocated || 0);
       stableSkipped.push(room._roomTelemetry.heatShipsStableSkipped || 0);
       wakeups.push(room._roomTelemetry.heatShipWakeups || 0);
     }
@@ -321,9 +306,8 @@ function runMode({ shipCount, componentCount, scenario, optimized, templateShare
 
   const first = fleet[0];
   const topologyBytes = approximateTopologyBytes(first.thermalTopology);
-  const compatibilityBytes = approximateCompatibilityAdjacencyBytes(first);
   return {
-    mode: optimized ? "optimized" : "legacy",
+    mode: "canonical",
     fixtureKind: templateShared ? "template-shared" : "direct",
     heatStageMs: stats(stepDurations),
     // This benchmark deliberately does not call this value a full simulation
@@ -332,7 +316,6 @@ function runMode({ shipCount, componentCount, scenario, optimized, templateShare
     componentsVisited: stats(visitedComponents),
     edgesVisited: stats(visitedEdges),
     transfersApplied: stats(transfers),
-    transferObjectsAllocated: transferAllocations.reduce((sum, value) => sum + value, 0),
     stableStepsSkipped: stableSkipped.reduce((sum, value) => sum + value, 0),
     wakeups: wakeups.reduce((sum, value) => sum + value, 0),
     topologyBuilds: templateShared ? 1 : fleet.reduce((sum, ship) => sum + (ship._thermalRuntime?.topologyBuilds || 0), 0),
@@ -341,9 +324,8 @@ function runMode({ shipCount, componentCount, scenario, optimized, templateShare
     templateTopologyIdentityVerified: templateShared
       ? fleet.every((ship) => ship.thermalTopology === template.thermalTopology)
       : false,
-    approximateMemoryPerShipBytes: approximateRuntimeBytes(first) + compatibilityBytes,
+    approximateMemoryPerShipBytes: approximateRuntimeBytes(first),
     approximateRuntimeOnlyBytes: approximateRuntimeBytes(first),
-    approximateLegacyCompatibilityAdjacencyBytes: compatibilityBytes,
     sharedTopologyMemoryBytes: templateShared ? topologyBytes : 0,
     topologyMemoryPerShipBytes: templateShared ? topologyBytes / Math.max(1, shipCount) : topologyBytes,
     heapGrowthOverRepeatedRunBytes: heapAfterRepeatedRun - heapBeforeRepeatedRun,
@@ -384,37 +366,35 @@ function fixtureDefinitions() {
 
 const fixtures = [];
 for (const [scenario, shipCount, componentCount] of fixtureDefinitions()) {
-  const legacy = runMode({ shipCount, componentCount, scenario, optimized: false, templateShared: false });
-  const optimized = runMode({ shipCount, componentCount, scenario, optimized: true, templateShared: false });
-  fixtures.push({ scenario, shipCount, componentCount, fixtureKind: "direct", legacy, optimized, equivalentOutcome: legacy.outcomeChecksum === optimized.outcomeChecksum });
+  const canonical = runCanonicalMode({ shipCount, componentCount, scenario, templateShared: false });
+  const repeat = runCanonicalMode({ shipCount, componentCount, scenario, templateShared: false });
+  fixtures.push({ scenario, shipCount, componentCount, fixtureKind: "direct", canonical, repeat, equivalentOutcome: canonical.outcomeChecksum === repeat.outcomeChecksum });
 }
 
 // Hundreds of template-spawned ships are a separate fixture so shared-topology
-// identity and the legacy compatibility-view memory cost are visible in the
+// identity and the canonical immutable-topology memory cost are visible in the
 // machine-readable result instead of being inferred from direct construction.
 const templateCount = mode === "full" ? 500 : 250;
 const templateComponents = mode === "full" ? 150 : 75;
 const templateScenario = "mixed-idle-active";
-const templateLegacy = runMode({ shipCount: templateCount, componentCount: templateComponents, scenario: templateScenario, optimized: false, templateShared: true });
-const templateOptimized = runMode({ shipCount: templateCount, componentCount: templateComponents, scenario: templateScenario, optimized: true, templateShared: true });
+const templateCanonical = runCanonicalMode({ shipCount: templateCount, componentCount: templateComponents, scenario: templateScenario, templateShared: true });
+const templateRepeat = runCanonicalMode({ shipCount: templateCount, componentCount: templateComponents, scenario: templateScenario, templateShared: true });
 fixtures.push({
   scenario: templateScenario,
   shipCount: templateCount,
   componentCount: templateComponents,
   fixtureKind: "template-shared",
-  legacy: templateLegacy,
-  optimized: templateOptimized,
-  equivalentOutcome: templateLegacy.outcomeChecksum === templateOptimized.outcomeChecksum,
-  topologyIdentityVerified: templateLegacy.templateTopologyIdentityVerified && templateOptimized.templateTopologyIdentityVerified
+  canonical: templateCanonical,
+  repeat: templateRepeat,
+  equivalentOutcome: templateCanonical.outcomeChecksum === templateRepeat.outcomeChecksum,
+  topologyIdentityVerified: templateCanonical.templateTopologyIdentityVerified && templateRepeat.templateTopologyIdentityVerified
 });
 
-Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
 const output = {
   generatedAt: new Date().toISOString(),
   node: process.version,
   mode,
   heatTickSeconds: HeatRules.TICK_SECONDS,
-  flagDefaultAfterRun: Flags.OPTIMIZED_HEAT_RUNTIME(),
   methodology: {
     warmupSteps: WARMUP_STEPS,
     measuredSteps: DEFAULT_STEPS,
@@ -422,7 +402,7 @@ const output = {
     fullSimulationStepMeasured: false,
     fullSimulationStepNote: "A production whole-simulation boundary is not measured by this server-local Heat benchmark; heatStageMs must not be presented as whole-server speedup.",
     checksum: "rounded component Heat at 1e-6 units",
-    memoryNote: "Approximate field-size estimate; legacyCompatibilityAdjacency includes the mutable compatibility object graph when materialized, while shared topology is counted once for template fixtures."
+    memoryNote: "Approximate field-size estimate; shared topology is counted once for template fixtures."
   },
   fixtures,
   allEquivalent: fixtures.every((fixture) => fixture.equivalentOutcome),

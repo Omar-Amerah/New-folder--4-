@@ -150,9 +150,9 @@ user input (pointer/keys/UI)
                                      Pixi renders at rAF; UI panels update
 ```
 
-Phase flow: `lobby` (join/teams/rules/bots) → `design` (blueprint editing,
-deploy = ready) → `active` (simulation + purchases) → `end` (rewards, restart or
-close) — driven by `players.js` and `maybeStartMatch`.
+Phase flow: `lobby` (join/teams/rules/bots) → `design` (blueprint editing and
+validation-free readiness) → `active` (simulation + purchases) → `end` (rewards,
+restart or close) — driven by `players.js` and `maybeStartMatch`.
 
 ## F. Current architectural risks (documented, deliberately not fixed here)
 

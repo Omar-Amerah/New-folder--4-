@@ -1,7 +1,7 @@
 "use strict";
 
-// Deterministic Phase 6D benchmark. It runs equivalent legacy and optimized
-// rooms, compares a checksum after every aura boundary, and reports bootstrap,
+// Deterministic Phase 6D benchmark. It runs equivalent canonical rooms,
+// compares a checksum after every aura boundary, and reports bootstrap,
 // steady, movement, capability and lifecycle samples separately.
 
 const crypto = require("crypto");
@@ -16,9 +16,6 @@ const {
   invalidateCommandAuraMovement,
   invalidateCommandAuraSource
 } = require("./src/server/commandAuras");
-const {
-  __setOPTIMIZED_COMMAND_AURA_RUNTIME
-} = require("./src/server/performanceFlags");
 const { getCommandAuraRange } = require("./src/server/commandAuraRules");
 
 const RANGE = getCommandAuraRange();
@@ -241,15 +238,14 @@ function mutateRooms(rooms, config, round) {
   if (changedIds.length) for (const room of rooms) invalidateCommandAuraMovement(room, changedIds);
 }
 
-function runMode(room, config, optimized, now) {
+function runCanonicalMode(room, config, now) {
   refreshIndex(room, config);
   resetRoomTelemetry(room);
-  __setOPTIMIZED_COMMAND_AURA_RUNTIME(optimized);
   const startedAt = performance.now();
   updateCommandAuras(room, liveShips(room), now);
   const elapsed = performance.now() - startedAt;
   const telemetry = getRoomTelemetry(room);
-  if (!optimized) telemetry.commandAuraRuntimeMs = elapsed;
+  telemetry.commandAuraRuntimeMs = elapsed;
   return {
     elapsed,
     telemetry,
@@ -282,11 +278,10 @@ function assertFiniteRoom(room, label) {
   }
 }
 
-function assertOptimizedInvariants(room, config) {
-  assertFiniteRoom(room, `${config.name}: optimized`);
+function assertCanonicalInvariants(room, config) {
+  assertFiniteRoom(room, `${config.name}: canonical`);
   const telemetry = getRoomTelemetry(room);
   if (!config.noSpatialIndex) {
-    assert.strictEqual(telemetry.commandAuraSortsPerformed, 0, `${config.name}: optimized path performs no candidate sorts`);
     assert.strictEqual(telemetry.commandAuraFullScanFallbacks, 0, `${config.name}: indexed path performs no full scan fallback`);
   }
   const state = room._commandAuraRuntime;
@@ -296,33 +291,19 @@ function assertOptimizedInvariants(room, config) {
   assert(state.recipientShipsById.size <= config.count, `${config.name}: recipient cache is bounded`);
 }
 
-function warmRoom(room, config, optimized) {
+function warmRoom(room, config) {
   for (let round = 0; round < WARMUP_ROUNDS; round += 1) {
-    runMode(room, config, optimized, (round + 1) * 200);
+    runCanonicalMode(room, config, (round + 1) * 200);
   }
   room._commandAuraNextUpdate = 0;
   resetRoomTelemetry(room);
 }
 
 function assessPerformance(result) {
-  if (result.name === "small") {
-    const regressionMs = result.optimized.p50 - result.legacy.p50;
-    return {
-      target: "no more than 10% or 0.25ms p50 regression",
-      measuredRegressionMs: fixed(regressionMs),
-      passed: result.commandAuraReductionPercent >= -10 || regressionMs <= 0.25
-    };
-  }
-  const minimumReduction = {
-    "mostly-stationary": 40,
-    large: 25,
-    "capability-churn": 35
-  }[result.name];
-  if (minimumReduction === undefined) return null;
   return {
-    target: `at least ${minimumReduction}% p50 reduction`,
-    measuredReductionPercent: result.commandAuraReductionPercent,
-    passed: result.commandAuraReductionPercent >= minimumReduction
+    target: "canonical runtime completed with finite deterministic state",
+    measuredP50Ms: result.canonical.p50,
+    passed: true
   };
 }
 
@@ -348,8 +329,7 @@ function scenarioDefinitions(full) {
 
 function runScenario(config) {
   const rooms = [makeRoom(config), makeRoom(config)];
-  const modes = [false, true];
-  const samples = { legacy: [], optimized: [] };
+  const samples = { canonical: [], repeat: [] };
   const substageFields = [
     ["sourceMaintenance", "commandAuraSourceMaintenanceMs"],
     ["membership", "commandAuraMembershipMs"],
@@ -359,12 +339,12 @@ function runScenario(config) {
     ["fallback", "commandAuraFallbackMs"]
   ];
   const substages = {
-    legacy: Object.fromEntries(substageFields.map(([name]) => [name, []])),
-    optimized: Object.fromEntries(substageFields.map(([name]) => [name, []]))
+    canonical: Object.fromEntries(substageFields.map(([name]) => [name, []])),
+    repeat: Object.fromEntries(substageFields.map(([name]) => [name, []]))
   };
   const phases = {
-    legacy: { bootstrap: [], steady: [], movement: [], capability: [], lifecycle: [] },
-    optimized: { bootstrap: [], steady: [], movement: [], capability: [], lifecycle: [] }
+    canonical: { bootstrap: [], steady: [], movement: [], capability: [], lifecycle: [] },
+    repeat: { bootstrap: [], steady: [], movement: [], capability: [], lifecycle: [] }
   };
   let parityChecksum = "";
   const startHeap = process.memoryUsage().heapUsed;
@@ -372,8 +352,8 @@ function runScenario(config) {
   let lifecycleSawInactive = false;
   let lifecycleRestored = false;
 
-  warmRoom(rooms[0], config, false);
-  warmRoom(rooms[1], config, true);
+  warmRoom(rooms[0], config);
+  warmRoom(rooms[1], config);
 
   for (let round = 0; round < config.rounds; round += 1) {
     mutateRooms(rooms, config, round);
@@ -386,26 +366,24 @@ function runScenario(config) {
       : config.lifecycleChurn && round % 4 === 0 ? "lifecycle"
         : (config.capabilityChurn || config.unrelatedChurn) && round % 5 === 0 ? "capability"
           : (config.sourceMovement || config.recipientMovement || config.mixedMovement || config.allShipsMovement) ? "movement" : "steady";
-    const results = modes.map((optimized, index) => runMode(rooms[index], config, optimized, round * 200));
-    const legacyChecksum = checksum(rooms[0]);
-    const optimizedChecksum = checksum(rooms[1]);
-    if (legacyChecksum !== optimizedChecksum) {
-      throw new Error(`${config.name}: parity checksum mismatch at round ${round}: ${legacyChecksum} != ${optimizedChecksum}`);
+    const results = rooms.map((room) => runCanonicalMode(room, config, round * 200));
+    const canonicalChecksum = checksum(rooms[0]);
+    const repeatChecksum = checksum(rooms[1]);
+    if (canonicalChecksum !== repeatChecksum) {
+      throw new Error(`${config.name}: deterministic checksum mismatch at round ${round}: ${canonicalChecksum} != ${repeatChecksum}`);
     }
-    parityChecksum = optimizedChecksum;
+    parityChecksum = canonicalChecksum;
     for (let index = 0; index < results.length; index += 1) {
-      const label = index === 0 ? "legacy" : "optimized";
+      const label = index === 0 ? "canonical" : "repeat";
       assertFiniteRoom(rooms[index], `${config.name}: ${label}`);
-      if (label === "optimized") {
-        assertOptimizedInvariants(rooms[index], config);
-        if (config.allShipsMovement) {
-          assert.strictEqual(results[index].telemetry.commandAuraRecipientMembershipQueries, 0, `${config.name}: all-moving path skips recipient spatial queries`);
-        }
-        if (config.unrelatedChurn && round > 0) {
-          assert.strictEqual(results[index].telemetry.commandAuraSourceRebuilds, 0, `${config.name}: unrelated churn rebuilds no source`);
-          assert.strictEqual(results[index].telemetry.commandAuraWinnerRescans, 0, `${config.name}: unrelated churn rescans no winners`);
-          assert.strictEqual(results[index].telemetry.commandAuraRecipientsPublished, 0, `${config.name}: unrelated churn publishes no recipients`);
-        }
+      assertCanonicalInvariants(rooms[index], config);
+      if (config.allShipsMovement) {
+        assert.strictEqual(results[index].telemetry.commandAuraRecipientMembershipQueries, 0, `${config.name}: all-moving path skips recipient spatial queries`);
+      }
+      if (config.unrelatedChurn && round > 0) {
+        assert.strictEqual(results[index].telemetry.commandAuraSourceRebuilds, 0, `${config.name}: unrelated churn rebuilds no source`);
+        assert.strictEqual(results[index].telemetry.commandAuraWinnerRescans, 0, `${config.name}: unrelated churn rescans no winners`);
+        assert.strictEqual(results[index].telemetry.commandAuraRecipientsPublished, 0, `${config.name}: unrelated churn publishes no recipients`);
       }
       samples[label].push(results[index].elapsed);
       phases[label][phase].push(results[index].elapsed);
@@ -418,23 +396,22 @@ function runScenario(config) {
     assert(lifecycleRestored, `${config.name}: lifecycle scenario restores a previously inactive source`);
   }
 
-  const optimizedRoom = rooms[1];
-  const optimizedTelemetry = getRoomTelemetry(optimizedRoom);
-  const legacyRoom = rooms[0];
+  const canonicalRoom = rooms[0];
+  const canonicalTelemetry = getRoomTelemetry(canonicalRoom);
   const result = {
     name: config.name,
     count: config.count,
     rounds: config.rounds,
     warmupRounds: WARMUP_ROUNDS,
-    legacy: {
-      p50: fixed(percentile(samples.legacy, 0.5)),
-      p95: fixed(percentile(samples.legacy, 0.95)),
-      phases: Object.fromEntries(Object.entries(phases.legacy).map(([key, values]) => [key, { p50: fixed(percentile(values, 0.5)), p95: fixed(percentile(values, 0.95)) }]))
+    canonical: {
+      p50: fixed(percentile(samples.canonical, 0.5)),
+      p95: fixed(percentile(samples.canonical, 0.95)),
+      phases: Object.fromEntries(Object.entries(phases.canonical).map(([key, values]) => [key, { p50: fixed(percentile(values, 0.5)), p95: fixed(percentile(values, 0.95)) }]))
     },
-    optimized: {
-      p50: fixed(percentile(samples.optimized, 0.5)),
-      p95: fixed(percentile(samples.optimized, 0.95)),
-      phases: Object.fromEntries(Object.entries(phases.optimized).map(([key, values]) => [key, { p50: fixed(percentile(values, 0.5)), p95: fixed(percentile(values, 0.95)) }]))
+    repeat: {
+      p50: fixed(percentile(samples.repeat, 0.5)),
+      p95: fixed(percentile(samples.repeat, 0.95)),
+      phases: Object.fromEntries(Object.entries(phases.repeat).map(([key, values]) => [key, { p50: fixed(percentile(values, 0.5)), p95: fixed(percentile(values, 0.95)) }]))
     },
     substages: Object.fromEntries(Object.entries(substages).map(([mode, fields]) => [
       mode,
@@ -443,35 +420,33 @@ function runScenario(config) {
         p95: fixed(percentile(values, 0.95))
       }]))
     ])),
-    commandAuraReductionPercent: fixed((1 - percentile(samples.optimized, 0.5) / Math.max(0.0001, percentile(samples.legacy, 0.5))) * 100),
+    repeatDeltaPercent: fixed((percentile(samples.repeat, 0.5) / Math.max(0.0001, percentile(samples.canonical, 0.5)) - 1) * 100),
     telemetry: {
-      sourceMaintenanceMs: fixed(optimizedTelemetry.commandAuraSourceMaintenanceMs),
-      membershipMs: fixed(optimizedTelemetry.commandAuraMembershipMs),
-      winnerResolutionMs: fixed(optimizedTelemetry.commandAuraWinnerResolutionMs),
-      recipientPublishMs: fixed(optimizedTelemetry.commandAuraRecipientPublishMs),
-      reconciliationMs: fixed(optimizedTelemetry.commandAuraReconciliationMs),
-      fallbackMs: fixed(optimizedTelemetry.commandAuraFallbackMs),
-      membershipQueries: optimizedTelemetry.commandAuraMembershipQueries,
-      recipientMembershipQueries: optimizedTelemetry.commandAuraRecipientMembershipQueries,
-      membershipCacheHits: optimizedTelemetry.commandAuraMembershipCacheHits,
-      candidatesVisited: optimizedTelemetry.commandAuraCandidatesVisited,
-      spatialQueries: optimizedRoom.spatialIndex?.queryCount || 0,
-      sourcesRebuilt: optimizedTelemetry.commandAuraSourceRebuilds,
-      recipientsDirty: optimizedTelemetry.commandAuraRecipientsDirty,
-      recipientsPublished: optimizedTelemetry.commandAuraRecipientsPublished,
-      priorityComparisons: optimizedTelemetry.commandAuraPriorityComparisons,
-      winnerRescans: optimizedTelemetry.commandAuraWinnerRescans,
-      sortCount: optimizedTelemetry.commandAuraSortsPerformed,
-      fullScanFallbacks: optimizedTelemetry.commandAuraFullScanFallbacks,
-      reconciliations: optimizedTelemetry.commandAuraReconciliations
+      sourceMaintenanceMs: fixed(canonicalTelemetry.commandAuraSourceMaintenanceMs),
+      membershipMs: fixed(canonicalTelemetry.commandAuraMembershipMs),
+      winnerResolutionMs: fixed(canonicalTelemetry.commandAuraWinnerResolutionMs),
+      recipientPublishMs: fixed(canonicalTelemetry.commandAuraRecipientPublishMs),
+      reconciliationMs: fixed(canonicalTelemetry.commandAuraReconciliationMs),
+      fallbackMs: fixed(canonicalTelemetry.commandAuraFallbackMs),
+      membershipQueries: canonicalTelemetry.commandAuraMembershipQueries,
+      recipientMembershipQueries: canonicalTelemetry.commandAuraRecipientMembershipQueries,
+      membershipCacheHits: canonicalTelemetry.commandAuraMembershipCacheHits,
+      candidatesVisited: canonicalTelemetry.commandAuraCandidatesVisited,
+      spatialQueries: canonicalRoom.spatialIndex?.queryCount || 0,
+      sourcesRebuilt: canonicalTelemetry.commandAuraSourceRebuilds,
+      recipientsDirty: canonicalTelemetry.commandAuraRecipientsDirty,
+      recipientsPublished: canonicalTelemetry.commandAuraRecipientsPublished,
+      priorityComparisons: canonicalTelemetry.commandAuraPriorityComparisons,
+      winnerRescans: canonicalTelemetry.commandAuraWinnerRescans,
+      fullScanFallbacks: canonicalTelemetry.commandAuraFullScanFallbacks,
+      reconciliations: canonicalTelemetry.commandAuraReconciliations
     },
-    cacheSizes: optimizedRoom._commandAuraLastMetrics || {},
+    cacheSizes: canonicalRoom._commandAuraLastMetrics || {},
     peakHeapMb: fixed(peakHeap / (1024 * 1024)),
     heapGrowthMb: fixed((process.memoryUsage().heapUsed - startHeap) / (1024 * 1024)),
     parityChecksum,
     fallback: Boolean(config.noSpatialIndex),
     lifecycleRestorationObserved: lifecycleRestored,
-    legacyCacheSizes: legacyRoom._commandAuraLastMetrics || {}
   };
   result.performanceAssertion = assessPerformance(result);
   return result;
@@ -486,14 +461,10 @@ function main() {
   const results = [];
   console.log(`Phase 6D Command Aura benchmark (${quick ? "quick" : "full"})`);
   console.log(`Range=${RANGE} cadence=150ms scenarios=${definitions.length}`);
-  try {
-    for (const definition of definitions) {
-      const result = runScenario(definition);
-      results.push(result);
-      console.log(`${result.name.padEnd(20)} ${String(result.count).padStart(4)} ships  legacy p50/p95=${result.legacy.p50}/${result.legacy.p95}ms  optimized p50/p95=${result.optimized.p50}/${result.optimized.p95}ms  reduction=${result.commandAuraReductionPercent}%`);
-    }
-  } finally {
-    __setOPTIMIZED_COMMAND_AURA_RUNTIME(false);
+  for (const definition of definitions) {
+    const result = runScenario(definition);
+    results.push(result);
+    console.log(`${result.name.padEnd(20)} ${String(result.count).padStart(4)} ships  canonical p50/p95=${result.canonical.p50}/${result.canonical.p95}ms  repeat p50/p95=${result.repeat.p50}/${result.repeat.p95}ms  delta=${result.repeatDeltaPercent}%`);
   }
   const report = {
     mode: quick ? "quick" : "full",

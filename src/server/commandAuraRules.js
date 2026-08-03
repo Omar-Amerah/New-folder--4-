@@ -1,9 +1,8 @@
 // Shared authoritative Command Aura rules.
 //
-// The legacy full rebuild and the incremental Phase 6D runtime both use these
-// helpers.  Keeping the balance, operational and deterministic-priority rules
-// here makes the optimized path a storage/invalidations refactor rather than a
-// second implementation of aura gameplay.
+// The authoritative runtime uses these helpers for balance, operational and
+// deterministic-priority rules so storage and invalidation changes cannot drift
+// from aura gameplay.
 
 "use strict";
 

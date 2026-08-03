@@ -2,12 +2,12 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const Flags = require("./src/server/performanceFlags");
 const RoomTelemetry = require("./src/server/roomTelemetry");
 const Drones = require("./src/server/drones");
 const DroneDecisionContext = require("./src/server/droneDecisionContext");
 const { updateBullets } = require("./src/server/projectiles");
 const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { ensureVisibilityRuntime, ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibilityRuntime");
 const HeatRules = require("./public/src/shared/heatRules");
 const { repairShipComponents } = require("./src/server/componentHealth");
 
@@ -172,9 +172,7 @@ function addProjectile(room, id, x, y, vx, ownerId = "blue") {
   return projectile;
 }
 
-function prepareOptimizedRoom(room, now = 1000) {
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(true);
-  Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
+function prepareCanonicalRoom(room, now = 1000) {
   buildRoomSpatialIndex(room, [...room.ships.values()], now);
   return room;
 }
@@ -222,14 +220,14 @@ function makeRoleRoom(type) {
     enemy.y = 500;
     parent.focusTargetId = enemy.id;
   }
-  return prepareOptimizedRoom(room);
+  return prepareCanonicalRoom(room);
 }
 
 function firstDrone(room) {
   return room.drones.get("d1");
 }
 
-function runOptimizedTick(room, now, dt = 1 / 30) {
+function runCanonicalTick(room, now, dt = 1 / 30) {
   room._simulationStep = (Number(room._simulationStep) || 0) + 1;
   RoomTelemetry.resetRoomTelemetry(room);
   Drones.updateDroneBays(room, [...room.ships.values()], dt, now);
@@ -242,9 +240,7 @@ function assertFiniteDrones(room, message) {
   }
 }
 
-assert.equal(Flags.OPTIMIZED_DRONE_RUNTIME(), false, "Phase 6B is disabled by default");
 assert.deepEqual(Drones.DRONE_DECISION_INTERVALS_MS, { defence: 120, fighter: 180, repair: 250 });
-Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
 
 {
   const room = makeRoom();
@@ -264,7 +260,6 @@ Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
   const ships = [...room.ships.values()];
   buildRoomSpatialIndex(room, ships, 1000);
   RoomTelemetry.resetRoomTelemetry(room);
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(true);
   Drones.updateDroneBays(room, ships, 1 / 30, 1000);
   const runtime = room._droneDecisionRuntime;
   assert.ok(runtime && runtime.contexts.size === 1, "two drones from one Bay share one decision context");
@@ -296,7 +291,6 @@ Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
   room.ships.set(replacement.id, replacement);
   room.stateEpoch = 2;
   assert.strictEqual(Drones._test.resolveCachedDroneTarget(room, first, 1030), replacement, "epoch changes cannot retain an old object reference");
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
 }
 
 for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS)) {
@@ -318,7 +312,7 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
     const now = 1000 + step * tickMs;
     const beforeX = first.x;
     const beforeY = first.y;
-    const telemetry = runOptimizedTick(room, now);
+    const telemetry = runCanonicalTick(room, now);
     if (telemetry.droneDecisionsRun > 0) decisionTimes.push(now);
     positions.push({ x: first.x, y: first.y });
     if (step === 1) {
@@ -338,10 +332,10 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   for (const drone of room.drones.values()) if (drone !== first) drone.nextDecisionAt = 1e9;
   first.nextDecisionAt = 1000;
   first.nextActionAt = 1000;
-  runOptimizedTick(room, 1000);
+  runCanonicalTick(room, 1000);
   const shotsBeforeDeferredTick = room.effects.filter((effect) => effect.type === "droneshot").length;
   first.nextActionAt = 1033;
-  const deferredTelemetry = runOptimizedTick(room, 1033);
+  const deferredTelemetry = runCanonicalTick(room, 1033);
   const shotsAfterDeferredTick = room.effects.filter((effect) => effect.type === "droneshot").length;
   assert.equal(deferredTelemetry.droneDecisionsRun, 0, "fighter weapon action test keeps the decision deferred");
   assert.ok(shotsAfterDeferredTick > shotsBeforeDeferredTick, "fighter weapon actions still run on a deferred-decision tick");
@@ -364,11 +358,11 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   for (const drone of room.drones.values()) if (drone !== first) drone.nextDecisionAt = 1e9;
   first.nextDecisionAt = 1000;
   first.nextActionAt = 1000;
-  runOptimizedTick(room, 1000);
+  runCanonicalTick(room, 1000);
   const repairsBeforeDeferredTick = room.effects.filter((effect) => effect.type === "dronerepair").length;
   const repairedBeforeDeferredTick = parent.componentHp[1];
   first.nextActionAt = 1033;
-  const deferredTelemetry = runOptimizedTick(room, 1033);
+  const deferredTelemetry = runCanonicalTick(room, 1033);
   const repairsAfterDeferredTick = room.effects.filter((effect) => effect.type === "dronerepair").length;
   assert.equal(deferredTelemetry.droneDecisionsRun, 0, "repair action test keeps the decision deferred");
   assert.ok(repairsAfterDeferredTick > repairsBeforeDeferredTick, "repair actions still run on a deferred-decision tick");
@@ -380,7 +374,7 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   const first = firstDrone(room);
   first.nextDecisionAt = 1000;
   first.fuelRemainingSeconds = 0.02;
-  runOptimizedTick(room, 1000, 0.05);
+  runCanonicalTick(room, 1000, 0.05);
   assert.ok(["returning", "docking"].includes(first.state), "fuel depletion enters return/docking state immediately");
   const bay = room.ships.get("carrier").droneBays[0];
   const state = Drones._test.buildBayFrameState(room, room.ships.get("carrier"), bay, 99, 1100, false);
@@ -390,9 +384,9 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   first.vy = 0;
   first.state = "returning";
   first.returnReason = "fuel";
-  runOptimizedTick(room, 1100);
+  runCanonicalTick(room, 1100);
   assert.equal(first.state, "refueling", "fuel return docks into the Bay");
-  runOptimizedTick(room, 3100);
+  runCanonicalTick(room, 3100);
   assert.equal(first.state, "launching", "refueling completes on the configured timer");
   assert.ok(first.fuelRemainingSeconds > 0, "refueling restores fuel");
 }
@@ -417,18 +411,18 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   const room = makeRoleRoom("fighter");
   const parent = room.ships.get("carrier");
   const first = firstDrone(room);
-  runOptimizedTick(room, 1000);
+  runCanonicalTick(room, 1000);
   parent.componentHp[0] = 0;
-  runOptimizedTick(room, 1033);
+  runCanonicalTick(room, 1033);
   assert.equal(first.state, "fallback", "Bay destruction puts a live drone in fallback");
   repairShipComponents(room, parent, 100, 1066);
-  runOptimizedTick(room, 1066);
+  runCanonicalTick(room, 1066);
   assert.equal(first.state, "active", "repairing the destroyed Bay resumes the drone");
   parent.componentPower.byComponentIndex[0].operationalMultiplier = 0;
-  runOptimizedTick(room, 1100);
+  runCanonicalTick(room, 1100);
   assert.equal(first.state, "fallback", "power loss keeps the Bay in fallback");
   parent.componentPower.byComponentIndex[0].operationalMultiplier = 1;
-  runOptimizedTick(room, 1133);
+  runCanonicalTick(room, 1133);
   assert.equal(first.state, "active", "power restoration resumes the drone");
   assert.ok(first.decisionInvalidated === false, "power restoration is handled by the immediate decision");
 }
@@ -441,11 +435,11 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   producing.state = "producing";
   producing.productionProgress = 0.25;
   parent.componentHeatState[0] = HeatRules.STATE.OVERHEATED;
-  runOptimizedTick(room, 1000);
+  runCanonicalTick(room, 1000);
   assert.equal(producing.pauseReason, "bay-overheated", "overheat pauses Bay production");
   const pausedProgress = producing.productionProgress;
   parent.componentHeatState[0] = HeatRules.STATE.NORMAL;
-  runOptimizedTick(room, 1033);
+  runCanonicalTick(room, 1033);
   assert.ok(producing.productionProgress > pausedProgress, "normal heat resumes Bay production");
 }
 
@@ -491,11 +485,11 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   const parent = room.ships.get("carrier");
   const enemy = room.ships.get("enemy");
   const first = firstDrone(room);
-  prepareOptimizedRoom(room);
-  runOptimizedTick(room, 1000);
+  prepareCanonicalRoom(room);
+  runCanonicalTick(room, 1000);
   parent.focusTargetId = null;
   first.nextDecisionAt = 1e9;
-  const telemetry = runOptimizedTick(room, 1033);
+  const telemetry = runCanonicalTick(room, 1033);
   assert.ok(telemetry.droneTargetsInvalidated > 0, "focus changes invalidate retained targets");
   assert.ok(telemetry.droneImmediateDecisions > 0, "focus changes trigger an immediate decision");
   assert.ok(first.targetId === enemy.id || first.targetId === null, "focus changes leave a valid or empty target");
@@ -506,26 +500,28 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   const first = firstDrone(room);
   const enemy = room.ships.get("enemy");
   room.rules.visibilityMode = "sensors";
-  room.visibilityByTeam = new Map([[
-    "a",
-    {
-      visibleEntityIds: new Set([enemy.id]),
-      nextVisibleEntityIds: new Set(),
-      remembered: new Map(),
-      coverage: [],
-      revision: 1,
-      computedAt: 1000,
-      computedGeneration: 1
-    }
-  ]]);
   room._visibilityGeneration = 1;
+  const visibilityRuntime = ensureVisibilityRuntime(room);
+  const visibilityState = ensureTeamVisibility(room, "a", 1000);
+  visibilityState.visibleEntityIds = new Set([enemy.id]);
+  visibilityState.nextVisibleEntityIds = new Set();
+  visibilityState.remembered = new Map();
+  visibilityState.coverage = [];
+  visibilityState.revision = 1;
+  visibilityState.computedAt = 1000;
+  visibilityState.computedGeneration = 1;
+  visibilityRuntime.allTeamsDirty = false;
+  visibilityRuntime.fullInvalidationGeneration = 0;
+  visibilityRuntime.dirtyTeams.delete("a");
+  visibilityRuntime.lastMaintenanceGeneration = 1;
+  visibilityRuntime.lastReconciledGeneration = 1;
   Drones._test.rememberDroneTarget(room, first, enemy);
   assert.strictEqual(Drones._test.resolveCachedDroneTarget(room, first, 1000), enemy, "visible targets remain valid");
-  const visibilityState = room.visibilityByTeam.get("a");
   visibilityState.visibleEntityIds = new Set();
   visibilityState.remembered = new Map([[enemy.id, { firstLostAt: 0, expiresAt: 0 }]]);
   enemy.x = 10000;
   room._visibilityGeneration = 2;
+  invalidateVisibility(room, "drone-visibility-loss");
   assert.equal(Drones._test.resolveCachedDroneTarget(room, first, 1033), null, "visibility loss invalidates the retained target");
   assert.equal(first.targetId, null);
 }
@@ -533,17 +529,17 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
 {
   const room = makeRoom();
   const first = firstDrone(room);
-  prepareOptimizedRoom(room);
-  runOptimizedTick(room, 1000);
+  prepareCanonicalRoom(room);
+  runCanonicalTick(room, 1000);
   const record = room.spatialIndex.recordsByEntity.drones.get(first);
-  assert.ok(record, "optimized runtime publishes drones into the spatial index");
+  assert.ok(record, "canonical runtime publishes drones into the spatial index");
   assert.ok(Math.abs(record.x - first.x) < 0.001 && Math.abs(record.y - first.y) < 0.001, "drone publication uses final post-separation coordinates");
 
   const fallbackRoom = makeRoom();
-  prepareOptimizedRoom(fallbackRoom);
+  prepareCanonicalRoom(fallbackRoom);
   fallbackRoom.spatialIndex.invalidateDynamic();
   RoomTelemetry.resetRoomTelemetry(fallbackRoom);
-  runOptimizedTick(fallbackRoom, 1000);
+  runCanonicalTick(fallbackRoom, 1000);
   assert.ok(fallbackRoom._roomTelemetry.droneContextFallbacks > 0, "invalid spatial state uses and labels a context fallback");
 
   Drones.resetDroneRuntime(room);
@@ -563,7 +559,6 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
     if (drone.id !== "d1") drone.nextDecisionAt = 1e9;
   }
   buildRoomSpatialIndex(room, ships, 1000);
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(true);
   let decisions = 0;
   let invalidations = 0;
   for (let step = 0; step < 6; step += 1) {
@@ -579,7 +574,6 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   assert.equal(decisions, 1, "focused target retention preserves the Fighter decision cadence");
   assert.equal(invalidations, 0, "focused target retention does not churn invalidation telemetry");
   assert.equal(room.drones.get("d1")._targetRuntime.entity, enemy);
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
 }
 
 {
@@ -591,7 +585,6 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
     drone.nextThinkAt = staggered[index];
   }
   buildRoomSpatialIndex(room, ships, 1000);
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(true);
   RoomTelemetry.resetRoomTelemetry(room);
   for (const [step, now] of [1000, 1066, 1100, 1133].entries()) {
     room._simulationStep = 50 + step;
@@ -601,7 +594,6 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   assert.ok(room._roomTelemetry.droneContextsBuilt < 4, "staggered drones reuse a context across simulation frames");
   assert.ok(room._roomTelemetry.droneContextHits >= 3, "cross-frame context reuse is observable");
   assert.equal(room._roomTelemetry.droneContextShipQueries, room._roomTelemetry.droneContextsBuilt);
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
 }
 
 {
@@ -637,6 +629,4 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   assert.ok(room._roomTelemetry.projectileDroneFullScanFallbacks > 0, "explicit no-index fixture is labelled as a diagnostic fallback");
 }
 
-Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
-Flags.__setINCREMENTAL_SPATIAL_INDEX(false);
 console.log("Phase 6B drone runtime verification passed");

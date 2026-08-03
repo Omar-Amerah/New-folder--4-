@@ -218,10 +218,14 @@ function testTeamVisibility() {
   room.rules.visibilityMode = "sensors";
   room.rules.infrastructureMode = "stations";
   room.spatialIndex = {
+    dynamicValid: true,
     queryRangeUnordered: (kind, x, y, r, out) => {
       out.length = 0;
-      for (const ship of room.ships.values()) {
-        if (ship.alive && Math.hypot((ship.x || 0) - x, (ship.y || 0) - y) <= r) out.push(ship);
+      const entities = kind === "ships"
+        ? room.ships.values()
+        : kind === "drones" ? room.drones.values() : room.stations;
+      for (const entity of entities) {
+        if (entity && Math.hypot((entity.x || 0) - x, (entity.y || 0) - y) <= r) out.push(entity);
       }
       return out;
     }
@@ -361,6 +365,7 @@ function testGenerationCache() {
   room.ships.set(target.id, target);
   let queries = 0;
   room.spatialIndex = {
+    dynamicValid: true,
     queryRangeUnordered(_kind, _x, _y, _range, out) {
       queries += 1;
       out.length = 0;
@@ -373,15 +378,15 @@ function testGenerationCache() {
   assert(canTeamTargetEntity(room, "blue", target, 10));
   assert(canTeamTargetEntity(room, "blue", target, 10.125));
   assert(canTeamTargetEntity(room, "blue", target, 10.75));
-  assert.strictEqual(queries, 1, "fractional timestamps reuse one visibility generation");
+  assert.strictEqual(room._visibilityComputeCount, 1, "fractional timestamps reuse one visibility generation");
   invalidateVisibility(room, "moved");
   source.focusTargetId = target.id;
   source.combatTargetId = target.id;
   assert.strictEqual(dropHiddenTargetLocksForShips(room, [source], 11), 0,
     "visible target-lock validation preserves the contact");
-  assert.strictEqual(queries, 2, "target-lock validation computes the new team generation once");
+  assert.strictEqual(room._visibilityComputeCount, 2, "target-lock validation computes the new team generation once");
   assert(canTeamTargetEntity(room, "blue", target, 11));
-  assert.strictEqual(queries, 2, "combat reuses the generation computed by target-lock validation");
+  assert.strictEqual(room._visibilityComputeCount, 2, "combat reuses the generation computed by target-lock validation");
 }
 
 function testClassicRelayAndDestroyedStation() {

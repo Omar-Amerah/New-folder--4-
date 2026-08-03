@@ -78,8 +78,6 @@ function buildThermalTopology(design = []) {
   const edgeRouteMultiplier = [];
   const edgeThroughFrame = [];
   const incident = Array.from({ length: componentCount }, () => []);
-  const componentAdjacency = Array.from({ length: componentCount }, () => []);
-
   for (let edgeId = 0; edgeId < edges.length; edgeId += 1) {
     const edge = edges[edgeId];
     edgeA.push(edge.a);
@@ -92,35 +90,28 @@ function buildThermalTopology(design = []) {
     incident[edge.b].push(edgeId);
   }
 
-  // Keep the compatibility adjacency in the same per-component insertion
-  // order as the former Heat initializer.  The packed incident-edge arrays
-  // below remain canonical edge-ID order for Phase 6A; this view only exists
-  // for legacy transfer ordering and established diagnostics.
+  // Preserve the accepted transfer accumulation order as immutable topology
+  // metadata. It is built once from the deterministic design-cell traversal;
+  // the runtime solver consumes the packed order without rebuilding adjacency.
   const edgeIdByPair = new Map();
   for (let edgeId = 0; edgeId < edges.length; edgeId += 1) {
     const edge = edges[edgeId];
     edgeIdByPair.set(`${edge.a},${edge.b}`, edgeId);
   }
+  const transferOrder = [];
+  const transferRank = new Array(edges.length).fill(-1);
   for (let i = 0; i < componentCount; i += 1) {
     for (const [neighbour] of edgeCounts[i]) {
       const a = Math.min(i, neighbour);
       const b = Math.max(i, neighbour);
       const edgeId = edgeIdByPair.get(`${a},${b}`);
-      const edge = Number.isInteger(edgeId) ? edges[edgeId] : null;
-      const fallbackA = HeatRules.profile(design[i]?.type, PARTS[design[i]?.type] || PARTS.frame);
-      const fallbackB = HeatRules.profile(design[neighbour]?.type, PARTS[design[neighbour]?.type] || PARTS.frame);
-      componentAdjacency[i].push({
-        index: neighbour,
-        sharedEdges: edge?.sharedEdges ?? edgeCounts[i].get(neighbour) ?? 0,
-        conductivity: edge?.baseConductivity ?? HeatRules.edgeConductivity(fallbackA, fallbackB),
-        edgeId: Number.isInteger(edgeId) ? edgeId : -1
-      });
+      if (neighbour <= i || !Number.isInteger(edgeId)) continue;
+      transferRank[edgeId] = transferOrder.length;
+      transferOrder.push(edgeId);
     }
   }
 
   const incidentEdgeOffsets = new Array(componentCount + 1).fill(0);
-  const legacyTransferOrder = [];
-  const legacyTransferRank = new Array(edges.length).fill(-1);
   for (let i = 0; i < componentCount; i += 1) incidentEdgeOffsets[i + 1] = incidentEdgeOffsets[i] + incident[i].length;
   const incidentEdgeIds = new Array(incidentEdgeOffsets[componentCount]);
   for (let i = 0; i < componentCount; i += 1) {
@@ -129,19 +120,6 @@ function buildThermalTopology(design = []) {
     incident[i].sort((a, b) => a - b);
     for (let offset = 0; offset < incident[i].length; offset += 1) {
       incidentEdgeIds[incidentEdgeOffsets[i] + offset] = incident[i][offset];
-    }
-    componentAdjacency[i] = componentAdjacency[i].map((edge) => Object.freeze(edge));
-    Object.freeze(componentAdjacency[i]);
-
-    // The legacy solver walks component indices in ascending order and then
-    // walks this compatibility adjacency in its original insertion order.
-    // Only the lower endpoint processes a unique edge (`j > i`).  Preserve
-    // that exact edge sequence so the allocation-free solver has the same
-    // floating-point accumulation order without scanning the whole graph.
-    for (const edge of componentAdjacency[i]) {
-      if (edge.index <= i || edge.edgeId < 0) continue;
-      legacyTransferRank[edge.edgeId] = legacyTransferOrder.length;
-      legacyTransferOrder.push(edge.edgeId);
     }
   }
 
@@ -169,16 +147,15 @@ function buildThermalTopology(design = []) {
     edgeBaseConductivity,
     edgeRouteMultiplier,
     edgeThroughFrame,
-    legacyTransferOrder,
-    legacyTransferRank,
+    transferOrder,
+    transferRank,
     incidentEdgeOffsets,
     incidentEdgeIds,
     powerSourceIndices,
     dataSourceIndices,
     radiatorIndices,
     heatSinkIndices,
-    thermalRouteIndices,
-    componentAdjacency
+    thermalRouteIndices
   });
 }
 
@@ -187,80 +164,28 @@ function topologyMetrics() {
 }
 
 function createComponentAdjacency(topology) {
-  return topology.componentAdjacency.map((edges) => edges.map((edge) => ({
-    index: edge.index,
-    sharedEdges: edge.sharedEdges,
-    conductivity: edge.conductivity,
-    edgeId: edge.edgeId
-  })));
-}
-
-// The old Heat implementation exposed a mutable per-ship adjacency view and a
-// few diagnostics/tests still use that contract.  Keep the view available, but
-// do not pay for a clone on every optimized ship.  The accessor materializes a
-// compatibility copy only when a legacy loop or an explicit diagnostic asks
-// for it.  The immutable topology remains the normal optimized source.
-function installLazyComponentAdjacency(ship, topology) {
-  if (!ship || !topology) return ship;
-  const existingDescriptor = Object.getOwnPropertyDescriptor(ship, "componentAdjacency");
-  if (existingDescriptor?.get?.__thermalLazyAdjacency && ship._componentAdjacencyTopology === topology) return ship;
-
-  let materialized = ship._componentAdjacencyTopology === topology
-    ? (ship._componentAdjacencyValue || null)
-    : null;
-  if (!materialized && existingDescriptor && !existingDescriptor.get && Array.isArray(existingDescriptor.value)) {
-    materialized = existingDescriptor.value;
-  }
-
-  Object.defineProperty(ship, "_componentAdjacencyValue", {
-    configurable: true,
-    enumerable: false,
-    writable: true,
-    value: materialized
-  });
-  Object.defineProperty(ship, "_componentAdjacencyTopology", {
-    configurable: true,
-    enumerable: false,
-    writable: true,
-    value: topology
-  });
-
-  const getter = function getComponentAdjacency() {
-    if (!materialized) materialized = createComponentAdjacency(topology);
-    ship._componentAdjacencyValue = materialized;
-    return materialized;
-  };
-  getter.__thermalLazyAdjacency = true;
-  Object.defineProperty(ship, "componentAdjacency", {
-    configurable: true,
-    enumerable: true,
-    get: getter,
-    set(value) {
-      materialized = value;
-      ship._componentAdjacencyValue = value;
+  const adjacency = Array.from({ length: topology.componentCount }, () => []);
+  for (let index = 0; index < topology.componentCount; index += 1) {
+    const start = topology.incidentEdgeOffsets[index];
+    const end = topology.incidentEdgeOffsets[index + 1];
+    for (let offset = start; offset < end; offset += 1) {
+      const edgeId = topology.incidentEdgeIds[offset];
+      const neighbour = topology.edgeA[edgeId] === index ? topology.edgeB[edgeId] : topology.edgeA[edgeId];
+      adjacency[index].push({
+        index: neighbour,
+        sharedEdges: topology.edgeSharedEdges[edgeId],
+        conductivity: topology.edgeBaseConductivity[edgeId],
+        edgeId
+      });
     }
-  });
-  return ship;
-}
-
-function ensureComponentAdjacency(ship) {
-  if (!ship) return null;
-  const topology = ship.thermalTopology || buildThermalTopology(ship.design || []);
-  ship.thermalTopology = topology;
-  installLazyComponentAdjacency(ship, topology);
-  return ship.componentAdjacency;
-}
-
-function getMaterializedComponentAdjacency(ship) {
-  return ship?._componentAdjacencyValue || null;
+    Object.freeze(adjacency[index]);
+  }
+  return adjacency;
 }
 
 module.exports = {
   buildThermalTopology,
   createComponentAdjacency,
-  ensureComponentAdjacency,
-  getMaterializedComponentAdjacency,
-  installLazyComponentAdjacency,
   isThermalRouteType,
   topologyMetrics
 };

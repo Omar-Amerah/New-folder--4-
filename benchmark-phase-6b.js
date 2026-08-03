@@ -6,7 +6,6 @@ const path = require("node:path");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { performance } = require("node:perf_hooks");
-const Flags = require("./src/server/performanceFlags");
 const RoomTelemetry = require("./src/server/roomTelemetry");
 const { updateDroneBays, CONFIG: DRONE_CONFIG } = require("./src/server/drones");
 const { updateBullets } = require("./src/server/projectiles");
@@ -239,9 +238,7 @@ function contextMetricsFromCounters(counters) {
   };
 }
 
-function runMode(droneCount, projectileCount, shape, optimized, seed, options = {}) {
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(optimized);
-  Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
+function runCanonicalMode(droneCount, projectileCount, shape, seed, options = {}) {
   const roomData = fixture(droneCount, projectileCount, shape, seed);
   const { room, ships } = roomData;
   const stages = { runtime: [], decision: [], movement: [], separation: [], context: [], projectileBroadPhase: [], projectileNarrowPhase: [] };
@@ -288,7 +285,7 @@ function runMode(droneCount, projectileCount, shape, optimized, seed, options = 
   const contextMetrics = contextMetricsFromCounters(totals);
   const contextLookups = (totals.contextsBuilt || 0) + (totals.contextHits || 0);
   return {
-    mode: optimized ? "optimized" : "legacy",
+    mode: "canonical",
     measuredSamples: samples,
     warmupSamples: sampleWarmups,
     completeDroneStage: summary(stages.runtime),
@@ -380,9 +377,7 @@ function semanticFixture(type, seed = 19) {
   return roomData;
 }
 
-function runSemanticMode(type, optimized) {
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(optimized);
-  Flags.__setINCREMENTAL_SPATIAL_INDEX(true);
+function runSemanticMode(type) {
   const { room, ships } = semanticFixture(type);
   let now = 1000;
   for (let step = 0; step < 12; step += 1) {
@@ -417,41 +412,41 @@ function runSemanticMode(type, optimized) {
 function runSemanticAcceptance() {
   const checks = [];
   for (const type of ["fighter", "destruction", "defence", "repair"]) {
-    const legacy = runSemanticMode(type, false);
-    const optimized = runSemanticMode(type, true);
+    const canonical = runSemanticMode(type);
+    const repeat = runSemanticMode(type);
     const parity = {
-      targetKinds: legacy.targetKinds,
-      targetIds: legacy.targetIds,
-      shots: legacy.shots,
-      repairs: legacy.repairs,
-      fuel: legacy.fuel,
-      states: legacy.states,
-      destroyedIds: legacy.destroyedIds,
-      collisionHits: legacy.collisionHits,
-      hulls: legacy.hulls
+      targetKinds: canonical.targetKinds,
+      targetIds: canonical.targetIds,
+      shots: canonical.shots,
+      repairs: canonical.repairs,
+      fuel: canonical.fuel,
+      states: canonical.states,
+      destroyedIds: canonical.destroyedIds,
+      collisionHits: canonical.collisionHits,
+      hulls: canonical.hulls
     };
-    const optimizedParity = {
-      targetKinds: optimized.targetKinds,
-      targetIds: optimized.targetIds,
-      shots: optimized.shots,
-      repairs: optimized.repairs,
-      fuel: optimized.fuel,
-      states: optimized.states,
-      destroyedIds: optimized.destroyedIds,
-      collisionHits: optimized.collisionHits,
-      hulls: optimized.hulls
+    const repeatParity = {
+      targetKinds: repeat.targetKinds,
+      targetIds: repeat.targetIds,
+      shots: repeat.shots,
+      repairs: repeat.repairs,
+      fuel: repeat.fuel,
+      states: repeat.states,
+      destroyedIds: repeat.destroyedIds,
+      collisionHits: repeat.collisionHits,
+      hulls: repeat.hulls
     };
-    assert.deepEqual(optimizedParity, parity, `${type} semantic parity`);
-    assert.equal(legacy.finite && optimized.finite, true, `${type} has no non-finite state`);
-    assert.equal(legacy.targetsPermitted && optimized.targetsPermitted, true, `${type} targets remain permitted`);
-    if (type === "fighter") assert.ok(optimized.shots > 0, "fighter semantic fixture exercises attacks");
+    assert.deepEqual(repeatParity, parity, `${type} deterministic semantic parity`);
+    assert.equal(canonical.finite && repeat.finite, true, `${type} has no non-finite state`);
+    assert.equal(canonical.targetsPermitted && repeat.targetsPermitted, true, `${type} targets remain permitted`);
+    if (type === "fighter") assert.ok(canonical.shots > 0, "fighter semantic fixture exercises attacks");
     if (type === "destruction") {
-      assert.ok(optimized.shots > 0, "destruction semantic fixture exercises attacks");
-      assert.ok(optimized.destroyedIds.includes("benchmark-enemy"), "destruction semantic fixture exercises destruction");
+      assert.ok(canonical.shots > 0, "destruction semantic fixture exercises attacks");
+      assert.ok(canonical.destroyedIds.includes("benchmark-enemy"), "destruction semantic fixture exercises destruction");
     }
-    if (type === "defence") assert.ok(optimized.targetKinds.includes("projectile"), "defence semantic fixture exercises missile-first targeting");
-    if (type === "repair") assert.ok(optimized.repairs > 0, "repair semantic fixture exercises repairs");
-    checks.push({ type, legacy, optimized, parity: true });
+    if (type === "defence") assert.ok(canonical.targetKinds.includes("projectile"), "defence semantic fixture exercises missile-first targeting");
+    if (type === "repair") assert.ok(canonical.repairs > 0, "repair semantic fixture exercises repairs");
+    checks.push({ type, canonical, repeat, parity: true });
   }
   return checks;
 }
@@ -462,10 +457,8 @@ function buildBenchmarkSet(processProfile, independentIndex) {
   for (const fixtureDefinition of FIXTURES) {
     const { name, drones, projectiles, shape, diagnostic = false, primary = false } = fixtureDefinition;
     const runOptions = { warmups: profileWarmups, profile: processProfile, runIndex: independentIndex };
-    const legacy = runMode(drones, projectiles, shape, false, 7, runOptions);
-    const optimized = runMode(drones, projectiles, shape, true, 7, runOptions);
-    const legacyRepeat = runMode(drones, projectiles, shape, false, 7, runOptions);
-    const optimizedRepeat = runMode(drones, projectiles, shape, true, 7, runOptions);
+    const canonical = runCanonicalMode(drones, projectiles, shape, 7, runOptions);
+    const repeat = runCanonicalMode(drones, projectiles, shape, 7, runOptions);
     fixtureResults.push({
       scenario: name,
       drones,
@@ -473,14 +466,9 @@ function buildBenchmarkSet(processProfile, independentIndex) {
       shape,
       diagnostic,
       primary,
-      legacy,
-      optimized,
-      deterministicChecksum: legacy.outcomeChecksum === legacyRepeat.outcomeChecksum
-        && optimized.outcomeChecksum === optimizedRepeat.outcomeChecksum,
-      legacyOptimizedChecksumEqual: legacy.outcomeChecksum === optimized.outcomeChecksum,
-      legacyOptimizedChecksumExplanation: legacy.outcomeChecksum === optimized.outcomeChecksum
-        ? "Legacy and optimized positions matched for this fixture."
-        : "Informational difference: optimized role-specific decision cadence can change exact intermediate positions; semantic parity is enforced separately."
+      canonical,
+      repeat,
+      deterministicChecksum: canonical.outcomeChecksum === repeat.outcomeChecksum
     });
   }
   const semanticChecks = runSemanticAcceptance();
@@ -490,9 +478,8 @@ function buildBenchmarkSet(processProfile, independentIndex) {
     warmupSamples: profileWarmups,
     measuredSamples: samples,
     fixtures: fixtureResults,
-    allIndexedFallbacksZero: fixtureResults.every((fixture) => fixture.optimized.fullScanFallbacks === 0),
+    allIndexedFallbacksZero: fixtureResults.every((fixture) => fixture.canonical.fullScanFallbacks === 0),
     allChecksummed: fixtureResults.every((fixture) => fixture.deterministicChecksum),
-    legacyOptimizedChecksumsEqual: fixtureResults.every((fixture) => fixture.legacyOptimizedChecksumEqual),
     semanticChecks,
     allSemanticContracts: semanticChecks.every((check) => check.parity)
   };
@@ -569,8 +556,7 @@ function aggregateFixtures(runSets) {
     const matching = runSets
       .map((runSet) => runSet.fixtures.find((fixture) => fixture.scenario === definition.name))
       .filter(Boolean);
-    const legacy = aggregateModeResults(matching.map((fixture) => fixture.legacy));
-    const optimized = aggregateModeResults(matching.map((fixture) => fixture.optimized));
+    const canonical = aggregateModeResults(matching.map((fixture) => fixture.canonical));
     return {
       scenario: definition.name,
       drones: definition.drones,
@@ -578,15 +564,9 @@ function aggregateFixtures(runSets) {
       shape: definition.shape,
       diagnostic: Boolean(definition.diagnostic),
       primary: Boolean(definition.primary),
-      legacy,
-      optimized,
+      canonical,
       deterministicChecksum: matching.every((fixture) => fixture.deterministicChecksum)
-        && legacy.deterministicAcrossRuns
-        && optimized.deterministicAcrossRuns,
-      legacyOptimizedChecksumEqual: matching.every((fixture) => fixture.legacyOptimizedChecksumEqual),
-      legacyOptimizedChecksumExplanation: matching.every((fixture) => fixture.legacyOptimizedChecksumEqual)
-        ? "Legacy and optimized positions matched for this fixture."
-        : "Informational difference: optimized role-specific decision cadence can change exact intermediate positions; semantic parity is enforced separately."
+        && canonical.deterministicAcrossRuns
     };
   });
 }
@@ -607,10 +587,8 @@ function summarizeIndependentRun(runSet) {
     allSemanticContracts: runSet.allSemanticContracts,
     fixtures: runSet.fixtures.map((fixture) => ({
       scenario: fixture.scenario,
-      legacy: publicModeResult(fixture.legacy),
-      optimized: publicModeResult(fixture.optimized),
-      deterministicChecksum: fixture.deterministicChecksum,
-      legacyOptimizedChecksumEqual: fixture.legacyOptimizedChecksumEqual
+      canonical: publicModeResult(fixture.canonical),
+      deterministicChecksum: fixture.deterministicChecksum
     }))
   };
 }
@@ -643,8 +621,6 @@ function main() {
   if (isSingleRun) {
     const result = buildBenchmarkSet(profile, runIndex);
     assertBenchmarkSet(result);
-    Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
-    Flags.__setINCREMENTAL_SPATIAL_INDEX(false);
     console.log(`${CHILD_RESULT_MARKER}${JSON.stringify(result)}`);
     return;
   }
@@ -694,20 +670,18 @@ function main() {
         warmedProcess: `separate Node child process with ${warmups} warmup samples before measurement`
       },
       contextAccounting: "Context candidate count is the returned hostile ship/drone/projectile superset per build. Individual-query candidate work is a conservative estimate of that superset inspected once per active member; avoided counts are estimates, not extra queries.",
-      legacyOptimizedChecksumPolicy: "Exact legacy/optimized position checksums are informational because role-specific optimized cadences intentionally differ; deterministic repeat checksums and semantic parity are mandatory."
+      deterministicChecksumPolicy: "Canonical runtime checksums must repeat exactly for identical fixtures and seeds."
     },
     claimReady: mode === "full" && samples >= 30 && independentRunCount >= 3 && compareProcesses,
     architecture: {
-      optimizedFlag: "OPTIMIZED_DRONE_RUNTIME",
-      legacyPathRetained: true,
-      phase7Action: "Consolidate the legacy and optimized drone update paths after runtime parity and benchmark acceptance."
+      canonicalRuntimeOnly: true,
+      phase7Action: "Canonical drone update and projectile broad-phase paths are the only measured runtime."
     },
     fixtures,
     processProfiles: profileReports,
     independentRuns: runSets.map(summarizeIndependentRun),
     allIndexedFallbacksZero: runSets.every((runSet) => runSet.allIndexedFallbacksZero),
     allChecksummed: runSets.every((runSet) => runSet.allChecksummed),
-    legacyOptimizedChecksumsEqual: runSets.every((runSet) => runSet.legacyOptimizedChecksumsEqual),
     semanticChecks,
     allSemanticContracts: runSets.every((runSet) => runSet.allSemanticContracts),
     primaryDefenceScenarios,
@@ -719,8 +693,6 @@ function main() {
   assert.ok(output.primaryDefenceScenarios.includes("defence-grouped"), "Grouped Defence fixture is required in the primary benchmark set");
   assert.ok(output.primaryDefenceScenarios.includes("defence-valid-dispersed"), "Valid dispersed Defence fixture is required in the primary benchmark set");
   assert.ok(!output.primaryDefenceScenarios.includes("defence-outside-command-range"), "Outside-command-range Defence fixture must remain diagnostic");
-  Flags.__setOPTIMIZED_DRONE_RUNTIME(false);
-  Flags.__setINCREMENTAL_SPATIAL_INDEX(false);
   fs.mkdirSync(path.dirname(ARTIFACT), { recursive: true });
   fs.writeFileSync(ARTIFACT, `${JSON.stringify(output, null, 2)}\n`);
   console.log(JSON.stringify({
@@ -735,7 +707,7 @@ function main() {
     allIndexedFallbacksZero: output.allIndexedFallbacksZero,
     allChecksummed: output.allChecksummed,
     allSemanticContracts: output.allSemanticContracts,
-    legacyOptimizedChecksumsEqual: output.legacyOptimizedChecksumsEqual
+    deterministicChecksums: output.allChecksummed
   }, null, 2));
 }
 

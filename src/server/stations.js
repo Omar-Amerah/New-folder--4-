@@ -26,7 +26,6 @@ const TurretRules = require("../../public/src/shared/turretRules");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { computeStationShieldCollisionRadius } = require("./stationCollision");
 const { stationBroadPhaseRadius } = require("./spatialIndex");
-const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { bump, recordDuration, detailedProfileActive } = require("./roomTelemetry");
 
 const {
@@ -154,9 +153,11 @@ function stationOverlapsCircle(station, x, y, radius) {
 
 function resolveStationCollision(room, ship, shipRadius, onContact = null) {
   if (!room?.stations?.length) return false;
+  const staticContactEpsilon = 0.5;
   const shipX = ship.x || 0;
   const shipY = ship.y || 0;
   let hit = false;
+  const contacts = [];
   for (let stationIndex = 0; stationIndex < room.stations.length; stationIndex += 1) {
     const station = room.stations[stationIndex];
     if (!station?.collisionPieces?.length) continue;
@@ -214,8 +215,8 @@ function resolveStationCollision(room, ship, shipRadius, onContact = null) {
         else { nx = 0; ny = 1; }
       } else {
         const dist = Math.sqrt(dist2);
-        if (dist >= circleRadius) continue;
-        penetration = circleRadius - dist;
+        if (dist > circleRadius + staticContactEpsilon) continue;
+        penetration = Math.max(0, circleRadius - dist);
         const inv = 1 / dist;
         nx = lx * inv;
         ny = ly * inv;
@@ -223,30 +224,65 @@ function resolveStationCollision(room, ship, shipRadius, onContact = null) {
       const worldCos = piece.cos !== undefined ? piece.cos : Math.cos(piece.angle);
       const worldSin = piece.sin !== undefined ? piece.sin : Math.sin(piece.angle);
       const worldN = rotatePoint(nx, ny, worldCos, worldSin);
-      const correctionX = worldN.x * penetration;
-      const correctionY = worldN.y * penetration;
-      ship.x += correctionX;
-      ship.y += correctionY;
-      circle.x += correctionX;
-      circle.y += correctionY;
-      ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + correctionX;
-      ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + correctionY;
       const inwardSpeed = (ship.vx || 0) * worldN.x + (ship.vy || 0) * worldN.y;
       if (inwardSpeed < 0) {
         ship.vx -= inwardSpeed * worldN.x;
         ship.vy -= inwardSpeed * worldN.y;
       }
-      if (typeof onContact === "function") {
-        onContact({
-          obstacleId: `station:${String(station.id ?? stationIndex)}:${String(piece.id ?? pieceIndex)}`,
-          normalX: worldN.x,
-          normalY: worldN.y,
-          penetration
-        });
-      }
+      contacts.push({
+        obstacleId: `station:${String(station.id ?? stationIndex)}:${String(piece.id ?? pieceIndex)}`,
+        normalX: worldN.x,
+        normalY: worldN.y,
+        penetration
+      });
       hit = true;
       }
     }
+  }
+
+  // A compound ship can expose many hull cells to the same station wall. The
+  // old loop translated the ship once per cell, so three touching cells could
+  // turn one shallow wall contact into three sequential displacements. Keep
+  // the deepest contact for aligned normals, and combine only independent
+  // directions such as a genuine corner contact. Opposing normals are
+  // incompatible (the hull is trapped between faces), so retain the deepest
+  // side and let the next authoritative step continue the recovery.
+  const normalGroups = [];
+  for (const contact of contacts) {
+    if (!(Number(contact.penetration) > 0)) continue;
+    const nx = Number(contact.normalX) || 0;
+    const ny = Number(contact.normalY) || 0;
+    const group = normalGroups.find((candidate) => (
+      candidate.normalX * nx + candidate.normalY * ny >= 0.98
+    ));
+    if (!group) {
+      normalGroups.push({ ...contact, normalX: nx, normalY: ny });
+    } else if (contact.penetration > group.penetration) {
+      group.penetration = contact.penetration;
+    }
+  }
+  normalGroups.sort((a, b) => b.penetration - a.penetration);
+  let correctionX = 0;
+  let correctionY = 0;
+  for (const group of normalGroups) {
+    const candidateX = group.normalX * group.penetration;
+    const candidateY = group.normalY * group.penetration;
+    const existingLength = Math.hypot(correctionX, correctionY);
+    const candidateLength = Math.hypot(candidateX, candidateY);
+    if (existingLength > 0.001
+      && correctionX * candidateX + correctionY * candidateY
+        < -0.25 * existingLength * candidateLength) continue;
+    correctionX += candidateX;
+    correctionY += candidateY;
+  }
+  if (correctionX !== 0 || correctionY !== 0) {
+    ship.x += correctionX;
+    ship.y += correctionY;
+    ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + correctionX;
+    ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + correctionY;
+  }
+  if (typeof onContact === "function") {
+    for (const contact of contacts) onContact(contact);
   }
   return hit;
 }
@@ -683,6 +719,8 @@ function spawnQueuedShip(room, station, queueItem, now) {
   // manoeuvre or shoot through the structure it is still inside.
   ship.launchPhase = {
     stationId: station.id,
+    originX: station.x,
+    originY: station.y,
     bayIndex: hangar.index,
     startedAt: now,
     angle: launchAngle,
@@ -817,6 +855,238 @@ function moveLaunchBlockers(room, station, hangar, ship, phase, along, now) {
   }
 }
 
+function finiteLaunchNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function launchNormalFor(station, phase) {
+  const phaseX = finiteLaunchNumber(phase?.normal?.x);
+  const phaseY = finiteLaunchNumber(phase?.normal?.y);
+  const phaseLength = Math.hypot(phaseX || 0, phaseY || 0);
+  if (phaseLength > 0.0001) {
+    return { x: phaseX / phaseLength, y: phaseY / phaseLength };
+  }
+  const angle = finiteLaunchNumber(phase?.angle);
+  const fallbackAngle = angle === null ? (finiteLaunchNumber(station?.angle) || 0) : angle;
+  return { x: Math.cos(fallbackAngle), y: Math.sin(fallbackAngle) };
+}
+
+// A station can be rebuilt while a hull is between the rear bulkhead and the
+// release plane. Prefer the current id, but recognize a replacement at the
+// recorded origin as the same physical launch authority. This keeps a station
+// recreation from turning a live launch into an orphan.
+function stationForLaunchPhase(room, phase) {
+  const stations = Array.isArray(room?.stations) ? room.stations : [];
+  const exact = stations.find((station) => (
+    station?.id === phase?.stationId && station.stationType === "home"
+  ));
+  if (exact?.hangars?.length) return exact;
+
+  const originX = finiteLaunchNumber(phase?.originX);
+  const originY = finiteLaunchNumber(phase?.originY);
+  if (originX !== null && originY !== null) {
+    let closest = null;
+    let closestDistance = Infinity;
+    for (const station of stations) {
+      if (station?.stationType !== "home" || !station.hangars?.length) continue;
+      const distance = Math.hypot(station.x - originX, station.y - originY);
+      if (distance < closestDistance) {
+        closest = station;
+        closestDistance = distance;
+      }
+    }
+    if (closest && closestDistance <= 4) return closest;
+  }
+  return exact || null;
+}
+
+function normalizeLaunchPhase(station, hangar, phase) {
+  const normal = launchNormalFor(station, phase);
+  const angle = Math.atan2(normal.y, normal.x);
+  const defaultStartAlong = Number(hangar?.corridor?.rearWallX) + Number(hangar?.corridor?.length) / 2;
+  const defaultReleaseDistance = Number(hangar?.releaseDistance);
+  const phaseStart = finiteLaunchNumber(phase.startAlong);
+  const phaseRelease = finiteLaunchNumber(phase.releaseDistance);
+  const startAlong = phaseStart === null || !Number.isFinite(defaultStartAlong)
+    ? defaultStartAlong
+    : phaseStart;
+  const releaseDistance = phaseRelease === null || !Number.isFinite(defaultReleaseDistance)
+    ? defaultReleaseDistance
+    : Math.max(phaseRelease, defaultReleaseDistance);
+  const currentAlong = finiteLaunchNumber(phase.along);
+  const originX = finiteLaunchNumber(phase.originX);
+  const originY = finiteLaunchNumber(phase.originY);
+
+  phase.stationId = station.id;
+  phase.angle = angle;
+  phase.normal = normal;
+  phase.centreY = finiteLaunchNumber(phase.centreY) === null
+    ? Number(hangar?.centreY) || 0
+    : Number(phase.centreY);
+  phase.originX = originX === null ? station.x : originX;
+  phase.originY = originY === null ? station.y : originY;
+  phase.startAlong = startAlong;
+  phase.releaseDistance = releaseDistance;
+  phase.along = currentAlong === null ? startAlong : Math.max(startAlong, currentAlong);
+  phase.rearExtent = Math.max(HULL_CELL_PADDING, finiteLaunchNumber(phase.rearExtent) || 0);
+  phase.lateralExtent = Math.max(
+    HULL_CELL_PADDING,
+    finiteLaunchNumber(phase.lateralExtent) || Number(phase.physicalRadius) || 0
+  );
+  return { normal, startAlong, releaseDistance };
+}
+
+function launchRecordFor(station, ship, phase, hangar) {
+  const startAlong = finiteLaunchNumber(phase.startAlong) || 0;
+  const releaseDistance = finiteLaunchNumber(phase.releaseDistance) || startAlong;
+  const along = Math.max(startAlong, finiteLaunchNumber(phase.along) || startAlong);
+  return {
+    shipId: ship.id,
+    bayIndex: hangar.index,
+    bayId: hangar.id,
+    releasedAt: null,
+    releasePlane: { ...hangar.releasePlane },
+    progress: clampNumber((along - startAlong) / Math.max(1, releaseDistance - startAlong), 0, 1),
+    doorOpen: true
+  };
+}
+
+function removeLaunchRecordsForShip(room, shipId, keepStation = null, keepLaunch = null) {
+  for (const station of room?.stations || []) {
+    if (!Array.isArray(station?.activeLaunches)) continue;
+    for (let i = station.activeLaunches.length - 1; i >= 0; i -= 1) {
+      const launch = station.activeLaunches[i];
+      if (launch?.shipId !== shipId) continue;
+      if (station === keepStation && launch === keepLaunch) continue;
+      releaseLaunch(station, shipId);
+      station.activeLaunches.splice(i, 1);
+    }
+  }
+}
+
+// Recovering means moving the hull's centre to a point where its rear extent
+// is outside the mouth, then releasing the launch lock. Clearing only
+// launchPhase is unsafe: the ordinary movement controller deliberately ignores
+// a ship while that field exists, so every recovery path must clear the field
+// and place the hull somewhere the normal collision pass can actually use.
+function recoverLaunchPhase(room, ship, phase, station = null, hangar = null, now = 0, reason = "orphan") {
+  if (!ship?.launchPhase || !phase) return;
+  const normal = launchNormalFor(station, phase);
+  const lateral = { x: -normal.y, y: normal.x };
+  const physicalRadius = Number(phase.physicalRadius) || Number(ship.physicalRadius) || Number(ship.radius) || 26;
+  const originX = finiteLaunchNumber(phase.originX);
+  const originY = finiteLaunchNumber(phase.originY);
+  const fallbackOriginX = originX === null ? finiteLaunchNumber(station?.x) : originX;
+  const fallbackOriginY = originY === null ? finiteLaunchNumber(station?.y) : originY;
+  let releaseDistance = finiteLaunchNumber(phase.releaseDistance);
+  if (hangar && Number.isFinite(Number(hangar.releaseDistance))) {
+    releaseDistance = releaseDistance === null
+      ? Number(hangar.releaseDistance)
+      : Math.max(releaseDistance, Number(hangar.releaseDistance));
+  }
+  if (releaseDistance === null && station) {
+    releaseDistance = Math.max(Number(station.radius) || 0, physicalRadius * 2);
+  }
+  const centreY = finiteLaunchNumber(phase.centreY) || Number(hangar?.centreY) || 0;
+
+  if (fallbackOriginX !== null && fallbackOriginY !== null && releaseDistance !== null) {
+    const currentAlong = (ship.x - fallbackOriginX) * normal.x + (ship.y - fallbackOriginY) * normal.y;
+    const targetAlong = Math.max(releaseDistance, Number.isFinite(currentAlong) ? currentAlong : releaseDistance);
+    ship.x = fallbackOriginX + normal.x * targetAlong + lateral.x * centreY;
+    ship.y = fallbackOriginY + normal.y * targetAlong + lateral.y * centreY;
+  }
+
+  const launchSpeed = INFRASTRUCTURE.homeStation.launchSpeed;
+  ship.angle = Math.atan2(normal.y, normal.x);
+  ship.vx = normal.x * launchSpeed;
+  ship.vy = normal.y * launchSpeed;
+  ship.launchPhase = null;
+  ship._integratedMovementX = 0;
+  ship._integratedMovementY = 0;
+  ship._collisionCorrectionX = 0;
+  ship._collisionCorrectionY = 0;
+  ship.turnActivity = 0;
+  ship._simNow = Number.isFinite(Number(now)) ? Number(now) : (ship._simNow || 0);
+  if (station) releaseLaunch(station, ship.id);
+  const player = room?.players?.get?.(ship.ownerId);
+  if (player) applyRallySlots(room, player, [ship]);
+  bumpCounter(room, "stationLaunchOrphanRecoveryCount");
+  if (detailedProfileActive(room)) bump(room, `stationLaunchRecoveries:${reason}`);
+}
+
+// Keep station.activeLaunches as a recoverable index of ship.launchPhase, not
+// a second authority. A missing/recreated index entry is rebuilt before the
+// movement boundary; an invalid station or bay is released to a safe point.
+function reconcileStationLaunchState(room, now) {
+  const stations = Array.isArray(room?.stations) ? room.stations : [];
+  const detailed = detailedProfileActive(room);
+  for (const station of stations) {
+    if (!Array.isArray(station.activeLaunches)) station.activeLaunches = [];
+    if (!Array.isArray(station.launchReservations)) {
+      station.launchReservations = new Array(station.hangars?.length || 0).fill(null);
+    }
+    for (let i = station.launchReservations.length - 1; i >= 0; i -= 1) {
+      const reservation = station.launchReservations[i];
+      const reservedShip = reservation?.shipId ? room.ships?.get?.(reservation.shipId) : null;
+      const reservedPhase = reservedShip?.launchPhase;
+      if (!reservedShip?.alive
+        || reservedPhase?.stationId !== station.id
+        || Number(reservedPhase?.bayIndex) !== i) {
+        station.launchReservations[i] = null;
+      }
+    }
+    const seenShips = new Set();
+    for (let i = station.activeLaunches.length - 1; i >= 0; i -= 1) {
+      const launch = station.activeLaunches[i];
+      const ship = room.ships?.get?.(launch?.shipId);
+      const phase = ship?.launchPhase;
+      const valid = Boolean(
+        ship?.alive
+        && phase
+        && phase.stationId === station.id
+        && Number.isInteger(Number(phase.bayIndex))
+        && station.hangars?.[Number(phase.bayIndex)]
+        && Number(launch?.bayIndex) === Number(phase.bayIndex)
+        && !seenShips.has(ship.id)
+      );
+      if (!valid) {
+        if ((!ship || !ship.alive) && detailed) bump(room, "stationLaunchesRemovedMissingShip");
+        releaseLaunch(station, launch?.shipId);
+        station.activeLaunches.splice(i, 1);
+        continue;
+      }
+      seenShips.add(ship.id);
+    }
+  }
+
+  for (const ship of room?.ships?.values?.() || []) {
+    const phase = ship?.launchPhase;
+    if (!ship?.alive || !phase) continue;
+    const station = stationForLaunchPhase(room, phase);
+    const bayIndex = Number(phase.bayIndex);
+    const hangar = station?.hangars?.[bayIndex];
+    if (!station || !Number.isInteger(bayIndex) || !hangar) {
+      removeLaunchRecordsForShip(room, ship.id);
+      recoverLaunchPhase(room, ship, phase, station, hangar, now, "missing-authority");
+      continue;
+    }
+
+    normalizeLaunchPhase(station, hangar, phase);
+    let launch = station.activeLaunches.find((entry) => entry?.shipId === ship.id) || null;
+    if (launch) {
+      removeLaunchRecordsForShip(room, ship.id, station, launch);
+    } else {
+      removeLaunchRecordsForShip(room, ship.id);
+      launch = launchRecordFor(station, ship, phase, hangar);
+      station.activeLaunches.push(launch);
+    }
+    if (!station.launchReservations[bayIndex]) {
+      station.launchReservations[bayIndex] = { shipId: ship.id, startedAt: phase.startedAt || now };
+    }
+  }
+}
+
 // A launch record exists only while a freshly built ship is still clearing the
 // launch corridor. Without this sweep the list grows for the whole match, since
 // nothing else ever removes an entry.
@@ -824,7 +1094,9 @@ function updateStationLaunches(room, station, dt, now) {
   const detailed = detailedProfileActive(room);
   const startedAt = detailed ? performanceNow() : 0;
   try {
-  const launches = station.activeLaunches;
+  const launches = Array.isArray(station.activeLaunches)
+    ? station.activeLaunches
+    : (station.activeLaunches = []);
   if (!launches || launches.length === 0) {
     if (detailed && station.stationType === "home") bump(room, "stationEmptyLaunchSkips");
     return;
@@ -841,6 +1113,9 @@ function updateStationLaunches(room, station, dt, now) {
     }
     const hangar = station.hangars?.[launch.bayIndex];
     if (!hangar) {
+      if (ship.launchPhase) {
+        recoverLaunchPhase(room, ship, ship.launchPhase, station, null, now, "missing-hangar");
+      }
       releaseLaunch(station, launch.shipId);
       launches.splice(i, 1);
       continue;
@@ -1159,6 +1434,13 @@ function createStationsForRoom(room, now) {
 }
 
 function destroyStationsForRoom(room) {
+  const oldStations = Array.isArray(room.stations) ? room.stations : [];
+  for (const ship of room.ships?.values?.() || []) {
+    if (!ship?.launchPhase) continue;
+    const station = oldStations.find((entry) => entry?.id === ship.launchPhase.stationId) || null;
+    const hangar = station?.hangars?.[Number(ship.launchPhase.bayIndex)] || null;
+    recoverLaunchPhase(room, ship, ship.launchPhase, station, hangar, room.simulationTimeMs || 0, "station-destroyed");
+  }
   if (!room.stations) return;
   if (room._visibilityRuntime) {
     const visibilityRuntime = require("./visibilityRuntime");
@@ -1240,6 +1522,7 @@ function updateStationHangarSystems(room, station, dt, now, phase = "all") {
 // displace a new hull and station control only repairs the result one tick late.
 function updateStationLaunchControl(room, dt, now) {
   if (!usesStationInfrastructure(room) || !room.stations) return;
+  reconcileStationLaunchState(room, now);
   for (const station of room.stations) updateStationLaunches(room, station, dt, now);
 }
 
@@ -1248,6 +1531,7 @@ function updateStations(room, dt, now, options = null) {
   const skipLaunchControl = options?.skipLaunchControl === true;
   const startedAt = performanceNow();
   try {
+    if (!skipLaunchControl) reconcileStationLaunchState(room, now);
     for (const station of room.stations) {
       updateStationCaptureSystems(room, station, dt, now);
       updateStationRepairSystems(room, station, dt, now, "self");
@@ -1255,7 +1539,7 @@ function updateStations(room, dt, now, options = null) {
       updateStationRepairSystems(room, station, dt, now, "active");
       updateStationHangarSystems(room, station, dt, now, "production");
     }
-    if (room.spatialIndex?.updateLiveEntities && INCREMENTAL_SPATIAL_INDEX()) {
+    if (room.spatialIndex?.updateLiveEntities) {
       room.spatialIndex.updateLiveEntities("stations", room.stations, stationBroadPhaseRadius);
     }
   } finally {

@@ -4,7 +4,6 @@
 const { createRoom } = require("./src/server/rooms");
 const { advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/server/simulation");
 const { getRoomTelemetry } = require("./src/server/roomTelemetry");
-const { __setFIXED_AUTHORITATIVE_TIMESTEP } = require("./src/server/performanceFlags");
 
 function activeRoom(code) {
   const room = createRoom(code, { seed: 1 });
@@ -17,7 +16,6 @@ function activeRoom(code) {
 }
 
 function benchmark(label, deltas) {
-  __setFIXED_AUTHORITATIVE_TIMESTEP(true);
   const room = activeRoom(`PH4ABENCH-${label}`);
   let t = 1_000_000;
   const durations = [];
@@ -54,8 +52,6 @@ function benchmark(label, deltas) {
   const maxStepDuration = stepDurations.length ? Math.max(...stepDurations) : 0;
   const meanCallbackUs = durations.reduce((s, v) => s + v, 0) / durations.length;
   const maxCallbackUs = Math.max(...durations);
-
-  __setFIXED_AUTHORITATIVE_TIMESTEP(false);
 
   return {
     label,
@@ -100,7 +96,7 @@ function run() {
   const roomB = benchmark("roomB", Array(20).fill(FIXED_STEP_MS).map((d, i) => i % 5 === 0 ? d + 50 : d));
   const roomC = benchmark("roomC", Array(20).fill(FIXED_STEP_MS));
   console.log(`  roomA steps=${roomA.fixedSteps}, roomB steps=${roomB.fixedSteps}, roomC steps=${roomC.fixedSteps}`);
-  console.log("Benchmark complete; FIXED_AUTHORITATIVE_TIMESTEP left disabled");
+  console.log("Benchmark complete; canonical fixed-step runtime remains active");
 }
 
 run();

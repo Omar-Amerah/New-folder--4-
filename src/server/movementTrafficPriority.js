@@ -1,7 +1,7 @@
 "use strict";
 
 // Pair ownership is shared by steering and physical contact. Keeping it in a
-// dependency-free module prevents the legacy and packed collision solvers from
+// dependency-free module keeps steering and packed collision stages from
 // quietly inventing a second right-of-way rule.
 
 const { compareEntityIds, fastHypot } = require("./utils");

@@ -5,7 +5,6 @@ if (!sharedFlags) {
 }
 
 export const WIRING_ENABLED = sharedFlags.WIRING_ENABLED === true;
-export const MODERN_MOVEMENT = sharedFlags.MODERN_MOVEMENT === true;
 
 export function applyFeatureFlagPresentation() {
   for (const element of document.querySelectorAll("[data-feature-wiring]")) {

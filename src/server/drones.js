@@ -8,7 +8,6 @@ const HeatRules = require("../../public/src/shared/heatRules");
 const { getShipRepairCache } = require("./repairCache");
 const { ensureProjectileLookup, removeProjectileRuntime, segmentCircleHit } = require("./projectiles");
 const { droneBroadPhaseRadius } = require("./spatialIndex");
-const { INCREMENTAL_SPATIAL_INDEX, OPTIMIZED_DRONE_RUNTIME } = require("./performanceFlags");
 const { areEnemies, damageShip, shipRepairNeed, areAllies } = require("./combat");
 const { getComponentPowerMultiplier } = require("./componentPower");
 const { repairShipComponents } = require("./componentHealth");
@@ -232,6 +231,12 @@ function resetDroneRuntime(room) {
   room._droneCountSource = room.drones;
   DroneDecisionContext.resetDroneDecisionRuntime(room);
   room._droneSpatialRecoveryStep = null;
+  room._droneFrameId = 0;
+  room._droneMovementCount = 0;
+  room.droneSpatialPadding = 0;
+  room._droneMovementScratch?.splice?.(0);
+  room._droneSeparationScratch?.splice?.(0);
+  room._droneDisplacedScratch?.splice?.(0);
 }
 
 function adjustDroneCount(room, drone, delta) {
@@ -483,10 +488,8 @@ function spawnDrone(room, ship, bay, slot, now) {
   drone._runtimeConfig = buildDroneRuntimeConfig(drone, typeConfig, authoritativeSequence);
   drone._targetRuntime = { id: null, kind: null, entity: null, roomEpoch: room.stateEpoch ?? null };
   drone.decisionInvalidated = false;
-  if (OPTIMIZED_DRONE_RUNTIME()) {
-    drone.nextDecisionAt = now + drone._runtimeConfig.decisionStaggerMs;
-    drone.nextThinkAt = drone.nextDecisionAt;
-  }
+  drone.nextDecisionAt = now + drone._runtimeConfig.decisionStaggerMs;
+  drone.nextThinkAt = drone.nextDecisionAt;
   room.drones.set(drone.id, drone);
   if (room._visibilityRuntime) {
     const visibilityRuntime = require("./visibilityRuntime");
@@ -756,7 +759,7 @@ function resolveDroneMapCollision(room, drone, previousX = drone.x, previousY = 
     }
   }
 
-  // Separation or legacy positions can begin inside a rock. A few bounded
+  // Separation or previously displaced positions can begin inside a rock. A few bounded
   // passes resolve compound overlaps without changing asteroid ordering.
   // Reuse the same candidate set from the swept collision query.
   for (let pass = 0; pass < 3; pass += 1) {
@@ -1015,205 +1018,8 @@ function steerFighterDrone(room, drone, targetX, targetY, config, dt, now, cache
 function publishDroneSpatialRecords(room, now) {
   if (!room.spatialIndex?.updateLiveEntities) return;
   const startedAt = performanceNow();
-  if (INCREMENTAL_SPATIAL_INDEX()) {
-    room.spatialIndex.updateLiveEntities("drones", room.drones.values(), droneBroadPhaseRadius);
-  } else if (typeof room.spatialIndex.rebuildKind === "function") {
-    // The legacy index mode still needs final drone positions before the
-    // projectile stage. Rebuilding one category preserves deterministic order
-    // without requiring the complete room index to be rebuilt.
-    room.spatialIndex.rebuildKind("drones", room.drones.values(), droneBroadPhaseRadius, now);
-  } else {
-    room.spatialIndex.updateLiveEntities("drones", room.drones.values(), droneBroadPhaseRadius);
-  }
+  room.spatialIndex.updateLiveEntities("drones", room.drones.values(), droneBroadPhaseRadius);
   recordDuration(room, "droneSpatialPublicationMs", startedAt);
-}
-
-function updateDroneEntityLegacy(room, drone, dt, now) {
-  const parent = room.ships.get(drone.parentShipId);
-  const baseConfig = CONFIG.types[drone.type];
-  const config = parent?.commandState === "backupCore"
-    ? BACKUP_CORE_CONFIGS[drone.type]
-    : baseConfig;
-  if (!parent?.alive) {
-    drone.orphanedAt ||= now;
-    drone.state = "orphaned";
-    drone.vx *= Math.max(0, 1 - dt * 0.8);
-    drone.vy *= Math.max(0, 1 - dt * 0.8);
-    drone.x += drone.vx * dt;
-    drone.y += drone.vy * dt;
-    if (now - drone.orphanedAt >= CONFIG.orphanLifetimeSeconds * 1000) setDroneDestroyed(room, drone, now, "orphaned");
-    return;
-  }
-  if (isInOwnSpawnZone(room, parent)) {
-    setDroneDestroyed(room, drone, now, "spawn-zone");
-    return;
-  }
-  const bay = droneBayById(parent, drone.bayComponentId);
-  const bayOperational = bay && (parent.componentHp?.[bay.componentIndex] ?? 0) > 0;
-  const bayPowered = bayOperational && getComponentPowerMultiplier(parent, bay.componentIndex) > MIN_BAY_OPERATING_POWER;
-  const fallback = !bayOperational || !bayPowered;
-  const enteredFallback = fallback && drone.commandState !== "fallback";
-  drone.commandState = fallback ? "fallback" : bay.mode;
-  if (fallback) {
-    drone.state = "fallback";
-    if (enteredFallback) {
-      drone.targetId = null;
-      drone.nextDecisionAt = now;
-      drone.nextThinkAt = now;
-    }
-  }
-  else if (drone.state === "fallback") drone.state = "active";
-  if (drone.state === "launching" && now >= drone.stateUntil) {
-    drone.state = "active";
-    const slot = bay?.slots?.[drone.slot];
-    if (slot) slot.state = "active";
-  }
-  const pose = bay ? bayWorldPose(parent, bay) : { x: parent.x, y: parent.y };
-  if (bayOperational && bay.mode === "recalled") {
-    drone.state = "returning";
-    drone.returnReason = "recall";
-  } else if (bayOperational && bay.mode === "deployed" && ["returning", "docking"].includes(drone.state) && drone.returnReason !== "fuel") {
-    // Deploy is also the authoritative cancellation path for an in-progress
-    // recall. Previously these drones continued docking while the bay already
-    // reported "deployed".
-    drone.state = bayPowered ? "active" : "fallback";
-    const returningSlot = bay.slots[drone.slot];
-    if (returningSlot) returningSlot.state = drone.state;
-  }
-  if (drone.state === "refueling") {
-    drone.x = pose.x;
-    drone.y = pose.y;
-    drone.vx = 0;
-    drone.vy = 0;
-    if (now >= drone.refuelUntil) {
-      drone.state = "launching";
-      drone.returnReason = null;
-      drone.refuelStartedAt = null;
-      drone.refuelUntil = null;
-      const fuelCapacity = CONFIG.types[drone.type]?.fuelSeconds || CONFIG.fuelSeconds;
-      drone.fuelRemainingSeconds = fuelCapacity;
-      drone.launchedAt = now;
-      drone.stateUntil = now + CONFIG.launchDurationSeconds * 1000;
-      drone.vx = pose.nx * config.speed * 0.35;
-      drone.vy = pose.ny * config.speed * 0.35;
-      drone.angle = Math.atan2(pose.ny, pose.nx);
-      const refueledSlot = bay.slots[drone.slot];
-      if (refueledSlot) refueledSlot.state = "launching";
-      room.effects.push({ type: "dronelaunch", subtype: drone.type, ownerId: drone.ownerId, x: drone.x, y: drone.y, at: now });
-    }
-    return;
-  }
-  if (!["returning", "docking"].includes(drone.state)) {
-    const fuelCapacity = CONFIG.types[drone.type]?.fuelSeconds || CONFIG.fuelSeconds;
-    if (!Number.isFinite(drone.fuelRemainingSeconds)) drone.fuelRemainingSeconds = fuelCapacity;
-    drone.fuelRemainingSeconds = Math.max(0, drone.fuelRemainingSeconds - dt);
-    if (drone.fuelRemainingSeconds <= 0) {
-      drone.state = "returning";
-      drone.returnReason = "fuel";
-      drone.targetId = null;
-      const fuelSlot = bay?.slots?.[drone.slot];
-      if (fuelSlot) fuelSlot.state = "returning";
-    }
-  }
-  if (drone.state === "returning" || drone.state === "docking") {
-    steerDrone(drone, pose.x, pose.y, config.speed, config.turnRate, dt);
-    const dockDx = drone.x - pose.x;
-    const dockDy = drone.y - pose.y;
-    const dockDistanceSq = dockDx * dockDx + dockDy * dockDy;
-    if (dockDistanceSq < 30 * 30) {
-      drone.state = "docking";
-      const dockingSlot = bay.slots[drone.slot];
-      if (dockingSlot) dockingSlot.state = "docking";
-    }
-    if (dockDistanceSq < 12 * 12) {
-      const slot = bay.slots[drone.slot];
-      if (drone.returnReason === "fuel" && bay.mode === "deployed") {
-        drone.state = "refueling";
-        drone.refuelStartedAt = now;
-        drone.refuelUntil = now + CONFIG.refuelSeconds * 1000;
-        drone.x = pose.x;
-        drone.y = pose.y;
-        drone.vx = 0;
-        drone.vy = 0;
-        slot.state = "refueling";
-      } else {
-        removeActiveDrone(room, drone);
-        slot.droneId = null;
-        slot.state = "stored";
-      }
-    }
-    return;
-  }
-  let target = resolveDroneTarget(room, drone.targetId);
-  const targetInvalid = !target
-    || target.destroyed
-    || target.alive === false
-    || (target.life !== undefined && target.life <= 0)
-    || (target.life === undefined && !canTeamTargetEntity(room, drone.ownerId, target, now));
-  const parentDx = drone.x - parent.x;
-  const parentDy = drone.y - parent.y;
-  const outsideCommandRange = parentDx * parentDx + parentDy * parentDy > config.commandRange * config.commandRange;
-  if (targetInvalid || outsideCommandRange) {
-    drone.targetId = null;
-    target = null;
-    drone.nextDecisionAt = now;
-    drone.nextThinkAt = now;
-  }
-  const nextDecisionAt = Number.isFinite(drone.nextDecisionAt)
-    ? drone.nextDecisionAt
-    : (Number.isFinite(drone.nextThinkAt) ? drone.nextThinkAt : now);
-  if (now >= nextDecisionAt) {
-    const selectedTarget = outsideCommandRange
-      ? null
-      : fallback
-        ? chooseFallbackTarget(room, drone, parent, config, now)
-        : chooseTarget(room, drone, parent, config, now);
-    drone.targetId = selectedTarget?.id || null;
-    drone.cachedEvasion = ((Number(config.evasionLookaheadSeconds) || 0) > 0 && (Number(config.evasionClearance) || 0) > 0)
-      ? fighterProjectileEvasion(room, drone, config)
-      : null;
-    drone.nextDecisionAt = now + DRONE_DECISION_INTERVAL_MS;
-    drone.nextThinkAt = drone.nextDecisionAt;
-  }
-  target = resolveDroneTarget(room, drone.targetId);
-  const effectiveTarget = drone.targetId ? target : null;
-  const anchor = effectiveTarget || parent;
-  const orbit = config.orbitDistance || 80;
-  const phase = ((Number.parseInt(String(drone.id).replace(/\D/g, ""), 10) || drone.slot) * 2.399) + now * 0.00055;
-  const pathX = anchor.x + Math.cos(phase) * orbit;
-  const pathY = anchor.y + Math.sin(phase) * orbit;
-  // Evasion-capable drones (Fighter, Defence) use predictive projectile-dodging
-  // steering; others (Repair) simply hold their orbit path.
-  const canEvade = (Number(config.evasionLookaheadSeconds) || 0) > 0 && (Number(config.evasionClearance) || 0) > 0;
-  if (canEvade && drone.cachedEvasion === undefined) {
-    drone.cachedEvasion = fighterProjectileEvasion(room, drone, config);
-  }
-  if (canEvade) steerFighterDrone(room, drone, pathX, pathY, config, dt, now, drone.cachedEvasion || null);
-  else steerDrone(drone, pathX, pathY, config.speed, config.turnRate, dt);
-  const targetDx = effectiveTarget ? effectiveTarget.x - drone.x : Infinity;
-  const targetDy = effectiveTarget ? effectiveTarget.y - drone.y : Infinity;
-  const distanceSq = effectiveTarget ? targetDx * targetDx + targetDy * targetDy : Infinity;
-  if (now < drone.nextActionAt) return;
-  if (drone.type === "repair" && effectiveTarget?.componentHp && distanceSq <= config.repairRange * config.repairRange) {
-    const amount = config.repairPerSecond / 5;
-    repairShipComponents(room, effectiveTarget, amount, now);
-    drone.nextActionAt = now + 200;
-    room.effects.push({ type: "dronerepair", ownerId: drone.ownerId, x: drone.x, y: drone.y, x2: effectiveTarget.x, y2: effectiveTarget.y, at: now });
-  } else if (drone.type !== "repair" && effectiveTarget && distanceSq <= config.weaponRange * config.weaponRange) {
-    if (room.drones.get(effectiveTarget.id) === effectiveTarget) {
-      damageDrone(room, effectiveTarget, config.damage, drone.ownerId, now);
-    } else if (room.ships.get(effectiveTarget.id) === effectiveTarget) {
-      damageShip(room, effectiveTarget, config.damage, drone.ownerId, now, drone.x, drone.y, { armorInteractionSeconds: 1 / config.fireRate });
-    } else if (effectiveTarget.interceptable) {
-      effectiveTarget.hp = Math.max(0, (Number(effectiveTarget.hp) || 0) - config.damage);
-      if (effectiveTarget.hp <= 0) {
-        removeProjectileRuntime(room, effectiveTarget, "intercepted", effectiveTarget.x, effectiveTarget.y);
-        room.effects.push({ type: "burst", x: effectiveTarget.x, y: effectiveTarget.y, at: now });
-      }
-    }
-    drone.nextActionAt = now + 1000 / config.fireRate;
-    room.effects.push({ type: "droneshot", subtype: drone.type, ownerId: drone.ownerId, x: drone.x, y: drone.y, x2: effectiveTarget.x, y2: effectiveTarget.y, at: now });
-  }
 }
 
 function advanceBayProduction(bay, dt, power, overheated, operational = true) {
@@ -1250,108 +1056,7 @@ function advanceBayProduction(bay, dt, power, overheated, operational = true) {
   return producing;
 }
 
-function updateDroneBaysLegacy(room, ships, dt, now) {
-  const runtimeStart = performanceNow();
-  ensureDroneRuntime(room);
-  room.droneSpatialPadding = Math.max(
-    0,
-    ...Object.values(CONFIG.types || {}).map((entry) => Number(entry?.speed) || 0)
-  ) * Math.max(0, Number(dt) || 0) * 1.75 + 2;
-  for (const ship of ships) {
-    if (ship.launchPhase) continue;
-    if (!ship.droneBays) initializeDroneBays(room, ship, now);
-    else indexDroneBays(ship);
-    const inSpawnZone = isInOwnSpawnZone(room, ship);
-    for (const bay of ship.droneBays) {
-      bay.launchBlockedBySpawn = inSpawnZone;
-      const operational = (ship.componentHp?.[bay.componentIndex] ?? 0) > 0;
-      if (!operational) {
-        advanceBayProduction(bay, dt, 0, false, false);
-        continue;
-      }
-      const power = getComponentPowerMultiplier(ship, bay.componentIndex);
-      const overheated = (ship.componentHeatState?.[bay.componentIndex] || HeatRules.STATE.NORMAL) >= HeatRules.STATE.OVERHEATED;
-      advanceBayProduction(bay, dt, power, overheated, true);
-      const producing = bay.slots.some((slot) => slot.state === "producing");
-      const active = bay.slots.some((slot) => ["launching", "active", "returning", "docking", "refueling"].includes(slot.state));
-      const heatPerSecond = producing ? CONFIG.productionHeatPerSecond : active ? CONFIG.activeHeatPerSecond : CONFIG.standbyHeatPerSecond;
-      addComponentHeat(ship, bay.componentIndex, heatPerSecond * power * dt);
-      if (inSpawnZone || bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= MIN_BAY_OPERATING_POWER || overheated) continue;
-      const ready = bay.slots.find((slot) => slot.state === "ready" || slot.state === "stored");
-      if (ready) {
-        spawnDrone(room, ship, bay, ready, now);
-        // Underpowered bays launch on a longer cadence rather than not at all;
-        // the interval stretches as delivered power drops (clamped so a barely
-        // powered bay is slow, not frozen).
-        bay.nextLaunchAt = now + CONFIG.launchIntervalSeconds * 1000 / Math.max(0.35, power);
-      }
-    }
-  }
-  const movement = room._droneMovementScratch || (room._droneMovementScratch = []);
-  let movementCount = 0;
-  for (const drone of room.drones.values()) {
-    const previousX = drone.x;
-    const previousY = drone.y;
-    const priorDecisionAt = drone.nextDecisionAt;
-    bump(room, "dronesVisited");
-    bump(room, "dronePhysicalUpdates");
-    updateDroneEntity(room, drone, dt, now);
-    if (drone.nextDecisionAt !== priorDecisionAt) bump(room, "droneDecisionsRun");
-    else bump(room, "droneDecisionsDeferred");
-    const mapCollisionStart = performanceNow();
-    resolveDroneMapCollision(room, drone, previousX, previousY);
-    recordDuration(room, "droneMapCollisionMs", mapCollisionStart);
-    const record = movement[movementCount] || (movement[movementCount] = {});
-    record.drone = drone;
-    record.previousX = previousX;
-    record.previousY = previousY;
-    record.postSeparationX = drone.x;
-    record.postSeparationY = drone.y;
-    movementCount += 1;
-  }
-  movement.length = movementCount;
-  publishDroneSpatialRecords(room, now);
-  const separationStart = performanceNow();
-  resolveDroneSeparation(
-    room.drones.values(),
-    room._droneSeparationScratch || (room._droneSeparationScratch = []),
-    room.spatialIndex,
-    room.droneSpatialPadding
-  );
-  recordDuration(room, "droneSeparationMs", separationStart);
-  // Track displaced drones without allocating a new Set every tick
-  const displaced = room._droneDisplacedScratch || (room._droneDisplacedScratch = []);
-  let displacedCount = 0;
-  for (const record of movement) {
-    const { drone, previousX, previousY, postSeparationX, postSeparationY } = record;
-    if (room.drones.get(drone.id) !== drone) continue;
-    const dx = drone.x - postSeparationX;
-    const dy = drone.y - postSeparationY;
-    const displacement = Math.sqrt(dx * dx + dy * dy);
-    if (displacement > 0.001) {
-      displaced[displacedCount] = drone;
-      displacedCount += 1;
-    }
-    const totalDx = drone.x - previousX;
-    const totalDy = drone.y - previousY;
-    const totalDisplacement = Math.sqrt(totalDx * totalDx + totalDy * totalDy) + 2;
-    if (totalDisplacement > room.droneSpatialPadding) room.droneSpatialPadding = totalDisplacement;
-  }
-  displaced.length = displacedCount;
-  // Rerun collision resolution only for drones actually displaced by separation
-  for (let i = 0; i < displacedCount; i += 1) {
-    const drone = displaced[i];
-    if (drone && room.drones.get(drone.id) === drone) {
-      const mapCollisionStart = performanceNow();
-      resolveDroneMapCollision(room, drone);
-      recordDuration(room, "droneMapCollisionMs", mapCollisionStart);
-    }
-  }
-  publishDroneSpatialRecords(room, now);
-  recordDuration(room, "droneRuntimeMs", runtimeStart);
-}
-
-function updateDroneEntityOptimized(room, drone, dt, now, bayState = null, members = []) {
+function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) {
   const parent = room.ships.get(drone.parentShipId);
   const effective = effectiveDroneConfig(parent, drone);
   const config = effective.config;
@@ -1508,8 +1213,8 @@ function updateDroneEntityOptimized(room, drone, dt, now, bayState = null, membe
   }
   recordDuration(room, "droneTargetValidationMs", validationStart);
 
-  if (!drone._optimizedCadenceInitialized) {
-    drone._optimizedCadenceInitialized = true;
+  if (!drone._cadenceInitialized) {
+    drone._cadenceInitialized = true;
     if (!Number.isFinite(drone.nextDecisionAt)) drone.nextDecisionAt = now + runtimeConfig.decisionStaggerMs;
     drone.nextThinkAt = drone.nextDecisionAt;
   }
@@ -1605,13 +1310,7 @@ function updateDroneEntityOptimized(room, drone, dt, now, bayState = null, membe
   }
 }
 
-function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) {
-  return OPTIMIZED_DRONE_RUNTIME()
-    ? updateDroneEntityOptimized(room, drone, dt, now, bayState, members)
-    : updateDroneEntityLegacy(room, drone, dt, now);
-}
-
-function updateDroneBaysOptimized(room, ships, dt, now) {
+function updateDroneBays(room, ships, dt, now) {
   const runtimeStart = performanceNow();
   ensureDroneRuntime(room);
   room.droneDecisionMaxCandidateSpeed = Math.max(
@@ -1722,12 +1421,6 @@ function updateDroneBaysOptimized(room, ships, dt, now) {
   }
   publishDroneSpatialRecords(room, now);
   recordDuration(room, "droneRuntimeMs", runtimeStart);
-}
-
-function updateDroneBays(room, ships, dt, now) {
-  return OPTIMIZED_DRONE_RUNTIME()
-    ? updateDroneBaysOptimized(room, ships, dt, now)
-    : updateDroneBaysLegacy(room, ships, dt, now);
 }
 
 function setDroneBayMode(room, player, shipId, componentId, mode, now = Date.now()) {
@@ -1861,8 +1554,7 @@ module.exports = {
     buildBayFrameState,
     rememberDroneTarget,
     resolveCachedDroneTarget,
-    updateDroneEntityLegacy,
-    updateDroneEntityOptimized,
+    updateDroneEntity,
     chooseTarget,
     chooseFallbackTarget,
     nearestHostileMissile,

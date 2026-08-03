@@ -13,9 +13,7 @@ const {
 const { shipBroadPhaseRadius } = require("./spatialIndex");
 const {
   circularShipSeparation,
-  redundantFleetMapCollisionPass,
-  INCREMENTAL_SPATIAL_INDEX,
-  SHARED_MOVEMENT_CONTACT_PAIRS
+  redundantFleetMapCollisionPass
 } = require("./performanceFlags");
 const {
   collectMovementContactMovedShips,
@@ -27,9 +25,6 @@ const { bump } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 
 function runMovementContactSafetyPass(room, ships, modifiedShipIds, dt, now = 0, options = {}) {
-  const shared = options.sharedMovementContactPairs === undefined
-    ? SHARED_MOVEMENT_CONTACT_PAIRS()
-    : Boolean(options.sharedMovementContactPairs);
   const circular = options.circular === undefined
     ? circularShipSeparation()
     : Boolean(options.circular);
@@ -41,11 +36,19 @@ function runMovementContactSafetyPass(room, ships, modifiedShipIds, dt, now = 0,
 
   const applyFinalMapCorrection = (currentShips, currentModifiedShipIds) => {
     if (redundantFleetMapCollisionPass()) {
+      bump(
+        room,
+        "separationMapCollisionCalls",
+        Array.from(room?.ships?.values?.() || []).filter((ship) => ship?.alive).length
+      );
       resolveFleetMapCollisions(room, currentShips);
     } else {
       for (const id of currentModifiedShipIds || []) {
         const ship = room?.ships?.get?.(id);
-        if (ship) resolveMapCollision(room, ship);
+        if (ship) {
+          bump(room, "separationMapCollisionCalls");
+          resolveMapCollision(room, ship);
+        }
       }
     }
   };
@@ -53,24 +56,18 @@ function runMovementContactSafetyPass(room, ships, modifiedShipIds, dt, now = 0,
   const publishShipSpatial = (currentShips) => {
     const startedAt = options.measureSpatialPublication ? performanceNow() : 0;
     if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
-      if (INCREMENTAL_SPATIAL_INDEX()) {
-        room.spatialIndex.updateLiveEntities("ships", currentShips, shipBroadPhaseRadius);
-      } else {
-        room.spatialIndex.rebuildKind("ships", currentShips, shipBroadPhaseRadius, now);
-      }
+      room.spatialIndex.updateLiveEntities("ships", currentShips, shipBroadPhaseRadius);
     }
     if (options.measureSpatialPublication) spatialPublicationMs += performanceNow() - startedAt;
   };
 
   applyFinalMapCorrection(activeShips, activeModifiedShipIds);
-  const movedShips = shared
-    ? collectMovementContactMovedShips(room, activeShips, activeModifiedShipIds)
-    : [];
+  const movedShips = collectMovementContactMovedShips(room, activeShips, activeModifiedShipIds);
   publishShipSpatial(activeShips);
 
   let missingCount = 0;
   let recoveredMissingCount = 0;
-  if (shared && movedShips.length > 0) {
+  if (movedShips.length > 0) {
     const missing = findMissingMovementContactPairs(room, movedShips, { circular });
     missingCount = missing.missingCount;
     if (missing.missingCount > 0) {

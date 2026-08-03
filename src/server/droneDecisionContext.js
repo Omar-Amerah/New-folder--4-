@@ -1,6 +1,6 @@
 "use strict";
 
-// Shared broad-phase state for the optimized drone decision layer. This module
+// Shared broad-phase state for the canonical drone decision layer. This module
 // deliberately owns only conservative candidate sets. Target selection,
 // visibility, relationship checks and scoring remain per-drone in drones.js.
 
@@ -311,7 +311,7 @@ function buildDroneDecisionContext(room, parent, bay, droneType, config, members
   // This is a deliberately conservative accounting proxy for benchmark
   // reporting: an individual decision would have inspected the shared
   // candidate superset once per active member. It is not a second query and
-  // does not affect gameplay or the optimized path's work.
+  // does not affect gameplay or the canonical path's work.
   const contextCandidateCount = context.hostileShips.length
     + context.hostileDrones.length
     + context.hostileProjectiles.length;

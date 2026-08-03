@@ -45,6 +45,8 @@ const ROOM_ARRAY_SCRATCH_FIELDS = Object.freeze([
   "_weaponSupportSpatialScratch",
   "_droneMovementScratch",
   "_droneSeparationScratch",
+  "_droneDisplacedScratch",
+  "_commandAuraMovementScratch",
   "_projectileSpare",
   "_effectSpare"
 ]);
@@ -70,6 +72,17 @@ function clearRoomRuntimeScratch(room) {
   require("./movementContactPairs").clearMovementContactPairs(room);
   require("./commandAuraRuntime").clearCommandAuraRuntime(room);
   require("./stationCombat").clearStationWeaponRuntime(room);
+  room._droneSpatialRecoveryStep = null;
+  room._droneFrameId = 0;
+  room._droneMovementCount = 0;
+  room.droneSpatialPadding = 0;
+  for (const entity of [
+    ...(room.ships?.values?.() || []),
+    ...(room.stations || [])
+  ]) {
+    entity._thermalRuntime = null;
+    entity._heatPresentationValues = null;
+  }
 }
 
 function createRoom(code, options = {}) {
@@ -137,9 +150,9 @@ function bumpStateEpoch(room, reason = "state-reset") {
   require("./commandAuraRuntime").clearCommandAuraRuntime(room);
   require("./stationCombat").clearStationWeaponRuntime(room);
   room._commandAuraNextUpdate = 0;
-  // Visibility contexts are epoch-scoped. Drop both legacy and Phase 6C
-  // results immediately so a reconnect/rematch can never reuse a prior team
-  // result while the new map is being assembled.
+  // Visibility contexts are epoch-scoped. Drop results immediately so a
+  // reconnect/rematch can never reuse a prior team result while the new map is
+  // being assembled.
   clearVisibilityForRoom(room);
   room.snapshotSeq = 0;
   require("./projectileReplication").resetProjectileReplication(room, room.stateEpoch);
@@ -159,6 +172,8 @@ function bumpStateEpoch(room, reason = "state-reset") {
     ship._weaponTargetState = null;
     ship._effectiveWeaponProfileCacheRevision = null;
     ship.effectiveWeaponProfileCache = null;
+    ship._thermalRuntime = null;
+    ship._heatPresentationValues = null;
   }
   for (const station of room.stations || []) {
     station._pdThreatSet = null;
@@ -167,6 +182,8 @@ function bumpStateEpoch(room, reason = "state-reset") {
     station._weaponTargetState = null;
     station._effectiveWeaponProfileCacheRevision = null;
     station.effectiveWeaponProfileCache = null;
+    station._thermalRuntime = null;
+    station._heatPresentationValues = null;
   }
   for (const client of room.clients || []) {
     if (client.snapshotBaseline) {
@@ -177,7 +194,6 @@ function bumpStateEpoch(room, reason = "state-reset") {
       client.snapshotBaseline.lastWrittenFullSeq = 0;
       client.snapshotBaseline.lastQueuedSeq = 0;
       client.snapshotBaseline.queuedSnapshotKind = null;
-      client.snapshotBaseline.lastWrittenFormatVersion = 0;
     }
     client.snapshotEntityState = null;
     client._knownSignature = null;

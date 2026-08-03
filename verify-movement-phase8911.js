@@ -125,6 +125,13 @@ function facingError(ship, target) {
   return Math.abs(delta);
 }
 
+function angleDelta(a, b) {
+  let delta = (a || 0) - (b || 0);
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 function run() {
   // =======================================================================
   // Phase 8 -- automatic acquisition
@@ -270,8 +277,8 @@ function run() {
   // Phase 9 -- Hold
   // =======================================================================
 
-  // A selected attack stops at its own target-relative firing slot, then faces
-  // the enemy.
+  // A selected attack stops at the first usable firing position, then faces the
+  // enemy. Hold has no mandatory target-relative slot.
   {
     const attacker = makeShip(1000, 2000, 0);
     const enemy = makeShip(4000, 2000, Math.PI, UNARMED_DESIGN, "p2");
@@ -284,15 +291,10 @@ function run() {
 
     simulate(room, ships, 45);
     const settled = rangeTo(attacker, enemy);
-    assert.strictEqual(attacker.movement.combatSlot?.combatMode, "hold");
-    const slotPoint = {
-      x: enemy.x + Math.cos(attacker.movement.combatSlot.assignedAngle)
-        * attacker.movement.combatSlot.assignedRadius,
-      y: enemy.y + Math.sin(attacker.movement.combatSlot.assignedAngle)
-        * attacker.movement.combatSlot.assignedRadius
-    };
-    assert(Math.hypot(attacker.x - slotPoint.x, attacker.y - slotPoint.y) <= ARRIVE_DISTANCE * 3,
-      `should settle at its firing slot (${Math.hypot(attacker.x - slotPoint.x, attacker.y - slotPoint.y).toFixed(0)} px away)`);
+    assert.strictEqual(attacker.movement.combatSlot, null,
+      "a single Hold ship must not depend on a target-relative slot");
+    assert(settled >= reach * HOLD_RANGE_RATIO - 24,
+      `should stop near its first usable firing envelope (${settled.toFixed(0)} px)`);
     assert(settled <= reach + 8,
       `should remain inside weapon range (${settled.toFixed(0)} px vs a weapon range of ${reach.toFixed(0)})`);
     assert(speedOf(attacker) < 2, `should stop (${speedOf(attacker).toFixed(1)} px/s)`);
@@ -585,24 +587,34 @@ function run() {
       Math.hypot(ship.x - groupCentre.x, ship.y - groupCentre.y)));
     assert(extent > attackers[0].physicalRadius * 1.5,
       `independent firing approaches must not collapse to one point (${extent.toFixed(0)} px across)`);
-    // All stopped, all facing the enemy, none of them orbiting it.
+    // All stopped, each with a stable weapon-aware hull orientation, none of
+    // them orbiting the enemy.
     for (const ship of attackers) {
       const reach = getMaxEffectiveWeaponRange(ship);
-      const softBlocked = ship.movement.traffic?.mode === "soft";
-      assert(speedOf(ship) < 3 || (softBlocked && rangeTo(ship, enemy) <= reach + 48),
-        `${ship.id} should stop in its firing position or be within a soft-contact tolerance (${speedOf(ship).toFixed(1)} r${rangeTo(ship, enemy).toFixed(0)} reach${reach.toFixed(0)} ${ship.movement.phase} ${JSON.stringify(ship.movement.traffic)})`);
-      assert(facingError(ship, enemy) < 0.2, `${ship.id} should face the target`);
+      const trafficMode = ship.movement.traffic?.mode;
+      const waitingForLane = trafficMode === "queue" || trafficMode === "sidestep";
+      const softBlocked = trafficMode === "soft";
+      assert(speedOf(ship) < 3
+        || waitingForLane
+        || (softBlocked && rangeTo(ship, enemy) <= reach + 48),
+      `${ship.id} should stop, queue, or take a local sidestep (${speedOf(ship).toFixed(1)} r${rangeTo(ship, enemy).toFixed(0)} reach${reach.toFixed(0)} ${ship.movement.phase} ${JSON.stringify(ship.movement.traffic)})`);
+      if (ship.movement.holdEngaged && rangeTo(ship, enemy) <= reach) {
+        assert(ship.movement.holdFacing?.score > 0,
+          `${ship.id} should retain at least one usable offensive weapon orientation`);
+        assert(Math.abs(angleDelta(ship.angle, ship.movement.holdFacing.heading)) < 0.2,
+          `${ship.id} should settle on its cached weapon-facing heading`);
+      }
     }
     const softSettled = attackers.filter((ship) => !ship.movement.holdEngaged);
-    assert(softSettled.every((ship) => ship.movement.traffic?.mode === "soft"
-      && rangeTo(ship, enemy) <= getMaxEffectiveWeaponRange(ship) + 48),
-    "ships that cannot take a clear firing point may only remain in the bounded soft-contact tolerance");
+    assert(softSettled.every((ship) => ["soft", "queue", "sidestep"]
+      .includes(ship.movement.traffic?.mode)
+      || (speedOf(ship) < 3 && rangeTo(ship, enemy) <= getMaxEffectiveWeaponRange(ship) + 48)),
+    `ships that cannot take a clear firing point may only queue or use a local sidestep (${softSettled.map((ship) => `${ship.id}:${ship.movement.traffic?.mode}:${speedOf(ship).toFixed(0)}:${rangeTo(ship, enemy).toFixed(0)}`).join(",")})`);
   }
 
-  // A group must engage at its persistent target-relative slots, exactly as a
-  // single ship does. The slot is not regenerated every tick, and a closing
-  // target does not make an established Hold ship retreat merely to preserve a
-  // perfect radius.
+  // A group must engage independently. There are no shared target-relative
+  // slots to preserve, and a closing target does not make an established Hold
+  // ship retreat merely to preserve a perfect radius.
   {
     const measure = (count) => {
       const attackers = [];
@@ -640,19 +652,18 @@ function run() {
 
     const group = measure(4);
     for (const ship of group.attackers) {
-      const inSoftFiringBand = ship.movement.traffic?.mode === "soft"
+      const inFiringBand = speedOf(ship) < 3
         && rangeTo(ship, group.enemy) <= getMaxEffectiveWeaponRange(ship) + 48;
-      assert(ship.movement.holdEngaged || inSoftFiringBand,
-        `${ship.id}: a ship in a group must engage once in range, not fly on to its slot (${ship.x.toFixed(0)},${ship.y.toFixed(0)} r${rangeTo(ship, group.enemy).toFixed(0)} reach${getMaxEffectiveWeaponRange(ship).toFixed(0)} ${ship.movement.phase} v${Math.hypot(ship.vx,ship.vy).toFixed(0)} ${JSON.stringify(ship.movement.traffic)})`);
-      const slot = ship.movement.combatSlot;
-      assert(slot?.combatMode === "hold", `${ship.id} should retain a Hold combat slot`);
-      const slotPoint = {
-        x: group.enemy.x + Math.cos(slot.assignedAngle) * slot.assignedRadius,
-        y: group.enemy.y + Math.sin(slot.assignedAngle) * slot.assignedRadius
-      };
-      assert(Math.hypot(ship.x - slotPoint.x, ship.y - slotPoint.y) <= ARRIVE_DISTANCE * 4
-        || inSoftFiringBand,
-      `${ship.id} should settle at its assigned target-relative slot (${Math.hypot(ship.x - slotPoint.x, ship.y - slotPoint.y).toFixed(0)} px away)`);
+      const waitingForTraffic = ["queue", "sidestep", "soft"]
+        .includes(ship.movement.traffic?.mode);
+      assert(ship.movement.holdEngaged || inFiringBand || waitingForTraffic,
+        `${ship.id}: a ship in a group must engage once in range, not fly on to its lane (${ship.x.toFixed(0)},${ship.y.toFixed(0)} r${rangeTo(ship, group.enemy).toFixed(0)} reach${getMaxEffectiveWeaponRange(ship).toFixed(0)} ${ship.movement.phase} v${Math.hypot(ship.vx,ship.vy).toFixed(0)} ${JSON.stringify(ship.movement.traffic)})`);
+      assert.strictEqual(ship.movement.combatSlot, null,
+        `${ship.id} must not receive a mandatory Hold combat slot`);
+      if (ship.movement.holdEngaged) {
+        assert.strictEqual(ship.movement.destination, null,
+          `${ship.id} should clear translation once its own firing position is valid`);
+      }
     }
   }
 
@@ -775,11 +786,13 @@ function run() {
 
     const reach = getMaxEffectiveWeaponRange(attackers[0]);
     const inRange = attackers.filter((ship) => rangeTo(ship, enemy) <= reach
+      || speedOf(ship) < 3
       || (rangeTo(ship, enemy) <= reach + 48
         && (ship.movement.traffic?.mode === "soft"
           || ship.movement.traffic?.mode === "follow"
           || speedOf(ship) < 3))
-      || (speedOf(ship) < 3 && ship.movement.traffic?.mode === "queue")).length;
+      || (speedOf(ship) < 20
+        && ["queue", "sidestep"].includes(ship.movement.traffic?.mode))).length;
     assert.strictEqual(inRange, attackers.length,
       `every ship sent to attack should end up at its weapon envelope (${inRange}/${attackers.length} settled; ${attackers.filter((ship) => rangeTo(ship, enemy) > reach + 48).map((ship) => `${ship.id}:${rangeTo(ship, enemy).toFixed(0)}:${speedOf(ship).toFixed(1)}:${ship.movement.phase}:${JSON.stringify(ship.movement.traffic)}`).join(",")})`);
     const engaged = attackers.filter((ship) => ship.movement.holdEngaged).length;
@@ -787,7 +800,9 @@ function run() {
     assert(
       softSettledLarge.every((ship) => speedOf(ship) < 20
         || ((ship.movement.traffic?.mode === "soft"
-          || ship.movement.traffic?.mode === "follow")
+          || ship.movement.traffic?.mode === "follow"
+          || ship.movement.traffic?.mode === "queue"
+          || ship.movement.traffic?.mode === "sidestep")
           && rangeTo(ship, enemy) <= getMaxEffectiveWeaponRange(ship) + 48)),
       `...and settled into its place rather than still trying to reach one (${engaged}/${attackers.length} engaged)`
     );
@@ -806,9 +821,8 @@ function run() {
     }
   }
 
-  // Ships already in range still receive a target-relative slot. The assignment
-  // is stable and nearest-bearing based, so this is an intentional one-time
-  // positioning move rather than a per-tick formation shuffle.
+  // Ships already in range stay where they are. A group order must not pull a
+  // valid Hold ship around to satisfy a shared angular/range slot.
   {
     const attackers = [];
     const enemy = makeShip(3000, 2000, Math.PI, UNARMED_DESIGN, "p2");
@@ -821,14 +835,13 @@ function run() {
       shipIds: attackers.map((s) => s.id),
       targetId: enemy.id
     });
+    const starts = attackers.map((attacker) => ({ x: attacker.x, y: attacker.y }));
     simulate(room, ships, 25);
-    for (const attacker of attackers) {
-      const slot = attacker.movement.combatSlot;
-      assert.strictEqual(slot?.combatMode, "hold");
-      const slotX = enemy.x + Math.cos(slot.assignedAngle) * slot.assignedRadius;
-      const slotY = enemy.y + Math.sin(slot.assignedAngle) * slot.assignedRadius;
-      assert(Math.hypot(attacker.x - slotX, attacker.y - slotY) <= ARRIVE_DISTANCE * 4,
-        `${attacker.id} should settle at its stable target-relative slot`);
+    for (const [index, attacker] of attackers.entries()) {
+      assert.strictEqual(attacker.movement.combatSlot, null,
+        `${attacker.id} must not receive a Hold slot`);
+      assert(Math.hypot(attacker.x - starts[index].x, attacker.y - starts[index].y) < 24,
+        `${attacker.id} should not be repositioned after already becoming fireable`);
     }
   }
 

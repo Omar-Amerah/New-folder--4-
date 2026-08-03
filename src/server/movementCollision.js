@@ -1,16 +1,16 @@
 "use strict";
 
-const { clampNumber, fastHypot, hashString, compareEntityIds, compareNaturalIds, performanceNow } = require("./utils");
+const { clampNumber, fastHypot, hashString, compareNaturalIds } = require("./utils");
 const { WORLD } = require("./config");
 const { bump, recordDuration } = require("./roomTelemetry");
-const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
-  SEPARATION_BROAD_PHASE_PAD,
+  PACKED_FLEET_MAX_TICK_CORRECTION,
   SEPARATION_CORRECTION,
   SEPARATION_ITERATIONS,
   SEPARATION_SLOP,
+  STATIC_COLLISION_MAX_TICK_CORRECTION,
   STOPPED_SPEED,
   WORLD_MARGIN
 } = require("./movementTuning");
@@ -30,8 +30,10 @@ function resolveStationCollision(room, ship, shipRadius, onContact = null) {
 }
 
 const STATIC_SLIDE_CONTACT_MS = 500;
-const STATIC_SLIDE_REPLAN_MS = 1500;
-const STATIC_SLIDE_RECOVERY_MS = 2500;
+const STATIC_SLIDE_REPLAN_MS = 450;
+const STATIC_SLIDE_BLOCK_MS = 1800;
+const STATIC_SLIDE_PROGRESS_EPSILON = 8;
+const STATIC_CONTACT_EPSILON = 0.5;
 
 function recordStaticSlideContact(ship, contact) {
   const runtime = ship?.movement;
@@ -47,6 +49,25 @@ function recordStaticSlideContact(ship, contact) {
   const startedAt = continuous && Number.isFinite(Number(previous.startedAt))
     ? Number(previous.startedAt)
     : now;
+  const previousProgressX = continuous && Number.isFinite(Number(previous.lastProgressX))
+    ? Number(previous.lastProgressX)
+    : Number(ship.x) || 0;
+  const previousProgressY = continuous && Number.isFinite(Number(previous.lastProgressY))
+    ? Number(previous.lastProgressY)
+    : Number(ship.y) || 0;
+  const tangentX = -(Number(contact.normalY) || 0);
+  const tangentY = Number(contact.normalX) || 0;
+  const tangentLength = fastHypot(tangentX, tangentY);
+  const movementAlongSurface = tangentLength > 0.001
+    ? Math.abs((Number(ship.x) - previousProgressX) * tangentX / tangentLength
+      + (Number(ship.y) - previousProgressY) * tangentY / tangentLength)
+    : 0;
+  const progressed = movementAlongSurface >= STATIC_SLIDE_PROGRESS_EPSILON;
+  const lastProgressAt = progressed
+    ? now
+    : (continuous && Number.isFinite(Number(previous.lastProgressAt))
+      ? Number(previous.lastProgressAt)
+      : now);
   runtime.slide = {
     obstacleId,
     normalX: Number(contact.normalX) || 0,
@@ -57,14 +78,13 @@ function recordStaticSlideContact(ship, contact) {
     replanAt: continuous && Number.isFinite(Number(previous.replanAt))
       ? Number(previous.replanAt)
       : startedAt + STATIC_SLIDE_REPLAN_MS,
-    recoveryAt: continuous && Number.isFinite(Number(previous.recoveryAt))
-      ? Number(previous.recoveryAt)
-      : startedAt + STATIC_SLIDE_RECOVERY_MS,
+    blockedAt: lastProgressAt + STATIC_SLIDE_BLOCK_MS,
+    blocked: continuous && Boolean(previous.blocked),
     lastContactAt: now,
-    lastX: Number(ship.x) || 0,
-    lastY: Number(ship.y) || 0,
-    replanCount: continuous ? (Number(previous.replanCount) || 0) : 0,
-    recoveryCount: continuous ? (Number(previous.recoveryCount) || 0) : 0
+    lastProgressX: progressed ? Number(ship.x) || 0 : previousProgressX,
+    lastProgressY: progressed ? Number(ship.y) || 0 : previousProgressY,
+    lastProgressAt,
+    replanCount: continuous ? (Number(previous.replanCount) || 0) : 0
   };
 }
 
@@ -72,9 +92,11 @@ function physicalCollisionRadius(ship) {
   return Math.max(18, Number(ship?.physicalRadius) || (Number(ship?.radius) || 0) * 0.56);
 }
 
+const NAVIGATION_SAFETY_MARGIN = 8;
+
 function navigationClearanceRadius(ship) {
   const physical = physicalCollisionRadius(ship);
-  return physical + Math.max(8, (Number(ship?.radius) || 0) * 0.12);
+  return physical + NAVIGATION_SAFETY_MARGIN;
 }
 
 function separationRadius(ship) {
@@ -101,7 +123,6 @@ function shipIsStopped(ship) {
 }
 
 const COLLISION_CONTACT_CONTINUITY_MS = 250;
-const COLLISION_CONTACT_RETENTION_MS = 4000;
 
 function recordShipContact(room, a, b, tick) {
   const contacts = room._shipCollisionContacts || (room._shipCollisionContacts = new Map());
@@ -136,6 +157,20 @@ function friendlyChargePair(a, b) {
       && String(style || "").toLowerCase() === "charge";
   };
   return isCharge(a) && isCharge(b);
+}
+
+function holdApproachShip(ship) {
+  const style = ship?.combatStyleRaw || ship?.combatStyle;
+  return ship?.movement?.command?.type === "attack"
+    && String(style || "").toLowerCase() === "hold"
+    && Boolean(ship?.movement?.holdApproach);
+}
+
+function friendlyHoldApproachPair(a, b) {
+  // Charge keeps its established contact behavior. Hold approach traffic gets
+  // the hard circular separation path so a blocked fan member cannot enter the
+  // timed soft-overlap release.
+  return !friendlyChargePair(a, b) && (holdApproachShip(a) || holdApproachShip(b));
 }
 
 function friendlyTrafficSoftContact(room, a, b, now) {
@@ -207,11 +242,18 @@ function friendlySoftCorrection(
 
 
 function resolveMapCollision(room, ship) {
+  bump(room, "staticCollisionCalls");
   const radius = physicalCollisionRadius(ship);
   const launchControlled = Boolean(ship?.launchPhase);
   const width = room?.world?.width || WORLD.width;
   const height = room?.world?.height || WORLD.height;
   const scratch = room._mapCollisionScratch || (room._mapCollisionScratch = []);
+  const beforeX = Number(ship.x) || 0;
+  const beforeY = Number(ship.y) || 0;
+  const beforeCorrectionX = Number(ship._collisionCorrectionX) || 0;
+  const beforeCorrectionY = Number(ship._collisionCorrectionY) || 0;
+  const hasStaticBudget = Number.isFinite(Number(ship._staticCollisionCorrectionDistance));
+  const staticContacts = [];
   const asteroids = launchControlled
     ? []
     : (room.spatialIndex?.dynamicValid && room.spatialIndex.queryAabbUnordered
@@ -232,7 +274,7 @@ function resolveMapCollision(room, ship) {
     let dy = (ship.y || 0) - asteroid.y;
     let distance = fastHypot(dx, dy);
     const minimum = (asteroid.radius || 0) + radius;
-    if (distance >= minimum) continue;
+    if (distance > minimum + STATIC_CONTACT_EPSILON) continue;
     hit = true;
     if (distance <= 0.001) {
       const angle = ((hashString(String(ship.id)) >>> 0) / 0x100000000) * Math.PI * 2;
@@ -240,7 +282,7 @@ function resolveMapCollision(room, ship) {
       dy = Math.sin(angle);
       distance = 1;
     }
-    const penetration = minimum - distance;
+    const penetration = Math.max(0, minimum - distance);
     const normalX = dx / distance;
     const normalY = dy / distance;
     ship.x += normalX * penetration;
@@ -254,7 +296,7 @@ function resolveMapCollision(room, ship) {
       ship.vx -= inwardSpeed * normalX;
       ship.vy -= inwardSpeed * normalY;
     }
-    recordStaticSlideContact(ship, {
+    staticContacts.push({
       obstacleId: `asteroid:${String(asteroid.id ?? asteroidIndex)}`,
       normalX,
       normalY,
@@ -262,16 +304,53 @@ function resolveMapCollision(room, ship) {
     });
   }
   if (!launchControlled && resolveStationCollision(room, ship, radius, (contact) => {
-    recordStaticSlideContact(ship, contact);
+    staticContacts.push(contact);
   })) hit = true;
   const edge = WORLD_MARGIN + radius;
-  const beforeX = ship.x;
-  const beforeY = ship.y;
+  const edgeBeforeX = ship.x;
+  const edgeBeforeY = ship.y;
   ship.x = clampNumber(ship.x, edge, width - edge);
   ship.y = clampNumber(ship.y, edge, height - edge);
-  ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + ship.x - beforeX;
-  ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + ship.y - beforeY;
-  if (hit) bumpMovementMetric("collisionCount");
+  ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + ship.x - edgeBeforeX;
+  ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + ship.y - edgeBeforeY;
+
+  // Several hull cells can contact one station piece during the same call,
+  // and a deeply embedded spawn can produce a very large raw correction. Keep
+  // the total static displacement for this authoritative tick bounded. Normal
+  // surface contacts are untouched; only pathological penetration is allowed
+  // to remain for the next substep/tick to resolve.
+  const rawCorrectionX = ship.x - beforeX;
+  const rawCorrectionY = ship.y - beforeY;
+  const rawCorrectionDistance = fastHypot(rawCorrectionX, rawCorrectionY);
+  const appliedBefore = hasStaticBudget
+    ? Math.max(0, Number(ship._staticCollisionCorrectionDistance) || 0)
+    : 0;
+  const remainingBudget = hasStaticBudget
+    ? Math.max(0, STATIC_COLLISION_MAX_TICK_CORRECTION - appliedBefore)
+    : Infinity;
+  const correctionScale = rawCorrectionDistance > remainingBudget && rawCorrectionDistance > 0
+    ? remainingBudget / rawCorrectionDistance
+    : 1;
+  if (correctionScale < 1) {
+    const appliedX = rawCorrectionX * correctionScale;
+    const appliedY = rawCorrectionY * correctionScale;
+    ship.x = beforeX + appliedX;
+    ship.y = beforeY + appliedY;
+    ship._collisionCorrectionX = beforeCorrectionX + appliedX;
+    ship._collisionCorrectionY = beforeCorrectionY + appliedY;
+  }
+  const appliedCorrectionX = ship.x - beforeX;
+  const appliedCorrectionY = ship.y - beforeY;
+  if (hasStaticBudget) {
+    ship._staticCollisionCorrectionDistance = appliedBefore
+      + fastHypot(appliedCorrectionX, appliedCorrectionY);
+  }
+  bump(room, "staticCollisionCorrectionDistance", fastHypot(appliedCorrectionX, appliedCorrectionY));
+  for (const contact of staticContacts) recordStaticSlideContact(ship, contact);
+  if (hit) {
+    bump(room, "staticCollisionHits");
+    bumpMovementMetric("collisionCount");
+  }
   return hit;
 }
 
@@ -332,7 +411,8 @@ function resolveSeparationPair(room, a, b, options = null) {
     : (winnerId === a.id ? a : b);
   const contact = recordShipContact(room, a, b, tick);
   const friendly = friendlyShipPair(room, a, b);
-  const softFriendlyContact = friendly && !friendlyChargePair(a, b)
+  const hardFriendlyHold = friendly && friendlyHoldApproachPair(a, b);
+  const softFriendlyContact = friendly && !friendlyChargePair(a, b) && !hardFriendlyHold
     && (contact.duration >= 1500 || friendlyTrafficSoftContact(room, a, b, tick));
   const sidestepContact = friendly && contact.duration >= 400;
   const normalTowardWinner = yielding === a
@@ -350,6 +430,17 @@ function resolveSeparationPair(room, a, b, options = null) {
       broadMinimum,
       normalTowardWinner,
       options?.dt
+    );
+  }
+  if (options?.packedCorrectionBudget) {
+    const used = Math.max(0, Number(yielding._packedCorrectionDistance) || 0);
+    const configuredBudget = Number(yielding._packedCorrectionBudget);
+    const budget = Number.isFinite(configuredBudget)
+      ? Math.max(0, configuredBudget)
+      : PACKED_FLEET_MAX_TICK_CORRECTION;
+    correction = Math.min(
+      correction,
+      Math.max(0, budget - used)
     );
   }
   const moveA = yielding === a ? correction : 0;
@@ -392,149 +483,26 @@ function resolveSeparationPair(room, a, b, options = null) {
     ) > 2) {
     collisionBump(room, "towingRegressionDetections");
   }
-  return { penetration: overlap.penetration };
+  if (options?.packedCorrectionBudget) {
+    const applied = Math.hypot(
+      yielding.x - (yielding === a ? oldAX : oldBX),
+      yielding.y - (yielding === a ? oldAY : oldBY)
+    );
+    yielding._packedCorrectionDistance = (
+      Math.max(0, Number(yielding._packedCorrectionDistance) || 0) + applied
+    );
+  }
+  return { penetration: overlap.penetration, correctionApplied: correction };
 }
 
 function getLiveShips(room) {
   return Array.from(room.ships?.values() || []).filter((ship) => ship && ship.alive);
 }
 
-function pruneCollisionContacts(room, now) {
-  const contacts = room?._shipCollisionContacts;
-  const tick = Number(now) || 0;
-  if (!contacts?.size || tick <= 0) return;
-  if (tick < (Number(room._nextShipCollisionContactPruneAt) || 0)) return;
-  for (const [pairKey, contact] of contacts) {
-    if (tick - (Number(contact?.at) || 0) > COLLISION_CONTACT_RETENTION_MS) {
-      contacts.delete(pairKey);
-    }
-  }
-  room._nextShipCollisionContactPruneAt = tick + COLLISION_CONTACT_RETENTION_MS;
-}
-
-function updateLegacyShipSeparation(room, shipList, dt, now = 0, options = null) {
-  pruneCollisionContacts(room, now);
-  const ships = (Array.isArray(shipList)
-    ? shipList.filter((ship) => ship && ship.alive)
-    : getLiveShips(room))
-    .slice()
-    .sort(compareEntityIds);
-  const separationStart = performanceNow();
-  // Pair resolution has to visit (a, b) in a stable order, and it used to
-  // establish that order by comparing ids for every candidate of every ship on
-  // every iteration. Stamping each ship's rank in the already-sorted list turns
-  // those comparisons into integer arithmetic. Ships the spatial index returns
-  // that are not part of this pass keep the id comparison, so the ordering is
-  // identical either way.
-  const orderEpoch = (room._separationOrderEpoch = (Number(room._separationOrderEpoch) || 0) + 1);
-  for (let index = 0; index < ships.length; index += 1) {
-    ships[index]._separationOrder = index;
-    ships[index]._separationOrderEpoch = orderEpoch;
-  }
-  const rankOf = (ship) => (ship._separationOrderEpoch === orderEpoch ? ship._separationOrder : -1);
-  const byRank = (x, y) => {
-    const xRank = rankOf(x);
-    const yRank = rankOf(y);
-    return xRank >= 0 && yRank >= 0 ? xRank - yRank : compareEntityIds(x, y);
-  };
-  const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
-  modified.clear();
-  let unresolved = [];
-  for (let iteration = 0; iteration < SEPARATION_ITERATIONS; iteration += 1) {
-    let overlaps = 0;
-    unresolved = [];
-    bump(room, "separationIterations");
-    const narrowStart = performanceNow();
-    for (const a of ships) {
-      const usingIndex = room.spatialIndex?.dynamicValid
-        && room.spatialIndex.queryRangeUnordered;
-      const candidates = usingIndex
-        ? room.spatialIndex.queryRangeUnordered(
-          "ships",
-          a.x,
-          a.y,
-          physicalCollisionRadius(a) * 2 + SEPARATION_BROAD_PHASE_PAD,
-          a._shipCollisionCandidateScratch || (a._shipCollisionCandidateScratch = [])
-        )
-        : ships;
-      if (usingIndex && candidates.length > 1) candidates.sort(byRank);
-      const aRank = rankOf(a);
-      bump(room, "separationQueries");
-      bump(room, "separationCandidatesReturned", candidates.length);
-      for (const b of candidates) {
-        if (!b?.alive || b === a) continue;
-        const bRank = rankOf(b);
-        if (bRank >= 0 && aRank >= 0 ? bRank <= aRank : compareEntityIds(b, a) <= 0) continue;
-        const result = resolveSeparationPair(room, a, b, options);
-        if (!result) continue;
-        overlaps += 1;
-        unresolved.push([a, b, result.penetration]);
-        modified.add(a.id);
-        modified.add(b.id);
-      }
-    }
-    recordDuration(room, "separationNarrowPhaseMs", narrowStart);
-    const mapStart = performanceNow();
-    for (const ship of ships) {
-      resolveMapCollision(room, ship);
-      bump(room, "separationMapCollisionCalls");
-    }
-    recordDuration(room, "separationMapCollisionMs", mapStart);
-    if (overlaps === 0) break;
-    if (room.spatialIndex?.updateLiveEntities) {
-      const rebuildStart = performanceNow();
-      const { shipBroadPhaseRadius } = require("./spatialIndex");
-      if (INCREMENTAL_SPATIAL_INDEX()) {
-        room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
-      } else {
-        room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
-        bump(room, "separationShipIndexRebuilds");
-        recordDuration(room, "separationSpatialRebuildMs", rebuildStart);
-      }
-    }
-  }
-  if (unresolved.length) {
-    collisionBump(room, "shipCollisionUnresolvedPairs", unresolved.length);
-    const { findClearShipSpawnPoint } = require("./spawnPlanner");
-    for (const [a, b, penetration] of unresolved) {
-      const newcomer = a.spawnState && now < a.spawnState.expiresAt
-        ? a
-        : (b.spawnState && now < b.spawnState.expiresAt ? b : null);
-      if (!newcomer || penetration < 2) continue;
-      const recovery = findClearShipSpawnPoint(room, {
-        preferredX: newcomer.spawnState.launchPoint.x,
-        preferredY: newcomer.spawnState.launchPoint.y,
-        physicalRadius: physicalCollisionRadius(newcomer),
-        ownerId: newcomer.ownerId,
-        requestId: `recovery:${newcomer.id}`,
-        shipIndex: 0,
-        ignoredShips: new Set([newcomer])
-      });
-      if (recovery.ok) {
-        newcomer.x = recovery.x;
-        newcomer.y = recovery.y;
-        newcomer.vx = 0;
-        newcomer.vy = 0;
-      }
-    }
-  }
-  bump(room, "separationUnresolvedPairs", unresolved.length);
-  recordDuration(room, "shipSeparationMs", separationStart);
-  return Array.from(modified);
-}
-
-// Phase 4C shared-pair path. It intentionally retains the established
-// sequential narrow-phase correction and impulse rules so enabling the pair
-// cache alone is a broad-phase change, not a gameplay/balance change. The
-// difference is that every iteration consumes the one canonical pair array;
-// there are no per-ship spatial queries or ship-index refreshes in this loop.
-function updateSharedPairSeparation(room, shipList, dt, now = 0, options = null) {
+function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
   const contactPairs = require("./movementContactPairs");
-  const inputShips = Array.isArray(shipList) ? shipList : getLiveShips(room);
-  const liveShips = inputShips
-    .filter((ship) => ship && ship.alive && !ship.removed)
-    .slice()
-    .sort(compareEntityIds);
+  const liveShips = (Array.isArray(shipList) ? shipList : getLiveShips(room))
+    .filter((ship) => ship && ship.alive && !ship.removed);
   let stepId = room._movementContactPairStepId;
   if (stepId === null || stepId === undefined) {
     stepId = contactPairs.beginMovementContactStep(room, liveShips, now);
@@ -542,107 +510,22 @@ function updateSharedPairSeparation(room, shipList, dt, now = 0, options = null)
   if (room._movementContactPairBuildStepId !== stepId) {
     contactPairs.buildMovementContactPairs(room, liveShips, now, { stepId });
   }
-  const pairs = contactPairs.getMovementContactPairs(room, stepId);
-  const separationStart = performanceNow();
-  const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
-  modified.clear();
-  let unresolved = [];
-  let iterations = 0;
-  for (; iterations < SEPARATION_ITERATIONS; iterations += 1) {
-    let overlaps = 0;
-    unresolved = [];
-    bump(room, "separationIterations");
-    // This is the broad-phase work the shared set replaces. Keep the diagnostic
-    // visible without incrementing the legacy query counter.
-    bump(room, "movementLegacySeparationQueriesAvoided", liveShips.length);
-    const narrowStart = performanceNow();
-    for (const pair of pairs) {
-      const a = pair?.a;
-      const b = pair?.b;
-      if (!a?.alive || a.removed || !b?.alive || b.removed || a === b) continue;
-      const result = resolveSeparationPair(room, a, b, options);
-      if (!result) continue;
-      overlaps += 1;
-      unresolved.push([a, b, result.penetration]);
-      modified.add(a.id);
-      modified.add(b.id);
-    }
-    recordDuration(room, "separationNarrowPhaseMs", narrowStart);
-    const mapStart = performanceNow();
-    // Preserve the established static-collision interaction for the shared
-    // legacy solver. This is not a ship broad phase and does not regenerate the
-    // shared pair set.
-    for (const ship of liveShips) {
-      resolveMapCollision(room, ship);
-      bump(room, "separationMapCollisionCalls");
-    }
-    recordDuration(room, "separationMapCollisionMs", mapStart);
-    if (overlaps === 0) break;
+  let separationShips = Array.isArray(shipList) ? shipList : liveShips;
+  if (room._movementContactPairNeedsRecovery) {
+    // A launch can occur after the normal movement-boundary build. Include
+    // the room's current live roster in one exceptional, deterministic
+    // recovery build so the newcomer cannot be absent from the solver graph.
+    separationShips = getLiveShips(room).filter((ship) => !ship.removed);
+    contactPairs.rebuildMovementContactPairsForRecovery(room, separationShips, now);
   }
-  if (unresolved.length) {
-    collisionBump(room, "shipCollisionUnresolvedPairs", unresolved.length);
-    const { findClearShipSpawnPoint } = require("./spawnPlanner");
-    for (const [a, b, penetration] of unresolved) {
-      const newcomer = a.spawnState && now < a.spawnState.expiresAt
-        ? a
-        : (b.spawnState && now < b.spawnState.expiresAt ? b : null);
-      if (!newcomer || penetration < 2) continue;
-      const recovery = findClearShipSpawnPoint(room, {
-        preferredX: newcomer.spawnState.launchPoint.x,
-        preferredY: newcomer.spawnState.launchPoint.y,
-        physicalRadius: physicalCollisionRadius(newcomer),
-        ownerId: newcomer.ownerId,
-        requestId: `recovery:${newcomer.id}`,
-        shipIndex: 0,
-        ignoredShips: new Set([newcomer])
-      });
-      if (recovery.ok) {
-        newcomer.x = recovery.x;
-        newcomer.y = recovery.y;
-        newcomer.vx = 0;
-        newcomer.vy = 0;
-      }
-    }
-  }
-  bump(room, "separationUnresolvedPairs", unresolved.length);
-  recordDuration(room, "shipSeparationMs", separationStart);
-  return Array.from(modified);
-}
-
-function updateShipSeparation(room, shipList, dt, now = 0, options = null) {
-  const { SHARED_MOVEMENT_CONTACT_PAIRS, PACKED_FLEET_SOLVER } = require("./performanceFlags");
-  if (SHARED_MOVEMENT_CONTACT_PAIRS()) {
-    const contactPairs = require("./movementContactPairs");
-    const liveShips = (Array.isArray(shipList) ? shipList : getLiveShips(room))
-      .filter((ship) => ship && ship.alive && !ship.removed);
-    let stepId = room._movementContactPairStepId;
-    if (stepId === null || stepId === undefined) {
-      stepId = contactPairs.beginMovementContactStep(room, liveShips, now);
-    }
-    if (room._movementContactPairBuildStepId !== stepId) {
-      contactPairs.buildMovementContactPairs(room, liveShips, now, { stepId });
-    }
-    let separationShips = shipList;
-    if (room._movementContactPairNeedsRecovery) {
-      // A launch can occur after the normal movement-boundary build. Include
-      // the room's current live roster in one exceptional, deterministic
-      // recovery build so the newcomer cannot be absent from the solver graph.
-      separationShips = getLiveShips(room).filter((ship) => !ship.removed);
-      contactPairs.rebuildMovementContactPairsForRecovery(room, separationShips, now);
-    }
-    if (PACKED_FLEET_SOLVER()) {
-      return require("./packedFleetSolver").solvePackedFleetSeparation(
-        room,
-        separationShips,
-        dt,
-        now,
-        options,
-        stepId
-      );
-    }
-    return updateSharedPairSeparation(room, separationShips, dt, now, options);
-  }
-  return updateLegacyShipSeparation(room, shipList, dt, now, options);
+  return require("./packedFleetSolver").solvePackedFleetSeparation(
+    room,
+    separationShips,
+    dt,
+    now,
+    options,
+    stepId
+  );
 }
 
 function resolveFleetMapCollisions(room) {
@@ -654,11 +537,14 @@ function resolveFleetMapCollisions(room) {
 }
 
 module.exports = {
+  STATIC_SLIDE_BLOCK_MS,
+  STATIC_SLIDE_REPLAN_MS,
   navigationClearanceRadius,
   physicalCollisionRadius,
   cancelYieldingInwardMovement,
   friendlyTrafficSoftContact,
   friendlyChargePair,
+  friendlyHoldApproachPair,
   friendlyShipPair,
   friendlySoftCorrection,
   recordShipContact,

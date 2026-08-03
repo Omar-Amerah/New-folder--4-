@@ -15,10 +15,13 @@
 //   * different tick partitions produce the same trajectory
 
 const assert = require("assert");
+const fs = require("fs");
 const { movementTestTick } = require("./tools/movementTestTick");
 const { computeStats } = require("./src/server/shipStats");
 const {
   commandShips,
+  physicalCollisionRadius,
+  resolveMapCollision,
   stopShips,
   updateShipMovement,
   updateShipSeparation
@@ -36,6 +39,7 @@ const LIGHT_DESIGN = [
   { x: 8, y: 7, type: "reactor" },
   { x: 7, y: 8, type: "engine" }
 ];
+const NO_DRIVE_DESIGN = LIGHT_DESIGN.slice(0, 2);
 
 // A capital hull: heavy, fast in a straight line, and slow to answer the helm.
 // Used for the "a light ship turns faster than a capital ship" criterion and
@@ -174,6 +178,78 @@ function runDirectionCase(label, angle, destinationX, destinationY) {
 }
 
 function run() {
+  // Static collision is a physics boundary, not a once-per-tick cleanup. The
+  // controller must check it for every fixed substep and may only account for
+  // ordinary integration plus the local penetration correction.
+  {
+    const previousMetrics = global.__mfaMovePerf;
+    const metrics = {};
+    global.__mfaMovePerf = metrics;
+    try {
+      const asteroid = { id: "phase1-substep-rock", x: 2200, y: 1200, radius: 180 };
+      const ship = makeShip(LIGHT_DESIGN, 1800, 1200, 0);
+      const { room, player } = makeScenario([ship], [asteroid]);
+      const radius = physicalCollisionRadius(ship);
+      ship.x = asteroid.x - asteroid.radius - radius + 4;
+      assert(resolveMapCollision(room, ship), "the substep fixture should start in static contact");
+      const startX = ship.x;
+      const startY = ship.y;
+      commandShips(room, player, 3200, 1200, { shipIds: [ship.id] });
+      movementTestTick(room, [ship], DT, 0);
+
+      assert.strictEqual(metrics.staticCollisionSubstepChecks, 2,
+        "a 30 Hz movement tick should resolve static geometry after both 60 Hz substeps");
+      const integrated = Math.hypot(ship._integratedMovementX, ship._integratedMovementY);
+      const correction = Math.hypot(ship._collisionCorrectionX, ship._collisionCorrectionY);
+      const observed = Math.hypot(ship.x - startX, ship.y - startY);
+      assert(observed <= integrated + correction + 1e-6,
+        `static contact moved the hull beyond integration plus local correction (${observed.toFixed(3)} > ${(integrated + correction).toFixed(3)})`);
+    } finally {
+      global.__mfaMovePerf = previousMetrics;
+    }
+  }
+
+  // The old slide recovery selected a distant clear point and assigned it
+  // directly. Keep the no-teleport contract explicit at the production source
+  // boundary so that a future recovery refactor cannot reintroduce it.
+  {
+    const movementSource = fs.readFileSync("src/server/movementV2.js", "utf8");
+    assert(!movementSource.includes("tryStaticSlideRecovery"),
+      "static contact must not have a teleport recovery routine");
+    assert(!movementSource.includes("ship.x = best.x"),
+      "static contact must not assign a distant replacement position");
+  }
+
+  // A hull that cannot make tangential progress must eventually report a
+  // blocked order, while remaining at the corrected surface point. This is the
+  // bounded failure mode that replaces the old delayed recovery jump.
+  {
+    const asteroid = { id: "phase1-blocked-rock", x: 2200, y: 1200, radius: 300 };
+    const ship = makeShip(NO_DRIVE_DESIGN, 1800, 1200, 0);
+    const { room, player } = makeScenario([ship], [asteroid]);
+    const radius = physicalCollisionRadius(ship);
+    ship.x = asteroid.x - asteroid.radius - radius + 4;
+    commandShips(room, player, 3400, 1200, { shipIds: [ship.id] });
+    assert(resolveMapCollision(room, ship), "the blocked fixture should start in static contact");
+    const settledX = ship.x;
+    const settledY = ship.y;
+    let largestJump = 0;
+    let previousX = settledX;
+    let previousY = settledY;
+    simulate(room, [ship], 3, DT, () => {
+      largestJump = Math.max(largestJump, Math.hypot(ship.x - previousX, ship.y - previousY));
+      previousX = ship.x;
+      previousY = ship.y;
+    });
+    assert.strictEqual(ship.movement.phase, "blocked",
+      `a no-progress static contact should report blocked (phase ${ship.movement.phase})`);
+    assert(ship.movement.blocked, "a no-progress static contact should latch blocked state");
+    assert(largestJump < 2,
+      `blocked static contact should not jump to a distant recovery point (${largestJump.toFixed(1)} px)`);
+    assert(Math.hypot(ship.x - settledX, ship.y - settledY) < 2,
+      "blocked static contact should remain at the corrected surface");
+  }
+
   // --- Destination ahead / left / right / behind ----------------------------
   runDirectionCase("ahead", 0, 2600, 1200);
   runDirectionCase("right", 0, 1200, 2400);

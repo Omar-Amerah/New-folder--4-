@@ -1,12 +1,9 @@
 "use strict";
 
-// Phase 6C incremental visibility runtime.
+// Authoritative visibility runtime.
 //
-// This module deliberately owns the optimized path rather than folding its
-// caches into visibility.js.  visibility.js remains the parity reference and
-// dispatches here only when OPTIMIZED_VISIBILITY_RUNTIME is enabled.  The
-// runtime therefore has one authoritative result per team, but can reuse
-// source capability and coverage records between those results.
+// This module owns the caches and authoritative result for each team. It
+// reuses source capability and coverage records between visibility queries.
 
 const { BALANCE } = require("./balanceConfig");
 const { PARTS } = require("./components");
@@ -141,7 +138,6 @@ function removeTeamIfEmpty(runtime, room, teamId) {
     && (!state || !(state.remembered instanceof Map) || !state.remembered.size)) {
     runtime.teamStates.delete(teamId);
     runtime.dirtyTeams.delete(teamId);
-    room?.visibilityByTeam?.delete?.(teamId);
   }
 }
 
@@ -432,9 +428,9 @@ function refreshSourceRecord(room, runtime, record) {
   const nextCapabilityKey = capabilityKey(record, room);
   if (record.capabilityKey !== nextCapabilityKey) {
     const startedAt = performanceNow();
-    // sensorCapability's legacy cache is generation keyed.  The optimized
-    // registry owns the stronger revision key, so clear the legacy cache only
-    // when capability inputs actually changed; movement never reaches here.
+    // sensorCapability's profile cache is generation keyed. The authoritative
+    // registry owns the stronger revision key, so clear it only when capability
+    // inputs actually changed; movement never reaches here.
     delete entity._sensorProfileCacheGeneration;
     delete entity._sensorProfileCacheValue;
     const profileEntity = record.entityType === "relay"
@@ -727,7 +723,7 @@ function ensureVisibilityRuntime(room) {
       // A new state epoch cannot inherit remembered contacts or visible IDs
       // from the previous match, even if the caller changed the epoch before
       // invoking the normal room reset helper.
-      for (const state of room.visibilityByTeam?.values?.() || []) {
+      for (const state of runtime.teamStates.values()) {
         state.visibleEntityIds?.clear?.();
         state.nextVisibleEntityIds?.clear?.();
         state.remembered?.clear?.();
@@ -735,16 +731,15 @@ function ensureVisibilityRuntime(room) {
         state.sourceCoverage?.clear?.();
         state.snapshotFilterCache = null;
       }
-      room.visibilityByTeam?.clear?.();
+      runtime.teamStates.clear();
     }
     runtime = createRuntime(room);
     room._visibilityRuntime = runtime;
-    if (!room.visibilityByTeam) room.visibilityByTeam = new Map();
   }
   const modeChanged = runtime.visibilityMode !== room?.rules?.visibilityMode
     || runtime.infrastructureMode !== room?.rules?.infrastructureMode;
   if (modeChanged) {
-    for (const state of room.visibilityByTeam?.values?.() || []) {
+    for (const state of runtime.teamStates.values()) {
       state.visibleEntityIds?.clear?.();
       state.nextVisibleEntityIds?.clear?.();
       state.remembered?.clear?.();
@@ -752,7 +747,6 @@ function ensureVisibilityRuntime(room) {
       state.sourceCoverage?.clear?.();
       state.snapshotFilterCache = null;
     }
-    room.visibilityByTeam?.clear?.();
     runtime.teamStates.clear();
     runtime.visibilityMode = room?.rules?.visibilityMode;
     runtime.infrastructureMode = room?.rules?.infrastructureMode;
@@ -764,8 +758,7 @@ function ensureVisibilityRuntime(room) {
 }
 
 function ensureStateShape(room, runtime, teamId) {
-  if (!room.visibilityByTeam) room.visibilityByTeam = new Map();
-  let state = runtime.teamStates.get(teamId) || room.visibilityByTeam.get(teamId);
+  let state = runtime.teamStates.get(teamId);
   if (!state) {
     state = {
       visibleEntityIds: new Set(),
@@ -784,30 +777,7 @@ function ensureStateShape(room, runtime, teamId) {
       snapshotFilterCache: null
     };
   }
-  if (!(state.visibleEntityIds instanceof Set)) state.visibleEntityIds = new Set();
-  if (!(state.nextVisibleEntityIds instanceof Set)) state.nextVisibleEntityIds = new Set();
-  if (!(state.remembered instanceof Map)) state.remembered = new Map();
-  if (!Array.isArray(state.coverage)) state.coverage = [];
-  if (!(state.sourceCoverage instanceof Map)) state.sourceCoverage = new Map();
-  if (state._visibilityRuntimeInitialized !== true) {
-    // A room may have a legacy state from an earlier flag setting. Keep its
-    // visible/remembered sets for contact continuity, but force one optimized
-    // coverage rebuild before serving the result.
-    state.sourceCoverage.clear();
-    state.coverage.length = 0;
-    state.computedGeneration = 0;
-    state.snapshotFilterCache = null;
-    state._visibilityRuntimeInitialized = true;
-  }
-  if (!Number.isSafeInteger(state.resultRevision)) state.resultRevision = Number(state.revision) || 1;
-  if (!Number.isSafeInteger(state.revision)) state.revision = state.resultRevision;
-  if (!Array.isArray(state.visibleShips)) state.visibleShips = [];
-  if (!Array.isArray(state.visibleDrones)) state.visibleDrones = [];
-  if (!Array.isArray(state.visibleStations)) state.visibleStations = [];
-  if (!Number.isFinite(state.computedAt)) state.computedAt = Number.NEGATIVE_INFINITY;
-  if (!Number.isSafeInteger(state.computedGeneration)) state.computedGeneration = 0;
   runtime.teamStates.set(teamId, state);
-  room.visibilityByTeam.set(teamId, state);
   return state;
 }
 
@@ -854,8 +824,8 @@ function isPointInCoverage(coverage, x, y, padding = 0) {
   if (distanceSq <= extra * extra) return true;
   const distance = Math.sqrt(distanceSq);
   const angularPadding = extra > 0 ? Math.asin(Math.min(1, extra / distance)) : 0;
-  // Keep the legacy angular method as the rollout reference.  The precomputed
-  // cosine is retained on the hot record for a future proven dot-product path.
+  // Use the authoritative angular cone test; the precomputed cosine remains
+  // available on the record for a future dot-product optimization.
   return Math.abs(angleDifference(Number(coverage.angle) || 0, Math.atan2(dy, dx)))
     <= (Number(coverage.halfAngle) || 0) + angularPadding;
 }
@@ -890,7 +860,7 @@ function collectionLength(room, kind) {
 
 function hasSpatialCategory(room, kind) {
   const index = room?.spatialIndex;
-  if (!index || index.dynamicValid === false || typeof index.queryRangeUnordered !== "function") return false;
+  if (!index || index.dynamicValid !== true || typeof index.queryRangeUnordered !== "function") return false;
   if (typeof index.count !== "function") return true;
   return (index.count(kind) || 0) > 0 || collectionLength(room, kind) === 0;
 }
@@ -1197,7 +1167,7 @@ function clearVisibilityForRoom(room) {
     runtime.droneQueryScratch.length = 0;
     runtime.stationQueryScratch.length = 0;
   }
-  for (const state of room.visibilityByTeam?.values?.() || []) {
+  for (const state of runtime?.teamStates?.values?.() || []) {
     state.visibleEntityIds?.clear?.();
     state.nextVisibleEntityIds?.clear?.();
     state.remembered?.clear?.();
@@ -1205,7 +1175,6 @@ function clearVisibilityForRoom(room) {
     state.sourceCoverage?.clear?.();
     state.snapshotFilterCache = null;
   }
-  room.visibilityByTeam?.clear?.();
   room._visibilityRuntime = null;
 }
 

@@ -39,7 +39,7 @@ The fleet cap counts living owned ships (`ship.alive === true`). Destroyed ships
 
 ## Starter ships and active blueprints
 
-Readiness validates that the selected starter design is valid and affordable, but does not deduct money. When all active players are ready and the match starts, each ready player is reset to starting money and charged exactly once for the spawned starter ship. The intended model is therefore: `starting money - starter ship cost` after successful starter deployment. Editing or saving an active-match blueprint remains free; money is deducted only by a successful buy request using the immutable design supplied in that request.
+Readiness is a separate `ready` action and performs no ship-design, affordability, or money check. A player may ready with no money or an invalid current blueprint. When all active players are ready, the match starts with no automatic ship deployment; players choose a valid design from the purchase bar and money is deducted only by a successful `buyShip` request using the immutable design supplied in that request. Editing or saving an active-match blueprint remains free.
 
 ## Rewards and income flow
 

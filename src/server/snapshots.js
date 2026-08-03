@@ -26,7 +26,8 @@ const { ensureTeamVisibility, invalidateVisibility, usesSensorVisibility } = req
 const { INFRASTRUCTURE } = require("./config");
 const {
   SHIP_STATE_SIGNATURE_FIELDS,
-  PRIVATE_SHIP_FIELDS
+  PRIVATE_SHIP_FIELDS,
+  ENTITY_DELTA_FORMAT_VERSION
 } = require("../../public/src/shared/snapshotEntityDelta");
 const { signature: snapshotEntitySignature } = require("./snapshotEntityDelta");
 
@@ -150,39 +151,49 @@ function roundStationPoint(point) {
 function buildStationHangarSnapshot(station) {
   const hangars = station?.hangars;
   if (!Array.isArray(hangars) || hangars.length === 0) return undefined;
-  return hangars.map((hangar) => ({
-    id: hangar.id,
-    index: hangar.index,
-    centreY: round(hangar.centreY),
-    localCentre: roundStationPoint(hangar.localCentre),
-    worldCentre: roundStationPoint(hangar.worldCentre),
-    localNormal: roundStationPoint(hangar.localNormal),
-    apertureHalfWidth: round(hangar.apertureHalfWidth),
-    apertureWidth: round(hangar.apertureWidth),
-    corridorDepth: round(hangar.corridorDepth),
-    corridorLength: round(hangar.corridorLength),
-    interiorSpawn: roundStationPoint(hangar.interiorSpawn),
-    mouth: roundStationPoint(hangar.mouth),
-    innerWall: roundStationPoint(hangar.innerWall),
-    releasePlane: roundStationPoint(hangar.releasePlane),
-    releaseDistance: round(hangar.releaseDistance),
-    collisionOpening: hangar.collisionOpening ? {
-      minX: round(hangar.collisionOpening.minX),
-      maxX: round(hangar.collisionOpening.maxX),
-      minY: round(hangar.collisionOpening.minY),
-      maxY: round(hangar.collisionOpening.maxY)
-    } : undefined,
-    doorRect: hangar.doorRect ? {
-      minX: round(hangar.doorRect.minX),
-      maxX: round(hangar.doorRect.maxX),
-      minY: round(hangar.doorRect.minY),
-      maxY: round(hangar.doorRect.maxY)
-    } : undefined,
-    maximumShipWidth: round(hangar.maximumShipWidth),
-    maximumShipHeight: round(hangar.maximumShipHeight),
-    clearance: round(hangar.clearance),
-    safetyMargin: round(hangar.safetyMargin)
-  }));
+  return hangars.map((hangar) => {
+    const snapshot = {
+      id: hangar.id,
+      index: hangar.index,
+      centreY: round(hangar.centreY),
+      localCentre: roundStationPoint(hangar.localCentre),
+      worldCentre: roundStationPoint(hangar.worldCentre),
+      localNormal: roundStationPoint(hangar.localNormal),
+      apertureHalfWidth: round(hangar.apertureHalfWidth),
+      apertureWidth: round(hangar.apertureWidth),
+      corridorLength: round(hangar.corridorLength),
+      interiorSpawn: roundStationPoint(hangar.interiorSpawn),
+      mouth: roundStationPoint(hangar.mouth),
+      innerWall: roundStationPoint(hangar.innerWall),
+      releasePlane: roundStationPoint(hangar.releasePlane),
+      releaseDistance: round(hangar.releaseDistance),
+      collisionOpening: hangar.collisionOpening ? {
+        minX: round(hangar.collisionOpening.minX),
+        maxX: round(hangar.collisionOpening.maxX),
+        minY: round(hangar.collisionOpening.minY),
+        maxY: round(hangar.collisionOpening.maxY)
+      } : undefined,
+      doorRect: hangar.doorRect ? {
+        minX: round(hangar.doorRect.minX),
+        maxX: round(hangar.doorRect.maxX),
+        minY: round(hangar.doorRect.minY),
+        maxY: round(hangar.doorRect.maxY)
+      } : undefined,
+      maximumShipWidth: round(hangar.maximumShipWidth),
+      maximumShipHeight: round(hangar.maximumShipHeight),
+      clearance: round(hangar.clearance),
+      safetyMargin: round(hangar.safetyMargin)
+    };
+
+    // corridorDepth is an older optional geometry name. Only include it when
+    // authored; round(undefined) would produce NaN and invalidate the
+    // complete entity-delta snapshot.
+    if (Number.isFinite(hangar.corridorDepth)) {
+      snapshot.corridorDepth = round(hangar.corridorDepth);
+    }
+
+    return snapshot;
+  });
 }
 
 function buildStationLaunchState(station) {
@@ -281,7 +292,7 @@ function snapshotEffectId(room, effect, index) {
   return effect?._snapshotEntityId || `${next}-${index}`;
 }
 
-function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false, buildBullets = true, buildEntityDeltaKeys = false) {
+function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = false, buildBullets = true, buildEntityDeltaKeys = true) {
   // Snapshot construction is also used by immediate purchase/reconnect sends
   // outside the regular simulation cadence. Advance visibility once here so
   // those snapshots cannot reuse coverage from before an entity/state change.
@@ -1131,7 +1142,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     stateEpoch: room.stateEpoch || 1,
     snapshotSeq: room._buildingSnapshotSeq || room.snapshotSeq || 0,
     snapshotKind: sendStatic ? "full" : "compact",
-    snapshotFormatVersion: 1,
+    snapshotFormatVersion: ENTITY_DELTA_FORMAT_VERSION,
     baseSnapshotSeq: sendStatic ? null : (room._buildingBaseSnapshotSeq ?? Math.max(0, (room._buildingSnapshotSeq || room.snapshotSeq || 1) - 1)),
     staticRevision: room.staticRevision || 1,
     staticRevisions: { world: room.staticRevision || 1, map: room.staticRevision || 1, rules: room.staticRevision || 1, playerDesign: room.staticRevision || 1, shipDesign: room.staticRevision || 1, componentCatalogue: room.componentCatalogueRevision || 1 },

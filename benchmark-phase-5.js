@@ -10,7 +10,6 @@ const { EventEmitter } = require("events");
 const { decode, encode } = require("@msgpack/msgpack");
 const delivery = require("./src/server/snapshotDelivery");
 const outbound = require("./src/server/outbound");
-const flags = require("./src/server/performanceFlags");
 const { performanceSnapshot } = require("./src/server/performanceTelemetry");
 const { performanceNow } = require("./src/server/utils");
 const { signature: snapshotEntitySignature } = require("./src/server/snapshotEntityDelta");
@@ -383,10 +382,10 @@ async function mergeWrittenPackets(packets) {
   return { accepted, decodeSamples, mergeSamples, combinedSamples };
 }
 
-function runOne(mode, count, clients, projectileCount, scenario, seed) {
-  flags.__setENTITY_DELTA_SNAPSHOTS(mode === "entity-delta");
+function runOne(count, clients, projectileCount, scenario, seed) {
+  const mode = "entity-delta";
   const room = makeRoom(count, clients, projectileCount, scenario, seed);
-  attachClients(room, clients, scenario, mode === "entity-delta");
+  attachClients(room, clients, scenario, true);
   const beforeHeap = process.memoryUsage().heapUsed;
   const beforeWasted = performanceSnapshot().snapshot.phase5.totals.snapshotBuiltThenReplacedBytes || 0;
   const construction = [];
@@ -482,45 +481,26 @@ async function main() {
   const startedAt = new Date().toISOString();
   const startedHeap = process.memoryUsage().heapUsed;
   const results = [];
-  try {
-    for (const entry of cases()) {
-      const legacy = await runOne("legacy-compact", entry.count, entry.clients, entry.projectileCount, entry.scenario, results.length + 1);
-      const entity = await runOne("entity-delta", entry.count, entry.clients, entry.projectileCount, entry.scenario, results.length + 1);
-      results.push(legacy, entity);
-    }
-  } finally {
-    flags.__setENTITY_DELTA_SNAPSHOTS(false);
+  for (const entry of cases()) {
+    results.push(await runOne(entry.count, entry.clients, entry.projectileCount, entry.scenario, results.length + 1));
   }
   const pairs = [];
-  for (let index = 0; index < results.length; index += 2) {
-    const legacy = results[index];
-    const entity = results[index + 1];
+  for (const entity of results) {
     pairs.push({
-      scenario: legacy.scenario, count: legacy.count, clients: legacy.clients, projectileCount: legacy.projectileCount,
-      legacyBytes: legacy.aggregateBytes, entityDeltaBytes: entity.aggregateBytes,
-      payloadReductionPercent: legacy.aggregateBytes ? (1 - entity.aggregateBytes / legacy.aggregateBytes) * 100 : 0,
-      legacyConstructionP95: legacy.snapshotConstruction.p95,
+      scenario: entity.scenario, count: entity.count, clients: entity.clients, projectileCount: entity.projectileCount,
+      entityDeltaBytes: entity.aggregateBytes,
       entityConstructionP95: entity.snapshotConstruction.p95,
-      legacySharedConstructionP95: legacy.sharedConstruction.p95,
       entitySharedConstructionP95: entity.sharedConstruction.p95,
-      legacyViewerConstructionP95: legacy.viewerConstruction.p95,
       entityViewerConstructionP95: entity.viewerConstruction.p95,
-      legacyTotalBroadcastP95: legacy.totalBroadcast.p95,
       entityTotalBroadcastP95: entity.totalBroadcast.p95,
-      legacyEncodingP95: legacy.encoding.p95,
       entityEncodingP95: entity.encoding.p95,
-      legacyClientDecodeP95: legacy.clientDecode.p95,
       entityClientDecodeP95: entity.clientDecode.p95,
-      legacyClientMergeP95: legacy.clientMerge.p95,
       entityClientMergeP95: entity.clientMerge.p95,
-      legacyClientCombinedP95: legacy.clientCombined.p95,
       entityClientCombinedP95: entity.clientCombined.p95,
-      legacyFullPromotions: legacy.fullPromotions,
       entityFullPromotions: entity.fullPromotions,
-      legacyResyncs: legacy.resyncs,
       entityResyncs: entity.resyncs,
-      legacyWastedBuiltThenReplacedBytes: legacy.wastedBuiltThenReplacedBytes,
-      entityWastedBuiltThenReplacedBytes: entity.wastedBuiltThenReplacedBytes
+      entityWastedBuiltThenReplacedBytes: entity.wastedBuiltThenReplacedBytes,
+      payloadReductionPercent: 0
     });
   }
   const output = {

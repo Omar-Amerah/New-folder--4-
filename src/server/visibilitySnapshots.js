@@ -5,10 +5,8 @@ const {
   ensureTeamVisibility,
   getVisibleEntityIdsForTeam,
   isPointVisibleInState,
-  teamOfEntity,
   normalizedTeamId
 } = require("./visibility");
-const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
 const { bump, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 
@@ -18,10 +16,7 @@ function teamIdForViewer(room, viewer) {
 }
 
 function entityTeamId(room, entity) {
-  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
-    return require("./visibilityRuntime").getCachedEntityTeam(room, entity);
-  }
-  return teamOfEntity(room, entity);
+  return require("./visibilityRuntime").getCachedEntityTeam(room, entity);
 }
 
 function isAlliedTo(room, viewerTeam, entity) {
@@ -40,70 +35,6 @@ function isEntityVisibleAtPoint(room, teamId, state, entity, padding = 0, snapsh
 // Snapshot delivery still builds private ship/economy fields per player; this
 // only prevents teammates repeating identical projectile/coverage scans.
 function filterSharedTacticalEntities(room, teamId, snapshot, state) {
-  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
-    return filterSharedTacticalEntitiesOptimized(room, teamId, snapshot, state);
-  }
-  const dronesSource = snapshot.drones || [];
-  const decoysSource = snapshot.decoys || [];
-  const bulletsSource = snapshot.bullets || [];
-  const effectsSource = snapshot.effects || [];
-  const cached = state.snapshotFilterCache;
-  if (cached
-    && cached.generation === state.computedGeneration
-    && cached.dronesSource === dronesSource
-    && cached.decoysSource === decoysSource
-    && cached.bulletsSource === bulletsSource
-    && cached.effectsSource === effectsSource) {
-    room._visibilitySnapshotFilterCacheHits = (Number(room._visibilitySnapshotFilterCacheHits) || 0) + 1;
-    return cached;
-  }
-
-  const visibleSet = state.visibleEntityIds;
-  const drones = [];
-  for (const drone of dronesSource) {
-    const entity = room.drones?.get?.(drone.id);
-    if (!entity) continue;
-    if (isAlliedTo(room, teamId, entity) || visibleSet.has(drone.id)) drones.push(drone);
-  }
-
-  const decoys = [];
-  for (const decoy of decoysSource) {
-    const entity = room.decoys?.get?.(decoy.id) || decoy;
-    if (isEntityVisibleAtPoint(room, teamId, state, entity, entity.radius || 0)) decoys.push(decoy);
-  }
-
-  const bullets = [];
-  for (const bullet of bulletsSource) {
-    if (isEntityVisibleAtPoint(room, teamId, state, bullet)) bullets.push(bullet);
-  }
-
-  const effects = [];
-  for (const effect of effectsSource) {
-    const hasPosition = Number.isFinite(Number(effect?.x)) && Number.isFinite(Number(effect?.y));
-    if (!hasPosition || isEntityVisibleAtPoint(room, teamId, state, effect)) effects.push(effect);
-  }
-
-  const next = {
-    generation: state.computedGeneration,
-    dronesSource,
-    decoysSource,
-    bulletsSource,
-    effectsSource,
-    drones,
-    decoys,
-    bullets,
-    effects
-  };
-  state.snapshotFilterCache = next;
-  room._visibilitySnapshotFilterBuilds = (Number(room._visibilitySnapshotFilterBuilds) || 0) + 1;
-  return next;
-}
-
-// Phase 6C shared tactical layer.  It caches public arrays and visible ID
-// decisions by team + shared snapshot identity + visibility revision.  Ship and
-// station rows are not copied into a complete encoded payload for teammates:
-// the caller still applies each client's private/detail fields to its own rows.
-function filterSharedTacticalEntitiesOptimized(room, teamId, snapshot, state) {
   const startedAt = performanceNow();
   const sharedIdentity = snapshot.__visibilitySharedIdentity || snapshot;
   const publicSource = sharedIdentity === snapshot ? snapshot : sharedIdentity;
@@ -243,33 +174,15 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
   if (!teamId) return { ...snapshot, contacts: [] };
 
   const state = ensureTeamVisibility(room, teamId, now);
-  const visibleSet = state.visibleEntityIds;
-  const remembered = state.remembered;
   const shared = filterSharedTacticalEntities(room, teamId, snapshot, state);
 
   const ships = [];
   const contacts = [];
 
-  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
-    for (const ship of snapshot.ships || []) {
-      if (shared.visibleShipIds.has(ship.id)) ships.push(ship);
-    }
-    contacts.push(...shared.rememberedContacts);
-  } else {
-    for (const ship of snapshot.ships || []) {
-      const entity = room.ships?.get?.(ship.id);
-      if (!entity) continue;
-      if (isAlliedTo(room, teamId, entity)) {
-        ships.push(ship);
-        continue;
-      }
-      if (visibleSet.has(ship.id)) ships.push(ship);
-      // hidden: drop
-    }
-    for (const [id, contact] of remembered) {
-      if (!visibleSet.has(id)) contacts.push(buildRememberedContactSnapshot(contact));
-    }
+  for (const ship of snapshot.ships || []) {
+    if (shared.visibleShipIds.has(ship.id)) ships.push(ship);
   }
+  contacts.push(...shared.rememberedContacts);
 
   // Stations: always show location, but live details only if allied or visible.
   const stations = [];
@@ -281,7 +194,7 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
     const isAllied = snapshotMeta?.entityTeamById?.has?.(station.id)
       ? snapshotMeta.entityTeamById.get(station.id) === teamId
       : (roomStation ? isAlliedTo(room, teamId, roomStation) : false);
-    if (isAllied || (OPTIMIZED_VISIBILITY_RUNTIME() ? shared.visibleStationIds.has(station.id) : visibleSet.has(station.id))) {
+    if (isAllied || shared.visibleStationIds.has(station.id)) {
       stations.push(station);
     } else {
       // Static knowledge: position, id, type, ownership and the STRUCTURE —

@@ -8,7 +8,6 @@ const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
 const { recordPurchaseStage } = require("./performanceTelemetry");
 const { createMovementRuntime } = require("./movementRuntime");
-const { installLazyComponentAdjacency } = require("./thermalTopology");
 
 class SpawnPlacementError extends Error {
   constructor(reason = "no-clear-spawn") {
@@ -19,7 +18,7 @@ class SpawnPlacementError extends Error {
 }
 
 function clonePrebuiltShipState(prebuilt) {
-  return cloneValue(prebuilt, new Set(["design", "wiring", "stats", "thermalTopology", "componentAdjacency", "_componentAdjacencyValue", "_thermalRuntime", "_heatScratch"]));
+  return cloneValue(prebuilt, new Set(["design", "wiring", "stats", "thermalTopology", "_thermalRuntime"]));
 }
 
 function cloneValue(value, skipKeys = null) {
@@ -50,7 +49,8 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const { initComponentState, initProximityChargeState } = require("./componentHealth");
   const { initShipHeat } = require("./heat");
   
-  // Use template if provided, otherwise fall back to legacy path
+  // Use the immutable template when available; otherwise initialize from the
+  // player's current design and wiring.
   const template = options.template;
   const stats = template ? template.stats : { ...(options.stats || player.stats || computeStats(player.design, player.wiring)) };
   const design = template ? template.design : (options.design || player.design);
@@ -156,7 +156,6 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     // every ship spawned from the same template.  All Heat arrays were cloned
     // above and remain ship-local.
     ship.thermalTopology = template.thermalTopology;
-    installLazyComponentAdjacency(ship, template.thermalTopology);
     const heatRuntime = require("./heat");
     heatRuntime.ensureThermalRuntime(ship);
     heatRuntime.refreshHeatRuntimeLists(ship);

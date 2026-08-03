@@ -105,7 +105,7 @@ function run() {
     assertTelemetryInvariant(room, "many-ships");
     const telemetry = getRoomTelemetry(room);
     assert(telemetry.liveShips > 0, "liveShips must be reported");
-    assert(telemetry.separationQueries > 0, "separation queries must be counted");
+    assert(telemetry.movementContactPairBuilds > 0, "canonical contact-pair builds must be counted");
   }
 
   // --- Many projectiles, no ships --------------------------------------------

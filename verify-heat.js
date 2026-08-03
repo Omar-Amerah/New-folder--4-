@@ -23,7 +23,8 @@ assert.strictEqual(separated.componentHeat[1], 0, "heat crossed empty space");
 
 // Two 2x1 footprints share two occupied edges, represented once with edge count 2.
 const multi = shipFor([{ x: 7, y: 7, type: "repairBeam" }, { x: 7, y: 8, type: "repairBeam" }]);
-assert.strictEqual(multi.componentAdjacency[0][0].sharedEdges, 2, "multi-tile shared edge count is wrong");
+const multiEdge = multi.thermalTopology.edgeA.findIndex((index, edgeId) => index === 0 && multi.thermalTopology.edgeB[edgeId] === 1);
+assert.strictEqual(multi.thermalTopology.edgeSharedEdges[multiEdge], 2, "multi-tile shared edge count is wrong");
 
 // Simultaneous edge transfer is order independent.
 function transferred(order) {

@@ -19,7 +19,6 @@ const RotationRules = require("../../public/src/shared/rotationRules");
 const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./stationTemplates");
 const { isInSafeZone, isLineBlocked, areEnemies, weaponReloadSeconds, findPointDefenseTarget, _lookupPointDefenceEntity } = require("./combat");
 const { canTeamTargetEntity, invalidateVisibility } = require("./visibility");
-const PerformanceFlags = require("./performanceFlags");
 const Targeting = require("./targetingEligibility");
 const TargetingCadence = require("./targetingCadence");
 const TargetingTelemetry = require("./targetingTelemetry");
@@ -96,8 +95,7 @@ function getStationWeaponProfiles(station) {
   return profiles;
 }
 
-function prepareStationWeaponTargets(room, ships, optimized) {
-  if (!optimized) return (ships || []).filter((s) => s && s.alive !== false);
+function prepareStationWeaponTargets(room, ships) {
   if (Array.isArray(ships) && ships === room._liveShipScratch) return ships;
   const source = Array.isArray(ships) ? ships : [];
   const targets = room._stationWeaponTargetScratch || (room._stationWeaponTargetScratch = []);
@@ -121,11 +119,18 @@ function prepareStationWeaponTargetLookup(room, targets) {
 function prepareStationWeaponEnemyTargets(room, station, targets, identity, now) {
   const candidates = station._stationWeaponEnemyTargets || (station._stationWeaponEnemyTargets = []);
   candidates.length = 0;
+  const detailed = detailedProfileActive(room);
   for (const target of targets || []) {
     if (!target || target.id === station.id || target.alive === false || target.state === "destroyed") continue;
     if (!areEnemies(room, identity, target.ownerId)) continue;
-    if (!canTeamTargetEntity(room, identity, target, now)) continue;
-    if (isInSafeZone(room, target.x, target.y, target)) continue;
+    if (!canTeamTargetEntity(room, identity, target, now)) {
+      if (detailed) bump(room, "stationWeaponVisibilityRejects");
+      continue;
+    }
+    if (isInSafeZone(room, target.x, target.y, target)) {
+      if (detailed) bump(room, "stationWeaponVisibilityRejects");
+      continue;
+    }
     candidates.push(target);
   }
   return candidates;
@@ -610,12 +615,10 @@ function updateStationWeapons(room, stations, ships, dt, now) {
   try {
   if (!Array.isArray(stations) || stations.length === 0) return;
   const detailed = detailedProfileActive(room);
-  const optimized = PerformanceFlags.OPTIMIZED_STATION_WEAPON_RUNTIME();
-  const cadenceEnabled = PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE();
   const preparationStartedAt = detailed ? performanceNow() : 0;
-  const targets = prepareStationWeaponTargets(room, ships, optimized);
+  const targets = prepareStationWeaponTargets(room, ships);
     if (detailed) recordDuration(room, "stationWeaponTargetPreparationMs", preparationStartedAt);
-    const targetLookup = optimized && cadenceEnabled ? prepareStationWeaponTargetLookup(room, targets) : null;
+    const targetLookup = prepareStationWeaponTargetLookup(room, targets);
     if (targetLookup && room._stationTargetLookupMeasurementActive === true) {
       room._stationTargetLookupObservedFrames = (room._stationTargetLookupObservedFrames || 0) + 1;
       room._stationTargetLookupMaxSize = Math.max(room._stationTargetLookupMaxSize || 0, targetLookup.size);
@@ -628,13 +631,11 @@ function updateStationWeapons(room, stations, ships, dt, now) {
     if (station.state !== "operational" || station.alive === false) continue;
     if (detailed) bump(room, "stationsWeaponProcessed");
     initStationCombatRuntime(station);
-    const profiles = optimized ? getStationWeaponProfiles(station) : null;
+    const profiles = getStationWeaponProfiles(station);
     // Resolved once per station per tick: targeting, point defence and every
     // round the station fires all key off the same identity.
     const identity = stationCombatIdentity(room, station);
-    const ordinaryTargets = optimized
-      ? prepareStationWeaponEnemyTargets(room, station, targets, identity, now)
-      : targets;
+    const ordinaryTargets = prepareStationWeaponEnemyTargets(room, station, targets, identity, now);
     const indexes = getShipComponentIndexes(station);
     for (const i of indexes.weaponIndices) {
       if (detailed) bump(room, "stationWeaponComponentsVisited");
@@ -654,10 +655,9 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       }
       if (detailed) bump(room, "stationWeaponComponentsOperational");
       const profileStartedAt = detailed ? performanceNow() : 0;
-      const profile = profiles?.[i] || null;
-      const module = profile?.module || station.design[i];
-      const part = profile?.part || PARTS[module.type] || PARTS.frame;
-      const weapon = profile?.weapon || part.weapon;
+      const profile = profiles[i];
+      if (!profile) continue;
+      const { module, part, weapon } = profile;
       if (detailed) recordDuration(room, "stationWeaponProfileLookupMs", profileStartedAt);
       if (!weapon) continue;
 
@@ -722,11 +722,8 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         target = pdTarget.entity;
       } else {
         const acquisitionStartedAt = detailed ? performanceNow() : 0;
-        target = cadenceEnabled
-          ? getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile, targetLookup, ordinaryTargets, detailed)
-          : findStationWeaponTarget(room, station, i, targets, identity, now, profile, ordinaryTargets, detailed);
+        target = getCadencedStationWeaponTarget(room, station, i, targets, identity, now, profile, targetLookup, ordinaryTargets, detailed);
         if (detailed) recordDuration(room, "stationWeaponOrdinaryAcquisitionMs", acquisitionStartedAt);
-        if (detailed && !cadenceEnabled) bump(room, "stationWeaponTargetSearches");
       }
       const defaultRelative = profile?.defaultRelative ?? moduleRotationToRadians(module.rotation || 0);
       let desiredRelative = defaultRelative;

@@ -49,7 +49,7 @@ assert(shd.thermalNetworks[0].attachedComponents.includes(0), "shield attached t
 // Multiple components attach to same pipe chain
 let multi = shipFor([
   { x: 6, y: 7, type: "blaster" }, { x: 7, y: 7, type: "heatPipe" }, { x: 8, y: 7, type: "heatPipe" },
-  { x: 7, y: 6, type: "engine" }, { x: 8, y: 6, type: "missile" }, { x: 9, y: 7, type: "radiator" }
+  { x: 7, y: 6, type: "armor" }, { x: 8, y: 6, type: "armor" }, { x: 9, y: 7, type: "radiator" }
 ]);
 assert.strictEqual(multi.thermalNetworks.length, 1, "multiple components on pipe chain form one network");
 assert(multi.thermalNetworks[0].attachedComponents.includes(0), "blaster attached to pipe chain");
@@ -58,7 +58,7 @@ assert(multi.thermalNetworks[0].attachedComponents.includes(4), "missile attache
 
 // Diagonal contact does not connect
 let diag = shipFor([{ x: 7, y: 7, type: "blaster" }, { x: 8, y: 8, type: "heatPipe" }, { x: 9, y: 8, type: "radiator" }]);
-assert(diag.componentAdjacency[0].every(e => e.index !== 1), "diagonal blaster has no edge to heat pipe");
+assert(diag.thermalTopology.incidentEdgeOffsets[0] === diag.thermalTopology.incidentEdgeOffsets[1], "diagonal blaster has no edge to heat pipe");
 assert(diag.thermalNetworks.length === 1, "diagonal heat pipe still forms route with radiator");
 assert(!diag.thermalNetworks[0].attachedComponents.includes(0), "diagonal weapon not attached to heat pipe network");
 

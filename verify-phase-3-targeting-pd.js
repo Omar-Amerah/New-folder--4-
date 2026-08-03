@@ -13,7 +13,6 @@ let testShipCounter = 0;
   const { initComponentState } = require("./src/server/componentHealth");
   const { reallocateShipPower } = require("./src/server/componentPower");
   const { findPointDefenseTarget } = require("./src/server/combat");
-  const PerformanceFlags = require("./src/server/performanceFlags");
   const TargetingEligibility = require("./src/server/targetingEligibility");
   const TargetingCadence = require("./src/server/targetingCadence");
   const TargetingTelemetry = require("./src/server/targetingTelemetry");
@@ -101,9 +100,6 @@ let testShipCounter = 0;
 
   // 1. All Phase 3 feature flags default to false.
   {
-    assert.strictEqual(PerformanceFlags.WEAPON_TARGET_ACQUISITION_CADENCE(), false, "WEAPON_TARGET_ACQUISITION_CADENCE defaults false");
-    assert.strictEqual(PerformanceFlags.POINT_DEFENCE_SHARED_THREATS(), false, "POINT_DEFENCE_SHARED_THREATS defaults false");
-    assert.strictEqual(PerformanceFlags.WEAPON_PROFILE_REVISION_CACHE(), false, "WEAPON_PROFILE_REVISION_CACHE defaults false");
     console.log("✔ Test 1 passed: Phase 3 flags default false and Phase Two defaults are untouched.");
   }
 
@@ -154,7 +150,7 @@ let testShipCounter = 0;
     console.log("✔ Test 3 passed: Point Defence candidate comparison is stable.");
   }
 
-  // 4. Shared PD threat sets select the same target as the legacy path.
+  // 4. The canonical PD threat set selects the stable target.
   {
     const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
     const enemyShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
@@ -163,17 +159,15 @@ let testShipCounter = 0;
     const missile = { id: "m1", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 150, y: 100, life: 5, interceptable: true, hp: 20 };
     room.bullets.push(missile);
 
-    const legacy = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [enemyShip], pdShip.id);
+    const first = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [enemyShip], pdShip.id);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     PointDefenceThreats.invalidatePointDefenceThreatSet(pdShip);
-    const shared = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [enemyShip], pdShip.id);
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+    const repeat = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [enemyShip], pdShip.id);
     PointDefenceThreats.invalidatePointDefenceThreatSet(pdShip);
 
-    assert.strictEqual(legacy && legacy.entity && legacy.entity.id, missile.id, "Legacy path picks the missile");
-    assert.strictEqual(shared && shared.entity && shared.entity.id, missile.id, "Shared threat path picks the same missile");
-    console.log("✔ Test 4 passed: Shared PD threat set matches legacy selection.");
+    assert.strictEqual(first && first.entity && first.entity.id, missile.id, "Canonical path picks the missile");
+    assert.strictEqual(repeat && repeat.entity && repeat.entity.id, missile.id, "Repeated canonical selection is stable");
+    console.log("✔ Test 4 passed: Canonical PD threat set selects deterministically.");
   }
 
   // 5. A removed projectile is not fired upon after threat-set construction.
@@ -184,14 +178,12 @@ let testShipCounter = 0;
     const missile = { id: "m2", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 150, y: 100, life: 5, interceptable: true, hp: 20 };
     room.bullets.push(missile);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     const threatSet = PointDefenceThreats.ensurePointDefenceThreatSet(room, pdShip, "p1", 0);
 
     // Simulate the missile being destroyed after the set was built.
     missile.life = 0;
     const selected = PointDefenceThreats.selectPointDefenceTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, pdShip.id, 0, threatSet);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
 
     assert.strictEqual(selected, null, "Destroyed projectile in shared set is not selected");
     console.log("✔ Test 5 passed: Shared set candidates are revalidated before selection.");
@@ -252,16 +244,13 @@ let testShipCounter = 0;
     room.bullets.push(missile, decoy);
 
     pdShip._pdThreatSet = null;
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
-    const legacy = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
+    const first = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
     pdShip._pdThreatSet = null;
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
-    const shared = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
+    const repeat = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
 
-    assert.ok(legacy, "Legacy path finds a missile");
-    assert.strictEqual(shared && shared.entity.id, missile.id, "Shared path also selects the supported missile");
-    console.log("✔ Test 9 passed: Shared PD rejects unsupported target categories.");
+    assert.ok(first, "Canonical path finds a missile");
+    assert.strictEqual(repeat && repeat.entity.id, missile.id, "Repeated canonical path selects the supported missile");
+    console.log("✔ Test 9 passed: Canonical PD rejects unsupported target categories.");
   }
 
   // 10. Shared PD works with room.ships as a Map (no spatial index).
@@ -274,29 +263,25 @@ let testShipCounter = 0;
     const room = makeRoom([pdShip, enemy]);
     const weapon = { ...PARTS.pointDefense.weapon, targetPriority: ["ship"] };
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     const selected = findPointDefenseTarget(room, 100, 100, "p1", weapon, [], pdShip.id, 0);
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
 
     assert.ok(selected, "Shared path finds the enemy ship from the Map fallback");
     assert.strictEqual(selected.entity.id, enemy.id, "Selected entity is a ship, not a [id, ship] pair");
     console.log("✔ Test 10 passed: Shared PD handles room.ships Map fallback.");
   }
 
-  // 11. Shared PD does not fall through to a second legacy scan.
+  // 11. A canonical PD miss is recorded once and does not run a fallback scan.
   {
     const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
     const room = makeRoom([pdShip]);
     const t0 = RoomTelemetry.resetRoomTelemetry(room);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     const selected = findPointDefenseTarget(room, 100, 100, "p1", PARTS.pointDefense.weapon, [], pdShip.id, 0);
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
 
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.strictEqual(selected, null, "Empty shared set returns null");
-    assert.strictEqual(t.pointDefenceLegacyScansAvoided, 1, "Legacy scan is avoided when the shared set is valid");
-    console.log("✔ Test 11 passed: Shared PD does not fall through to a second legacy scan.");
+    assert.strictEqual(t.pointDefenceThreatSetMisses, 1, "Canonical threat-set miss is recorded once");
+    console.log("✔ Test 11 passed: Canonical PD does not run a fallback scan.");
   }
 
   // 12. Room reset clears all Phase 3 caches.
@@ -322,7 +307,6 @@ let testShipCounter = 0;
   {
     const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
     const room = makeRoom([ship]);
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     for (let tick = 0; tick < 5; tick += 1) {
@@ -331,7 +315,6 @@ let testShipCounter = 0;
       updateShipWeapons(room, ship, [], 1 / 30, now);
     }
 
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.ordinaryTargetSearchDeferred >= 3, "Per-weapon no-target searches are deferred between cadence windows");
     assert.ok(t.ordinaryTargetSearches <= 2, "Per-weapon no-target searches happen at cadence due times only");
@@ -347,7 +330,6 @@ let testShipCounter = 0;
     enemy.x = 150;
     enemy.y = 100;
     const room = makeRoom([ship, enemy]);
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     for (let tick = 0; tick < 3; tick += 1) {
@@ -357,7 +339,6 @@ let testShipCounter = 0;
       updateShipWeapons(room, ship, [ship, enemy], 1 / 30, now);
     }
 
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.ordinaryTargetImmediateReacquisitions >= 1, "A destroyed target triggers immediate reacquisition");
     console.log("✔ Test 14 passed: Destroyed ordinary target triggers immediate reacquisition.");
@@ -374,7 +355,6 @@ let testShipCounter = 0;
     close.y = 0;
     const room = makeRoom([ship, far, close]);
     ship.focusTargetId = far.id;
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     for (let tick = 0; tick < 5; tick += 1) {
@@ -383,7 +363,6 @@ let testShipCounter = 0;
       updateShipWeapons(room, ship, [ship, far], 1 / 30, now);
     }
 
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.ordinaryTargetSearches <= 2, "Fallback target is not re-searched every tick");
     console.log("✔ Test 15 passed: Fallback target is retained without searching every tick.");
@@ -406,7 +385,6 @@ let testShipCounter = 0;
       room.bullets.push({ id: `m3-${i}`, type: "missile", ownerId: "p2", targetId: pdShip.id, x: pdShip.x + Math.cos(angle) * d, y: pdShip.y + Math.sin(angle) * d, life: 5, interceptable: true, hp: 20 });
     }
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     for (let tick = 0; tick < 4; tick += 1) {
@@ -415,7 +393,6 @@ let testShipCounter = 0;
       updateShipWeapons(room, pdShip, [pdShip], 1 / 30, now);
     }
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.pointDefenceThreatSetBuilds <= 2, "Threat set is not rebuilt every tick");
     assert.ok(t.pointDefenceThreatSetReuses >= 6, "Multiple PD mounts reuse the same threat set");
@@ -427,7 +404,6 @@ let testShipCounter = 0;
   {
     const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 6, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
     const room = makeRoom([ship]);
-    PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     for (let tick = 0; tick < 5; tick += 1) {
@@ -436,7 +412,6 @@ let testShipCounter = 0;
       updateShipWeapons(room, ship, [ship], 1 / 30, now);
     }
 
-    PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.strictEqual(t.effectiveWeaponProfileBuilds, 1, "Profile cache is built exactly once");
     assert.ok(t.effectiveWeaponProfileCacheHits >= 3, "Profile cache is reused for subsequent ticks");
@@ -476,7 +451,6 @@ let testShipCounter = 0;
     const room = makeRoom([station]);
     room.ships.set(enemy.id, enemy);
 
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     for (let tick = 0; tick < 5; tick += 1) {
@@ -485,7 +459,6 @@ let testShipCounter = 0;
       updateStationWeapons(room, [station], [...room.ships.values()], 1 / 30, now);
     }
 
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.stationTargetSearchDeferred >= 2, "Station cadence defers searches");
     assert.ok(t.stationTargetSearches <= 4, "Station searches happen at cadence due times");
@@ -522,15 +495,13 @@ let testShipCounter = 0;
     const missile = { id: "m-edge", type: "missile", ownerId: "p2", targetId: station.id, x: 1000 - 25, y: 1000 + 440, life: 5, interceptable: true, hp: 20 };
     room.bullets.push(missile);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
     RoomTelemetry.resetRoomTelemetry(room);
     const now = 33;
     buildRoomSpatialIndex(room, [...room.ships.values()], now);
     updateStationWeapons(room, [station], [], 1 / 30, now);
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
 
     const t = RoomTelemetry.getRoomTelemetry(room);
-    assert.ok(t.pointDefenceSharedSetHits >= 1, "Edge-mounted station PD selects the shared candidate");
+    assert.ok(t.pointDefenceThreatSetHits >= 1, "Edge-mounted station PD selects the canonical candidate");
     assert.ok(t.pointDefenceMountSelections >= 1, "Edge-mounted station PD can select a target");
     assert.strictEqual(station.weaponAimTargetIds[1], missile.id, "Edge-mounted station PD tracks the intended missile");
     console.log("✔ Test 19 passed: Edge-mounted station PD uses the correct module scale.");
@@ -591,15 +562,11 @@ let testShipCounter = 0;
     room.drones = new Map();
     room.drones.set("f1", { id: "f1", type: "fighter", ownerId: "p2", targetId: pdShip.id, x: 100, y: 0, hull: 10, x: 100, y: 0, alive: true });
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
 
     const pd = findPointDefenseTarget(room, pdShip.x, pdShip.y, pdShip.ownerId, PARTS.pointDefense.weapon, [pdShip], pdShip.id, 33);
     const flak = findPointDefenseTarget(room, flakShip.x, flakShip.y, flakShip.ownerId, PARTS.flakCannon.weapon, [flakShip], flakShip.id, 33);
     const pod = findPointDefenseTarget(room, podShip.x, podShip.y, podShip.ownerId, PARTS.interceptorPod.weapon, [podShip], podShip.id, 33);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
 
     assert.strictEqual(pd?.entity?.id, "f1", "pointDefense prefers drones before missiles");
     assert.strictEqual(flak?.entity?.id, "m1", "flakCannon prefers missiles before drones");
@@ -615,8 +582,6 @@ let testShipCounter = 0;
     const otherMissile = { id: "m-other", type: "missile", ownerId: "p2", targetId: pdShip.id, x: 120, y: 0, life: 5, interceptable: true, hp: 20 };
     room.bullets.push(oldMissile, otherMissile);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(true);
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(true);
     RoomTelemetry.resetRoomTelemetry(room);
 
     // First tick: acquire old missile.
@@ -633,8 +598,6 @@ let testShipCounter = 0;
     buildRoomSpatialIndex(room, [pdShip], now2);
     updateShipWeapons(room, pdShip, [pdShip], 1 / 30, now2);
 
-    PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
-    PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
 
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.pointDefenceImmediateReacquisitions >= 1, "Invalidating the cached PD target triggers immediate reacquisition");

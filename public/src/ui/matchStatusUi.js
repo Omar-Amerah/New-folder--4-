@@ -284,6 +284,7 @@ export function updateRelayControlMeter(players) {
   }
 
   const controlVictory = snapshot.controlVictory;
+  const stationMode = snapshot.rules?.infrastructureMode === "stations";
   if (controlVictory?.active) {
     const seconds = Math.ceil(controlVictory.remaining);
     const winnerName = soloMode
@@ -291,7 +292,8 @@ export function updateRelayControlMeter(players) {
       : controlVictory.team === "blue" ? "Wing Blue" : "Wing Red";
     summaryText += `<div class="control-countdown" style="margin-top: 6px; color: #ffca57; font-weight: 800;">Victory for ${escapeHtml(winnerName)} in ${seconds}s</div>`;
   } else {
-    summaryText += `<div class="control-instructions" style="margin-top: 6px; color: var(--muted); font-size: 11px;">Control all relays for 20s to win.</div>`;
+    const instruction = stationMode ? "Destroy the enemy station to win." : "Control all relays for 20s to win.";
+    summaryText += `<div class="control-instructions" style="margin-top: 6px; color: var(--muted); font-size: 11px;">${instruction}</div>`;
   }
 
   if (summaryText !== lastRelaySummaryHtml) {

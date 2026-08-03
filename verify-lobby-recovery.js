@@ -31,7 +31,7 @@ function connect() {
     };
     ws.onopen = () => resolve({
       ws,
-      send: (m) => ws.send(encode({ protocolVersion: 5, minProtocolVersion: 5, maxProtocolVersion: 5, capabilities: ["messagepack", "resume-v1"], ...m })),
+      send: (m) => ws.send(encode({ protocolVersion: 6, minProtocolVersion: 6, maxProtocolVersion: 6, capabilities: ["messagepack", "entityDeltaSnapshotsV1", "resume-v1"], ...m })),
       wait: (match, ms = 5000) => {
         const hit = inbox.findIndex((m) => match(m));
         if (hit >= 0) return Promise.resolve(inbox.splice(hit, 1)[0]);

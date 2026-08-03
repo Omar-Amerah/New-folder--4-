@@ -223,7 +223,7 @@ export function computeStats(modules, options = {}) {
     }
   }
 
-  repairRate = effectiveStackedValue(repairRateValues, 0.62);
+  repairRate = effectiveStackedValue(repairRateValues, GENERATED_BALANCE?.repair?.stackingMultiplier ?? 0.8);
   const baseShieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
   const effectiveShieldStats = calculateBlueprintEffectiveShieldStats(modules, options.wiring);
   const shieldStats = WIRING_ENABLED && options.wiring ? effectiveShieldStats : baseShieldStats;

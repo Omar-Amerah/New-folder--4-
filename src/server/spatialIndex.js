@@ -3,7 +3,6 @@
 // Deterministic room-level broad phase. Exact range, line and component
 // collision checks remain with their owning gameplay systems.
 const { BALANCE } = require("./balanceConfig");
-const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { setCounter } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
 
@@ -826,7 +825,6 @@ function buildRoomSpatialIndex(room, ships, now = 0) {
     room.spatialIndex = index;
   }
   const cellSizeChanged = requestedCellSize !== index.cellSize;
-  const incremental = INCREMENTAL_SPATIAL_INDEX();
   if (cellSizeChanged) {
     index.reset({ includeAsteroids: true });
     index.cellSize = requestedCellSize;
@@ -838,7 +836,7 @@ function buildRoomSpatialIndex(room, ships, now = 0) {
     room._spatialTelemetrySnapshot = {};
     room._spatialDurationSnapshot = 0;
   }
-  if (!incremental || !index.dynamicValid || cellSizeChanged) {
+  if (!index.dynamicValid || cellSizeChanged) {
     const start = performanceNow();
     index.rebuild(room, ships, now);
     index.spatialUpdateDurationMs += performanceNow() - start;

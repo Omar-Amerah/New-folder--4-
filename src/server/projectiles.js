@@ -4,12 +4,6 @@ const { clampNumber, rotateToward, fastHypot, compareIdStrings, performanceNow, 
 const { gameplayNow } = require("./gameplayTime");
 const { bump, recordDuration, setCounter } = require("./roomTelemetry");
 const {
-  PROJECTILE_FLAK_SINGLE_PASS,
-  PROJECTILE_GUIDANCE_CADENCE,
-  PROJECTILE_GRID_COLLISION,
-  INCREMENTAL_SPATIAL_INDEX
-} = require("./performanceFlags");
-const {
   recordProjectileSpawn,
   recordProjectileRemove,
   recordProjectileReason,
@@ -64,9 +58,8 @@ function ensureProjectileDroneSpatialIndex(room, liveShips, now) {
 
   const stepToken = projectileDroneStepToken(room, now);
   if (room._droneSpatialRecoveryStep === stepToken) {
-    // A legacy projectile pass invalidates the index after publishing its
-    // projectile category. The recovered drone category is still authoritative
-    // for the remainder of this step, so reuse it without a second rebuild.
+    // A recovered drone category remains authoritative for the remainder of
+    // this step, so reuse it without a second rebuild.
     return index && typeof index.count === "function" && index.count("drones") === expectedDrones
       ? index
       : null;
@@ -235,30 +228,9 @@ function worldToLocal(ship, wx, wy) {
   return { x: dx * c + dy * s, y: -dx * s + dy * c };
 }
 
-function findOldComponentHit(ship, x1, y1, x2, y2, hitRadius) {
-  const geometry = getShipCollisionGeometry(ship);
-  const cellCoords = geometry.worldCells;
-  const componentHp = ship.componentHp;
-  let moduleHit = null;
-  let componentCellTests = 0;
-  for (const i of geometry.liveComponentIndices) {
-    if (componentHp && componentHp[i] <= 0) continue;
-    const cells = cellCoords[i];
-    componentCellTests += cells.length;
-    for (let c = 0; c < cells.length; c += 1) {
-      const cell = cells[c];
-      const hit = segmentCircleHit(x1, y1, x2, y2, cell.x, cell.y, COMPONENT_CELL_COLLISION_RADIUS + hitRadius);
-      if (hit && (!moduleHit || hit.t < moduleHit.t || (hit.t === moduleHit.t && i < moduleHit.index))) {
-        moduleHit = { ...hit, index: i };
-      }
-    }
-  }
-  return { hit: moduleHit, componentCellTests };
-}
-
 function findGridComponentHit(ship, x1, y1, x2, y2, hitRadius) {
   const grid = ensureProjectileCollisionGrid(ship);
-  if (!grid) return { ...findOldComponentHit(ship, x1, y1, x2, y2, hitRadius), gridCellsVisited: 0, gridOccupiedCells: 0 };
+  if (!grid) return { hit: null, componentCellTests: 0, gridCellsVisited: 0, gridOccupiedCells: 0 };
   const a = worldToLocal(ship, x1, y1);
   const b = worldToLocal(ship, x2, y2);
 
@@ -382,15 +354,6 @@ function findGridComponentHit(ship, x1, y1, x2, y2, hitRadius) {
   return { hit: moduleHit, componentCellTests, gridCellsVisited, gridOccupiedCells };
 }
 
-function compareModuleHits(a, b) {
-  if (!a && !b) return true;
-  if (!a || !b) return false;
-  if (a.index !== b.index) return false;
-  if (Math.abs(a.t - b.t) > 1e-6) return false;
-  if (Math.abs(a.x - b.x) > 0.01 || Math.abs(a.y - b.y) > 0.01) return false;
-  return true;
-}
-
 function segmentCircleHit(x1, y1, x2, y2, cx, cy, radius) {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -467,66 +430,6 @@ function updateBullets(room, dt, now) {
     }
     if (kind === "drone") return Number(entity.radius) || 10;
     return Number(entity.radius) || ((entity.type === "missile" || entity.type === "torpedo") ? PROJECTILES.hitRadius.missile : (entity.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default));
-  }
-
-  function findFlakEvent(bullet, previousX, previousY, spatial, scratch) {
-    const events = [];
-    const fuseR = Math.max(0, Number(bullet.proximityFuseRadius) || 0);
-    function pushEvent(entity, kind, direct) {
-      if (entity === bullet) return;
-      if (!entity || (kind === "ship" && (!entity.alive || entity.destroyed))) return;
-      if (kind === "station" && (!entity || entity.alive === false || entity.state === "destroyed")) return;
-      if (kind === "drone" && (entity.destroyed || entity.removed || room.drones?.get?.(entity.id) !== entity)) return;
-      if (kind === "projectile" && (entity.life <= 0 || !entity.interceptable)) return;
-      if (kind === "station") {
-        if (!Relationships.areEntityEnemies(room, bullet.ownerId, entity)) return;
-      } else if (kind !== "asteroid" && !areEnemies(room, bullet.ownerId, entity.ownerId)) {
-        return;
-      }
-      const radius = flakRadiusFor(entity, kind);
-      const hitR = direct ? radius : radius + fuseR;
-      const hit = kind === "station" && entity.shield < SHIELD_HIT_MIN
-        ? segmentStationHullHit(entity, previousX, previousY, bullet.x, bullet.y, direct ? 0 : fuseR)
-        : segmentCircleHit(previousX, previousY, bullet.x, bullet.y, entity.x, entity.y, hitR);
-      if (!hit) return;
-      events.push({ t: hit.t, x: hit.x, y: hit.y, kind, entity, direct });
-    }
-    const asteroid = projectileMapImpact(room, previousX, previousY, bullet, spatial, scratch.asteroids);
-    if (asteroid) events.push({ t: asteroid.t, x: asteroid.x, y: asteroid.y, kind: "asteroid", entity: null, direct: true });
-    const pList = spatial
-      ? spatial.querySweptAabbUnordered("interceptableProjectiles", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.interceptableProjectiles)
-      : (room.bullets || []).filter((p) => p.interceptable && p.life > 0);
-    for (const p of pList) pushEvent(p, "projectile", true);
-    for (const p of pList) pushEvent(p, "projectile", false);
-    const dList = spatial
-      ? spatial.querySweptAabbUnordered("drones", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.drones)
-      : (bump(room, "projectileDroneFullScanFallbacks"), room.drones?.values?.() || []);
-    for (const d of dList) pushEvent(d, "drone", true);
-    for (const d of dList) pushEvent(d, "drone", false);
-    const sList = spatial
-      ? spatial.querySweptAabbUnordered("ships", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.ships)
-      : liveShips;
-    for (const s of sList) pushEvent(s, "ship", true);
-    for (const s of sList) pushEvent(s, "ship", false);
-    const stList = spatial
-      ? spatial.querySweptAabbUnordered("stations", previousX, previousY, bullet.x, bullet.y, fuseR, scratch.stations)
-      : (room.stations || []);
-    for (const st of stList) pushEvent(st, "station", true);
-    for (const st of stList) pushEvent(st, "station", false);
-    events.push({ t: 1, x: bullet.x, y: bullet.y, kind: null, entity: null, direct: false });
-    bump(room, "flakSortOperations");
-    events.sort((a, b) => {
-      if (a.t !== b.t) return a.t - b.t;
-      if (a.direct !== b.direct) return a.direct ? -1 : 1;
-      const idA = String(a.entity?.id || a.kind || "");
-      const idB = String(b.entity?.id || b.kind || "");
-      return compareIdStrings(idA, idB);
-    });
-    const best = events[0];
-    const candidates = events.reduce((sum, e) => sum + (!e.direct && e.kind && e.t < 1 ? 1 : 0), 0);
-    bump(room, "flakCandidatesTested", candidates);
-    bump(room, "flakEventsCompared", Math.max(0, events.length - 1));
-    return { ...best, candidates };
   }
 
   function findFlakEventSinglePass(bullet, previousX, previousY, spatial, scratch) {
@@ -767,18 +670,17 @@ function updateBullets(room, dt, now) {
         ? Relationships.areEntityEnemies(room, bullet.ownerId, target)
         : areEnemies(room, bullet.ownerId, target.ownerId));
       if (target && canTrack && hostileTarget) {
-        const cadenceEnabled = PROJECTILE_GUIDANCE_CADENCE();
-        const updatesPerSecond = PROJECTILES.missileGuidanceUpdatesPerSecond || 12;
-        const intervalMs = cadenceEnabled && updatesPerSecond > 0 ? 1000 / updatesPerSecond : 0;
+        const updatesPerSecond = Math.max(0.001, Number(PROJECTILES.missileGuidanceUpdatesPerSecond) || 12);
+        const intervalMs = 1000 / updatesPerSecond;
         let initialStagger = 0;
-        if (cadenceEnabled && !bullet._guidanceStaggerApplied) {
+        if (!bullet._guidanceStaggerApplied) {
           const idNum = Number.parseInt(String(bullet.id).slice(1), 10) || 0;
           const staggerPartition = 100;
           initialStagger = (idNum % staggerPartition) * (intervalMs / staggerPartition);
         }
         const targetChanged = target.id !== bullet._guidanceTargetId;
         const componentDestroyed = bullet.targetComponentIndex >= 0 && (!target.componentHp || target.componentHp[bullet.targetComponentIndex] <= 0);
-        const guidanceDue = !cadenceEnabled || bullet.nextGuidanceAt === undefined || now >= bullet.nextGuidanceAt || targetChanged || componentDestroyed;
+        const guidanceDue = bullet.nextGuidanceAt === undefined || now >= bullet.nextGuidanceAt || targetChanged || componentDestroyed;
         if (guidanceDue) {
           bump(room, "missileGuidanceUpdates");
           bullet._guidanceTargetId = target.id;
@@ -825,10 +727,8 @@ function updateBullets(room, dt, now) {
           bullet.guidanceTurnRate = turnRate;
           bullet.lastGuidanceAt = now;
           bullet.guidanceRevision = (bullet.guidanceRevision || 0) + 1;
-          if (cadenceEnabled) {
-            bullet.nextGuidanceAt = now + intervalMs + (bullet._guidanceStaggerApplied ? 0 : initialStagger);
-            bullet._guidanceStaggerApplied = true;
-          }
+          bullet.nextGuidanceAt = now + intervalMs + (bullet._guidanceStaggerApplied ? 0 : initialStagger);
+          bullet._guidanceStaggerApplied = true;
         } else {
           bump(room, "missileGuidanceDeferred");
         }
@@ -864,9 +764,7 @@ function updateBullets(room, dt, now) {
       flakMetrics.active += 1;
       const eventScratch = room._flakEventScratch || (room._flakEventScratch = { interceptableProjectiles: scratch.interceptableProjectiles, drones: scratch.drones, ships: scratch.ships, stations: scratch.stations, asteroids: asteroidCandidates });
       const flakSelectStart = timeThisBullet ? performanceNow() : 0;
-      const event = PROJECTILE_FLAK_SINGLE_PASS()
-        ? findFlakEventSinglePass(bullet, previousX, previousY, spatialIndex, eventScratch)
-        : findFlakEvent(bullet, previousX, previousY, spatialIndex, eventScratch);
+      const event = findFlakEventSinglePass(bullet, previousX, previousY, spatialIndex, eventScratch);
       if (timeThisBullet) recordDuration(room, "flakEventSelectionMs", flakSelectStart);
       flakMetrics.proximityCandidates += event.candidates || 0;
 
@@ -1002,17 +900,7 @@ function updateBullets(room, dt, now) {
       // is recorded once (by index), so it takes a single damage event even when
       // several of its cells are crossed. Destroyed components are skipped via
       // componentHp and so no longer block later projectiles.
-      const useGrid = PROJECTILE_GRID_COLLISION();
-      let componentHitResult = useGrid
-        ? findGridComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius)
-        : findOldComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius);
-      if (useGrid && process.env.VERIFY_PROJECTILE_GRID_COLLISION === "1") {
-        const oldResult = findOldComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius);
-        if (!compareModuleHits(componentHitResult.hit, oldResult.hit)) {
-          const detail = `grid collision mismatch for ship ${ship.id}: new=${JSON.stringify(componentHitResult.hit)} old=${JSON.stringify(oldResult.hit)} bullet=${bullet.id}`;
-          throw new Error(detail);
-        }
-      }
+      const componentHitResult = findGridComponentHit(ship, previousX, previousY, bullet.x, bullet.y, hitRadius);
       const moduleHit = componentHitResult.hit;
       const componentCellTests = componentHitResult.componentCellTests;
       if (moduleHit) {
@@ -1020,10 +908,8 @@ function updateBullets(room, dt, now) {
       }
       bump(room, "projectileComponentCellTests", componentCellTests);
       bump(room, "componentCellsTested", componentCellTests);
-      if (useGrid) {
-        bump(room, "componentGridCellsVisited", componentHitResult.gridCellsVisited || 0);
-        bump(room, "componentGridOccupiedCells", componentHitResult.gridOccupiedCells || 0);
-      }
+      bump(room, "componentGridCellsVisited", componentHitResult.gridCellsVisited || 0);
+      bump(room, "componentGridOccupiedCells", componentHitResult.gridOccupiedCells || 0);
     }
     if (timeThisBullet) recordDuration(room, "projectileShipNarrowPhaseMs", shipNarrowStart);
 
@@ -1246,9 +1132,8 @@ function updateBullets(room, dt, now) {
     });
   }
 
-  // Incremental path: publish final projectile positions for the next tick.
-  // Fallback path: invalidate so the next tick performs a full rebuild.
-  if (room.spatialIndex && INCREMENTAL_SPATIAL_INDEX()) {
+  // Publish final projectile positions for the next authoritative tick.
+  if (room.spatialIndex) {
     const liveProjectiles = [];
     const liveInterceptable = [];
     for (const bullet of room.bullets) {
@@ -1257,8 +1142,6 @@ function updateBullets(room, dt, now) {
     }
     room.spatialIndex.updateLiveEntities("projectiles", liveProjectiles, () => 0);
     room.spatialIndex.updateLiveEntities("interceptableProjectiles", liveInterceptable, () => 0);
-  } else {
-    room.spatialIndex?.invalidateDynamic?.();
   }
   if (room.assertProjectileLookup || process.env.MFA_ASSERT_RUNTIME_CACHES === "1" || process.env.NODE_ENV === "test") {
     assertProjectileLookupConsistency(room);

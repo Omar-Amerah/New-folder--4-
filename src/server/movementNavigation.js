@@ -35,12 +35,26 @@ function stationCollisionPieces(room) {
   return pieces;
 }
 
-// Cheap identity for the structure set. Stations never move once placed, so the
-// piece count changing is the only thing that can alter the grid.
+// Cheap identity for the structure set. A station can finish building or change
+// its authored pieces without changing the number of pieces, so include the
+// geometry that exact route validation uses as well as the count.
 function stationSignature(room) {
-  let count = 0;
-  for (const station of room?.stations || []) count += station?.collisionPieces?.length || 0;
-  return count;
+  const signature = [];
+  for (const station of room?.stations || []) {
+    signature.push(String(station?.id || "station"));
+    for (const piece of station?.collisionPieces || []) {
+      if (!piece) continue;
+      signature.push([
+        Number(piece.x) || 0,
+        Number(piece.y) || 0,
+        Number(piece.halfWidth) || 0,
+        Number(piece.halfHeight) || 0,
+        Number(piece.angle) || 0,
+        piece.door ? 1 : 0
+      ].join(","));
+    }
+  }
+  return signature.join("|");
 }
 
 // Signed distance from a point to a rotated rectangle: positive outside,
@@ -158,9 +172,14 @@ function cellClearanceAt(nav, x, y) {
   return nav.cells[cellFor(nav, x, y).index];
 }
 
-function nearestClearCell(nav, startX, startY, clearance) {
+function nearestClearCell(nav, startX, startY, clearance, isValid = null) {
   const start = cellFor(nav, startX, startY);
-  if (nav.cells[start.index] >= clearance) return cellCenter(nav, start.col, start.row);
+  const validCell = (col, row) => {
+    const index = row * nav.cols + col;
+    if (nav.cells[index] < clearance) return false;
+    return !isValid || isValid(cellCenter(nav, col, row));
+  };
+  if (validCell(start.col, start.row)) return cellCenter(nav, start.col, start.row);
   const visited = new Uint8Array(nav.cols * nav.rows);
   const queue = [start.col, start.row];
   const directions = [
@@ -173,7 +192,7 @@ function nearestClearCell(nav, startX, startY, clearance) {
     const col = queue[queueIndex++];
     const row = queue[queueIndex++];
     const index = row * nav.cols + col;
-    if (nav.cells[index] >= clearance) return cellCenter(nav, col, row);
+    if (validCell(col, row)) return cellCenter(nav, col, row);
     for (const [dx, dy] of directions) {
       const nextCol = col + dx;
       const nextRow = row + dy;
@@ -187,14 +206,51 @@ function nearestClearCell(nav, startX, startY, clearance) {
   return null;
 }
 
+function pointClear(room, x, y, clearance) {
+  const width = room?.world?.width || WORLD.width;
+  const height = room?.world?.height || WORLD.height;
+  const margin = Math.max(0, Number(clearance) || 0);
+  if (x < WORLD_MARGIN + margin
+    || x > width - WORLD_MARGIN - margin
+    || y < WORLD_MARGIN + margin
+    || y > height - WORLD_MARGIN - margin) return false;
+  return isStaticObstacleLineClear(room, x, y, x, y, margin);
+}
+
+function refineClearPoint(room, requested, seed, clearance) {
+  if (!seed) return null;
+  if (pointClear(room, requested.x, requested.y, clearance)) return { ...requested };
+  let best = { x: seed.x, y: seed.y };
+  let low = 0;
+  let high = 1;
+  // The seed is a clear cell centre. Walk toward the original request and keep
+  // the furthest exact point that remains clear, rather than snapping the
+  // waypoint permanently to the centre of the first BFS cell.
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    const amount = (low + high) * 0.5;
+    const candidate = {
+      x: seed.x + (requested.x - seed.x) * amount,
+      y: seed.y + (requested.y - seed.y) * amount
+    };
+    if (pointClear(room, candidate.x, candidate.y, clearance)) {
+      best = candidate;
+      low = amount;
+    } else {
+      high = amount;
+    }
+  }
+  return best;
+}
+
 function nearestClearPoint(room, x, y, clearance) {
   const nav = ensureRoomNavigation(room);
   const width = room?.world?.width || nav.width;
   const height = room?.world?.height || nav.height;
-  const startX = clampNumber(Number(x) || width * 0.5, WORLD_MARGIN, width - WORLD_MARGIN);
-  const startY = clampNumber(Number(y) || height * 0.5, WORLD_MARGIN, height - WORLD_MARGIN);
-  const start = cellFor(nav, startX, startY);
-  if (nav.cells[start.index] >= clearance) {
+  const requestedX = Number.isFinite(Number(x)) ? Number(x) : width * 0.5;
+  const requestedY = Number.isFinite(Number(y)) ? Number(y) : height * 0.5;
+  const startX = clampNumber(requestedX, WORLD_MARGIN, width - WORLD_MARGIN);
+  const startY = clampNumber(requestedY, WORLD_MARGIN, height - WORLD_MARGIN);
+  if (pointClear(room, startX, startY, clearance)) {
     return {
       x: startX,
       y: startY,
@@ -204,11 +260,23 @@ function nearestClearPoint(room, x, y, clearance) {
       reason: "clear"
     };
   }
-  const clear = nearestClearCell(nav, startX, startY, clearance);
+  const clear = nearestClearCell(
+    nav,
+    startX,
+    startY,
+    clearance,
+    (point) => pointClear(room, point.x, point.y, clearance)
+  );
   if (clear) {
+    const refined = refineClearPoint(
+      room,
+      { x: startX, y: startY },
+      clear,
+      clearance
+    );
     return {
-      x: clear.x,
-      y: clear.y,
+      x: refined.x,
+      y: refined.y,
       adjusted: true,
       passes: 1,
       clear: true,
@@ -364,11 +432,24 @@ function heuristic(nav, colA, rowA, colB, rowB) {
 // null loses the half of the search that is still useful: the flood already
 // knows the reachable cell nearest the goal, which is exactly where a ship that
 // cannot arrive should go instead.
-function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
+function searchPathWorld(room, startX, startY, goalX, goalY, clearance, options = {}) {
   bumpMovementMetric("pathPlanCount");
   const nav = ensureRoomNavigation(room);
-  const startClear = nearestClearPoint(room, startX, startY, clearance + nav.cellSize / 2);
-  const goalClear = nearestClearPoint(room, goalX, goalY, clearance + nav.cellSize / 2);
+  const required = Math.max(0, Number(clearance) || 0);
+  const minimum = Math.max(
+    0,
+    Number.isFinite(Number(options.minimumClearance))
+      ? Number(options.minimumClearance)
+      : required
+  );
+  const preferred = Math.max(
+    required,
+    Number.isFinite(Number(options.preferredClearance))
+      ? Number(options.preferredClearance)
+      : required + 24
+  );
+  const startClear = nearestClearPoint(room, startX, startY, required);
+  const goalClear = nearestClearPoint(room, goalX, goalY, required);
   if (!goalClear.clear) return {
     waypoints: [],
     reachedGoal: false,
@@ -397,7 +478,6 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
     [1, 1, Math.SQRT2], [-1, 1, Math.SQRT2],
     [-1, -1, Math.SQRT2], [1, -1, Math.SQRT2]
   ];
-  const required = clearance + nav.cellSize / 2;
   // Best consolation prize seen so far: the settled cell closest to the goal.
   // Costs one heuristic per expansion and is what makes an unreachable
   // destination produce a sane partial route rather than nothing.
@@ -422,13 +502,22 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
       const nextRow = row + dy;
       if (nextCol < 0 || nextCol >= nav.cols || nextRow < 0 || nextRow >= nav.rows) continue;
       const nextIndex = nextRow * nav.cols + nextCol;
-      if (nav.cells[nextIndex] < required) continue;
+      const endpointCell = nextIndex === start.index || nextIndex === goal.index;
+      if (nav.cells[nextIndex] < minimum && !endpointCell) continue;
       if (distanceMultiplier !== 1) {
         const horizontalIndex = row * nav.cols + nextCol;
         const verticalIndex = nextRow * nav.cols + col;
-        if (nav.cells[horizontalIndex] < required || nav.cells[verticalIndex] < required) continue;
+        if ((nav.cells[horizontalIndex] < minimum && horizontalIndex !== start.index && horizontalIndex !== goal.index)
+          || (nav.cells[verticalIndex] < minimum && verticalIndex !== start.index && verticalIndex !== goal.index)) continue;
       }
-      const score = scores[node.index] + distanceMultiplier * nav.cellSize;
+      const cellClearance = Math.max(0, nav.cells[nextIndex]);
+      const narrowness = cellClearance >= preferred
+        ? 0
+        : (preferred - cellClearance) / Math.max(1, preferred - minimum);
+      // A cell close to the hull limit is legal to explore, but costs more than
+      // a wide cell. Exact segment validation below remains the final authority.
+      const score = scores[node.index]
+        + distanceMultiplier * nav.cellSize * (1 + narrowness * 0.35);
       if (score >= scores[nextIndex] - 1e-9) continue;
       scores[nextIndex] = score;
       parents[nextIndex] = node.index;
@@ -450,6 +539,17 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
     index = parents[index];
   }
   raw.reverse();
+  if (raw.length) raw[0] = { x: startClear.x, y: startClear.y };
+  if (reachedGoal && raw.length === 1
+    && !isSegmentClear(room, startClear.x, startClear.y, goalX, goalY, required)) {
+    return {
+      waypoints: [],
+      reachedGoal: false,
+      requestedGoal: { x: goalX, y: goalY },
+      terminal: null,
+      adjustedGoal: false
+    };
+  }
   const smoothed = [raw[0]];
   let anchor = 0;
   while (anchor < raw.length - 1) {
@@ -471,6 +571,24 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance) {
   // Only a route that arrives may end on the requested point. A partial one ends
   // on the cell the search actually settled, which is already the last entry.
   if (reachedGoal) smoothed[smoothed.length - 1] = { x: goalX, y: goalY };
+  for (let waypointIndex = 1; waypointIndex < smoothed.length; waypointIndex += 1) {
+    if (!isSegmentClear(
+      room,
+      smoothed[waypointIndex - 1].x,
+      smoothed[waypointIndex - 1].y,
+      smoothed[waypointIndex].x,
+      smoothed[waypointIndex].y,
+      required
+    )) {
+      return {
+        waypoints: [],
+        reachedGoal: false,
+        requestedGoal: { x: goalX, y: goalY },
+        terminal: null,
+        adjustedGoal: false
+      };
+    }
+  }
   const terminal = smoothed[smoothed.length - 1] || null;
   return {
     waypoints: smoothed,
@@ -488,14 +606,12 @@ function findPathWorld(room, startX, startY, goalX, goalY, clearance) {
   return result.reachedGoal ? result.waypoints : null;
 }
 
-// The clearance the planner will demand of a destination. Anything that picks a
-// point for a ship to be sent to has to use this and not the bare hull
-// clearance: the grid is sampled at cell centres, so the search needs half a
-// cell more than the hull does, and a destination legal by the looser test is
-// one the planner then quietly relocates -- leaving the ship parked somewhere
-// the player never clicked while the order marker sits elsewhere.
+// The exact clearance the planner will demand of a destination. Grid sampling
+// is a search hint, not extra hard geometry; exact point/segment checks own the
+// final answer and nearestClearPoint refines any adjusted grid seed toward the
+// requested point.
 function navigationPlanningClearance(ship) {
-  return navigationClearanceRadius(ship) + NAV_GRID_CELL_SIZE / 2;
+  return navigationClearanceRadius(ship);
 }
 
 function planPath(room, ship, destination, now) {

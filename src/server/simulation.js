@@ -21,16 +21,8 @@ const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./room
 const { performanceNow } = require("./utils");
 const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
-  FIXED_AUTHORITATIVE_TIMESTEP,
-  INCREMENTAL_SPATIAL_INDEX,
-  SHARED_MOVEMENT_CONTACT_PAIRS,
-  OPTIMIZED_COMMAND_AURA_RUNTIME
-} = require("./performanceFlags");
-const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
-const {
   beginMovementContactStep,
   buildMovementContactPairs,
-  clearMovementContactPairs,
   markMovementContactPairsUnsafe,
   rebuildMovementContactPairsForRecovery,
   shouldRunMovementContactDiagnostics,
@@ -81,10 +73,7 @@ function tickRoom(room, dt, now) {
   durations.stationLaunchControl = performanceNow() - startedAt;
   const ships = getLiveShips(room, room._liveShipScratch || (room._liveShipScratch = []));
   setCounter(room, "liveShips", ships.length);
-  const sharedMovementContactPairs = SHARED_MOVEMENT_CONTACT_PAIRS();
-  const movementContactStepId = sharedMovementContactPairs
-    ? beginMovementContactStep(room, ships, now)
-    : (clearMovementContactPairs(room), null);
+  const movementContactStepId = beginMovementContactStep(room, ships, now);
   // Section 7D-2: refresh activity-driven Power demand once per ship, before any
   // gameplay system consumes this cycle's operational multipliers / section flow.
   startedAt = performanceNow();
@@ -109,45 +98,33 @@ function tickRoom(room, dt, now) {
   durations.shields = performanceNow() - startedAt;
   startedAt = performanceNow();
   let movementStart = performanceNow();
-  const optimizedCommandAuras = OPTIMIZED_COMMAND_AURA_RUNTIME();
-  let movedForCommandAuras = null;
-  if (optimizedCommandAuras) {
-    movedForCommandAuras = room._commandAuraMovementScratch || (room._commandAuraMovementScratch = []);
-    movedForCommandAuras.length = 0;
-    for (const ship of ships) {
-      updateShipMovement(room, ship, dt, now);
-      if ((Number(ship._integratedMovementX) || 0) !== 0
-        || (Number(ship._integratedMovementY) || 0) !== 0
-        || (Number(ship._collisionCorrectionX) || 0) !== 0
-        || (Number(ship._collisionCorrectionY) || 0) !== 0) {
-        movedForCommandAuras.push(ship.id);
-      }
+  const movedForCommandAuras = room._commandAuraMovementScratch || (room._commandAuraMovementScratch = []);
+  movedForCommandAuras.length = 0;
+  for (const ship of ships) {
+    updateShipMovement(room, ship, dt, now);
+    if ((Number(ship._integratedMovementX) || 0) !== 0
+      || (Number(ship._integratedMovementY) || 0) !== 0
+      || (Number(ship._collisionCorrectionX) || 0) !== 0
+      || (Number(ship._collisionCorrectionY) || 0) !== 0) {
+      movedForCommandAuras.push(ship.id);
     }
-  } else {
-    for (const ship of ships) updateShipMovement(room, ship, dt, now);
   }
   recordDuration(room, "movementControllerMs", movementStart);
   // After movement, refresh only ship records. Drones and projectiles are
   // updated by their own systems before consumers that need their positions.
   if (room.spatialIndex && typeof room.spatialIndex.updateLiveEntities === "function") {
-    if (INCREMENTAL_SPATIAL_INDEX()) {
-      room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
-    } else {
-      room.spatialIndex.rebuildKind("ships", ships, shipBroadPhaseRadius, now);
-    }
+    room.spatialIndex.updateLiveEntities("ships", ships, shipBroadPhaseRadius);
   } else {
     buildRoomSpatialIndex(room, ships, now);
   }
-  if (sharedMovementContactPairs) {
-    buildMovementContactPairs(room, ships, now, { stepId: movementContactStepId });
-    if (shouldRunMovementContactDiagnostics(room)) {
-      const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
-      if (!integrity.ok) {
-        bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
-        markMovementContactPairsUnsafe(room, "build-integrity-failure");
-        room._movementContactPairLastIntegrity = integrity;
-        rebuildMovementContactPairsForRecovery(room, ships, now);
-      }
+  buildMovementContactPairs(room, ships, now, { stepId: movementContactStepId });
+  if (shouldRunMovementContactDiagnostics(room)) {
+    const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
+    if (!integrity.ok) {
+      bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
+      markMovementContactPairsUnsafe(room, "build-integrity-failure");
+      room._movementContactPairLastIntegrity = integrity;
+      rebuildMovementContactPairsForRecovery(room, ships, now);
     }
   }
   let modifiedShipIds = updateShipSeparation(room, ships, dt, now);
@@ -157,16 +134,13 @@ function tickRoom(room, dt, now) {
     ships,
     modifiedShipIds,
     dt,
-    now,
-    { sharedMovementContactPairs }
+    now
   );
   modifiedShipIds = movementSafety.modifiedShipIds;
-  if (optimizedCommandAuras) {
-    invalidateCommandAuraMovement(room, movedForCommandAuras);
-    invalidateCommandAuraMovement(room, modifiedShipIds);
-  }
+  invalidateCommandAuraMovement(room, movedForCommandAuras);
+  invalidateCommandAuraMovement(room, modifiedShipIds);
   recordDuration(room, "movementMapCollisionMs", mapCollisionStart);
-  if (sharedMovementContactPairs && shouldRunMovementContactDiagnostics(room)) {
+  if (shouldRunMovementContactDiagnostics(room)) {
     const integrity = validateMovementContactPairs(room, ships, { stepId: movementContactStepId });
     if (!integrity.ok) {
       bump(room, "movementContactPairMissDetections", integrity.missingOverlaps || 1);
@@ -175,7 +149,7 @@ function tickRoom(room, dt, now) {
     }
   }
   durations.movementSeparationMap = performanceNow() - startedAt;
-  if (OPTIMIZED_VISIBILITY_RUNTIME() && room._visibilityRuntime) {
+  if (room._visibilityRuntime) {
     require("./visibilityRuntime").maintainVisibilityRuntime(room);
   }
   // Everything below this point sees one cached visibility generation. Combat
@@ -238,7 +212,7 @@ function tickRoom(room, dt, now) {
   startedAt = performanceNow();
   updateStations(room, dt, now, { skipLaunchControl: true });
   updateCapturePoints(room, ships, dt); updateControlVictory(room, now);
-  if (OPTIMIZED_VISIBILITY_RUNTIME() && room._visibilityRuntime) {
+  if (room._visibilityRuntime) {
     require("./visibilityRuntime").maintainVisibilityRuntime(room);
   }
   // Weapons, projectile damage, drone movement, ship destruction and station

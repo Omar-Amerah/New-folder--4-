@@ -13,6 +13,8 @@ const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
 const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
 const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
 const { setMovementCommand, syncMovementTarget } = require("./src/server/movementRuntime");
+const { navigationClearanceRadius } = require("./src/server/movementCollision");
+const { nearestClearPoint, searchPathWorld } = require("./src/server/movementNavigation");
 const { ARRIVE_DISTANCE } = require("./src/server/movementTuning");
 
 const DT = 1 / 30;
@@ -115,7 +117,8 @@ function attack(room, players, attacker, target) {
 function runFriendlyScreen(style) {
   const attacker = makeShip(1000, 3000, { style });
   const blockers = [];
-  for (let index = -2; index <= 2; index += 1) {
+  const blockerOffsets = style === "hold" ? [0] : [-2, -1, 0, 1, 2];
+  for (const index of blockerOffsets) {
     blockers.push(makeShip(2600, 3000 + index * 100, {
       design: UNARMED,
       ownerId: "p1"
@@ -134,7 +137,7 @@ function runFriendlyScreen(style) {
   let softContactObserved = false;
   simulate(room, ships, 70, () => {
     if ((attacker.movement.path?.length || 0) > 1
-      || attacker.movement.traffic?.mode === "bypass") routed = true;
+      || ["bypass", "sidestep"].includes(attacker.movement.traffic?.mode)) routed = true;
     if (attacker.movement.traffic?.mode === "soft") softContactObserved = true;
     deviation = Math.max(deviation, Math.abs(attacker.y - 3000));
   });
@@ -144,7 +147,7 @@ function runFriendlyScreen(style) {
   ), 0);
   const pressureReleased = attacker.movement.traffic?.mode === "soft";
   assert(routed || pressureReleased || softContactObserved,
-    `${style} should either commit a bypass or release a blocked friendly screen`);
+    `${style} should either commit a bypass or release a blocked friendly screen (mode=${attacker.movement.traffic?.mode} path=${attacker.movement.path?.length || 0} deviation=${deviation.toFixed(1)} phase=${attacker.movement.phase})`);
   assert(routed || deviation > 180 || pressureReleased || softContactObserved,
     `${style} should either pass around the wall or use the bounded soft-contact release (${deviation.toFixed(1)} px)`);
   assert(blockerDisplacement < 25,
@@ -155,7 +158,7 @@ function runFriendlyScreen(style) {
       `Charge should reach contact beyond the friendly screen (${distance(attacker, target).toFixed(1)} px)`);
   } else {
     assert(distance(attacker, target) <= getMaxEffectiveWeaponRange(attacker) + 8,
-      `Hold should regain firing range beyond the friendly screen (${distance(attacker, target).toFixed(1)} px)`);
+      `Hold should regain firing range beyond the friendly screen (${distance(attacker, target).toFixed(1)} px; ${attacker.movement.phase}:${JSON.stringify(attacker.movement.traffic)} dest=${JSON.stringify(attacker.movement.destination)})`);
   }
 }
 
@@ -243,9 +246,8 @@ function run() {
       "the bypass should still deliver the mover to its destination");
   }
 
-  // A selected attack's visible rest point is its own target-relative slot, not
-  // a shared formation radius. Hull clearance may make the slot slightly wider
-  // than the nominal 76% comfort distance, but it must remain inside reach.
+  // A selected Hold attack stops at its first usable firing position. It does
+  // not receive a target-relative slot and is not moved again once fireable.
   {
     const attacker = makeShip(1000, 2000);
     const target = makeShip(5000, 2000, { design: UNARMED, ownerId: "p2", angle: Math.PI });
@@ -253,16 +255,10 @@ function run() {
     attack(room, players, attacker, target);
     simulate(room, ships, 50);
     const expected = getMaxEffectiveWeaponRange(attacker);
-    const slot = attacker.movement.combatSlot;
-    assert.strictEqual(slot?.combatMode, "hold");
-    const slotPoint = {
-      x: target.x + Math.cos(slot.assignedAngle) * slot.assignedRadius,
-      y: target.y + Math.sin(slot.assignedAngle) * slot.assignedRadius
-    };
-    assert(distance(attacker, slotPoint) <= ARRIVE_DISTANCE * 3,
-      `Selected attack should settle at its assigned target-relative slot (${distance(attacker, slotPoint).toFixed(1)} px away)`);
+    assert.strictEqual(attacker.movement.combatSlot, null,
+      "a single Hold attack must not depend on a combat slot");
     assert(distance(attacker, target) <= expected + 8,
-      `Selected attack slot should remain inside weapon range (${distance(attacker, target).toFixed(1)} vs ${expected.toFixed(1)})`);
+      `Selected attack should stop inside weapon range (${distance(attacker, target).toFixed(1)} vs ${expected.toFixed(1)})`);
   }
 
   // A large explicit attack carries only independent target orders. Range,
@@ -290,15 +286,16 @@ function run() {
       assert.strictEqual(ship.movement.command.formationGroupId, undefined,
         "an attack must not inherit the ground-move formation queue");
     }
-    simulate(room, ships, 100);
+    simulate(room, ships, 110);
     const reach = getMaxEffectiveWeaponRange(attackers[0]);
-    assert(attackers.every((ship) => distance(ship, target) <= reach + 48),
-      `every selected ship should independently reach weapon range or its bounded soft-contact tolerance (${attackers.map((ship) => `${ship.id}:${distance(ship, target).toFixed(0)}:${ship.movement.phase}:${JSON.stringify(ship.movement.traffic)}`).join(",")})`);
+    assert(attackers.every((ship) => distance(ship, target) <= reach + 48
+      || ["queue", "sidestep"].includes(ship.movement.traffic?.mode)),
+      `every selected ship should independently reach weapon range or remain in an orderly queue/sidestep (${attackers.map((ship) => `${ship.id}:${distance(ship, target).toFixed(0)}:${ship.movement.phase}:${JSON.stringify(ship.movement.traffic)}`).join(",")})`);
   }
 
-  // Combat positioning is target-relative and persistent: short-range Hold
-  // ships occupy inner rings, overflow creates another ring, and a stationary
-  // target does not cause slot regeneration every tick.
+  // Hold groups approach independently. A crowded group does not acquire a
+  // mandatory ring layout, and a target move does not trigger group-wide slot
+  // reassignment.
   {
     const target = makeShip(6500, 3000, {
       design: UNARMED,
@@ -323,33 +320,11 @@ function run() {
       targetId: target.id
     });
     assert.strictEqual(result.code, "attack");
-    assert(shortRange.every((ship) => ship.movement.combatSlot?.combatMode === "hold"));
-    assert(new Set(shortRange.map((ship) => ship.movement.combatSlot.ringIndex)).size > 1,
-      "a crowded Hold group should create additional range rings instead of squeezing one ring");
-    const shortPrimary = Math.min(...shortRange
-      .filter((ship) => ship.movement.combatSlot.ringIndex === 0)
-      .map((ship) => ship.movement.combatSlot.assignedRadius));
-    const longRadius = Math.min(...longRange.map((ship) => ship.movement.combatSlot.assignedRadius));
-    assert(longRadius > shortPrimary,
-      "long-range Hold ships should be assigned outside the short-range ring");
-    assert(shortRange.concat(longRange).every((ship) => {
-      const slot = ship.movement.combatSlot;
-      return slot.assignedRadius <= getMaxEffectiveWeaponRange(ship) + 8;
-    }), "every Hold slot must remain inside its ship's weapon range");
-
-    const stable = shortRange[0].movement.combatSlot;
-    const stableAngle = stable.assignedAngle;
-    const stableRadius = stable.assignedRadius;
+    assert(shortRange.concat(longRange).every((ship) => ship.movement.combatSlot === null),
+      "Hold groups must not receive mandatory target-relative slots");
     simulate(room, ships, 1);
-    assert(Math.abs(angleDelta(shortRange[0].movement.combatSlot.assignedAngle, stableAngle)) < 1e-9,
-      "a stationary target must not regenerate Hold angles every tick");
-    assert(Math.abs(shortRange[0].movement.combatSlot.assignedRadius - stableRadius) < 1e-9,
-      "a stationary target must not regenerate Hold radii every tick");
-
-    target.x += 240;
-    movementTestTick(room, ships, DT, 1000);
-    assert.strictEqual(shortRange[0].movement.combatSlot.targetX, target.x,
-      "a significant target move should refresh the target-relative slot anchor");
+    assert(shortRange.concat(longRange).every((ship) => ship.movement.combatSlot === null),
+      "Hold must remain slot-free after movement ticks");
   }
 
   // Charge uses the nearest available contact sector and puts overflow on a
@@ -411,6 +386,82 @@ function run() {
     assert(attacker.movement.holdEngaged, "Hold should engage after routing to a firing line");
     assert(!isLineBlocked(room, attacker.x, attacker.y, target.x, target.y, 8),
       "the final firing line should be statically clear");
+  }
+
+  // Exact world endpoints remain the endpoints of a route even when the
+  // containing grid cell's centre is just inside the navigation margin. The
+  // grid is a search hint; it must not invalidate a physically clear start or
+  // snap it to a different cell before string-pulling.
+  {
+    const asteroid = { x: 2400, y: 2000, radius: 340 };
+    const mover = makeShip(1000, 2000, { design: UNARMED });
+    const { room } = makeRoom({ p1: [mover] }, { asteroids: [asteroid] });
+    const clearance = navigationClearanceRadius(mover);
+    const exactStart = { x: 2213.640874882031, y: 2351.077001688381 };
+    const requested = { x: 3700.8, y: 2000 };
+    const route = searchPathWorld(
+      room,
+      exactStart.x,
+      exactStart.y,
+      requested.x,
+      requested.y,
+      clearance,
+      { minimumClearance: clearance, preferredClearance: clearance + 24 }
+    );
+    assert(route.reachedGoal, "a route should survive exact endpoint validation");
+    assert(Math.hypot(route.waypoints[0].x - exactStart.x, route.waypoints[0].y - exactStart.y) < 1e-6,
+      "route smoothing should preserve the exact clear endpoint");
+
+    const adjusted = nearestClearPoint(room, 2200, 2300, clearance);
+    assert(adjusted.clear && adjusted.adjusted,
+      "a blocked request should be refined from a clear grid seed");
+    assert(Math.hypot(adjusted.x - 2200, adjusted.y - 2300) < 100,
+      "refinement should remain near the requested point");
+  }
+
+  // A moving combat target may change the final connection, but it must not
+  // make the ship reconsider the committed obstacle side on every update.
+  {
+    const asteroid = { x: 2400, y: 2000, radius: 340 };
+    const attacker = makeShip(1000, 2000);
+    const target = makeShip(4200, 2000, { design: UNARMED, ownerId: "p2", angle: Math.PI });
+    const { room, ships, players } = makeRoom({ p1: [attacker], p2: [target] }, { asteroids: [asteroid] });
+    attack(room, players, attacker, target);
+    movementTestTick(room, ships, DT, 0);
+    const initialRoute = attacker.movement.route;
+    assert(initialRoute && initialRoute.committedSide !== 0,
+      "an obstacle route should commit a side");
+    const committedSide = initialRoute.committedSide;
+    const committedCorner = { ...attacker.movement.path[0] };
+    target.y += 220;
+    simulate(room, ships, 1.5);
+    const updatedRoute = attacker.movement.route;
+    assert(updatedRoute, "the route should remain active while the target moves");
+    assert.strictEqual(updatedRoute.committedSide, committedSide,
+      "target motion must not switch the committed obstacle side");
+    assert(Math.hypot(attacker.movement.path[0].x - committedCorner.x,
+      attacker.movement.path[0].y - committedCorner.y) < 1e-6,
+    "target motion should preserve the obstacle-side route prefix");
+  }
+
+  // A large initial heading error is a turn, not a stuck route. It must not
+  // cause a second A* opinion before the hull has had time to align.
+  {
+    const mover = makeShip(1200, 4500, { angle: Math.PI, design: UNARMED });
+    const { room, ships } = makeRoom({ p1: [mover] });
+    setMovementCommand(mover, {
+      id: "initial-turn:mover",
+      type: "move",
+      destination: { x: 6000, y: 4500 },
+      manual: true
+    });
+    syncMovementTarget(mover);
+    movementTestTick(room, ships, DT, 0);
+    const initialPlanAt = mover.movement.route?.plannedAt;
+    simulate(room, ships, 2);
+    assert(mover.movement.route, "the turning ship should retain its route");
+    assert.strictEqual(mover.movement.route.plannedAt, initialPlanAt,
+      "turning in place must pause stuck timing instead of replanning");
   }
 
   runFriendlyScreen("hold");

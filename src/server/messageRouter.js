@@ -11,7 +11,7 @@ const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemet
 
 const RATE_LIMITS = {
   frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
-  management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
+  management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "ready", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
 };
 function bucketForType(type) {
   if (RATE_LIMITS.frequent.types.has(type)) return "frequent";
@@ -103,9 +103,36 @@ function handleMessage(client, message) {
     return;
   }
 
+  const markReady = (notice = "Ready confirmed — the match starts as soon as every pilot is ready.") => {
+    if (client.room.phase !== "design") {
+      send(client, { type: "error", message: "You can only ready up during ship design" });
+      return;
+    }
+    if (client.player.ready) return;
+    client.player.ready = true;
+    client.player.lastReadyAt = performanceNow();
+    client.room.lastStaticSnapshotAt = 0;
+    send(client, { type: "notice", message: notice });
+    broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
+    broadcastSnapshot(client.room, performanceNow(), true);
+    maybeStartMatch(client.room, performanceNow());
+  };
+
+  if (message.type === "ready") {
+    markReady();
+    return;
+  }
+
   if (message.type === "deploy") {
     if (client.room.phase !== "design" && client.room.phase !== "active") {
       send(client, { type: "error", message: "Ship designs can only be saved during design or active match phases" });
+      return;
+    }
+    // Older clients used deploy as their Ready Up action. Preserve that wire
+    // contract without bringing ship validation back into readiness; only an
+    // active-match deploy is a blueprint save and therefore needs validation.
+    if (client.room.phase === "design") {
+      markReady("Design saved — you are ready. The match starts as soon as every pilot is ready.");
       return;
     }
     const design = validateDesign(message.design);
@@ -144,18 +171,7 @@ function handleMessage(client, message) {
     }
 
     client.room.lastStaticSnapshotAt = 0;
-    if (client.room.phase === "design") {
-      client.player.ready = true;
-      client.player.lastReadyAt = performanceNow();
-      // Deploying marks the player ready and the match starts the moment the
-      // last player deploys — tell the deployer so the start isn't a surprise.
-      send(client, { type: "notice", message: "Design saved — you are ready. The match starts as soon as every pilot is ready." });
-      broadcastRoom(client.room, { type: "notice", message: `${client.player.name} is ready` });
-      broadcastSnapshot(client.room, performanceNow(), true);
-      maybeStartMatch(client.room, performanceNow());
-    } else {
-      send(client, { type: "notice", message: `Editor blueprint saved. Buy the current design from the bottom bar for $${deployStats.unitCost}.` });
-    }
+    send(client, { type: "notice", message: `Editor blueprint saved. Buy the current design from the bottom bar for $${deployStats.unitCost}.` });
     return;
   }
 

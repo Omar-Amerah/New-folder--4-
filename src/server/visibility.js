@@ -10,7 +10,6 @@
 const { BALANCE } = require("./balanceConfig");
 const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
 const { angleDifference } = require("./utils");
-const { OPTIMIZED_VISIBILITY_RUNTIME } = require("./performanceFlags");
 const { bump } = require("./roomTelemetry");
 
 const VISIBILITY_BALANCE = BALANCE.visibility || {};
@@ -71,33 +70,7 @@ function cachedTeamOfEntity(room, entity, generation) {
 }
 
 function getTeamVisibilityState(room, teamOrOwnerId) {
-  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
-    return require("./visibilityRuntime").getTeamState(room, teamOrOwnerId);
-  }
-  const teamId = normalizedTeamId(room, teamOrOwnerId);
-  if (!room.visibilityByTeam) room.visibilityByTeam = new Map();
-  let state = room.visibilityByTeam.get(teamId);
-  if (!state) {
-    state = {
-      visibleEntityIds: new Set(),
-      nextVisibleEntityIds: new Set(),
-      remembered: new Map(),
-      coverage: [],
-      revision: 1,
-      computedAt: Number.NEGATIVE_INFINITY,
-      computedGeneration: 0
-    };
-    room.visibilityByTeam.set(teamId, state);
-  } else {
-    // Tolerate rooms created by a hot-reloaded older implementation.
-    if (!(state.visibleEntityIds instanceof Set)) state.visibleEntityIds = new Set();
-    if (!(state.nextVisibleEntityIds instanceof Set)) state.nextVisibleEntityIds = new Set();
-    if (!(state.remembered instanceof Map)) state.remembered = new Map();
-    if (!Array.isArray(state.coverage)) state.coverage = [];
-    if (!Number.isFinite(state.computedAt)) state.computedAt = Number.NEGATIVE_INFINITY;
-    if (!Number.isSafeInteger(state.computedGeneration)) state.computedGeneration = 0;
-  }
-  return state;
+  return require("./visibilityRuntime").getTeamState(room, teamOrOwnerId);
 }
 
 function contactClassForEntity(entity) {
@@ -286,123 +259,12 @@ function rememberedEntity(room, id) {
   return room.ships?.get?.(id) || null;
 }
 
-function recordVisibilityCompute(room, computedAt) {
-  room._visibilityComputeCount = (Number(room._visibilityComputeCount) || 0) + 1;
-  if (room._visibilityFinalizationInvalidated) {
-    bump(room, "visibilityComputesAfterFinalization");
-    room._visibilityFinalizationInvalidated = false;
-  }
-  room._lastVisibilityComputeAt = computedAt;
-}
-
-function computeTeamVisibilityLegacy(room, teamOrOwnerId, now) {
-  const computedAt = Number.isFinite(Number(now)) ? Number(now) : 0;
-  if (!usesSensorVisibility(room)) {
-    return {
-      visibleEntityIds: new Set(),
-      remembered: new Map(),
-      coverage: [],
-      revision: 0,
-      computedAt,
-      computedGeneration: roomVisibilityGeneration(room)
-    };
-  }
-
-  const teamId = normalizedTeamId(room, teamOrOwnerId);
-  const generation = roomVisibilityGeneration(room);
-  const state = getTeamVisibilityState(room, teamId);
-  const previouslyVisible = state.visibleEntityIds;
-  const current = state.nextVisibleEntityIds;
-  current.clear();
-  const sourceScratch = room._visibilitySourceScratch || (room._visibilitySourceScratch = []);
-  const shipScratch = room._visibilityQueryScratch || (room._visibilityQueryScratch = []);
-  const sources = getSensorSourcesForTeam(room, teamId, sourceScratch);
-
-  let coverageCount = 0;
-  for (const sourceRecord of sources) {
-    const source = sourceRecord.entity;
-    const range = sourceRecord.range;
-    let coverage = state.coverage[coverageCount];
-    if (!coverage) {
-      coverage = {};
-      state.coverage[coverageCount] = coverage;
-    }
-    coverage.id = source.id;
-    coverage.x = source.x;
-    coverage.y = source.y;
-    coverage.range = range;
-    coverage.shape = sourceRecord.shape;
-    coverage.angle = sourceRecord.angle;
-    coverage.halfAngle = sourceRecord.halfAngle;
-    coverageCount += 1;
-    addDetectedShips(room, teamId, generation, sourceRecord, current, shipScratch);
-  }
-  state.coverage.length = coverageCount;
-  addDetectedStructures(room, teamId, generation, state.coverage, coverageCount, current);
-  addAlliedEntities(room, teamId, generation, current);
-
-  for (const id of previouslyVisible) {
-    if (current.has(id) || state.remembered.has(id)) continue;
-    const entity = rememberedEntity(room, id);
-    if (!entity || teamOfEntity(room, entity) === teamId) continue;
-    const contact = buildRememberedContact(entity, computedAt, room);
-    contact.firstLostAt = computedAt;
-    contact.expiresAt = computedAt + DETECTION_LINGER_MS + REMEMBERED_CONTACT_MS;
-    state.remembered.set(id, contact);
-  }
-
-  for (const [id, contact] of state.remembered) {
-    if (current.has(id)) {
-      state.remembered.delete(id);
-      continue;
-    }
-    if (computedAt >= (contact.expiresAt || 0)) {
-      state.remembered.delete(id);
-      continue;
-    }
-    // Detection linger keeps the real entity visible and targetable briefly.
-    // Only after the linger expires does the snapshot switch to a stale contact.
-    if (computedAt < (contact.firstLostAt || 0) + DETECTION_LINGER_MS) current.add(id);
-  }
-
-  state.visibleEntityIds = current;
-  state.nextVisibleEntityIds = previouslyVisible;
-  state.computedAt = computedAt;
-  state.computedGeneration = roomVisibilityGeneration(room);
-  state.revision += 1;
-  recordVisibilityCompute(room, computedAt);
-  return state;
-}
-
-function ensureTeamVisibilityLegacy(room, teamOrOwnerId, now) {
-  if (!usesSensorVisibility(room)) return null;
-  // Combat asks this thousands of times per tick and virtually every one of
-  // those hits an already-computed scan. Answer those without running
-  // getTeamVisibilityState's legacy-shape repair, which is only needed on the
-  // path that is about to (re)build the scan anyway.
-  const cached = room.visibilityByTeam?.get?.(normalizedTeamId(room, teamOrOwnerId));
-  if (cached
-    && cached.computedGeneration === roomVisibilityGeneration(room)
-    && cached.visibleEntityIds instanceof Set) {
-    return cached;
-  }
-  const state = getTeamVisibilityState(room, teamOrOwnerId);
-  if (state.computedGeneration !== roomVisibilityGeneration(room)) {
-    return computeTeamVisibilityLegacy(room, teamOrOwnerId, now);
-  }
-  return state;
-}
-
 function computeTeamVisibility(room, teamOrOwnerId, now) {
-  return OPTIMIZED_VISIBILITY_RUNTIME()
-    ? require("./visibilityRuntime").computeTeamVisibility(room, teamOrOwnerId, now)
-    : computeTeamVisibilityLegacy(room, teamOrOwnerId, now);
+  return require("./visibilityRuntime").computeTeamVisibility(room, teamOrOwnerId, now);
 }
 
 function ensureTeamVisibility(room, teamOrOwnerId, now) {
-  return OPTIMIZED_VISIBILITY_RUNTIME()
-    ? require("./visibilityRuntime").ensureTeamVisibility(room, teamOrOwnerId, now)
-    : ensureTeamVisibilityLegacy(room, teamOrOwnerId, now);
+  return require("./visibilityRuntime").ensureTeamVisibility(room, teamOrOwnerId, now);
 }
 
 function getVisibleEntityIdsForTeam(room, teamOrOwnerId, now) {
@@ -470,14 +332,7 @@ function isPointVisibleToTeam(room, teamOrOwnerId, x, y, now, padding = 0) {
 
 function clearVisibilityForRoom(room) {
   if (!room) return;
-  if (room._visibilityRuntime) require("./visibilityRuntime").clearVisibilityForRoom(room);
-  for (const state of room.visibilityByTeam?.values?.() || []) {
-    state.visibleEntityIds.clear();
-    state.nextVisibleEntityIds?.clear?.();
-    state.remembered.clear();
-    state.coverage.length = 0;
-  }
-  room.visibilityByTeam?.clear?.();
+  require("./visibilityRuntime").clearVisibilityForRoom(room);
   for (const ship of room.ships?.values?.() || []) {
     delete ship._sensorRangeCacheGeneration;
     delete ship._sensorRangeCacheValue;
@@ -504,8 +359,6 @@ function clearVisibilityForRoom(room) {
   room._visibilityFinalizationInvalidated = false;
   room._visibilityLastInvalidationStepKey = null;
   room._visibilityInvalidationCountsByReason = Object.create(null);
-  room._visibilitySourceScratch = null;
-  room._visibilityQueryScratch = null;
   if (room._visibilityInvalidations) room._visibilityInvalidations.length = 0;
 }
 
@@ -516,7 +369,6 @@ function invalidateVisibility(room, reason = "unknown") {
   let next = roomVisibilityGeneration(room) + 1;
   if (!Number.isSafeInteger(next) || next >= Number.MAX_SAFE_INTEGER) {
     next = 1;
-    for (const state of room.visibilityByTeam?.values?.() || []) state.computedGeneration = 0;
   }
   room._visibilityGeneration = next;
   room._visibilityInvalidationCount = (Number(room._visibilityInvalidationCount) || 0) + 1;
@@ -533,9 +385,7 @@ function invalidateVisibility(room, reason = "unknown") {
     && Number(room._visibilityFinalizedAt) === Number(room.simulationTimeMs)) {
     room._visibilityFinalizationInvalidated = true;
   }
-  if (OPTIMIZED_VISIBILITY_RUNTIME()) {
-    require("./visibilityRuntime").invalidateVisibility(room, options);
-  }
+  require("./visibilityRuntime").invalidateVisibility(room, options);
 
   // Keep only a tiny diagnostic ring. The original unbounded array grew for
   // the life of a room if invalidation was ever wired into the simulation.

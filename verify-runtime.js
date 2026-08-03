@@ -24,6 +24,7 @@ main().catch((error) => {
 });
 
 async function main() {
+  const snapshotMerge = await import("./public/src/snapshotMerge.js");
   const server = spawn(process.execPath, ["server.js"], {
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"]
@@ -38,15 +39,15 @@ async function main() {
   try {
     await waitFor(() => output.join("").includes(`http://localhost:${PORT}`), 4000, "server did not start");
 
-    alpha = await openClient("Alpha");
-    beta = await openClient("Beta");
+    alpha = await openClient("Alpha", snapshotMerge);
+    beta = await openClient("Beta", snapshotMerge);
 
     // Alpha uses the Create Game path: an empty room requests a generated room
     // code, then the server must confirm the join and deliver a full snapshot.
     // Alpha must complete this first (and become room admin) before Beta joins;
     // sending both concurrently races the server's processing order and can
     // make Beta the admin, failing the addBot step below.
-    const createGameJoin = { type: "join", name: "Alpha", room: "", protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] };
+    const createGameJoin = { type: "join", name: "Alpha", room: "", protocolVersion:6, minProtocolVersion:6, maxProtocolVersion:6, capabilities:["messagepack", "entityDeltaSnapshotsV1"] };
     if (createGameJoin.room !== "") throw new Error("Create Game join payload must send room: empty string");
     alpha.send(createGameJoin);
     const alphaJoined = await alpha.waitFor(
@@ -58,7 +59,7 @@ async function main() {
       (message) => message.type === "state" && message.snapshotKind === "full" && message.room === room,
       "alpha did not receive first full snapshot after Create Game"
     );
-    beta.send({ type: "join", name: "Beta", room, protocolVersion:5, minProtocolVersion:5, maxProtocolVersion:5, capabilities:["messagepack"] });
+    beta.send({ type: "join", name: "Beta", room, protocolVersion:6, minProtocolVersion:6, maxProtocolVersion:6, capabilities:["messagepack", "entityDeltaSnapshotsV1"] });
     await beta.waitFor((message) => message.type === "joined" && message.room === room, "beta did not join");
 
     alpha.send({ type: "addBot" });
@@ -107,20 +108,16 @@ async function main() {
       "room did not re-enter ship design after return to lobby"
     );
 
-    alpha.send({ type: "deploy", design: makeNoEngineDesign() });
+    // Readiness must not validate a candidate ship or the player's money.
+    // Include both an engineless and an unaffordable candidate to ensure the
+    // readiness route ignores those design concerns entirely.
+    alpha.send({ type: "ready", design: makeNoEngineDesign() });
     await alpha.waitFor(
-      (message) => message.type === "error" && /engine/i.test(message.message || ""),
-      "engineless starting ship was not rejected"
+      (message) => message.type === "state" && message.phase === "design" && message.players.some((player) => player.name === "Alpha" && player.ready),
+      "ready action was not accepted without ship validation"
     );
 
-    alpha.send({ type: "deploy", design: makeExpensiveDesign() });
-    await alpha.waitFor(
-      (message) => message.type === "error" && /Need \$/i.test(message.message || ""),
-      "unaffordable starting ship was not rejected"
-    );
-
-    alpha.send({ type: "deploy", design: makeCheapDesign() });
-    beta.send({ type: "deploy", design: makeCheapDesign() });
+    beta.send({ type: "ready", design: makeExpensiveDesign() });
     await alpha.waitFor(
       (message) => message.type === "state" && message.phase === "active" && message.players.length === 3,
       "match did not start"
@@ -224,7 +221,7 @@ async function main() {
   }
 }
 
-function openClient(name) {
+function openClient(name, snapshotMerge) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     socket.binaryType = "arraybuffer";
@@ -234,6 +231,8 @@ function openClient(name) {
 
     const client = {
       defaultDesign: null,
+      snapshot: null,
+      networkState: { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false },
       messages,
       send(data) {
         socket.send(msgpack.encode(data));
@@ -262,7 +261,14 @@ function openClient(name) {
     });
 
     socket.addEventListener("message", (event) => {
-      const message = decodeServerMessage(event.data);
+      let message = decodeServerMessage(event.data);
+      if (message.type === "state" && snapshotMerge) {
+        const merged = snapshotMerge.mergeSnapshotTransaction(client.snapshot, client.networkState, message);
+        if (!merged.ok) throw new Error(`snapshot merge failed: ${merged.reason}`);
+        client.snapshot = merged.snapshot;
+        client.networkState = merged.networkState;
+        message = merged.snapshot;
+      }
       if (message.type === "hello") client.defaultDesign = message.defaultDesign;
       messages.push(message);
       for (const waiter of [...waiters]) {

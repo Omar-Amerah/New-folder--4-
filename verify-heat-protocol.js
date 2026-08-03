@@ -37,10 +37,14 @@ function waitServer() {
 }
 
 class Client {
-  constructor(name) {
+  constructor(name, snapshotMerge) {
     this.name = name;
+    this.snapshotMerge = snapshotMerge;
+    this.snapshot = null;
+    this.networkState = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
     this.latest = {};
     this.states = [];
+    this.rawStates = [];
     this.designs = new Map();
   }
 
@@ -57,12 +61,21 @@ class Client {
       } catch {
         message = JSON.parse(event.data);
       }
+      const rawMessage = message;
+      if (message.type === "state" && this.snapshotMerge) {
+        const merged = this.snapshotMerge.mergeSnapshotTransaction(this.snapshot, this.networkState, message);
+        if (!merged.ok) throw new Error(`snapshot merge failed: ${merged.reason}`);
+        this.snapshot = merged.snapshot;
+        this.networkState = merged.networkState;
+        message = merged.snapshot;
+      }
       this.latest[message.type] = message;
       if (message.type === "error") {
         if (this.name === "a") globalThis.__AERR = message;
         else globalThis.__BERR = message;
       }
       if (message.type === "state") {
+        this.rawStates.push(rawMessage);
         for (const ship of message.ships || []) {
           if (ship.design) this.designs.set(ship.id, ship.design);
           else ship.design = this.designs.get(ship.id);
@@ -100,6 +113,7 @@ async function until(read, label, timeoutMs = 15000) {
 }
 
 (async () => {
+  const snapshotMerge = await import("./public/src/snapshotMerge.js");
   const server = spawn(process.execPath, ["server.js"], {
     cwd: __dirname,
     env: { ...process.env, PORT: String(PORT) },
@@ -108,8 +122,8 @@ async function until(read, label, timeoutMs = 15000) {
   let log = "";
   server.stdout.on("data", (data) => { log += data; });
   server.stderr.on("data", (data) => { log += data; });
-  const a = new Client("a");
-  const b = new Client("b");
+  const a = new Client("a", snapshotMerge);
+  const b = new Client("b", snapshotMerge);
 
   try {
     await waitServer();
@@ -117,10 +131,10 @@ async function until(read, label, timeoutMs = 15000) {
     await b.open();
     await until(() => a.latest.hello, "hello");
     const protocol = {
-      protocolVersion: 5,
-      minProtocolVersion: 5,
-      maxProtocolVersion: 5,
-      capabilities: ["messagepack"]
+      protocolVersion: 6,
+      minProtocolVersion: 6,
+      maxProtocolVersion: 6,
+      capabilities: ["messagepack", "entityDeltaSnapshotsV1"]
     };
     a.send({ type: "join", room: ROOM, name: "A", team: "blue", ...protocol });
     await until(() => a.latest.joined, "join a");
@@ -152,7 +166,9 @@ async function until(read, label, timeoutMs = 15000) {
 
     a.send({ type: "command", x: (mine.x || 1000) + 600, y: mine.y || 1000 });
     const deltaShip = await until(() => {
-      for (const state of a.states.slice(-80)) {
+      for (const state of a.rawStates.slice(-80)) {
+        const privateRow = state.shipsPatch?.private?.find((row) => row?.[0] === mine.id)?.[1];
+        if (privateRow && Array.isArray(privateRow.componentHeatD)) return privateRow;
         const ship = state.ships?.find((candidate) => candidate.id === mine.id && Array.isArray(candidate.componentHeatD));
         if (ship) return ship;
       }

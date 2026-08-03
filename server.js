@@ -17,8 +17,7 @@ const { SERVER_BUILD_SHA, PROTOCOL_VERSION } = require("./src/server/buildInfo")
 const transport = require("./src/server/websocketServer");
 const messages = require("./src/server/messages");
 const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
-const { tickRoom, advanceRoomAuthoritative } = require("./src/server/simulation");
-const { FIXED_AUTHORITATIVE_TIMESTEP } = require("./src/server/performanceFlags");
+const { advanceRoomAuthoritative } = require("./src/server/simulation");
 const { recordTick, performanceSnapshot } = require("./src/server/performanceTelemetry");
 const { isComponentAssertionEnabled } = require("./src/server/componentHealth");
 
@@ -336,14 +335,9 @@ function createGameServer(options = {}) {
         timers.set("simulation", setInterval(() => {
           const now = performanceNow();
           const elapsedSinceTick = now - lastTick;
-          const dt = Math.min(0.06, Math.max(0.001, elapsedSinceTick / 1000));
           lastTick = now;
           const cycleStartedAt = performanceNow();
-          if (FIXED_AUTHORITATIVE_TIMESTEP()) {
-            for (const room of rooms.values()) advanceRoomAuthoritative(room, now);
-          } else {
-            for (const room of rooms.values()) tickRoom(room, dt, now);
-          }
+          for (const room of rooms.values()) advanceRoomAuthoritative(room, now);
           const simulationMs = performanceNow() - cycleStartedAt;
           const counts = { ships: 0, drones: 0, bullets: 0, effects: 0 };
           for (const room of rooms.values()) {

@@ -16,11 +16,12 @@ function baseline(componentCount = 1) {
   }));
   return {
     type: "state",
-    protocolVersion: 2,
+    protocolVersion: 6,
     balanceRevision: "balance-a",
     stateEpoch: 1,
     snapshotSeq: 1,
     snapshotKind: "full",
+    snapshotFormatVersion: 2,
     baseSnapshotSeq: null,
     staticRevision: 1,
     staticRevisions: { componentCatalogue: 1 },
@@ -86,6 +87,7 @@ function local(selected = ["s1"]) {
 async function main() {
   const presentation = await import(pathToFileURL(path.resolve("public/src/snapshotPresentation.js")).href);
   const merge = await import(pathToFileURL(path.resolve("public/src/snapshotMerge.js")).href);
+  const entityDelta = await import(pathToFileURL(path.resolve("src/server/snapshotEntityDelta.js")).href);
   const {
     buildSnapshotIndex,
     derivePresentationChanges,
@@ -101,12 +103,15 @@ async function main() {
     }, fullMessage);
     assert(full.ok);
     const previous = full.snapshot;
-    const compact = clone(previous);
-    compact.snapshotKind = "compact";
-    compact.snapshotSeq = 2;
-    compact.baseSnapshotSeq = 1;
-    compact.design = undefined;
-    mutate(compact);
+    const compactSource = clone(previous);
+    compactSource.snapshotKind = "compact";
+    compactSource.snapshotSeq = 2;
+    compactSource.baseSnapshotSeq = 1;
+    mutate(compactSource);
+    const compact = entityDelta.buildEntityDeltaSnapshot(
+      compactSource,
+      entityDelta.buildStateFromSnapshot(previous, previous.stateEpoch)
+    ).snapshot;
     const result = merge.mergeSnapshotTransaction(previous, full.networkState, compact);
     assert(result.ok);
     const next = result.snapshot;
@@ -260,10 +265,14 @@ async function main() {
   const stableLocal = local();
   let scheduled = 0;
   for (let iteration = 0; iteration < 100; iteration += 1) {
-    const compact = clone(stableSnapshot);
-    compact.snapshotKind = "compact";
-    compact.baseSnapshotSeq = stableNetwork.snapshotSeq;
-    compact.snapshotSeq = stableNetwork.snapshotSeq + 1;
+    const compactSource = clone(stableSnapshot);
+    compactSource.snapshotKind = "compact";
+    compactSource.baseSnapshotSeq = stableNetwork.snapshotSeq;
+    compactSource.snapshotSeq = stableNetwork.snapshotSeq + 1;
+    const compact = entityDelta.buildEntityDeltaSnapshot(
+      compactSource,
+      entityDelta.buildStateFromSnapshot(stableSnapshot, stableSnapshot.stateEpoch)
+    ).snapshot;
     const nextMerge = merge.mergeSnapshotTransaction(stableSnapshot, stableNetwork, compact);
     assert(nextMerge.ok);
     const changes = derivePresentationChanges({

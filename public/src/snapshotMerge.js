@@ -583,61 +583,14 @@ export function inspectSnapshotEnvelope(networkState, message) {
   if (epoch < currentEpoch) return { ok: false, reason: SNAPSHOT_REJECTION.STALE_EPOCH, ...diagnostic };
   if (epoch === currentEpoch && seq < currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.STALE_SEQUENCE, ...diagnostic };
   if (epoch === currentEpoch && seq === currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.DUPLICATE_SEQUENCE, ...diagnostic };
+  if (Number(message.snapshotFormatVersion) !== 2) return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT, ...diagnostic };
   if (message.snapshotKind === "full") return { ok: true, kind: "full" };
   if (message.snapshotKind !== "compact") return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT, ...diagnostic };
   if (epoch > currentEpoch || !networkState?.hasFullBaseline) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE, ...diagnostic };
   if (seq !== currentSeq + 1) return { ok: false, reason: SNAPSHOT_REJECTION.SEQUENCE_GAP, ...diagnostic };
   if (Number(message.baseSnapshotSeq) !== currentSeq) return { ok: false, reason: SNAPSHOT_REJECTION.WRONG_BASE, ...diagnostic };
   if (message.staticRevision !== undefined && networkState.staticRevision !== undefined && Number(message.staticRevision) !== Number(networkState.staticRevision)) return { ok: false, reason: SNAPSHOT_REJECTION.STATIC_REVISION_MISMATCH, ...diagnostic };
-  const formatVersion = message.snapshotFormatVersion === undefined || message.snapshotFormatVersion === null
-    ? 1
-    : Number(message.snapshotFormatVersion);
-  if (formatVersion === 1) return { ok: true, kind: "compact" };
-  if (formatVersion === 2) return { ok: true, kind: "entity-delta" };
-  return { ok: false, reason: SNAPSHOT_REJECTION.INCOMPATIBLE_SNAPSHOT, ...diagnostic };
-}
-
-function validateShipDeltas(previous, message) {
-  const oldShips = new Map((previous?.ships || []).map((ship) => [ship.id, ship]));
-  for (const ship of message.ships || []) {
-    const old = oldShips.get(ship.id);
-    if (!old && (ship.chpD || ship.componentHeatD || isNullish(ship.design))) return { ok: false, reason: SNAPSHOT_REJECTION.MISSING_BASELINE, snapshotSeq: message.snapshotSeq, baseSnapshotSeq: message.baseSnapshotSeq, snapshotKind: message.snapshotKind, shipId: ship.id, designMissing: isNullish(ship.design), componentHpBaselineMissing: Boolean(ship.chpD), componentHeatBaselineMissing: Boolean(ship.componentHeatD) };
-    if (ship.chpD) { const r = validateComponentHpDelta(old?.chp, ship.chpD); if (!r.ok) return { ...r, snapshotSeq: message.snapshotSeq, baseSnapshotSeq: message.baseSnapshotSeq, snapshotKind: message.snapshotKind, shipId: ship.id, designMissing: false, componentHpBaselineMissing: !Array.isArray(old?.chp), componentHeatBaselineMissing: false }; }
-    if (ship.componentHeatD) { const r = validateComponentHeatDelta(old?.componentHeat, ship.componentHeatD); if (!r.ok) return { ...r, snapshotSeq: message.snapshotSeq, baseSnapshotSeq: message.baseSnapshotSeq, snapshotKind: message.snapshotKind, shipId: ship.id, designMissing: false, componentHpBaselineMissing: false, componentHeatBaselineMissing: !Array.isArray(old?.componentHeat) }; }
-  }
-  return { ok: true };
-}
-
-function validateStationDeltas(previous, message) {
-  const oldStations = new Map((previous?.stations || []).map((station) => [station.id, station]));
-  for (const station of message.stations || []) {
-    const old = oldStations.get(station.id);
-    if (!old && isNullish(station.design)) {
-      return {
-        ok: false,
-        reason: SNAPSHOT_REJECTION.MISSING_BASELINE,
-        snapshotSeq: message.snapshotSeq,
-        baseSnapshotSeq: message.baseSnapshotSeq,
-        snapshotKind: message.snapshotKind,
-        stationId: station.id,
-        stationDesignMissing: true
-      };
-    }
-    if (station.weaponAnglePairs) {
-      const result = validateStationWeaponAnglePairs(old?.weaponAngles, station.weaponAnglePairs);
-      if (!result.ok) {
-        return {
-          ...result,
-          snapshotSeq: message.snapshotSeq,
-          baseSnapshotSeq: message.baseSnapshotSeq,
-          snapshotKind: message.snapshotKind,
-          stationId: station.id,
-          stationDesignMissing: false
-        };
-      }
-    }
-  }
-  return { ok: true };
+  return { ok: true, kind: "entity-delta" };
 }
 
 // Merged snapshots are built from shallow copies of the freshly decoded wire
@@ -656,29 +609,7 @@ export function mergeFullSnapshot(message, renderNow = null) {
   }
   const useRender = Number.isFinite(renderNow) ? renderNow : (Number(full.projectileSimulationTimeMs) || full.simulationTimeMs);
   full.bullets = getProjectilesForRender(useRender);
-  return { ok: true, snapshot: full, networkState: { stateEpoch: full.stateEpoch, snapshotSeq: full.snapshotSeq, staticRevision: full.staticRevision, hasFullBaseline: true, snapshotFormatVersion: Number(full.snapshotFormatVersion) || 1, entityDeltaBaselineSeq: Number(full.snapshotSeq) || 0 } };
-}
-
-export function mergeCompactSnapshot(previous, message, renderNow = null) {
-  const validation = validateShipDeltas(previous, message);
-  if (!validation.ok) return validation;
-  const stationValidation = validateStationDeltas(previous, message);
-  if (!stationValidation.ok) return stationValidation;
-  const next = { ...message };
-  next.players = mergeStaticPlayerFields(previous.players, next.players || []);
-  next.ships = mergeCachedShipFields(previous.ships, next.ships || []);
-  // Contacts are a complete dynamic set. Carrying the previous array when a
-  // packet omits it leaves stale contacts on screen after a mode/state change.
-  next.contacts = Array.isArray(next.contacts) ? next.contacts : [];
-  if (!isNullish(next.stations)) next.stations = mergeCachedStationFields(previous.stations, next.stations);
-  const projectileResult = applySnapshotToProjectiles(next);
-  if (!projectileResult?.ok) {
-    return { ok: false, reason: SNAPSHOT_REJECTION.PROJECTILE_SEQUENCE_GAP, snapshotSeq: next.snapshotSeq, baseSnapshotSeq: next.baseSnapshotSeq, snapshotKind: next.snapshotKind };
-  }
-  const useRender = Number.isFinite(renderNow) ? renderNow : (Number(next.projectileSimulationTimeMs) || next.simulationTimeMs);
-  next.bullets = getProjectilesForRender(useRender);
-  for (const key of ["world", "map", "rules", "mapSizeLabel"]) if (isNullish(next[key])) next[key] = previous[key];
-  return { ok: true, snapshot: next, networkState: { stateEpoch: next.stateEpoch, snapshotSeq: next.snapshotSeq, staticRevision: next.staticRevision, hasFullBaseline: true, snapshotFormatVersion: 1 } };
+  return { ok: true, snapshot: full, networkState: { stateEpoch: full.stateEpoch, snapshotSeq: full.snapshotSeq, staticRevision: full.staticRevision, hasFullBaseline: true, snapshotFormatVersion: 2, entityDeltaBaselineSeq: Number(full.snapshotSeq) || 0 } };
 }
 
 export function mergeEntityDeltaSnapshot(previous, message, renderNow = null) {
@@ -722,6 +653,5 @@ export function mergeSnapshotTransaction(previous, networkState, message, render
   const envelope = inspectSnapshotEnvelope(networkState, message);
   if (!envelope.ok) return envelope;
   if (envelope.kind === "full") return mergeFullSnapshot(message, renderNow);
-  if (envelope.kind === "entity-delta") return mergeEntityDeltaSnapshot(previous, message, renderNow);
-  return mergeCompactSnapshot(previous, message, renderNow);
+  return mergeEntityDeltaSnapshot(previous, message, renderNow);
 }

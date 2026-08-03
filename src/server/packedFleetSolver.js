@@ -14,7 +14,9 @@ const {
 const { WORLD } = require("./config");
 const { bump, setCounter, recordDuration } = require("./roomTelemetry");
 const {
-  SEPARATION_BROAD_PHASE_PAD,
+  PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION,
+  PACKED_FLEET_LARGE_ISLAND_SIZE,
+  PACKED_FLEET_MAX_TICK_CORRECTION,
   SEPARATION_CORRECTION,
   SEPARATION_ITERATIONS,
   SEPARATION_SLOP,
@@ -25,6 +27,7 @@ const { findShipHullOverlap } = require("./componentGeometry");
 const {
   cancelYieldingInwardMovement,
   friendlyChargePair,
+  friendlyHoldApproachPair,
   friendlyShipPair,
   friendlyTrafficSoftContact,
   friendlySoftCorrection,
@@ -38,8 +41,8 @@ const {
   markMovementContactPairsUnsafe
 } = require("./movementContactPairs");
 
-const MAX_PACKED_CORRECTION = SEPARATION_BROAD_PHASE_PAD;
-// The legacy solver already subtracts SEPARATION_SLOP from every correction.
+// Subtract SEPARATION_SLOP from every correction so touching hulls do not
+// immediately re-enter the broad-phase pair set.
 // The small extra comparison tolerance prevents a final floating-point residue
 // from consuming the entire bounded iteration budget for a touching pair.
 const PACKED_CONVERGENCE_TOLERANCE = SEPARATION_SLOP + 0.1;
@@ -83,13 +86,17 @@ function pairSort(a, b) {
 }
 
 function correctionLimit(ship) {
-  // A batch can collect several contacts. Limit the total displacement to a
-  // deterministic, radius-scaled bound, capped by the existing broad-phase
-  // safety budget. A single equal-radius deep overlap remains fully resolved;
-  // only pathological many-neighbour sums are clipped.
-  return Math.min(
-    MAX_PACKED_CORRECTION,
-    Math.max(64, physicalCollisionRadius(ship) * 3)
+  // A batch can collect several contacts, and the solver may run several
+  // iterations over the same island. The broad-phase padding is not a safe
+  // displacement budget; cap the complete authoritative tick instead.
+  const configuredBudget = Number(ship._packedCorrectionBudget);
+  const budget = Number.isFinite(configuredBudget)
+    ? configuredBudget
+    : PACKED_FLEET_MAX_TICK_CORRECTION;
+  return Math.max(
+    0,
+    budget
+      - Math.max(0, Number(ship._packedCorrectionDistance) || 0)
   );
 }
 
@@ -281,7 +288,11 @@ function applyBatchCorrections(room, ships, state) {
     const appliedY = ship.y - oldY;
     ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + appliedX;
     ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + appliedY;
-    if (fastHypot(appliedX, appliedY) > 0.000001) applications += 1;
+    const appliedDistance = fastHypot(appliedX, appliedY);
+    if (appliedDistance > 0.000001) applications += 1;
+    ship._packedCorrectionDistance = (
+      Math.max(0, Number(ship._packedCorrectionDistance) || 0) + appliedDistance
+    );
 
     ship._packedCorrectionX = 0;
     ship._packedCorrectionY = 0;
@@ -358,9 +369,22 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
     .filter((ship) => liveShip(room, ship))
     .slice()
     .sort(compareEntityIds);
+  const correctionStepId = stepId ?? room?._movementContactPairStepId ?? 0;
+  for (const ship of ships) {
+    if (ship._packedCorrectionStepId === correctionStepId) continue;
+    ship._packedCorrectionStepId = correctionStepId;
+    ship._packedCorrectionDistance = 0;
+  }
   const pairs = getMovementContactPairs(room, stepId);
   pairs.sort(pairSort);
   const { state, validPairs } = buildContactIslands(room, ships, pairs);
+  for (const ship of ships) ship._packedCorrectionBudget = PACKED_FLEET_MAX_TICK_CORRECTION;
+  for (const island of state.islands) {
+    if (island.length < PACKED_FLEET_LARGE_ISLAND_SIZE) continue;
+    for (const ship of island) {
+      ship._packedCorrectionBudget = PACKED_FLEET_LARGE_ISLAND_MAX_TICK_CORRECTION;
+    }
+  }
   bump(room, "packedFleetIslands", state.islands.length);
   const largestIsland = state.islands.reduce((largest, island) => Math.max(largest, island.length), 0);
   setCounter(
@@ -380,7 +404,6 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
 
   for (; iterations < SEPARATION_ITERATIONS; iterations += 1) {
     bump(room, "separationIterations");
-    bump(room, "movementLegacySeparationQueriesAvoided", ships.length);
     bump(room, "separationCandidatesReturned", validPairs.length);
     let meaningfulOverlaps = 0;
     state.unresolved.length = 0;
@@ -411,7 +434,8 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
         const normal = normalForOverlap(a, b, result.overlap, result.broadDx, result.broadDy);
         const correctedPenetration = Math.max(0, penetration - SEPARATION_SLOP);
         const friendly = friendlyShipPair(room, a, b);
-        const softFriendlyContact = friendly && !friendlyChargePair(a, b)
+        const hardFriendlyHold = friendly && friendlyHoldApproachPair(a, b);
+        const softFriendlyContact = friendly && !friendlyChargePair(a, b) && !hardFriendlyHold
           && (contact.duration >= 1500 || friendlyTrafficSoftContact(room, a, b, now));
         const sidestepContact = friendly && contact.duration >= 400;
         const winnerId = trafficPriorityWinner(
@@ -496,7 +520,12 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
       const softFriendly = friendlyShipPair(room, a, b)
         && Number(room._shipCollisionContacts?.get(contactKey)?.duration) >= 1500;
       if (softFriendly) continue;
-      if (resolveSeparationPair(room, a, b, { ...(options || {}), correction: 1 })) corrections += 1;
+      const result = resolveSeparationPair(room, a, b, {
+        ...(options || {}),
+        correction: 1,
+        packedCorrectionBudget: true
+      });
+      if (result?.correctionApplied > 0) corrections += 1;
     }
     if (corrections > 0) {
       correctionApplications += corrections;
@@ -542,7 +571,6 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
     "packedFleetRecoveryOperations",
     (Number(room._movementContactPairRecoveryOperations) || 0) + recoveryOperations
   );
-  bump(room, "packedFleetLegacyIterationsAvoided", Math.max(0, SEPARATION_ITERATIONS - (iterations + (earlyExit ? 1 : 0))));
   recordDuration(room, "shipSeparationMs", start);
   recordDuration(room, "packedFleetSolverMs", start);
 

@@ -207,13 +207,6 @@ function createImmutableShipTemplate(design, wiring, stats) {
   delete prebuilt.design;
   delete prebuilt.wiring;
   delete prebuilt.stats;
-  // The per-ship compatibility adjacency is lazy.  Do not retain a materialized
-  // copy in the template's mutable prebuilt state; spawned ships install their
-  // own compatibility accessor over the shared immutable topology.
-  delete prebuilt.componentAdjacency;
-  delete prebuilt._componentAdjacencyValue;
-  delete prebuilt._componentAdjacencyTopology;
-  
   // Create the immutable template
   const template = deepFreeze({
     design: normalizedDesign.map((part) => ({ ...part })),
@@ -240,7 +233,6 @@ function createImmutableShipTemplate(design, wiring, stats) {
     exhaustAnalysis,
     componentMaxHp,
     thermalTopology,
-    componentAdjacency: thermalTopology.componentAdjacency,
     infrastructureHostMaps: {
       power: infrastructureHostMaps.power,
       data: infrastructureHostMaps.data

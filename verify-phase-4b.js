@@ -2,12 +2,6 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const {
-  INCREMENTAL_SPATIAL_INDEX,
-  __setINCREMENTAL_SPATIAL_INDEX,
-  FIXED_AUTHORITATIVE_TIMESTEP,
-  __setFIXED_AUTHORITATIVE_TIMESTEP
-} = require("./src/server/performanceFlags");
 const { createRoom, bumpStateEpoch } = require("./src/server/rooms");
 const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/server/simulation");
 const { RoomSpatialIndex, buildRoomSpatialIndex, publishSpatialTelemetry, shipBroadPhaseRadius, droneBroadPhaseRadius, stationBroadPhaseRadius } = require("./src/server/spatialIndex");
@@ -65,13 +59,8 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   return { ship, player };
 }
 
-// 1. Flag defaults to false and can be toggled for tests.
+// 1. The canonical spatial index has no rollout switch.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(false);
-  assert.strictEqual(INCREMENTAL_SPATIAL_INDEX(), false, "INCREMENTAL_SPATIAL_INDEX defaults to false");
-  __setINCREMENTAL_SPATIAL_INDEX(true);
-  assert.strictEqual(INCREMENTAL_SPATIAL_INDEX(), true, "INCREMENTAL_SPATIAL_INDEX test setter works");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 2-11. Direct incremental API on an index.
@@ -155,38 +144,31 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   player.ships.push(ship);
   room.ships.set("s1", ship);
   buildRoomSpatialIndex(room, [ship], 0);
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const result = room.spatialIndex.queryRange("ships", 500, 500, 200);
   assert.deepStrictEqual(result.map((s) => s.id), ["s1"], "spawned ship is immediately queryable");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 13-14. Newly created projectiles are immediately queryable.
 {
   const room = activeRoom("PH4BPROJ");
   buildRoomSpatialIndex(room, [], 0);
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   addBullet(room, { type: "shot", ownerId: "p1", x: 100, y: 100, vx: 0, vy: 0, life: 5, damage: 1 });
   const b = room.bullets[0];
   assert.ok(room.spatialIndex.queryRange("projectiles", 100, 100, 1).includes(b), "new projectile is queryable");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 15. Destroyed projectiles leave no stale record.
 {
   const room = activeRoom("PH4BREMOVE");
   buildRoomSpatialIndex(room, [], 0);
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   addBullet(room, { type: "shot", ownerId: "p1", x: 100, y: 100, vx: 0, vy: 0, life: 5, damage: 1 });
   const b = room.bullets[0];
   room.spatialIndex.remove("projectiles", b);
   assert.strictEqual(room.spatialIndex.count("projectiles"), 0, "removed projectile is gone");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 16-18. Parity between full rebuild and incremental mode.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(false);
   const full = new RoomSpatialIndex(80);
   const incremental = new RoomSpatialIndex(80);
   const roomStub = { spatialCellSize: 80, stations: [], drones: new Map(), bullets: [] };
@@ -257,8 +239,6 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 
 // 23. Phase 4A fixed-step catch-up does not create duplicate updates.
 {
-  __setFIXED_AUTHORITATIVE_TIMESTEP(true);
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BCATCH");
   activeShipAndPlayer(room, "s1");
   const t0 = 10_000_000;
@@ -267,25 +247,24 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     advanceRoomAuthoritative(room, t0 + i * FIXED_STEP_MS);
   }
   assert.strictEqual(room.spatialIndex.count("ships"), 1, "catch-up leaves one ship record");
-  __setFIXED_AUTHORITATIVE_TIMESTEP(false);
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
-// 24. Flag-disabled behaviour retains the established rebuild path.
+// 24. A valid canonical index is reused; a rebuild is only required for a
+// newly-created or invalidated index.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(false);
   const room = activeRoom("PH4BDISABLE");
   const { ship } = activeShipAndPlayer(room, "s1");
   buildRoomSpatialIndex(room, [ship], 0);
   const first = room.spatialIndex;
+  const rebuilds = first.spatialFullRebuilds;
   buildRoomSpatialIndex(room, [ship], 1);
   assert.strictEqual(room.spatialIndex, first, "same index instance");
-  assert.ok(room.spatialIndex.spatialFullRebuilds >= 2, "disabled path performs full rebuilds");
+  assert.strictEqual(room.spatialIndex.spatialFullRebuilds, rebuilds, "valid canonical index avoids redundant full rebuilds");
+  assert.strictEqual(room.spatialIndex.dynamicValid, true, "canonical index remains valid after reuse");
 }
 
 // 25. Ship destroyed in combat is removed from the spatial index immediately.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BDESTROY");
   const { ship } = activeShipAndPlayer(room, "s1");
   buildRoomSpatialIndex(room, [ship], 0);
@@ -294,12 +273,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   assert.strictEqual(ship.alive, false, "ship is marked dead");
   assert.deepStrictEqual(room.spatialIndex.queryRange("ships", ship.x, ship.y, 100), [], "destroyed ship is removed from index");
   assert.strictEqual(room.spatialIndex.count("ships"), 0, "destroyed ship leaves no record");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 26. Projectile removed through the runtime path is gone from the index.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BPROJREMOVE");
   buildRoomSpatialIndex(room, [], 0);
   addBullet(room, { type: "shot", ownerId: "p1", x: 100, y: 100, vx: 0, vy: 0, life: 5, damage: 1 });
@@ -307,12 +284,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   assert.strictEqual(room.spatialIndex.count("projectiles"), 1, "projectile inserted by addBullet");
   removeProjectileRuntime(room, b, "despawn", 100, 100);
   assert.strictEqual(room.spatialIndex.count("projectiles"), 0, "projectile removed by runtime");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 27. Recovery rebuild repairs deliberately corrupted state.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BRECOVER");
   const { ship } = activeShipAndPlayer(room, "s1");
   buildRoomSpatialIndex(room, [ship], 0);
@@ -326,28 +301,24 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   index.recoverFull(room, [ship], 1);
   const after = index.verifyIntegrity("ships");
   assert.strictEqual(after.ok, true, "recovery rebuild leaves valid state");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
-// 28. Full-rebuild telemetry reports per-tick, not cumulative, values.
+// 28. Canonical spatial telemetry reports per-tick, not cumulative, values.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(false);
   const room = activeRoom("PH4BTELEM");
   const { ship } = activeShipAndPlayer(room, "s1");
   for (let tick = 0; tick < 3; tick += 1) {
     buildRoomSpatialIndex(room, [ship], tick);
     publishSpatialTelemetry(room);
     const telemetry = room._roomTelemetry || {};
-    assert.strictEqual(telemetry.spatialFullRebuilds, 1, `tick ${tick}: one full rebuild`);
+    assert.strictEqual(telemetry.spatialFullRebuilds, tick === 0 ? 1 : 0, `tick ${tick}: rebuild only on first index creation`);
     assert.strictEqual(telemetry.spatialIncrementalInserts, 0, `tick ${tick}: no incremental inserts during full rebuild`);
     assert.ok(telemetry.spatialUpdateDurationMs >= 0, `tick ${tick}: duration reported`);
   }
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 29. Real spawnShip adds the new ship to the incremental index.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BSPA");
   const design = [
     { x: 7, y: 7, type: "core", rotation: 0 },
@@ -376,12 +347,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   assert.ok(ship, "spawnShip returns a ship");
   assert.strictEqual(ship.alive, true, "spawned ship is alive");
   assert.strictEqual(room.spatialIndex.queryRange("ships", 500, 500, 200).length, 1, "spawned ship is immediately queryable");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 30. Real spawnDrone and setDroneDestroyed update the index.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BDRONE");
   const { BALANCE } = require("./src/server/balanceConfig");
   const droneTypes = Object.keys(BALANCE.drones?.types || {});
@@ -413,12 +382,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   assert.strictEqual(room.spatialIndex.count("drones"), 1, "spawned drone is indexed");
   setDroneDestroyed(room, drone, 0, "test");
   assert.strictEqual(room.spatialIndex.count("drones"), 0, "destroyed drone is removed from index");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 31. Station destruction removes the station record.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BSTAT");
   const player = {
     id: "p1",
@@ -446,12 +413,10 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   station.alive = false;
   updateStations(room, 16, 16);
   assert.strictEqual(room.spatialIndex.count("stations"), 0, "destroyed station is removed");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
 // 32. Ship separation corrects final positions and the index reflects them.
 {
-  __setINCREMENTAL_SPATIAL_INDEX(true);
   const room = activeRoom("PH4BSEPARATE");
   const shipA = {
     id: "sa",
@@ -507,9 +472,6 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   const foundB = room.spatialIndex.queryRange("ships", shipB.x, shipB.y, 1).find((s) => s.id === "sb");
   assert.ok(foundA, "separated ship A is still queryable at its new position");
   assert.ok(foundB, "separated ship B is still queryable at its new position");
-  __setINCREMENTAL_SPATIAL_INDEX(false);
 }
 
-__setINCREMENTAL_SPATIAL_INDEX(false);
-__setFIXED_AUTHORITATIVE_TIMESTEP(false);
 console.log("Phase 4B incremental spatial-index verification passed");

@@ -6,7 +6,8 @@
 |---|---:|---|---|---|
 | `ping` | No | Any | router | `pong` to sender |
 | `join` | No | Any | `players.joinRoom` | hello/join state from player lifecycle |
-| `deploy` | Yes | `design` or `active`; design validation; active saves purchase blueprint | `shipDesign`, `validation`, `players.maybeStartMatch` | error/notice, room notice, static snapshot |
+| `ready` | Yes | `design`; no ship or money validation | `players.maybeStartMatch` | notice, room notice, static snapshot |
+| `deploy` | Yes | `active` blueprint save and validation; legacy design-phase clients are treated as ready | `shipDesign`, `validation` | error/notice, room notice, static snapshot |
 | `buyShip` | Yes | `active`; purchase validation | `economy.validateBuyShip`, `economy.buyShip` | `purchaseResult`, notice, snapshot |
 | `setCombatStyle` | Yes | `active` | player ships | snapshot when changed |
 | `setRallyPoint` | Yes | `active` | player rally state | snapshot |
@@ -24,7 +25,7 @@
 | `closeLobby` | Yes | admin | `players.closeLobby` | close/kick notifications |
 | `leaveLobby` | Yes | any joined player | `players.leaveLobby` | left/room updates |
 
-Message semantics and wire formats were not changed in Section 1. This document is an audit inventory; later router extraction should preserve these rows as acceptance criteria.
+Message semantics and wire formats are documented here as acceptance criteria; later router extraction should preserve these rows.
 
 ## Section 4 static map metadata
 
@@ -69,7 +70,7 @@ angle/target fields; Section 7 only tightened server-side validation and orderin
 
 ## Catch-up Part 1 protocol notes
 
-- `deploy` in the design phase remains the ready/save-design command.
+- `ready` in the design phase only records readiness; it does not carry or validate a blueprint. Older clients may still send `deploy` during design, which the server treats as the same validation-free readiness action.
 - `deploy` in the active phase now saves the player's editor blueprint and future-purchase combat style only. It does **not** mutate deployed ships; deployed-ship style changes must use `setCombatStyle`.
 - `buyShip` carries an immutable design and combat-style snapshot in the request. The server validates the submitted snapshot and executes the purchase from that payload rather than rereading later editor state.
 

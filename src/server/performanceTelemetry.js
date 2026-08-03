@@ -59,7 +59,7 @@ const FLAK_SERIES = [
   "flak:processingUs"
 ];
 const SNAPSHOT_PHASE5_SERIES = Object.freeze([
-  "snapshotLegacyCompactBytes", "snapshotEntityDeltaBytes", "snapshotFullBytes", "snapshotMotionBytes",
+  "snapshotEntityDeltaBytes", "snapshotFullBytes", "snapshotMotionBytes",
   "snapshotSparseStateBytes", "snapshotPrivateBytes", "snapshotRemovalBytes", "snapshotDictionaryBytes",
   "snapshotConstructionSharedMs", "snapshotConstructionViewerMs", "snapshotEncodingMs", "snapshotRecipients",
   "snapshotPayloadGroups", "snapshotEntitiesConsidered", "snapshotEntitiesPatched", "snapshotEntitiesUnchanged",

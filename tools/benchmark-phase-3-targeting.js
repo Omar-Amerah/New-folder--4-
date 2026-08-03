@@ -13,7 +13,6 @@ const { updateShipWeapons } = require("../src/server/combat");
 const { updateStationWeapons } = require("../src/server/stationCombat");
 const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 const { getShipComponentIndexes } = require("../src/server/componentIndexes");
-const PerformanceFlags = require("../src/server/performanceFlags");
 const RoomTelemetry = require("../src/server/roomTelemetry");
 const { stationModuleWorldPosition } = require("../src/server/stationTemplates");
 
@@ -151,11 +150,7 @@ function makeMissiles(pdShip, count) {
   return missiles;
 }
 
-function runShipScenario(name, pdCount, missileCount, flags) {
-  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(flags.shared);
-  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(flags.cadence);
-  PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(flags.profile);
-
+function runShipScenario(name, pdCount, missileCount) {
   const ship = makeShip("pd-bench-1", "p1", 2000, 2000, pdCount);
   const missiles = makeMissiles(ship, missileCount);
   const room = makeRoom(ship, missiles);
@@ -182,14 +177,13 @@ function runShipScenario(name, pdCount, missileCount, flags) {
     name,
     pdCount,
     missileCount,
-    flags,
+    runtime: "canonical",
     ticks: MEASURE,
     totalMs: Number(totalMs.toFixed(3)),
     perTickUs: Number(((totalMs / MEASURE) * 1000).toFixed(2)),
     pointDefenceThreatSetBuilds: t.pointDefenceThreatSetBuilds || 0,
     pointDefenceThreatSetReuses: t.pointDefenceThreatSetReuses || 0,
     pointDefenceMountSelections: t.pointDefenceMountSelections || 0,
-    pointDefenceLegacyScansAvoided: t.pointDefenceLegacyScansAvoided || 0,
     ordinaryTargetSearches: t.ordinaryTargetSearches || 0,
     ordinaryTargetSearchDeferred: t.ordinaryTargetSearchDeferred || 0,
     effectiveWeaponProfileBuilds: t.effectiveWeaponProfileBuilds || 0,
@@ -197,16 +191,10 @@ function runShipScenario(name, pdCount, missileCount, flags) {
     projectilesCreated: t.projectilesCreated || 0
   };
 
-  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
-  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
-  PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
   return result;
 }
 
-function runStationScenario(name, weaponCount, enemyShipCount, flags) {
-  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(flags.shared);
-  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(flags.cadence);
-
+function runStationScenario(name, weaponCount, enemyShipCount) {
   const station = makeStation("st-bench-1", "A", 2000, 2000, weaponCount);
   const enemies = [];
   for (let i = 0; i < enemyShipCount; i += 1) {
@@ -239,7 +227,7 @@ function runStationScenario(name, weaponCount, enemyShipCount, flags) {
     name,
     weaponCount,
     enemyShipCount,
-    flags,
+    runtime: "canonical",
     ticks: MEASURE,
     totalMs: Number(totalMs.toFixed(3)),
     perTickUs: Number(((totalMs / MEASURE) * 1000).toFixed(2)),
@@ -251,29 +239,14 @@ function runStationScenario(name, weaponCount, enemyShipCount, flags) {
     projectilesCreated: t.projectilesCreated || 0
   };
 
-  PerformanceFlags.__setPOINT_DEFENCE_SHARED_THREATS(false);
-  PerformanceFlags.__setWEAPON_TARGET_ACQUISITION_CADENCE(false);
-  PerformanceFlags.__setWEAPON_PROFILE_REVISION_CACHE(false);
   return result;
 }
 
 function main() {
   const results = [];
 
-  const allOff = { shared: false, cadence: false, profile: false };
-  const sharedOnly = { shared: true, cadence: false, profile: false };
-  const cadenceOnly = { shared: false, cadence: true, profile: false };
-  const profileOnly = { shared: false, cadence: false, profile: true };
-  const allOn = { shared: true, cadence: true, profile: true };
-
-  results.push(runShipScenario("ship-4pd-200m-all-off", 4, MISSILES_PER_SCENE, allOff));
-  results.push(runShipScenario("ship-4pd-200m-shared-only", 4, MISSILES_PER_SCENE, sharedOnly));
-  results.push(runShipScenario("ship-4pd-200m-cadence-only", 4, MISSILES_PER_SCENE, cadenceOnly));
-  results.push(runShipScenario("ship-4pd-200m-profile-only", 4, MISSILES_PER_SCENE, profileOnly));
-  results.push(runShipScenario("ship-4pd-200m-all-on", 4, MISSILES_PER_SCENE, allOn));
-
-  results.push(runStationScenario("station-8weapons-50ships-all-off", 8, 50, allOff));
-  results.push(runStationScenario("station-8weapons-50ships-shared-cadence", 8, 50, { shared: true, cadence: true, profile: false }));
+  results.push(runShipScenario("ship-4pd-200m-canonical", 4, MISSILES_PER_SCENE));
+  results.push(runStationScenario("station-8weapons-50ships-canonical", 8, 50));
 
   const report = {
     benchmark: "phase-3-real-combat-loop",

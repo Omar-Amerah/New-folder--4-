@@ -56,7 +56,7 @@ export function updateEconomyHud() {
   setText(dom.incomeHud, `+$${Math.round(income)}/s`);
   setTitle(dom.incomeHud, d.mine?.ready
     ? `Base income plus ${d.relays} captured relay${d.relays === 1 ? "" : "s"}. Money rises every second.`
-    : "Ready with an affordable starting design to begin earning money.");
+    : "Ready up to begin earning money. Ship validity and affordability are checked when you buy.");
 }
 export function updateRelayHud() {
   bump("relayHudUpdateCount");

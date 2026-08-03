@@ -9,7 +9,6 @@ const { computeStats } = require("./src/server/shipStats");
 const { applyHullDamage, componentsAlongImpactRay, detonateComponent, initComponentState, repairShipComponents } = require("./src/server/componentHealth");
 const { initializeComponentPower, reallocateShipPower } = require("./src/server/componentPower");
 const Heat = require("./src/server/heat");
-const Flags = require("./src/server/performanceFlags");
 const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
 const { spawnShip } = require("./src/server/ships");
 const MovementCapability = require("./src/server/movementCapability");
@@ -35,12 +34,12 @@ function makeShip(design, wiring = WiringRules.emptyWiring()) {
 }
 
 function pair(design, wiring = WiringRules.emptyWiring()) {
-  return { legacy: makeShip(design, wiring), optimized: makeShip(design, wiring) };
+  return { canonical: makeShip(design, wiring), repeat: makeShip(design, wiring) };
 }
 
 function eachShip(target, callback) {
-  callback(target.legacy);
-  callback(target.optimized);
+  callback(target.canonical);
+  callback(target.repeat);
 }
 
 function synchronizeDerivedState(target) {
@@ -63,43 +62,41 @@ function compareArrays(left, right, label, epsilon = EPSILON) {
 }
 
 function comparePair(target, label) {
-  const legacy = target.legacy;
-  const optimized = target.optimized;
+  const canonical = target.canonical;
+  const repeat = target.repeat;
   for (const field of [
     "componentHeat", "componentHeatState", "componentHeatInput", "componentHeatGenerated",
     "componentHeatReceived", "componentHeatRemoved", "componentHeatTransferredOut",
     "componentHeatCooled", "componentHeatSentThroughFrame", "componentHeatRadiated",
     "componentVentedOverflowHeatThisTick", "componentTotalVentedOverflowHeat",
     "componentPowerCableHeatRate", "componentPowerCableHeatGenerated", "componentMeltdown"
-  ]) if (legacy[field] || optimized[field]) compareArrays(legacy[field] || [], optimized[field] || [], `${label} ${field}`);
-  for (const field of ["currentHeat", "maxHeat", "heatPressure", "powerCableHeatGenerated", "totalVentedOverflowHeat"]) close(legacy[field], optimized[field], `${label} ${field}`, 2e-7);
+  ]) if (canonical[field] || repeat[field]) compareArrays(canonical[field] || [], repeat[field] || [], `${label} ${field}`);
+  for (const field of ["currentHeat", "maxHeat", "heatPressure", "powerCableHeatGenerated", "totalVentedOverflowHeat"]) close(canonical[field], repeat[field], `${label} ${field}`, 2e-7);
   for (const field of [
     "heatAccumulator", "heatRevision", "heatStateRevision", "componentHeatRevision", "heatTelemetryRevision",
     "hotComponentCount", "overheatedComponentCount", "powerRevision", "wiringRevision"
-  ]) assert.strictEqual(legacy[field] || 0, optimized[field] || 0, `${label} ${field}`);
-  const legacyData = legacy.runtimeDataSupport || {};
-  const optimizedData = optimized.runtimeDataSupport || {};
-  for (const field of ["topologyRevision", "allocationRevision"]) assert.strictEqual(legacyData[field] || 0, optimizedData[field] || 0, `${label} data ${field}`);
-  assert.deepStrictEqual([...legacy.dirtyHeat].sort((a, b) => a - b), [...optimized.dirtyHeat].sort((a, b) => a - b), `${label} dirtyHeat`);
-  assert.deepStrictEqual(legacy.componentThermalNetworks, optimized.componentThermalNetworks, `${label} thermal networks`);
-  assert.strictEqual(optimized._heatScratch.pendingTransfers.length, 0, `${label} optimized transfer objects`);
-  assert.deepStrictEqual(optimized._thermalRuntime.heatBearingComponents, optimized._thermalRuntime.heatBearingComponents.slice().sort((a, b) => a - b), `${label} Heat list order`);
-  assert.deepStrictEqual(optimized._thermalRuntime.hotComponents, optimized._thermalRuntime.hotComponents.slice().sort((a, b) => a - b), `${label} HOT list order`);
-  for (const index of optimized._thermalRuntime.heatBearingComponents) assert(Number.isFinite(optimized.componentHeat[index]) && optimized.componentHeat[index] > 0, `${label} positive Heat membership`);
+  ]) assert.strictEqual(canonical[field] || 0, repeat[field] || 0, `${label} ${field}`);
+  const canonicalData = canonical.runtimeDataSupport || {};
+  const repeatData = repeat.runtimeDataSupport || {};
+  for (const field of ["topologyRevision", "allocationRevision"]) assert.strictEqual(canonicalData[field] || 0, repeatData[field] || 0, `${label} data ${field}`);
+  assert.deepStrictEqual([...canonical.dirtyHeat].sort((a, b) => a - b), [...repeat.dirtyHeat].sort((a, b) => a - b), `${label} dirtyHeat`);
+  assert.deepStrictEqual(canonical.componentThermalNetworks, repeat.componentThermalNetworks, `${label} thermal networks`);
+  assert(!Object.prototype.hasOwnProperty.call(repeat, "_heatScratch"), `${label} canonical runtime has no transfer scratch object`);
+  assert.deepStrictEqual(repeat._thermalRuntime.heatBearingComponents, repeat._thermalRuntime.heatBearingComponents.slice().sort((a, b) => a - b), `${label} Heat list order`);
+  assert.deepStrictEqual(repeat._thermalRuntime.hotComponents, repeat._thermalRuntime.hotComponents.slice().sort((a, b) => a - b), `${label} HOT list order`);
+  for (const index of repeat._thermalRuntime.heatBearingComponents) assert(Number.isFinite(repeat.componentHeat[index]) && repeat.componentHeat[index] > 0, `${label} positive Heat membership`);
 }
 
 function boundary(target, dt, label, before = null) {
-  if (before) { before(target.legacy); before(target.optimized); }
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
-  Heat.updateShipHeat(target.legacy, dt, null, 0);
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(true);
-  Heat.updateShipHeat(target.optimized, dt, null, 0);
+  if (before) { before(target.canonical); before(target.repeat); }
+  Heat.updateShipHeat(target.canonical, dt, null, 0);
+  Heat.updateShipHeat(target.repeat, dt, null, 0);
   comparePair(target, label);
 }
 
 function comparePairExact(target, label) {
-  const legacy = target.legacy;
-  const optimized = target.optimized;
+  const canonical = target.canonical;
+  const repeat = target.repeat;
   for (const field of [
     "componentHeat", "componentHeatState", "componentHeatInput", "componentHeatGenerated",
     "componentHeatReceived", "componentHeatRemoved", "componentHeatTransferredOut",
@@ -108,8 +105,8 @@ function comparePairExact(target, label) {
     "componentPowerCableHeatRate", "componentPowerCableHeatGenerated", "componentMeltdown",
     "componentHeatCapacity"
   ]) {
-    const left = legacy[field] || [];
-    const right = optimized[field] || [];
+    const left = canonical[field] || [];
+    const right = repeat[field] || [];
     assert.strictEqual(left.length, right.length, `${label} ${field} length`);
     for (let index = 0; index < left.length; index += 1) {
       assert(Object.is(left[index], right[index]), `${label} ${field}[${index}]: ${left[index]} !== ${right[index]}`);
@@ -119,48 +116,46 @@ function comparePairExact(target, label) {
     "currentHeat", "maxHeat", "heatPressure", "powerCableHeatGenerated", "powerCableHeatTotal",
     "totalVentedOverflowHeat", "ventedOverflowHeatThisTick", "heatAccumulator", "lastHeatTickDelta"
   ]) {
-    if (field === "currentHeat" || field === "heatPressure") close(legacy[field], optimized[field], `${label} ${field}`, 5e-12);
-    else assert(Object.is(legacy[field], optimized[field]), `${label} ${field}: ${legacy[field]} !== ${optimized[field]}`);
+    if (field === "currentHeat" || field === "heatPressure") close(canonical[field], repeat[field], `${label} ${field}`, 5e-12);
+    else assert(Object.is(canonical[field], repeat[field]), `${label} ${field}: ${canonical[field]} !== ${repeat[field]}`);
   }
   for (const field of [
     "heatRevision", "heatStateRevision", "componentHeatRevision", "heatTelemetryRevision",
     "hotComponentCount", "overheatedComponentCount", "powerRevision", "wiringRevision",
     "componentAliveRevision", "componentDamageRevision", "hasActiveHeat", "hasPendingHeatInput"
-  ]) assert(Object.is(legacy[field], optimized[field]), `${label} ${field}`);
-  assert.deepStrictEqual([...legacy.dirtyHeat].sort((a, b) => a - b), [...optimized.dirtyHeat].sort((a, b) => a - b), `${label} dirtyHeat`);
-  assert.deepStrictEqual(legacy.componentThermalNetworks, optimized.componentThermalNetworks, `${label} thermal networks`);
-  assert.deepStrictEqual(legacy.frameCoolingDistance, optimized.frameCoolingDistance, `${label} cooling distances`);
-  const expectedHeat = optimized.componentHeat
+  ]) assert(Object.is(canonical[field], repeat[field]), `${label} ${field}`);
+  assert.deepStrictEqual([...canonical.dirtyHeat].sort((a, b) => a - b), [...repeat.dirtyHeat].sort((a, b) => a - b), `${label} dirtyHeat`);
+  assert.deepStrictEqual(canonical.componentThermalNetworks, repeat.componentThermalNetworks, `${label} thermal networks`);
+  assert.deepStrictEqual(canonical.frameCoolingDistance, repeat.frameCoolingDistance, `${label} cooling distances`);
+  const expectedHeat = repeat.componentHeat
     .map((value, index) => Number.isFinite(value) && value > 0 ? index : -1)
     .filter((index) => index >= 0);
-  const expectedHot = optimized.componentHeatState
-    .map((state, index) => ((optimized.componentHp?.[index] ?? 1) > 0 && state >= HeatRules.STATE.HOT) ? index : -1)
+  const expectedHot = repeat.componentHeatState
+    .map((state, index) => ((repeat.componentHp?.[index] ?? 1) > 0 && state >= HeatRules.STATE.HOT) ? index : -1)
     .filter((index) => index >= 0);
-  const expectedPending = optimized.componentHeatInput
+  const expectedPending = repeat.componentHeatInput
     .map((value, index) => Number(value) > 0 ? index : -1)
     .filter((index) => index >= 0);
-  const expectedCable = optimized.componentPowerCableHeatRate
+  const expectedCable = repeat.componentPowerCableHeatRate
     .map((value, index) => Number(value) > 0 ? index : -1)
     .filter((index) => index >= 0);
-  assert.deepStrictEqual(optimized._thermalRuntime.heatBearingComponents, expectedHeat, `${label} Heat list`);
-  assert.deepStrictEqual(optimized._thermalRuntime.hotComponents, expectedHot, `${label} HOT list`);
-  assert.deepStrictEqual(optimized._thermalRuntime.pendingInputComponents, expectedPending, `${label} pending list`);
-  assert.deepStrictEqual(optimized._thermalRuntime.cableComponents, expectedCable, `${label} cable list`);
-  const legacyData = legacy.runtimeDataSupport || {};
-  const optimizedData = optimized.runtimeDataSupport || {};
+  assert.deepStrictEqual(repeat._thermalRuntime.heatBearingComponents, expectedHeat, `${label} Heat list`);
+  assert.deepStrictEqual(repeat._thermalRuntime.hotComponents, expectedHot, `${label} HOT list`);
+  assert.deepStrictEqual(repeat._thermalRuntime.pendingInputComponents, expectedPending, `${label} pending list`);
+  assert.deepStrictEqual(repeat._thermalRuntime.cableComponents, expectedCable, `${label} cable list`);
+  const canonicalData = canonical.runtimeDataSupport || {};
+  const repeatData = repeat.runtimeDataSupport || {};
   assert.deepStrictEqual(
-    { topologyRevision: legacyData.topologyRevision || 0, allocationRevision: legacyData.allocationRevision || 0 },
-    { topologyRevision: optimizedData.topologyRevision || 0, allocationRevision: optimizedData.allocationRevision || 0 },
+    { topologyRevision: canonicalData.topologyRevision || 0, allocationRevision: canonicalData.allocationRevision || 0 },
+    { topologyRevision: repeatData.topologyRevision || 0, allocationRevision: repeatData.allocationRevision || 0 },
     `${label} Data revisions`
   );
 }
 
 function boundaryExact(target, dt, label, before = null) {
-  if (before) { before(target.legacy); before(target.optimized); }
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
-  Heat.updateShipHeat(target.legacy, dt, null, 0);
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(true);
-  Heat.updateShipHeat(target.optimized, dt, null, 0);
+  if (before) { before(target.canonical); before(target.repeat); }
+  Heat.updateShipHeat(target.canonical, dt, null, 0);
+  Heat.updateShipHeat(target.repeat, dt, null, 0);
   comparePairExact(target, label);
 }
 
@@ -293,19 +288,17 @@ function runRandomizedDifferentialSoak() {
 
 function compareLifecycleRooms(target, rooms, label) {
   comparePairExact(target, label);
-  assert.deepStrictEqual(rooms.legacy.effects, rooms.optimized.effects, `${label} lifecycle effects`);
+  assert.deepStrictEqual(rooms.canonical.effects, rooms.repeat.effects, `${label} lifecycle effects`);
   for (const field of ["alive", "hp", "coreDestroyed", "componentAliveRevision", "componentDamageRevision"]) {
-    if (typeof target.legacy[field] === "number") close(target.legacy[field], target.optimized[field], `${label} ${field}`, 1e-10);
-    else assert.strictEqual(target.legacy[field], target.optimized[field], `${label} ${field}`);
+    if (typeof target.canonical[field] === "number") close(target.canonical[field], target.repeat[field], `${label} ${field}`, 1e-10);
+    else assert.strictEqual(target.canonical[field], target.repeat[field], `${label} ${field}`);
   }
-  assert.deepStrictEqual(target.legacy.componentHp, target.optimized.componentHp, `${label} component HP`);
+  assert.deepStrictEqual(target.canonical.componentHp, target.repeat.componentHp, `${label} component HP`);
 }
 
 function boundaryWithRooms(target, rooms, dt, label) {
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
-  Heat.updateShipHeat(target.legacy, dt, rooms.legacy, dt);
-  Flags.__setOPTIMIZED_HEAT_RUNTIME(true);
-  Heat.updateShipHeat(target.optimized, dt, rooms.optimized, dt);
+  Heat.updateShipHeat(target.canonical, dt, rooms.canonical, dt);
+  Heat.updateShipHeat(target.repeat, dt, rooms.repeat, dt);
   compareLifecycleRooms(target, rooms, label);
 }
 
@@ -317,8 +310,8 @@ function runRealLifecycleParity() {
   const target = pair(design);
   synchronizeDerivedState(target);
   const rooms = {
-    legacy: makeRoomForShip(target.legacy, "phase-6a-lifecycle-legacy"),
-    optimized: makeRoomForShip(target.optimized, "phase-6a-lifecycle-optimized")
+    canonical: makeRoomForShip(target.canonical, "phase-6a-lifecycle-canonical"),
+    repeat: makeRoomForShip(target.repeat, "phase-6a-lifecycle-repeat")
   };
   const damage = (ship, room) => {
     const chain = componentsAlongImpactRay(ship, ship.x, ship.y - 500);
@@ -326,15 +319,15 @@ function runRealLifecycleParity() {
     assert(Number.isInteger(index), "real lifecycle fixture found a non-core impact target");
     applyHullDamage(room, ship, ship.componentHp[index] * 1.1, 1, ship.x, ship.y - 500, { armorInteractionSeconds: 1 });
   };
-  damage(target.legacy, rooms.legacy);
-  damage(target.optimized, rooms.optimized);
-  assert.deepStrictEqual(target.legacy.componentHp, target.optimized.componentHp, "real damage path HP parity");
-  assert.deepStrictEqual(rooms.legacy.effects, rooms.optimized.effects, "real damage path effects parity");
+  damage(target.canonical, rooms.canonical);
+  damage(target.repeat, rooms.repeat);
+  assert.deepStrictEqual(target.canonical.componentHp, target.repeat.componentHp, "real damage path HP parity");
+  assert.deepStrictEqual(rooms.canonical.effects, rooms.repeat.effects, "real damage path effects parity");
   boundaryWithRooms(target, rooms, 0.2, "real damage lifecycle");
 
-  repairShipComponents(rooms.legacy, target.legacy, 1000, 2);
-  repairShipComponents(rooms.optimized, target.optimized, 1000, 2);
-  assert.deepStrictEqual(target.legacy.componentHp, target.optimized.componentHp, "real repair path HP parity");
+  repairShipComponents(rooms.canonical, target.canonical, 1000, 2);
+  repairShipComponents(rooms.repeat, target.repeat, 1000, 2);
+  assert.deepStrictEqual(target.canonical.componentHp, target.repeat.componentHp, "real repair path HP parity");
   boundaryWithRooms(target, rooms, 0.2, "real repair lifecycle");
 }
 
@@ -353,34 +346,34 @@ function runRealMeltdownParity() {
       if (forceShipDestruction) ship.hp = 1;
       Heat.refreshHeatRuntimeLists(ship);
     });
-    const reactorHp = target.legacy.componentHp[1];
-    const neighbourHp = target.legacy.componentHp[2];
+    const reactorHp = target.canonical.componentHp[1];
+    const neighbourHp = target.canonical.componentHp[2];
     boundaryWithRooms(target, rooms, 0.2, forceShipDestruction ? "real meltdown destruction" : "real meltdown blast");
-    assert(rooms.legacy.effects.some((effect) => effect.type === "boom"), "real meltdown produced an explosion effect");
-    assert.deepStrictEqual(rooms.legacy.effects, rooms.optimized.effects, "real meltdown effects parity");
-    assert.strictEqual(target.legacy.componentHp[1], 0, "real meltdown destroyed reactor");
+    assert(rooms.canonical.effects.some((effect) => effect.type === "boom"), "real meltdown produced an explosion effect");
+    assert.deepStrictEqual(rooms.canonical.effects, rooms.repeat.effects, "real meltdown effects parity");
+    assert.strictEqual(target.canonical.componentHp[1], 0, "real meltdown destroyed reactor");
     if (!forceShipDestruction) {
-      assert(target.legacy.componentHp[2] < neighbourHp, "real meltdown damaged a neighbouring component");
-      assert(target.legacy.componentHp[1] <= reactorHp, "real meltdown reactor damage applied");
-      assert.strictEqual(target.legacy.alive, true, "surviving real meltdown leaves ship alive");
+      assert(target.canonical.componentHp[2] < neighbourHp, "real meltdown damaged a neighbouring component");
+      assert(target.canonical.componentHp[1] <= reactorHp, "real meltdown reactor damage applied");
+      assert.strictEqual(target.canonical.alive, true, "surviving real meltdown leaves ship alive");
     } else {
-      assert.strictEqual(target.legacy.alive, false, "real meltdown can destroy the ship");
-      assert.strictEqual(target.legacy.componentHp[0], 0, "ship destruction clears the core through lifecycle handling");
+      assert.strictEqual(target.canonical.alive, false, "real meltdown can destroy the ship");
+      assert.strictEqual(target.canonical.componentHp[0], 0, "ship destruction clears the core through lifecycle handling");
     }
   };
 
   const surviving = pair(design);
   synchronizeDerivedState(surviving);
   prepare(surviving, {
-    legacy: makeRoomForShip(surviving.legacy, "phase-6a-meltdown-legacy"),
-    optimized: makeRoomForShip(surviving.optimized, "phase-6a-meltdown-optimized")
+    canonical: makeRoomForShip(surviving.canonical, "phase-6a-meltdown-canonical"),
+    repeat: makeRoomForShip(surviving.repeat, "phase-6a-meltdown-repeat")
   }, false);
 
   const destroyed = pair(design);
   synchronizeDerivedState(destroyed);
   prepare(destroyed, {
-    legacy: makeRoomForShip(destroyed.legacy, "phase-6a-meltdown-death-legacy"),
-    optimized: makeRoomForShip(destroyed.optimized, "phase-6a-meltdown-death-optimized")
+    canonical: makeRoomForShip(destroyed.canonical, "phase-6a-meltdown-death-canonical"),
+    repeat: makeRoomForShip(destroyed.repeat, "phase-6a-meltdown-death-repeat")
   }, true);
 }
 
@@ -393,48 +386,48 @@ function runRealProducerParity() {
     MovementCapability.applyEngineHeat(ship, 0.75, 0.2);
     MovementCapability.applyTurnHeat(ship, 0.5, 0.2);
   });
-  assert(movement.legacy.componentHeatInput.some((value, index) => index > 0 && value > 0), "real movement producers add Heat");
-  assert.deepStrictEqual(movement.legacy.componentHeatInput, movement.optimized.componentHeatInput, "real movement producer parity");
+  assert(movement.canonical.componentHeatInput.some((value, index) => index > 0 && value > 0), "real movement producers add Heat");
+  assert.deepStrictEqual(movement.canonical.componentHeatInput, movement.repeat.componentHeatInput, "real movement producer parity");
   boundaryExact(movement, 0.2, "real movement producers");
 
   const repair = pair([m("core", 7, 7), m("repair", 6, 7), m("frame", 5, 7)]);
   synchronizeDerivedState(repair);
   const repairRooms = {
-    legacy: makeRoomForShip(repair.legacy, "phase-6a-repair-legacy"),
-    optimized: makeRoomForShip(repair.optimized, "phase-6a-repair-optimized")
+    canonical: makeRoomForShip(repair.canonical, "phase-6a-repair-canonical"),
+    repeat: makeRoomForShip(repair.repeat, "phase-6a-repair-repeat")
   };
   eachShip(repair, (ship) => {
-    const room = ship === repair.legacy ? repairRooms.legacy : repairRooms.optimized;
+    const room = ship === repair.canonical ? repairRooms.canonical : repairRooms.repeat;
     applyHullDamage(room, ship, ship.componentHp[2] * 0.4, 0, ship.x, ship.y - 500, { armorInteractionSeconds: 1 });
   });
-  Combat.updateShipSupport(repairRooms.legacy, [repair.legacy], 0.2, 1);
-  Combat.updateShipSupport(repairRooms.optimized, [repair.optimized], 0.2, 1);
-  assert(repair.legacy.componentHeatInput[1] > 0, "real repair producer adds Heat");
-  assert.deepStrictEqual(repair.legacy.componentHeatInput, repair.optimized.componentHeatInput, "real repair producer parity");
+  Combat.updateShipSupport(repairRooms.canonical, [repair.canonical], 0.2, 1);
+  Combat.updateShipSupport(repairRooms.repeat, [repair.repeat], 0.2, 1);
+  assert(repair.canonical.componentHeatInput[1] > 0, "real repair producer adds Heat");
+  assert.deepStrictEqual(repair.canonical.componentHeatInput, repair.repeat.componentHeatInput, "real repair producer parity");
   boundaryWithRooms(repair, repairRooms, 0.2, "real repair producer");
 
   const drones = pair([m("core", 7, 7), m("droneBay", 4, 5)]);
   synchronizeDerivedState(drones);
   const droneRooms = {
-    legacy: makeRoomForShip(drones.legacy, "phase-6a-drone-legacy"),
-    optimized: makeRoomForShip(drones.optimized, "phase-6a-drone-optimized")
+    canonical: makeRoomForShip(drones.canonical, "phase-6a-drone-canonical"),
+    repeat: makeRoomForShip(drones.repeat, "phase-6a-drone-repeat")
   };
-  Drones.initializeDroneBays(droneRooms.legacy, drones.legacy, 0);
-  Drones.initializeDroneBays(droneRooms.optimized, drones.optimized, 0);
-  Drones.updateDroneBays(droneRooms.legacy, [drones.legacy], 0.2, 0.2);
-  Drones.updateDroneBays(droneRooms.optimized, [drones.optimized], 0.2, 0.2);
-  assert(drones.legacy.componentHeatInput[1] > 0, "real drone-bay producer adds Heat");
-  assert.deepStrictEqual(drones.legacy.componentHeatInput, drones.optimized.componentHeatInput, "real drone producer parity");
+  Drones.initializeDroneBays(droneRooms.canonical, drones.canonical, 0);
+  Drones.initializeDroneBays(droneRooms.repeat, drones.repeat, 0);
+  Drones.updateDroneBays(droneRooms.canonical, [drones.canonical], 0.2, 0.2);
+  Drones.updateDroneBays(droneRooms.repeat, [drones.repeat], 0.2, 0.2);
+  assert(drones.canonical.componentHeatInput[1] > 0, "real drone-bay producer adds Heat");
+  assert.deepStrictEqual(drones.canonical.componentHeatInput, drones.repeat.componentHeatInput, "real drone producer parity");
   boundaryWithRooms(drones, droneRooms, 0.2, "real drone producers");
 
   const impact = pair([m("core", 7, 7), m("armor", 6, 7), m("frame", 5, 7), m("radiator", 7, 6)]);
   synchronizeDerivedState(impact);
   const impactRooms = {
-    legacy: makeRoomForShip(impact.legacy, "phase-6a-impact-legacy"),
-    optimized: makeRoomForShip(impact.optimized, "phase-6a-impact-optimized")
+    canonical: makeRoomForShip(impact.canonical, "phase-6a-impact-canonical"),
+    repeat: makeRoomForShip(impact.repeat, "phase-6a-impact-repeat")
   };
   eachShip(impact, (ship) => {
-    const room = ship === impact.legacy ? impactRooms.legacy : impactRooms.optimized;
+    const room = ship === impact.canonical ? impactRooms.canonical : impactRooms.repeat;
     const attackerId = `${ship.id}-attacker`;
     room.players.set(attackerId, { id: attackerId, team: "red", ships: [], losses: 0, lostFleetCost: 0 });
     const attacker = { id: attackerId, ownerId: attackerId, team: "red", x: -400, y: 0, angle: 0 };
@@ -446,8 +439,8 @@ function runRealProducerParity() {
       { impactHeatPerDamage: 0.5, burnThroughCarryMultiplier: 0.25, armorInteractionSeconds: 1 }
     );
   });
-  assert(impact.legacy.componentHeatInput.some((value) => value > 0), "real weapon/impact producer adds Heat");
-  assert.deepStrictEqual(impact.legacy.componentHeatInput, impact.optimized.componentHeatInput, "real weapon/impact producer parity");
+  assert(impact.canonical.componentHeatInput.some((value) => value > 0), "real weapon/impact producer adds Heat");
+  assert.deepStrictEqual(impact.canonical.componentHeatInput, impact.repeat.componentHeatInput, "real weapon/impact producer parity");
   boundaryWithRooms(impact, impactRooms, 0.2, "real weapon and impact producers");
 }
 
@@ -499,7 +492,7 @@ const routed = runScenario("frame and heat-pipe routing", routedDesign, undefine
 boundary(routed, 0.2, "destroyed route", destroyOrRepair(2, false));
 boundary(routed, 0.2, "repair route", destroyOrRepair(2, true));
 boundary(routed, 0.2, "heat-sink damage", (ship) => { ship.componentHp[4] = ship.componentMaxHp[4] * 0.35; Heat.recalculateEffectiveThermalCapacities(ship, 4); });
-boundary(routed, 0.2, "retained capacity", setStoredHeat(4, routed.legacy.componentThermals[4].capacity * 0.9));
+boundary(routed, 0.2, "retained capacity", setStoredHeat(4, routed.canonical.componentThermals[4].capacity * 0.9));
 
 // Existing producers all enter through addComponentHeat; no source logic is duplicated here.
 const producerDesign = [m("frame", 0, 0), m("engine", 1, 0), m("gyroscope", 2, 0), m("repairBeam", 3, 0), m("blaster", 4, 0), m("droneBay", 5, 0)];
@@ -550,23 +543,21 @@ assert.strictEqual(templateShipA.thermalTopology, templateShipB.thermalTopology,
 assert.strictEqual(templateShipA.thermalTopology, template.thermalTopology, "template topology authority");
 assert.notStrictEqual(templateShipA.componentHeat, templateShipB.componentHeat, "template Heat arrays are ship-local");
 assert.notStrictEqual(templateShipA._thermalRuntime, templateShipB._thermalRuntime, "template Heat runtimes are ship-local");
-assert.strictEqual(templateShipA._componentAdjacencyValue, null, "optimized template ship does not materialize legacy adjacency");
-assert.strictEqual(templateShipB._componentAdjacencyValue, null, "each optimized template ship uses packed shared topology");
+assert(!Object.prototype.hasOwnProperty.call(templateShipA, "_componentAdjacencyValue"), "template ship does not materialize mutable adjacency");
+assert(!Object.prototype.hasOwnProperty.call(templateShipB, "_componentAdjacencyValue"), "each template ship uses packed shared topology");
 assert(Object.isFrozen(template.thermalTopology) && Object.isFrozen(template.thermalTopology.edgeA), "template topology guarded");
 const templateTelemetryRoom = {};
-Flags.__setOPTIMIZED_HEAT_RUNTIME(true);
 Heat.updateShipHeat(templateShipA, 0.2, templateTelemetryRoom, 0);
 Heat.updateShipHeat(templateShipB, 0.2, templateTelemetryRoom, 0);
 assert((templateTelemetryRoom._roomTelemetry?.heatTopologySharedShips || 0) >= 2, "shared template topology is reported per ship");
 assert((templateTelemetryRoom._roomTelemetry?.heatTopologyCacheHits || 0) >= 2, "template topology cache hits are reported");
-assert.strictEqual(templateTelemetryRoom._roomTelemetry?.heatTransferObjectsAllocated || 0, 0, "optimized template solve allocates no transfer objects");
+assert.strictEqual(templateTelemetryRoom._roomTelemetry?.heatTransferObjectsAllocated || 0, 0, "canonical template solve allocates no transfer objects");
 
 // Reach a stable boundary through the public cadence, then exercise wake-up
 // through a real producer.  A stable runtime cannot simultaneously retain Heat;
 // the old test forced that impossible internal state and therefore did not test
 // a reachable gameplay sequence.
 const radiatorWake = makeShip([m("reactor", 0, 0), m("frame", 2, 0), m("radiator", 3, 0)]);
-Flags.__setOPTIMIZED_HEAT_RUNTIME(true);
 // A destroyed reactor keeps the ship's passive-source cadence alive while its
 // Power output is no longer loaded, making the no-retained-Heat sleep boundary
 // reachable for a ship that still has a radiator component.
@@ -583,5 +574,4 @@ assert.strictEqual(radiatorWake._thermalRuntime.stable, true, "radiator Power ch
 Heat.addComponentHeat(radiatorWake, 1, 12);
 assert.strictEqual(radiatorWake._thermalRuntime.stable, false, "radiator Heat input wakes a reachable sleeping ship");
 
-Flags.__setOPTIMIZED_HEAT_RUNTIME(false);
 console.log(`Phase 6A Heat runtime verifier passed: boundary parity, ${randomizedSoakBoundaries} randomized soak boundaries, real lifecycle/producers, routing, telemetry, meltdown, and topology sharing.`);

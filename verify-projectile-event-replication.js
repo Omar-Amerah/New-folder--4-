@@ -180,17 +180,6 @@ test("fallback client keeps the original bullets", () => {
   assert.strictEqual(snap.bullets[0].id, "fallback");
 });
 
-test("feature flags for phase 2B-D remain unchanged", () => {
-  const {
-    PROJECTILE_FLAK_SINGLE_PASS,
-    PROJECTILE_GUIDANCE_CADENCE,
-    PROJECTILE_GRID_COLLISION
-  } = require("./src/server/performanceFlags");
-  assert.strictEqual(PROJECTILE_FLAK_SINGLE_PASS(), false);
-  assert.strictEqual(PROJECTILE_GUIDANCE_CADENCE(), false);
-  assert.strictEqual(PROJECTILE_GRID_COLLISION(), false);
-});
-
 if (failed) {
   process.exit(1);
 }

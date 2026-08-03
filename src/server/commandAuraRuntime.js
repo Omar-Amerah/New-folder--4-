@@ -1,8 +1,8 @@
 // Phase 6D incremental authoritative Command Aura runtime.
 //
 // This module owns only room-local cache state. Aura formulas and deterministic
-// priority rules live in commandAuraRules.js and are shared with the legacy
-// commandAuras.js rebuild.
+// priority rules live in commandAuraRules.js and are shared with the public
+// commandAuras.js facade.
 
 "use strict";
 
@@ -35,10 +35,10 @@ function finite(value, fallback = 0) {
 function telemetry(room) {
   const current = room?._commandAuraTelemetry || (room._commandAuraTelemetry = {});
   const fields = [
-    "activeSources", "activeSourceShips", "receivingShips", "candidatesExamined", "recalculations", "lastUpdateUs", "additions", "removals",
+    "activeSources", "activeSourceShips", "receivingShips", "recalculations", "lastUpdateUs", "additions", "removals",
     "sourceCacheHits", "sourceRebuilds", "sourceActivations", "sourceDeactivations", "membershipQueries", "recipientMembershipQueries", "membershipCacheHits", "membershipAdds", "membershipRemoves",
     "candidatesVisited", "recipientMovesProcessed", "sourceMovesProcessed", "recipientsDirty", "recipientsPublished", "recipientsUnchanged", "winnerChanges", "winnerRescans",
-    "priorityComparisons", "sortsPerformed", "fullScanFallbacks", "reconciliations", "reconciliationRepairs", "staleSourcesRemoved", "staleRecipientsRemoved",
+    "priorityComparisons", "fullScanFallbacks", "reconciliations", "reconciliationRepairs", "staleSourcesRemoved", "staleRecipientsRemoved",
     "fallbackUs", "sourceMaintenanceUs", "membershipUs", "winnerResolutionUs", "recipientPublishUs", "reconciliationUs"
   ];
   for (const field of fields) if (!Number.isFinite(current[field])) current[field] = 0;
@@ -664,7 +664,6 @@ function queryCandidateShips(room, state, x, y, range, queryKind = "source") {
   if (queryKind === "recipient") state.metrics.recipientMembershipQueries += 1;
   else state.metrics.membershipQueries += 1;
   state.metrics.candidatesVisited += out.length;
-  state.metrics.candidatesExamined += out.length;
   if (!isSpatialIndexUsable(room)) state.metrics.fallbackUs += performanceNow() - startedAt;
   return out;
 }
@@ -1051,7 +1050,6 @@ function syncSharedTelemetry(room, state, elapsedMs) {
     commandAuraWinnerChanges: metrics.winnerChanges,
     commandAuraWinnerRescans: metrics.winnerRescans,
     commandAuraPriorityComparisons: metrics.priorityComparisons,
-    commandAuraSortsPerformed: metrics.sortsPerformed,
     commandAuraFullScanFallbacks: metrics.fullScanFallbacks,
     commandAuraReconciliations: metrics.reconciliations,
     commandAuraReconciliationRepairs: metrics.reconciliationRepairs,
@@ -1164,7 +1162,6 @@ function invalidateCommandAuraSource(room, ship) {
   if (!room || !ship) return;
   ship._commandAuraCapabilityDirty = true;
   if (!ship.alive || ship.removed) {
-    room._commandAuraStalePublicState = true;
     ship.commandAuraActive = false;
     clearPublishedResult(ship);
   }
@@ -1176,7 +1173,6 @@ function invalidateCommandAuraSource(room, ship) {
 function invalidateCommandAuraRecipient(room, ship) {
   if (!room || !ship) return;
   if (!ship.alive || ship.removed) {
-    room._commandAuraStalePublicState = true;
     clearPublishedResult(ship);
   }
   const state = room._commandAuraRuntime;
@@ -1229,7 +1225,6 @@ function clearCommandAuraRuntime(room, ships = null) {
   room._commandAuraMovedShipIds?.clear?.();
   room._commandAuraLastMetrics = null;
   room._commandAuraTelemetry = null;
-  room._commandAuraStalePublicState = false;
 }
 
 module.exports = {

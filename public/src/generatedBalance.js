@@ -1813,7 +1813,7 @@ export const GENERATED_BALANCE = {
   },
   "repair": {
     "repairRange": 410,
-    "stackingMultiplier": 0.62
+    "stackingMultiplier": 0.8
   },
   "commandAura": {
     "range": 800,
