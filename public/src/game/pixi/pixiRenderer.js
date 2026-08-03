@@ -80,8 +80,9 @@ export async function initPixiRenderer() {
   // Layer order defines the arena draw order (back to front).
   const backdropRoot = new PIXI.Container();
   const worldRoot = new PIXI.Container();
-  const enemyVisibilityMask = new PIXI.Graphics();
+  const enemyVisibilityMask = new PIXI.Sprite(PIXI.Texture.EMPTY);
   enemyVisibilityMask.label = "EnemyVisibilityMask";
+  enemyVisibilityMask.eventMode = "none";
   const enemyShipBodiesMasked = new PIXI.Container();
   enemyShipBodiesMasked.label = "EnemyShipBodiesMasked";
   enemyShipBodiesMasked.addChild(enemyVisibilityMask);
@@ -130,9 +131,9 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.command);
   worldRoot.addChild(layers.engineSmoke);
   worldRoot.addChild(layers.enemyBullets);
-  // Masked enemy bodies sit below the fog so the existing soft sensor gradient
-  // composites over them. The binary mask still authoritatively clips hidden
-  // hull pixels; the fog only darkens the visible part near the boundary.
+  // Masked enemy bodies sit below the fog. The body mask is a canvas-backed
+  // alpha sprite with the same inward-only fade as the fog edge, so hull and
+  // shield pixels fade continuously to zero at the authoritative range.
   worldRoot.addChild(layers.enemyShipBodiesMasked);
   worldRoot.addChild(layers.fog);
   // Friendly ships and overlays remain above the fog presentation.

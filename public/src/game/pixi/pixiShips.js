@@ -38,8 +38,9 @@ import {
 import { createPixiKeyedPool, getPixiBakeGeneration, pixiTextureDiagnostics } from "./pixiBake.js";
 import {
   getAlliedSensorSources,
-  buildPixiVisibilityMaskGeometry,
-  isPointVisible,
+  updatePixiVisibilityMask,
+  pixiVisibilityMaskDiagnostics,
+  visibilityAlphaAtPoint,
   usesSensorVisibility
 } from "./pixiFog.js";
 import {
@@ -1118,6 +1119,9 @@ let _visibilityMaskStats = {
   sourceCount: 0,
   omniSourceCount: 0,
   directedSourceCount: 0,
+  maskType: "none",
+  maskTextureWidth: 0,
+  maskTextureHeight: 0,
   lastBuildMs: 0,
   maskRevision: 0,
   maskedEnemyShipCount: 0
@@ -1127,8 +1131,9 @@ function syncEnemyVisibilityMask(env) {
   const enabled = usesSensorVisibility();
   const start = performance.now();
   const sources = enabled ? getAlliedSensorSources() : [];
-  buildPixiVisibilityMaskGeometry(env, env.layers.enemyVisibilityMask, sources);
-  env.layers.enemyShipBodiesMasked.mask = enabled ? env.layers.enemyVisibilityMask : null;
+  const maskReady = enabled && updatePixiVisibilityMask(env, env.layers.enemyVisibilityMask, sources);
+  const maskDiagnostics = maskReady ? pixiVisibilityMaskDiagnostics() : null;
+  env.layers.enemyShipBodiesMasked.mask = maskReady ? env.layers.enemyVisibilityMask : null;
   const lastBuildMs = performance.now() - start;
   _visibilityMaskStats = {
     enabled,
@@ -1136,6 +1141,9 @@ function syncEnemyVisibilityMask(env) {
     sourceCount: sources.length,
     omniSourceCount: sources.filter((s) => s.shape === "circle").length,
     directedSourceCount: sources.filter((s) => s.shape === "cone").length,
+    maskType: maskReady ? "sprite-alpha" : "none",
+    maskTextureWidth: maskDiagnostics?.width || 0,
+    maskTextureHeight: maskDiagnostics?.height || 0,
     lastBuildMs,
     maskRevision: _visibilityMaskStats.maskBuilds + 1,
     maskedEnemyShipCount: _visibilityMaskStats.maskedEnemyShipCount
@@ -1146,6 +1154,12 @@ function syncEnemyVisibilityMask(env) {
 function ensureShipBodyLayer(view, isEnemy, env) {
   const target = isEnemy ? env.layers.enemyShipBodiesMasked : env.layers.friendlyShipBodies;
   if (view.root.parent !== target) target.addChild(view.root);
+}
+
+function shipVisibilityPresentation(isEnemy, sensorMode, x, y, sources) {
+  if (!isEnemy || !sensorMode) return { alpha: 1, tacticallyVisible: true };
+  const alpha = visibilityAlphaAtPoint(x, y, sources);
+  return { alpha, tacticallyVisible: alpha >= 0.5 };
 }
 
 export function updatePixiShips(env, now, players, bounds) {
@@ -1200,7 +1214,6 @@ export function updatePixiShips(env, now, players, bounds) {
 
       const relation = playerTeamRelation(player);
       const isEnemy = relation === "enemy";
-      const friendly = !isEnemy;
       const view = pixiShipPool.acquire(ship.id);
       const design = ship.design || player.design || [];
       const staticKey = pixiStaticSignature(pixiDesignSignature(design), player.color, ship.radius || 0, env.bakeScale);
@@ -1219,9 +1232,10 @@ export function updatePixiShips(env, now, players, bounds) {
       setHullFrameRotation(view, renderShip.angle);
       view.hullContainer.alpha = ship.alive ? 1 : 0.32;
 
-      const centreVisible = friendly || !sensorMode || isPointVisible(renderShip.x, renderShip.y, sources);
+      const visibility = shipVisibilityPresentation(isEnemy, sensorMode, renderShip.x, renderShip.y, sources);
       view.root.visible = true;
-      view.overlayRoot.visible = centreVisible;
+      view.overlayRoot.alpha = visibility.alpha;
+      view.overlayRoot.visible = visibility.alpha > 0.01;
       if (isEnemy && view.root.visible) maskedEnemyCount++;
 
       const shipHud = updateShipHud(ship, now);
@@ -1252,12 +1266,12 @@ export function updatePixiShips(env, now, players, bounds) {
         view.debugText.visible = false;
       }
 
-      if (state.selectedShipIds.has(ship.id) && (friendly || isPointVisible(renderShip.x, renderShip.y, sources))) {
+      if (state.selectedShipIds.has(ship.id) && visibility.tacticallyVisible) {
         drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
       }
       if (ship.commandAuraActive) drawPixiCommandAura(env, overlay, renderShip, zoom, players);
       if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
-      if (ship.destructProgress != null && ship.alive && (friendly || isPointVisible(renderShip.x, renderShip.y, sources))) {
+      if (ship.destructProgress != null && ship.alive && visibility.tacticallyVisible) {
         drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
       }
       tEffects += performance.now() - _t;
@@ -1317,7 +1331,6 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     const design = ship.design || player?.design || [];
     const relation = playerTeamRelation(player);
     const isEnemy = relation === "enemy";
-    const friendly = !isEnemy;
 
     ensureShipBodyLayer(view, isEnemy, env);
     if (!view.overlayRoot.parent) shipOverlays.addChild(view.overlayRoot);
@@ -1326,8 +1339,10 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     view.overlayRoot.position.set(vis.x, vis.y);
     setHullFrameRotation(view, vis.angle);
     view.hullContainer.alpha = ship.alive ? 1 : 0.32;
+    const visibility = shipVisibilityPresentation(isEnemy, sensorMode, vis.x, vis.y, sources);
     view.root.visible = true;
-    view.overlayRoot.visible = friendly || !sensorMode || isPointVisible(vis.x, vis.y, sources);
+    view.overlayRoot.alpha = visibility.alpha;
+    view.overlayRoot.visible = visibility.alpha > 0.01;
     if (isEnemy && view.root.visible) maskedEnemyCount++;
 
     updatePixiTurrets(env, view, ship, design);
@@ -1341,12 +1356,12 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     renderShip.y = vis.y;
     renderShip.angle = vis.angle;
 
-    if (state.selectedShipIds.has(ship.id) && (friendly || isPointVisible(vis.x, vis.y, sources))) {
+    if (state.selectedShipIds.has(ship.id) && visibility.tacticallyVisible) {
       drawPixiSelectionRing(env, overlay, renderShip, zoom, players);
     }
     if (ship.commandAuraActive) drawPixiCommandAura(env, overlay, renderShip, zoom, players);
     if (ship.focusTargetId) drawPixiFocusLine(overlay, renderShip, zoom, players);
-    if (ship.destructProgress != null && ship.alive && (friendly || isPointVisible(vis.x, vis.y, sources))) {
+    if (ship.destructProgress != null && ship.alive && visibility.tacticallyVisible) {
       drawPixiDestructWarning(overlay, renderShip, ship.destructProgress, zoom, now);
     }
 

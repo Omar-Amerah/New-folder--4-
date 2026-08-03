@@ -15,8 +15,10 @@ import { angleDifference } from "../../shared/math.js";
 const SENSOR_FOG_COLOR_BASE = "rgba(0, 4, 16, ";
 const FULL_DARK_COLOR = "rgba(0, 0, 0, 1)";
 const EDGE_START = 0.86;
+export const SENSOR_FADE_START = EDGE_START;
 
 let fogView = null;
+let visibilityMaskView = null;
 
 function viewerTeam() {
   return state.mine?.team
@@ -35,6 +37,13 @@ function textureDimensions(worldW, worldH, maxDimension) {
   return {
     width: Math.max(1, Math.round(worldW / longest * maxDimension)),
     height: Math.max(1, Math.round(worldH / longest * maxDimension))
+  };
+}
+
+function worldDimensions(snapshot = state.snapshot) {
+  return {
+    worldW: Math.max(1, Number(state.world?.width) || Number(snapshot?.world?.width) || WORLD_FALLBACK.width),
+    worldH: Math.max(1, Number(state.world?.height) || Number(snapshot?.world?.height) || WORLD_FALLBACK.height)
   };
 }
 
@@ -213,6 +222,144 @@ function drawFogMask(view, sources, mode, opacity) {
   view.texture?.source?.update?.();
 }
 
+function createVisibilityMaskView(env, sprite) {
+  sprite.eventMode = "none";
+  return {
+    sprite,
+    texture: null,
+    canvas: null,
+    context: null,
+    canvasWidth: 0,
+    canvasHeight: 0,
+    worldW: 0,
+    worldH: 0,
+    quality: null,
+    lastSourcesKey: null,
+    lastDrawAt: Number.NEGATIVE_INFINITY
+  };
+}
+
+function disposeVisibilityMaskTexture(view) {
+  if (!view?.texture) return;
+  const emptyTexture = view.texture.constructor?.EMPTY;
+  if (emptyTexture) view.sprite.texture = emptyTexture;
+  view.texture.destroy(true);
+  view.texture = null;
+}
+
+function configureVisibilityMaskSurface(env, view, worldW, worldH) {
+  const policy = texturePolicy(env.quality);
+  const dimensions = textureDimensions(worldW, worldH, policy.maxDimension);
+  const unchanged = view.canvas
+    && view.canvasWidth === dimensions.width
+    && view.canvasHeight === dimensions.height
+    && view.worldW === worldW
+    && view.worldH === worldH
+    && view.quality === env.quality;
+  if (unchanged) return Boolean(view.context && view.texture);
+
+  disposeVisibilityMaskTexture(view);
+  const canvas = document.createElement("canvas");
+  canvas.width = dimensions.width;
+  canvas.height = dimensions.height;
+  const context = canvas.getContext("2d", { alpha: true });
+  view.canvas = canvas;
+  view.context = context;
+  view.canvasWidth = dimensions.width;
+  view.canvasHeight = dimensions.height;
+  view.worldW = worldW;
+  view.worldH = worldH;
+  view.quality = env.quality;
+  view.lastSourcesKey = null;
+  view.lastDrawAt = Number.NEGATIVE_INFINITY;
+  if (!context) return false;
+
+  view.texture = env.PIXI.Texture.from(canvas);
+  view.sprite.texture = view.texture;
+  view.sprite.position.set(0, 0);
+  view.sprite.width = worldW;
+  view.sprite.height = worldH;
+  return true;
+}
+
+function drawVisibilityMask(view, sources) {
+  const context = view.context;
+  if (!context) return;
+  const sx = view.canvasWidth / view.worldW;
+  const sy = view.canvasHeight / view.worldH;
+  const scale = Math.min(sx, sy);
+  const texelWorld = 1 / Math.max(scale, Number.EPSILON);
+
+  context.save();
+  context.globalCompositeOperation = "source-over";
+  context.clearRect(0, 0, view.canvasWidth, view.canvasHeight);
+
+  for (const source of sources) {
+    const x = Number(source.x) * sx;
+    const y = Number(source.y) * sy;
+    const range = Number(source.range);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !(range > 0)) continue;
+
+    // Leave a transparent texel inside the authoritative edge. Linear texture
+    // sampling can then never turn the last non-zero sample into visibility
+    // beyond the legal sensor range.
+    const drawRange = Math.max(0, range - texelWorld * 0.5);
+    const radius = drawRange * scale;
+    if (!(radius > 0)) continue;
+    const fadeStart = Math.min(radius, range * EDGE_START * scale);
+    const gradient = context.createRadialGradient(x, y, fadeStart, x, y, radius);
+    gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+    context.save();
+    if (source.shape === "cone" && (Number(source.arc) || 0) < Math.PI * 2 - 1e-6) {
+      const angle = Number(source.angle) || 0;
+      const halfArc = Math.max(0, Number(source.arc) || 0) * 0.5;
+      context.beginPath();
+      context.moveTo(x, y);
+      context.arc(x, y, radius, angle - halfArc, angle + halfArc);
+      context.closePath();
+      context.clip();
+    }
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  }
+
+  context.restore();
+  view.texture?.source?.update?.();
+}
+
+export function updatePixiVisibilityMask(env, maskSprite, sources = []) {
+  if (!env?.PIXI || !maskSprite) return false;
+  if (!visibilityMaskView || visibilityMaskView.sprite !== maskSprite) {
+    if (visibilityMaskView) disposeVisibilityMaskTexture(visibilityMaskView);
+    visibilityMaskView = createVisibilityMaskView(env, maskSprite);
+  }
+
+  const { worldW, worldH } = worldDimensions();
+  if (!configureVisibilityMaskSurface(env, visibilityMaskView, worldW, worldH)) return false;
+  const key = sourcesKey(sources);
+  if (key !== visibilityMaskView.lastSourcesKey) {
+    drawVisibilityMask(visibilityMaskView, sources);
+    visibilityMaskView.lastSourcesKey = key;
+    visibilityMaskView.lastDrawAt = performance.now();
+  }
+  return true;
+}
+
+export function pixiVisibilityMaskDiagnostics() {
+  return {
+    ready: Boolean(visibilityMaskView?.texture && visibilityMaskView.context),
+    width: visibilityMaskView?.canvasWidth || 0,
+    height: visibilityMaskView?.canvasHeight || 0,
+    worldW: visibilityMaskView?.worldW || 0,
+    worldH: visibilityMaskView?.worldH || 0
+  };
+}
+
 export function updatePixiFog(env, now, _bounds) {
   if (!usesSensorVisibility()) {
     if (fogView) {
@@ -228,8 +375,7 @@ export function updatePixiFog(env, now, _bounds) {
   const snapshot = state.snapshot || {};
   const mode = state.rules?.visibilityMode;
   const opacity = mode === "dark" ? 1 : getFogOpacity();
-  const worldW = Math.max(1, Number(state.world?.width) || Number(snapshot.world?.width) || WORLD_FALLBACK.width);
-  const worldH = Math.max(1, Number(state.world?.height) || Number(snapshot.world?.height) || WORLD_FALLBACK.height);
+  const { worldW, worldH } = worldDimensions(snapshot);
   const policy = configureFogSurface(env, fogView, worldW, worldH, mode, opacity);
   if (now - fogView.lastCheckAt < policy.intervalMs) return;
   fogView.lastCheckAt = now;
@@ -250,64 +396,60 @@ export function getAlliedSensorSources() {
   return alliedSensorSources(state.snapshot || {}, viewerTeam());
 }
 
-export function isPointVisible(x, y, sources) {
-  for (const source of sources) {
-    const dx = x - source.x;
-    const dy = y - source.y;
-    const dist2 = dx * dx + dy * dy;
-    const range = source.range;
-    if (!(dist2 <= (range + 0.5) * (range + 0.5))) continue;
-    if (source.shape === "circle") return true;
-    const a = source.angle || 0;
-    const halfArc = (source.arc || 0) * 0.5;
-    if (halfArc >= Math.PI) return true;
-    const da = Math.abs(angleDifference(Math.atan2(dy, dx), a));
-    if (da <= halfArc + 1e-6) return true;
-  }
-  return false;
+export function sensorVisibilityAlpha(distance, range) {
+  const safeDistance = Number(distance);
+  const safeRange = Number(range);
+  if (!Number.isFinite(safeDistance) || !(safeRange > 0)) return 0;
+  const fadeStart = safeRange * EDGE_START;
+  if (safeDistance <= fadeStart) return 1;
+  if (safeDistance >= safeRange) return 0;
+  return 1 - (safeDistance - fadeStart) / (safeRange - fadeStart);
 }
 
-function coneArcSteps(arc) {
-  // Aim for about one segment per ~3 degrees of arc, with a sane minimum and
-  // maximum so very small or very large cones are not under/over tessellated.
-  return Math.min(120, Math.max(8, Math.ceil(arc / (Math.PI / 64))));
-}
-
-export function buildPixiVisibilityMaskGeometry(env, mask, sources) {
-  if (!mask) return;
-  mask.clear();
+export function visibilityAlphaAtPoint(x, y, sources = []) {
+  const pointX = Number(x);
+  const pointY = Number(y);
+  if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) return 0;
+  let alpha = 0;
   for (const source of sources) {
-    const x = Number(source.x);
-    const y = Number(source.y);
+    const sourceX = Number(source.x);
+    const sourceY = Number(source.y);
     const range = Number(source.range);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !(range > 0)) continue;
-    if (source.shape === "circle" || (source.shape === "cone" && (source.arc || 0) >= Math.PI * 2 - 1e-6)) {
-      mask.circle(x, y, range);
-      mask.fill(0xffffff);
-      continue;
-    }
+    if (!Number.isFinite(sourceX) || !Number.isFinite(sourceY) || !(range > 0)) continue;
+    const dx = pointX - sourceX;
+    const dy = pointY - sourceY;
+    const distance = Math.hypot(dx, dy);
+    const sourceAlpha = sensorVisibilityAlpha(distance, range);
+    if (!(sourceAlpha > 0)) continue;
     if (source.shape === "cone") {
-      const angle = Number(source.angle) || 0;
-      const arc = Math.max(0, Number(source.arc) || 0);
-      const half = arc * 0.5;
-      const steps = coneArcSteps(arc);
-      mask.moveTo(x, y);
-      for (let i = 0; i <= steps; i++) {
-        const a = angle - half + (arc * i / steps);
-        mask.lineTo(x + Math.cos(a) * range, y + Math.sin(a) * range);
+      const halfArc = Math.max(0, Number(source.arc) || 0) * 0.5;
+      if (halfArc < Math.PI && distance > 1e-6) {
+        const a = Number(source.angle) || 0;
+        const da = Math.abs(angleDifference(Math.atan2(dy, dx), a));
+        if (da > halfArc + 1e-6) continue;
       }
-      mask.closePath();
-      mask.fill(0xffffff);
     }
+    alpha = Math.max(alpha, sourceAlpha);
+    if (alpha >= 1) return 1;
   }
+  return alpha;
+}
+
+export function isPointVisible(x, y, sources) {
+  return visibilityAlphaAtPoint(x, y, sources) > 0;
 }
 
 export function destroyPixiFog() {
-  if (!fogView) return;
-  const { root, texture } = fogView;
-  root.destroy({ children: true, texture: false, textureSource: false });
-  texture?.destroy?.(true);
-  fogView = null;
+  if (fogView) {
+    const { root, texture } = fogView;
+    root.destroy({ children: true, texture: false, textureSource: false });
+    texture?.destroy?.(true);
+    fogView = null;
+  }
+  if (visibilityMaskView) {
+    disposeVisibilityMaskTexture(visibilityMaskView);
+    visibilityMaskView = null;
+  }
 }
 
 // The Full Dark minimap reuses this exact world-space raster mask. Sharing the

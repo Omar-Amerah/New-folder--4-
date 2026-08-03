@@ -84,7 +84,7 @@ async function main() {
         {
           id: "straddler",
           ownerId: "p2",
-          x: 1670,
+          x: 1693,
           y: 950,
           vx: 0,
           vy: 0,
@@ -118,6 +118,56 @@ async function main() {
       if (d.maskBuilds < 1) throw new Error("expected at least one mask build");
       if (d.sourceCount < 1) throw new Error("expected at least one sensor source in mask");
       if (d.maskedEnemyShipCount < 1) throw new Error("expected at least one masked enemy ship");
+    });
+
+    await check("enemy bodies use an inward-only soft alpha mask and overlays fade with the centre", async () => {
+      const result = await page.evaluate(async () => {
+        const { sensorVisibilityAlpha, visibilityAlphaAtPoint } = await import("/src/game/pixi/pixiFog.js");
+        const env = typeof window.__mfaGetPixiEnv === "function" ? window.__mfaGetPixiEnv() : null;
+        const mask = env?.layers?.enemyVisibilityMask;
+        const source = { x: 1600, y: 950, range: 100, shape: "circle" };
+        const canvas = mask?.texture?.source?.resource || mask?.texture?.source?._resource || null;
+        const context = canvas?.getContext?.("2d") || null;
+        const sample = (x, y) => {
+          if (!context || !canvas || !(mask?.width > 0) || !(mask?.height > 0)) return null;
+          const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x / mask.width * canvas.width)));
+          const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y / mask.height * canvas.height)));
+          return context.getImageData(px, py, 1, 1).data[3] / 255;
+        };
+        const overlays = env?.layers?.shipOverlays?.children || [];
+        const enemyOverlay = overlays.find((child) => Math.abs((child.position?.x || 0) - 1693) < 1);
+        return {
+          maskConstructor: mask?.constructor?.name || null,
+          maskType: window.__mfaVisibilityMaskDiagnostics?.().maskType || null,
+          maskTextureIsCanvas: Boolean(canvas && context),
+          innerTextureAlpha: sample(1650, 950),
+          fadeTextureAlpha: sample(1690, 950),
+          boundaryTextureAlpha: sample(1700, 950),
+          innerAlpha: visibilityAlphaAtPoint(1650, 950, [source]),
+          fadeAlpha: visibilityAlphaAtPoint(1693, 950, [source]),
+          boundaryAlpha: visibilityAlphaAtPoint(1700, 950, [source]),
+          formulaStart: sensorVisibilityAlpha(86, 100),
+          formulaMid: sensorVisibilityAlpha(93, 100),
+          formulaEnd: sensorVisibilityAlpha(100, 100),
+          overlayAlpha: enemyOverlay?.alpha ?? null,
+          overlayVisible: enemyOverlay?.visible ?? null
+        };
+      });
+      if (result.maskConstructor === "Graphics") throw new Error("enemy visibility mask is still Graphics-backed");
+      if (result.maskType !== "sprite-alpha") throw new Error(`expected sprite-alpha mask, got ${result.maskType}`);
+      if (!result.maskTextureIsCanvas) throw new Error("expected a canvas-backed alpha texture");
+      if (!(result.innerTextureAlpha > 0.9)) throw new Error(`inner body alpha was ${result.innerTextureAlpha}`);
+      if (!(result.fadeTextureAlpha > 0.1 && result.fadeTextureAlpha < 0.9)) throw new Error(`fade body alpha was ${JSON.stringify(result)}`);
+      if (!(result.boundaryTextureAlpha <= 0.05)) throw new Error(`boundary body alpha was ${result.boundaryTextureAlpha}`);
+      if (result.innerAlpha !== 1 || Math.abs(result.fadeAlpha - 0.5) > 0.001 || result.boundaryAlpha !== 0) {
+        throw new Error(`visibility alpha formula mismatch: ${JSON.stringify(result)}`);
+      }
+      if (result.formulaStart !== 1 || Math.abs(result.formulaMid - 0.5) > 0.001 || result.formulaEnd !== 0) {
+        throw new Error(`sensorVisibilityAlpha mismatch: ${JSON.stringify(result)}`);
+      }
+      if (!(result.overlayAlpha > 0.01 && result.overlayAlpha < 0.99 && result.overlayVisible)) {
+        throw new Error(`expected a partially faded visible overlay: ${JSON.stringify(result)}`);
+      }
     });
 
     await check("enemy ship is in the masked body layer and friendly ship is not", async () => {
