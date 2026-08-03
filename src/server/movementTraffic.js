@@ -7,7 +7,7 @@
 // bypass point and then returns to the route it was already flying.
 
 const { compareEntityIds, fastHypot } = require("./utils");
-const { areEntityEnemies } = require("./relationships");
+const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const {
   navigationClearanceRadius,
   physicalCollisionRadius
@@ -17,20 +17,22 @@ const { REST_SPEED } = require("./movementTuning");
 const { bumpMovementMetric } = require("./movementMetrics");
 const {
   trafficIsStationary: isStationary,
+  trafficIsPositioned: isPositioned,
   trafficPairKey: pairKey,
   trafficPriorityWinner: priorityWinner
 } = require("./movementTrafficPriority");
 
 const TRAFFIC_LOOKAHEAD = 1300;
 const TRAFFIC_FOLLOW_GAP = 36;
-const TRAFFIC_SIDE_GAP = 12;
-const TRAFFIC_PASS_PAD = 180;
-const TRAFFIC_BYPASS_SPEED = 60;
+const TRAFFIC_SIDE_GAP = 20;
+const TRAFFIC_PASS_PAD = 80;
+const TRAFFIC_BYPASS_SPEED = 180;
 const TRAFFIC_PASS_ADVANCE = 220;
 const TRAFFIC_RELEASE_GAP = 96;
 const TRAFFIC_MAX_QUERY_RANGE = 1800;
 const TRAFFIC_PREDICTIVE_HORIZON = 3;
 const TRAFFIC_PREDICTIVE_PAD = 80;
+const TRAFFIC_BLOCKED_RETENTION_MS = 4000;
 
 function finiteVector(ship) {
   return {
@@ -71,6 +73,14 @@ function routeProgress(ship) {
   };
 }
 
+function routeGoalAlong(ship, origin, vector) {
+  const destination = ship?.movement?.destination
+    || ship?.movement?.command?.destination;
+  if (!destination) return null;
+  return (destination.x - origin.x) * vector.x
+    + (destination.y - origin.y) * vector.y;
+}
+
 function trafficState(runtime) {
   if (!runtime.traffic || typeof runtime.traffic !== "object") {
     runtime.traffic = {
@@ -80,8 +90,12 @@ function trafficState(runtime) {
       side: 0,
       bypass: null,
       priorityId: null,
-      crossing: false
+      crossing: false,
+      blockedAt: null
     };
+  }
+  if (!Object.prototype.hasOwnProperty.call(runtime.traffic, "blockedAt")) {
+    runtime.traffic.blockedAt = null;
   }
   return runtime.traffic;
 }
@@ -95,6 +109,33 @@ function clearTrafficState(runtime) {
   state.bypass = null;
   state.priorityId = null;
   state.crossing = false;
+  state.blockedAt = null;
+}
+
+function trafficBlockedPairs(room) {
+  return room._trafficBlockedPairs || (room._trafficBlockedPairs = new Map());
+}
+
+function rememberedBlockedAt(room, pair, now) {
+  const entries = trafficBlockedPairs(room);
+  for (const [key, entry] of entries) {
+    if (Number(now) - Number(entry?.lastAt) > TRAFFIC_BLOCKED_RETENTION_MS) entries.delete(key);
+  }
+  const entry = entries.get(pair);
+  if (!entry || Number(now) - Number(entry.lastAt) > TRAFFIC_BLOCKED_RETENTION_MS) return null;
+  return entry.blockedAt !== null && entry.blockedAt !== undefined
+    && Number.isFinite(Number(entry.blockedAt))
+    ? Number(entry.blockedAt)
+    : null;
+}
+
+function rememberBlockedAt(room, pair, blockedAt, now) {
+  if (!pair || blockedAt === null || blockedAt === undefined
+    || !Number.isFinite(Number(blockedAt))) return;
+  trafficBlockedPairs(room).set(pair, {
+    blockedAt: Number(blockedAt),
+    lastAt: Number(now) || 0
+  });
 }
 
 function setLegacyTrafficTelemetry(ship, state) {
@@ -111,6 +152,23 @@ function explicitTarget(ship) {
   return ship?.movement?.command?.type === "attack"
     ? String(ship.movement.command.targetId || "")
     : "";
+}
+
+function sameAttackTarget(a, b) {
+  const commandA = a?.movement?.command;
+  const commandB = b?.movement?.command;
+  return commandA?.type === "attack"
+    && commandB?.type === "attack"
+    && Boolean(commandA.targetId)
+    && String(commandA.targetId) === String(commandB.targetId);
+}
+
+function combatSlotActive(runtime) {
+  const command = runtime?.command;
+  const slot = runtime?.combatSlot;
+  return command?.type === "attack"
+    && slot
+    && String(command.targetId || "") === String(slot.targetId || "");
 }
 
 function acceptsTrafficEntity(room, ship, other) {
@@ -207,7 +265,8 @@ function encounterFor(ship, other, vector) {
      const closestX = rx + relativeX * time;
      const closestY = ry + relativeY * time;
      const closestLateral = closestX * -vector.y + closestY * vector.x;
-     predicted = Math.abs(closestLateral) <= sideLimit
+     predicted = along > 0
+       && Math.abs(closestLateral) <= sideLimit
        && fastHypot(closestX, closestY)
          < physicalCollisionRadius(ship) + physicalCollisionRadius(other) + TRAFFIC_PREDICTIVE_PAD;
   }
@@ -215,8 +274,14 @@ function encounterFor(ship, other, vector) {
     && along <= Math.max(TRAFFIC_LOOKAHEAD, vector.length)
     && Math.abs(lateral) <= sideLimit;
   if (!inRouteCorridor && !predicted) return null;
-  if (!predicted && physicalGap > safeGap && closing <= 0) return null;
-  if (!predicted && physicalGap > safeGap && closing < 2) return null;
+  // A positive closing rate is not itself a conflict. Until the follower is
+  // inside the safe gap, it is simply approaching normally; stopping a ship
+  // hundreds of pixels early turns a line of independent attackers into an
+  // accidental firing rank. Predictive contacts still qualify above when the
+  // projected near point is genuinely within hull clearance.
+  if (!predicted && physicalGap > safeGap) return null;
+  const ownGoalAlong = routeGoalAlong(ship, ship, vector);
+  const otherGoalAlong = routeGoalAlong(other, ship, vector);
   return {
     distance,
     physicalGap,
@@ -226,6 +291,9 @@ function encounterFor(ship, other, vector) {
     rx,
     ry,
     predicted,
+    followToOwnGoal: Number.isFinite(ownGoalAlong)
+      && Number.isFinite(otherGoalAlong)
+      && otherGoalAlong > ownGoalAlong + TRAFFIC_FOLLOW_GAP,
     crossing: fastHypot(other.vx || 0, other.vy || 0) > REST_SPEED
       && Math.abs(otherAlong) <= REST_SPEED
   };
@@ -252,10 +320,24 @@ function crossingReleased(ship, other, vector) {
   const rx = (other.x || 0) - (ship.x || 0);
   const ry = (other.y || 0) - (ship.y || 0);
   const lateral = rx * -vector.y + ry * vector.x;
-  return Math.abs(lateral) > physicalCollisionRadius(ship)
-    + physicalCollisionRadius(other)
-    + TRAFFIC_RELEASE_GAP
-    && fastHypot(other.vx || 0, other.vy || 0) > REST_SPEED;
+  const separated = Math.abs(lateral) > physicalCollisionRadius(ship)
+      + physicalCollisionRadius(other)
+      + TRAFFIC_RELEASE_GAP;
+  // A queue must not remain latched to a blocker that has already stopped.
+  // It is safe to reconsider the pair in that case; the normal priority and
+  // passing-space checks will decide whether to follow, bypass, or queue again.
+  return separated || isStationary(other);
+}
+
+function friendlyContactDuration(room, ship, other, now) {
+  if (!areEntityAllies(room, ship?.ownerId, other)) return 0;
+  const contact = room?._shipCollisionContacts?.get(pairKey(ship, other));
+  if (!contact) return 0;
+  const startedAt = Number(contact.startedAt);
+  const lastAt = Number(contact.at);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(lastAt)
+    || Number(now) - lastAt > 250) return 0;
+  return Math.max(0, Number(now) - startedAt);
 }
 
 function resolveTraffic(room, ship, runtime, now) {
@@ -270,6 +352,16 @@ function resolveTraffic(room, ship, runtime, now) {
     clearTrafficState(runtime);
     setLegacyTrafficTelemetry(ship, state);
     return { mode: "clear", speedCap: null, heading: null };
+  }
+  const targetRelativeCombat = combatSlotActive(runtime);
+  if (targetRelativeCombat && state.mode === "bypass") {
+    // Combat slots are target-relative. A sideways pass would turn a firing
+    // sector into a second moving formation and can send the hull across the
+    // target's other attackers. Keep only the vehicle-like follow/queue result.
+    state.mode = "clear";
+    state.side = 0;
+    state.bypass = null;
+    state.crossing = false;
   }
   const ownSpeed = fastHypot(ship.vx || 0, ship.vy || 0);
   const range = Math.min(
@@ -293,7 +385,17 @@ function resolveTraffic(room, ship, runtime, now) {
   if (!best) {
     const blocker = state.blockerId ? room.ships?.get?.(String(state.blockerId)) : null;
     if (blocker?.alive && !passedBlocker(ship, blocker, vector)) {
-      if (state.mode === "bypass" && state.bypass) {
+      if (state.mode === "soft") {
+        const physicalGap = fastHypot(ship.x - blocker.x, ship.y - blocker.y)
+          - physicalCollisionRadius(ship) - physicalCollisionRadius(blocker);
+        if (physicalGap < TRAFFIC_RELEASE_GAP) {
+          setLegacyTrafficTelemetry(ship, state);
+          return { mode: "soft", speedCap: null, heading: null };
+        }
+      }
+      const combatQueue = areEntityAllies(room, ship?.ownerId, blocker)
+        && sameAttackTarget(ship, blocker);
+      if (state.mode === "bypass" && state.bypass && !combatQueue && !targetRelativeCombat) {
         if (bypassReleased(ship, blocker, vector, state.bypass)) {
           clearTrafficState(runtime);
           setLegacyTrafficTelemetry(ship, state);
@@ -310,11 +412,34 @@ function resolveTraffic(room, ship, runtime, now) {
         return {
           mode: "bypass",
           speedCap: TRAFFIC_BYPASS_SPEED,
-          heading: Math.atan2(point.y - ship.y, point.x - ship.x)
+          heading: Math.atan2(point.y - ship.y, point.x - ship.x),
+          point
         };
+      }
+      if (combatQueue && state.mode === "bypass") {
+        state.mode = "clear";
+        state.side = 0;
+        state.bypass = null;
+        state.crossing = false;
       }
       if (state.mode === "queue" && state.crossing
         && !crossingReleased(ship, blocker, vector)) {
+        const blockerIsFriendly = areEntityAllies(room, ship?.ownerId, blocker);
+        const hasBlockedAt = state.blockedAt !== null
+          && state.blockedAt !== undefined
+          && Number.isFinite(Number(state.blockedAt));
+        const timedOut = blockerIsFriendly && Math.max(
+          hasBlockedAt ? now - Number(state.blockedAt) : 0,
+          friendlyContactDuration(room, ship, blocker, now)
+        ) >= 1500;
+        if (timedOut) {
+          state.mode = "soft";
+          state.side = 0;
+          state.bypass = null;
+          state.crossing = false;
+          setLegacyTrafficTelemetry(ship, state);
+          return { mode: "soft", speedCap: null, heading: null };
+        }
         setLegacyTrafficTelemetry(ship, state);
         return { mode: "queue", speedCap: 0, heading: null };
       }
@@ -325,6 +450,41 @@ function resolveTraffic(room, ship, runtime, now) {
   }
 
   const { other, encounter, pair, vector: activeVector } = best;
+  const committedBlocker = state.blockerId
+    ? room.ships?.get?.(String(state.blockerId))
+    : null;
+  const committedCombatQueue = committedBlocker?.alive
+    && areEntityAllies(room, ship?.ownerId, committedBlocker)
+    && sameAttackTarget(ship, committedBlocker);
+  // Once a vehicle has selected an entry and exit, a newly nearer hull must
+  // not rebuild that bypass around a different pair. Keep the side and points
+  // stable until this blocker has been passed; otherwise a crowded screen can
+  // make the follower orbit between freshly generated bypass points.
+  if (state.mode === "bypass"
+    && state.bypass
+    && committedBlocker?.alive
+    && !committedCombatQueue
+    && !targetRelativeCombat
+    && !passedBlocker(ship, committedBlocker, activeVector)) {
+    if (bypassReleased(ship, committedBlocker, activeVector, state.bypass)) {
+      clearTrafficState(runtime);
+    } else {
+      if (state.bypass.stage === "entry"
+        && fastHypot(ship.x - state.bypass.entry.x, ship.y - state.bypass.entry.y) <= TRAFFIC_FOLLOW_GAP) {
+        state.bypass.stage = "exit";
+      }
+      const point = state.bypass.stage === "entry"
+        ? state.bypass.entry
+        : state.bypass.exit;
+      setLegacyTrafficTelemetry(ship, state);
+      return {
+        mode: "bypass",
+        speedCap: TRAFFIC_BYPASS_SPEED,
+        heading: Math.atan2(point.y - ship.y, point.x - ship.x),
+        point
+      };
+    }
+  }
   if (state.pairKey !== pair || state.blockerId !== other.id) {
     state.mode = "clear";
     state.blockerId = other.id;
@@ -333,6 +493,53 @@ function resolveTraffic(room, ship, runtime, now) {
     state.bypass = null;
     state.priorityId = best.winnerId;
     state.crossing = false;
+    state.blockedAt = rememberedBlockedAt(room, pair, now);
+  }
+
+  const friendlyEncounter = areEntityAllies(room, ship?.ownerId, other);
+  // Ships sharing one explicit attack order approach independently, but they
+  // never choose a lateral bypass through another member of that same attack.
+  // The front ship may enter its positioned phase one update after the rear
+  // ship is evaluated, so key this queue on the stable order itself rather
+  // than on a phase that can lag by one sequential update.
+  const combatQueue = friendlyEncounter && sameAttackTarget(ship, other);
+  const hasBlockedAt = state.blockedAt !== null
+    && state.blockedAt !== undefined
+    && Number.isFinite(Number(state.blockedAt));
+  if (friendlyEncounter && hasBlockedAt) {
+    rememberBlockedAt(room, pair, state.blockedAt, now);
+  }
+  const friendlyTimedOut = friendlyEncounter
+    && Math.max(
+      hasBlockedAt ? now - Number(state.blockedAt) : 0,
+      friendlyContactDuration(room, ship, other, now)
+    ) >= 1500;
+
+  // A stopped formation member can be beyond this ship's own assigned slot.
+  // That is not a blocker: the follower's static route ends first, so it should
+  // continue to its slot without trying to pass the member parked farther on.
+  // If the leader is still moving, cap the follower at the leader's own speed
+  // until the leader clears the lane.
+  if (encounter.followToOwnGoal) {
+    state.mode = isStationary(other) ? "clear" : "follow";
+    state.side = 0;
+    state.bypass = null;
+    state.crossing = false;
+    if (state.mode === "clear") state.blockedAt = null;
+    else if (state.blockedAt === null || state.blockedAt === undefined
+      || !Number.isFinite(Number(state.blockedAt))) state.blockedAt = now;
+    if (state.mode !== "clear") rememberBlockedAt(room, pair, state.blockedAt, now);
+    if (state.mode === "clear") {
+      setLegacyTrafficTelemetry(ship, state);
+      return { mode: "clear", speedCap: null, heading: null };
+    }
+    bumpMovementMetric("trafficFollowActivations");
+    setLegacyTrafficTelemetry(ship, state);
+    return {
+      mode: "follow",
+      speedCap: Math.max(0, encounter.otherAlong),
+      heading: null
+    };
   }
 
   // A crossing queue is a committed decision too. Do not turn it into a pass
@@ -340,6 +547,14 @@ function resolveTraffic(room, ship, runtime, now) {
   // the stopped follower; release it only after the pair has separated laterally.
   if (state.mode === "queue" && state.crossing) {
     if (!crossingReleased(ship, other, activeVector)) {
+      if (friendlyTimedOut) {
+        state.mode = "soft";
+        state.side = 0;
+        state.bypass = null;
+        state.crossing = false;
+        setLegacyTrafficTelemetry(ship, state);
+        return { mode: "soft", speedCap: null, heading: null };
+      }
       setLegacyTrafficTelemetry(ship, state);
       return { mode: "queue", speedCap: 0, heading: null };
     }
@@ -347,7 +562,7 @@ function resolveTraffic(room, ship, runtime, now) {
     state.crossing = false;
   }
 
-  if (state.mode === "bypass" && state.bypass) {
+  if (state.mode === "bypass" && state.bypass && !combatQueue && !targetRelativeCombat) {
     if (bypassReleased(ship, other, activeVector, state.bypass)) {
       clearTrafficState(runtime);
       setLegacyTrafficTelemetry(ship, state);
@@ -364,21 +579,35 @@ function resolveTraffic(room, ship, runtime, now) {
     return {
       mode: "bypass",
       speedCap: TRAFFIC_BYPASS_SPEED,
-      heading: Math.atan2(point.y - ship.y, point.x - ship.x)
+      heading: Math.atan2(point.y - ship.y, point.x - ship.x),
+      point
     };
   }
 
   if (encounter.crossing) {
+    if (friendlyTimedOut) {
+      state.mode = "soft";
+      state.side = 0;
+      state.bypass = null;
+      state.crossing = false;
+      setLegacyTrafficTelemetry(ship, state);
+      return { mode: "soft", speedCap: null, heading: null };
+    }
     state.mode = "queue";
     state.side = 0;
     state.bypass = null;
     state.crossing = true;
+    if (state.blockedAt === null || state.blockedAt === undefined
+      || !Number.isFinite(Number(state.blockedAt))) state.blockedAt = now;
+    if (friendlyEncounter) rememberBlockedAt(room, pair, state.blockedAt, now);
     bumpMovementMetric("trafficQueueActivations");
     setLegacyTrafficTelemetry(ship, state);
     return { mode: "queue", speedCap: 0, heading: null };
   }
 
-  const bypass = chooseBypass(room, ship, other, activeVector, nearby);
+  const bypass = targetRelativeCombat || combatQueue
+    ? null
+    : chooseBypass(room, ship, other, activeVector, nearby);
   // Commit the pass before the safe gap is exhausted. Head-on traffic has a
   // negative leader speed along this route, so waiting until the following
   // gap is already small leaves no turning room for a vehicle-sized bypass.
@@ -387,19 +616,46 @@ function resolveTraffic(room, ship, runtime, now) {
     state.mode = "bypass";
     state.side = bypass.side;
     state.bypass = bypass;
+    if (friendlyEncounter && (state.blockedAt === null || state.blockedAt === undefined
+      || !Number.isFinite(Number(state.blockedAt)))) state.blockedAt = now;
+    if (friendlyEncounter) rememberBlockedAt(room, pair, state.blockedAt, now);
     bumpMovementMetric("trafficBypassActivations");
     setLegacyTrafficTelemetry(ship, state);
     return {
       mode: "bypass",
       speedCap: TRAFFIC_BYPASS_SPEED,
-      heading: Math.atan2(bypass.entry.y - ship.y, bypass.entry.x - ship.x)
+      heading: Math.atan2(bypass.entry.y - ship.y, bypass.entry.x - ship.x),
+      point: bypass.entry
     };
+  }
+
+  // A friendly pair that has had no usable bypass for long enough is released
+  // from the queue. This check deliberately follows bypass selection: a
+  // committed pass remains a pass, while a blocked follower gets the timed
+  // soft-overlap behavior instead of oscillating between queue and sidestep.
+  if (friendlyTimedOut) {
+    state.mode = "soft";
+    state.side = 0;
+    state.bypass = null;
+    state.crossing = false;
+    setLegacyTrafficTelemetry(ship, state);
+    return { mode: "soft", speedCap: null, heading: null };
   }
 
   state.mode = isStationary(other) ? "queue" : "follow";
   state.side = 0;
   state.bypass = null;
   state.crossing = false;
+  if (state.mode === "queue" || state.mode === "follow") {
+    if (state.blockedAt === null || state.blockedAt === undefined
+      || !Number.isFinite(Number(state.blockedAt))) state.blockedAt = now;
+  } else {
+    state.blockedAt = null;
+  }
+  if (friendlyEncounter && state.blockedAt !== null && state.blockedAt !== undefined
+    && Number.isFinite(Number(state.blockedAt))) {
+    rememberBlockedAt(room, pair, state.blockedAt, now);
+  }
   bumpMovementMetric(state.mode === "queue" ? "trafficQueueActivations" : "trafficFollowActivations");
   setLegacyTrafficTelemetry(ship, state);
   return {

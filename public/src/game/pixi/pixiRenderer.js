@@ -86,6 +86,10 @@ export async function initPixiRenderer() {
   enemyShipBodiesMasked.label = "EnemyShipBodiesMasked";
   enemyShipBodiesMasked.addChild(enemyVisibilityMask);
   enemyShipBodiesMasked.mask = enemyVisibilityMask;
+  const stationCovers = new PIXI.Graphics();
+  stationCovers.label = "StationHangarCovers";
+  const stationWeapons = new PIXI.Container();
+  stationWeapons.label = "StationWeapons";
   const layers = {
     backdropRoot,
     worldRoot,
@@ -104,6 +108,11 @@ export async function initPixiRenderer() {
     friendlyShipBodies: new PIXI.Container(),
     enemyShipBodiesMasked,
     enemyVisibilityMask,
+    // Cosmetic canopy art is above ship bodies so a hull is visibly revealed
+    // from the hangar. Weapon sprites get their own layer immediately above
+    // the canopy so they remain visibly mounted over the cover.
+    stationCovers,
+    stationWeapons,
     shipOverlays: new PIXI.Container(),
     drones: new PIXI.Container(),
     friendlyBullets: new PIXI.Container(),
@@ -128,6 +137,8 @@ export async function initPixiRenderer() {
   worldRoot.addChild(layers.fog);
   // Friendly ships and overlays remain above the fog presentation.
   worldRoot.addChild(layers.friendlyShipBodies);
+  worldRoot.addChild(layers.stationCovers);
+  worldRoot.addChild(layers.stationWeapons);
   worldRoot.addChild(layers.shipOverlays);
   worldRoot.addChild(layers.drones);
   worldRoot.addChild(layers.friendlyBullets);

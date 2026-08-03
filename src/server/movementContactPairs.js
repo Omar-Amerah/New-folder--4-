@@ -612,7 +612,25 @@ function collectMovementContactMovedShips(room, ships, modifiedShipIds = []) {
     const record = room?.spatialIndex?.recordsByEntity?.ships?.get(ship);
     const movedFromRecord = !record
       || fastHypot(finite(ship.x) - finite(record.x), finite(ship.y) - finite(record.y)) > MATERIAL_MOVEMENT_DELTA;
-    if (!movedFromRecord) continue;
+    // The production tick republishes the ship index before this recovery
+    // scan. That makes the record comparison intentionally blind to the
+    // movement that just happened. Keep the controller's authoritative
+    // movement/correction deltas, and the pre-step position captured by
+    // beginMovementContactStep, as the recovery signal as well.
+    const movedFromStep = ship._movementContactPreviousStep === room?._movementContactPairStepId
+      && fastHypot(
+        finite(ship.x) - finite(ship._movementContactPreviousX, ship.x),
+        finite(ship.y) - finite(ship._movementContactPreviousY, ship.y)
+      ) > MATERIAL_MOVEMENT_DELTA;
+    const movedByController = fastHypot(
+      finite(ship._integratedMovementX),
+      finite(ship._integratedMovementY)
+    ) > MATERIAL_MOVEMENT_DELTA;
+    const movedByCorrection = fastHypot(
+      finite(ship._collisionCorrectionX),
+      finite(ship._collisionCorrectionY)
+    ) > MATERIAL_MOVEMENT_DELTA;
+    if (!movedFromRecord && !movedFromStep && !movedByController && !movedByCorrection) continue;
     const key = String(ship.id);
     if (movedKeys.has(key)) continue;
     movedKeys.add(key);

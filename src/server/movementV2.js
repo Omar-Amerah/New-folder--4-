@@ -12,11 +12,12 @@
 //     moveSpeedToward(ship, desiredSpeed, dt)
 //     integratePosition(ship, dt)
 //
-// The controller has no other responsibilities. It holds no memory between
-// ticks beyond the order itself, takes no special cases per combat stance, and
-// contains no bang-bang branches -- every discontinuity ("brake now", "cut
-// thrust now", "face the other way now") is a limit cycle at tick rate and
-// reads to the player as jitter.
+// The controller has no other responsibilities. Its normal route plan is
+// stateless between ticks; the only short-lived exceptions are explicit
+// traffic commitments and static-contact slide state, both owned by the
+// authoritative movement runtime. It contains no bang-bang branches -- every
+// discontinuity ("brake now", "cut thrust now", "face the other way now") is a
+// limit cycle at tick rate and reads to the player as jitter.
 //
 // How the two numbers are chosen for a move order:
 //
@@ -113,6 +114,15 @@ const {
 } = require("./movementNavigation");
 const { stationAttackPoint } = require("./stationCollision");
 const {
+  applyCombatSlotAssignments,
+  assignCombatSlots,
+  combatGroupForTarget,
+  combatGroupSignature,
+  combatModeForShip,
+  combatSlotPoint,
+  combatSlotTargetMoved
+} = require("./movementCombatSlots");
+const {
   createMovementRuntime,
   ensureMovementRuntime,
   nextMovementCommandId,
@@ -202,12 +212,10 @@ const WAYPOINT_CAPTURE_RATIO = 0.75;
 // turning -- which is the whole of "turning is never blocked by nearby friendly
 // ships", and it is the only change needed to get it.
 //
-// Note what is deliberately NOT changed: the correction strength. Softening it
-// was tried, on the theory that gentler separation would keep a rotating group
-// from being shoved about. It is unnecessary -- rotation now creates no overlap
-// to correct in the first place -- and it is harmful: it leaves two hulls
-// spawned on the same coordinate visibly interpenetrated for several ticks
-// instead of recovering at once.
+// Normal contact correction remains strong enough to recover a newly packed
+// group immediately. Only a friendly pair that has crossed the timed soft
+// threshold gets the separate bounded correction in movementCollision; that
+// exception is what permits forward pressure without weakening spawn recovery.
 function getSeparationOptions() {
   return { circular: circularShipSeparation() };
 }
@@ -221,6 +229,20 @@ const ROUTE_REPLAN_DISTANCE = 48;
 // pushed off its route, or the route was never usable. Plan a new one.
 const ROUTE_STUCK_MS = 1500;
 const ROUTE_PROGRESS_EPSILON = 8;
+
+// Static contact is a short steering mode, not a second route. Collision
+// resolution refreshes the contact while the hull is touching the obstacle;
+// these thresholds control how the route responds to a persistent contact.
+const STATIC_SLIDE_SPEED_RATIO = 0.45;
+const STATIC_SLIDE_ESCAPE_SPEED_RATIO = 0.65;
+const STATIC_SLIDE_MIN_SPEED = 24;
+const STATIC_SLIDE_ESCAPE_AFTER_MS = 750;
+const STATIC_SLIDE_REPLAN_AFTER_MS = 1500;
+const STATIC_SLIDE_RECOVERY_AFTER_MS = 2500;
+const STATIC_SLIDE_RECOVERY_MAX_DISTANCE = 160;
+const SOFT_FRIENDLY_RANGE_PAD = ARRIVE_DISTANCE * 2;
+const COMBAT_SLOT_POSITION_TOLERANCE = ARRIVE_LATCH_DISTANCE + 12;
+const CHARGE_CONTACT_PADDING = 8;
 
 function normalizeHullAngle(angle) {
   let normalized = angle % (Math.PI * 2);
@@ -514,6 +536,23 @@ function currentFiringLineClear(room, ship, target) {
   return firingLineClearFrom(room, ship.x || 0, ship.y || 0, target);
 }
 
+function hasRecentSoftFriendlyContact(room, ship, runtime, now) {
+  if (runtime?.traffic?.mode === "soft") return true;
+  const contacts = room?._shipCollisionContacts;
+  if (!contacts?.size) return false;
+  const tick = Number(now) || 0;
+  const shipId = String(ship.id);
+  for (const [key, contact] of contacts) {
+    if (!(Number(contact?.duration) >= 1500)
+      || tick - (Number(contact?.at) || 0) > 250) continue;
+    const ids = String(key).split("|");
+    const otherId = ids[0] === shipId ? ids[1] : (ids[1] === shipId ? ids[0] : null);
+    const other = otherId ? room.ships?.get?.(otherId) : null;
+    if (other && areEntityAllies(room, ship.ownerId, other)) return true;
+  }
+  return false;
+}
+
 function radialSeparationSpeed(ship, target, distance) {
   const originX = ship.x || 0;
   const originY = ship.y || 0;
@@ -533,8 +572,9 @@ function radialSeparationSpeed(ship, target, distance) {
 // The destination this produces is a consequence of the target, never a place
 // the player clicked, and it is recomputed from the target's current position --
 // so a target that runs is followed and a target that closes is simply held.
-// Inside engagement range there is no destination at all, which is what makes
-// Hold stand still and shoot rather than fussing over an exact distance.
+// A Hold/Charge group keeps a target-relative destination until it reaches its
+// assigned slot; once there, the destination is cleared and the ship holds
+// station and faces the target.
 function refreshEngagement(room, ship, runtime, now) {
   const command = runtime.command;
   const engagement = engagementTarget(room, ship, runtime);
@@ -551,6 +591,7 @@ function refreshEngagement(room, ship, runtime, now) {
     runtime.chargeEngaged = false;
     runtime.blocked = false;
     runtime.firingSolution = null;
+    runtime.combatSlot = null;
     clearRoute(runtime);
     return;
   }
@@ -581,28 +622,39 @@ function refreshEngagement(room, ship, runtime, now) {
     runtime.holdEngaged = true;
     runtime.chargeEngaged = false;
     runtime.blocked = false;
+    runtime.combatSlot = null;
     clearRoute(runtime);
     return;
   }
 
+  const combatMode = type === "attack" ? combatModeForShip(ship) : null;
+  const combatSlot = combatMode
+    ? ensureCombatSlotAssignment(room, ship, target, combatMode, now, runtime)
+    : null;
+  if (type === "attack" && combatMode === "charge" && combatSlot?.staging) {
+    runtime.chargeEngaged = false;
+  }
+
   const geometry = engagementGeometry(ship, target);
   const distance = geometry.distance;
-  const ranges = engagementRanges(ship, target, type);
+  const ranges = engagementRanges(ship, target, type, explicit);
   const { enter, resume } = ranges;
 
   if (type === "attack" && combatStance(ship) === "charge") {
     runtime.holdEngaged = false;
     const armed = shipHasArmedProximityCharge(ship);
-    if (runtime.chargeEngaged) {
+    const contactSlot = !combatSlot || !combatSlot.staging;
+    if (runtime.chargeEngaged && contactSlot) {
       if (distance <= resume && radialSeparationSpeed(ship, target, targetDistanceFrom(ship.x || 0, ship.y || 0, target)) <= CHARGE_PURSUE_SPEED) {
         runtime.blocked = false;
         clearRoute(runtime);
         return;
       }
       runtime.chargeEngaged = false;
-    } else if (distance <= enter
+    } else if (contactSlot && distance <= enter
       && (armed || Math.abs(radialSeparationSpeed(ship, target, targetDistanceFrom(ship.x || 0, ship.y || 0, target))) <= CHARGE_SETTLE_RADIAL_SPEED)) {
       runtime.chargeEngaged = true;
+      if (combatSlot) combatSlot.contactEstablished = true;
       runtime.blocked = false;
       clearRoute(runtime);
       return;
@@ -613,7 +665,7 @@ function refreshEngagement(room, ship, runtime, now) {
     // prevents it leaning on and bulldozing a stationary target forever.
     runtime.ramming = armed;
 
-    const destination = reachableFiringPosition(
+    let destination = reachableFiringPosition(
       room,
       ship,
       target,
@@ -623,6 +675,19 @@ function refreshEngagement(room, ship, runtime, now) {
       enter,
       now
     );
+    if (!destination && combatMode === "charge" && runtime.combatSlot?.unreachable) {
+      ensureCombatSlotAssignment(room, ship, target, combatMode, now, runtime);
+      destination = reachableFiringPosition(
+        room,
+        ship,
+        target,
+        runtime,
+        command,
+        ranges.destination,
+        enter,
+        now
+      );
+    }
     runtime.blocked = !destination;
     if (destination) runtime.destination = destination;
     else clearRoute(runtime);
@@ -636,15 +701,25 @@ function refreshEngagement(room, ship, runtime, now) {
     // getting under way for again -- and nothing at all is worth backing away
     // from, however close it comes. With pursuit switched off, nothing at all
     // is: the ship has taken its position and that is where it stays.
+    const firingLineClear = type !== "attack" || currentFiringLineClear(room, ship, target);
+    const slotPoint = combatSlotPoint(target, combatSlot);
+    const slotDisplaced = Boolean(slotPoint
+      && fastHypot(slotPoint.x - (ship.x || 0), slotPoint.y - (ship.y || 0))
+        > COMBAT_SLOT_POSITION_TOLERANCE);
+    const softContactBand = hasRecentSoftFriendlyContact(room, ship, runtime, now)
+      && distance <= enter + SOFT_FRIENDLY_RANGE_PAD
+      && firingLineClear;
     const chase = toggles.pursue
-      && (distance > resume || (type === "attack" && !currentFiringLineClear(room, ship, target)));
+      && !softContactBand
+      && (distance > resume || !firingLineClear
+        || (slotDisplaced && distance > enter + COMBAT_SLOT_POSITION_TOLERANCE));
     if (!chase) {
       runtime.blocked = false;
       clearRoute(runtime);
       return;
     }
     runtime.holdEngaged = false;
-  } else if (canEngageFromHere(room, ship, target, type, runtime, distance, enter, resume)) {
+  } else if (canEngageFromHere(room, ship, target, type, runtime, distance, enter, resume, now)) {
     runtime.holdEngaged = true;
     runtime.blocked = false;
     clearRoute(runtime);
@@ -656,7 +731,7 @@ function refreshEngagement(room, ship, runtime, now) {
   // only place that knows all three things at the same time: the stance, the
   // target, and whether the charge is still aboard to be delivered.
   runtime.ramming = false;
-  const destination = reachableFiringPosition(
+  let destination = reachableFiringPosition(
     room,
     ship,
     target,
@@ -666,6 +741,19 @@ function refreshEngagement(room, ship, runtime, now) {
     enter,
     now
   );
+  if (!destination && combatMode === "hold" && runtime.combatSlot?.unreachable) {
+    ensureCombatSlotAssignment(room, ship, target, combatMode, now, runtime);
+    destination = reachableFiringPosition(
+      room,
+      ship,
+      target,
+      runtime,
+      command,
+      ranges.destination,
+      enter,
+      now
+    );
+  }
   runtime.blocked = !destination;
   if (destination) runtime.destination = destination;
   else clearRoute(runtime);
@@ -673,8 +761,15 @@ function refreshEngagement(room, ship, runtime, now) {
 
 // Is this ship close enough to stop and fire? Each attack order resolves its own
 // range and line of sight. There is no shared firing rank or group destination.
-function canEngageFromHere(room, ship, target, type, runtime, distance, enter, resume) {
-  const inBand = distance <= enter || (runtime.arrived && distance <= resume);
+function canEngageFromHere(room, ship, target, type, runtime, distance, enter, resume, now) {
+  const slotPoint = combatSlotPoint(target, runtime?.combatSlot);
+  if (slotPoint
+    && fastHypot(slotPoint.x - (ship.x || 0), slotPoint.y - (ship.y || 0))
+      > COMBAT_SLOT_POSITION_TOLERANCE) return false;
+  const softContact = hasRecentSoftFriendlyContact(room, ship, runtime, now);
+  const inBand = distance <= enter
+    || (softContact && distance <= enter + SOFT_FRIENDLY_RANGE_PAD)
+    || (runtime.arrived && distance <= resume);
   if (!inBand) return false;
   return type !== "attack" || currentFiringLineClear(room, ship, target);
 }
@@ -745,9 +840,94 @@ function preferredFiringBearing(ship, target, runtime, command, standoff) {
   return heldApproach(ship, target, runtime);
 }
 
+function ensureCombatSlotAssignment(room, ship, target, mode, now, runtime) {
+  if (!target || !mode) return null;
+  const group = combatGroupForTarget(room, target, mode);
+  if (!group.some((member) => member.id === ship.id)) group.push(ship);
+  const uniqueGroup = Array.from(new Map(group.map((member) => [member.id, member])).values());
+  for (const member of uniqueGroup) ensureMovementRuntime(member);
+  uniqueGroup.sort((a, b) => compareEntityIds(a, b));
+
+  const signature = combatGroupSignature(uniqueGroup);
+  const slot = runtime.combatSlot;
+  const targetChanged = !slot
+    || String(slot.targetId) !== String(target.id)
+    || slot.combatMode !== mode
+    || slot.groupSignature !== signature
+    || combatSlotTargetMoved(slot, target);
+  const geometry = slot && mode === "charge" && slot.contactEstablished && !runtime.chargeEngaged
+    ? engagementGeometry(ship, target)
+    : null;
+  const contactLost = Boolean(geometry
+    && geometry.distance > engagementRanges(ship, target, "attack", true).enter
+      + COMBAT_SLOT_POSITION_TOLERANCE);
+  if (targetChanged || slot?.unreachable || contactLost) {
+    const blockedAngles = new Map();
+    if (slot?.unreachable && Number.isFinite(Number(slot.assignedAngle))) {
+      blockedAngles.set(ship.id, Number(slot.assignedAngle));
+    }
+    const assignments = assignCombatSlots(room, uniqueGroup, target, mode, now, { blockedAngles });
+    applyCombatSlotAssignments(uniqueGroup, assignments);
+  }
+  return ensureMovementRuntime(ship).combatSlot;
+}
+
 function reachableFiringPosition(room, ship, target, runtime, command, standoff, engageRange, now) {
   const navigation = ensureRoomNavigation(room);
   const targetId = String(target.id);
+  const assignedSlot = runtime.combatSlot
+    && String(runtime.combatSlot.targetId) === targetId
+    ? runtime.combatSlot
+    : null;
+
+  if (assignedSlot) {
+    const slotPoint = combatSlotPoint(target, assignedSlot);
+    const candidate = slotPoint && assignedSlot.combatMode === "charge" && !targetIsStation(target)
+      ? {
+        x: (Number(target.x) || 0)
+          + Math.cos(Number(assignedSlot.assignedAngle))
+            * Math.max(0, Number(assignedSlot.assignedRadius) - ARRIVE_DISTANCE),
+        y: (Number(target.y) || 0)
+          + Math.sin(Number(assignedSlot.assignedAngle))
+            * Math.max(0, Number(assignedSlot.assignedRadius) - ARRIVE_DISTANCE)
+      }
+      : slotPoint;
+    if (!candidate) {
+      assignedSlot.unreachable = true;
+      return null;
+    }
+    const requiresLineOfSight = combatStance(ship) !== "charge";
+    if (requiresLineOfSight && !firingLineClearFrom(room, candidate.x, candidate.y, target)) {
+      assignedSlot.unreachable = true;
+      return null;
+    }
+    const clearance = routeClearance(ship);
+    const clear = nearestClearPoint(room, candidate.x, candidate.y, clearance + 12);
+    if (!clear.clear || fastHypot(clear.x - candidate.x, clear.y - candidate.y) > 2) {
+      assignedSlot.unreachable = true;
+      return null;
+    }
+    if (!isSegmentClear(room, ship.x, ship.y, candidate.x, candidate.y, clearance)) {
+      const search = searchPathWorld(room, ship.x, ship.y, candidate.x, candidate.y, clearance);
+      if (!search.reachedGoal) {
+        assignedSlot.unreachable = true;
+        return null;
+      }
+    }
+    runtime.firingSolution = {
+      targetId,
+      targetX: target.x,
+      targetY: target.y,
+      navigation,
+      standoff,
+      bearing: assignedSlot.assignedAngle,
+      assignedRadius: assignedSlot.assignedRadius,
+      slot: true,
+      retryAt: 0
+    };
+    return candidate;
+  }
+
   const destinationRadius = standoff;
   const restingRadius = engageRange;
   const cached = runtime.firingSolution;
@@ -944,6 +1124,11 @@ function planRoute(room, ship, runtime, destination, now) {
     progressAt: now
   };
   if (reachable) runtime.blocked = false;
+  if (runtime.slide && now >= Number(runtime.slide.replanAt)) {
+    runtime.slide.replanAt = now + STATIC_SLIDE_REPLAN_AFTER_MS;
+    runtime.slide.replanCount = (Number(runtime.slide.replanCount) || 0) + 1;
+    bumpMovementMetric("staticSlideReplans");
+  }
   bumpMovementMetric("pathReplanCount");
   if (!reachable) bumpMovementMetric("pathUnreachableCount");
 }
@@ -959,6 +1144,22 @@ function routeNeedsReplan(room, ship, runtime, destination, now) {
   if (route.navigation !== ensureRoomNavigation(room)) return true;
   if (fastHypot(destination.x - route.destination.x, destination.y - route.destination.y)
     > ROUTE_REPLAN_DISTANCE) return true;
+
+  const slide = runtime.slide;
+  const slideReplanAt = Number(slide?.replanAt);
+  if (slide
+    && Number(now) < Number(slide.expiresAt)
+    && (!Number.isFinite(slideReplanAt) || Number(now) < slideReplanAt)) {
+    // Collision contact owns the temporary tangent course. Do not let the
+    // ordinary stuck timer immediately discard it and point the hull back at
+    // the surface on the next tick.
+    route.progressAt = now;
+    route.progressDistance = fastHypot(
+      (runtime.path[routeWaypointIndex(runtime)]?.x ?? ship.x) - ship.x,
+      (runtime.path[routeWaypointIndex(runtime)]?.y ?? ship.y) - ship.y
+    );
+    return false;
+  }
 
   const index = routeWaypointIndex(runtime);
   const goal = runtime.path[index];
@@ -987,6 +1188,166 @@ function routeNeedsReplan(room, ship, runtime, destination, now) {
     route.progressAt = now;
   }
   return distance > route.clearance && now - (route.progressAt ?? now) > ROUTE_STUCK_MS;
+}
+
+function slideTangent(slide, side) {
+  const normalLength = fastHypot(Number(slide?.normalX) || 0, Number(slide?.normalY) || 0);
+  if (!(normalLength > 0.001)) return null;
+  const nx = slide.normalX / normalLength;
+  const ny = slide.normalY / normalLength;
+  return side === 1 ? { x: -ny, y: nx } : { x: ny, y: -nx };
+}
+
+function chooseStaticSlideSide(ship, slide, goal) {
+  if (slide.side === -1 || slide.side === 1) return slide.side;
+  const left = slideTangent(slide, 1);
+  const right = slideTangent(slide, -1);
+  if (!left || !right) return 0;
+  const dx = (goal?.x ?? ship.x) - ship.x;
+  const dy = (goal?.y ?? ship.y) - ship.y;
+  const length = fastHypot(dx, dy);
+  const leftScore = length > 0.001 ? (left.x * dx + left.y * dy) / length : 0;
+  const rightScore = length > 0.001 ? (right.x * dx + right.y * dy) / length : 0;
+  if (Math.abs(leftScore - rightScore) > 0.001) return leftScore > rightScore ? 1 : -1;
+  // A tie is still a decision, not a per-tick coin flip. The obstacle id is
+  // part of the stable pair identity, so two ships meeting the same surface
+  // choose reproducibly even if their headings happen to match.
+  return String(ship.id) <= String(slide.obstacleId) ? 1 : -1;
+}
+
+function refreshStaticSlide(room, ship, runtime, now) {
+  const slide = runtime.slide;
+  if (!slide) return;
+  if (Number.isFinite(Number(slide.expiresAt)) && now > Number(slide.expiresAt)) {
+    runtime.slide = null;
+    return;
+  }
+  const index = routeWaypointIndex(runtime);
+  const goal = runtime.path?.[index] || runtime.destination;
+  if (goal && isSegmentClear(room, ship.x, ship.y, goal.x, goal.y, routeClearance(ship))) {
+    runtime.slide = null;
+    return;
+  }
+  if (runtime.route && now < Number(slide.replanAt)) {
+    runtime.route.progressAt = now;
+  }
+}
+
+function applyStaticSlideSteering(room, ship, runtime, stats, route, plan, now) {
+  const slide = runtime.slide;
+  if (!slide) return false;
+  if (Number.isFinite(Number(slide.expiresAt)) && now > Number(slide.expiresAt)) {
+    runtime.slide = null;
+    return false;
+  }
+  const goal = route?.goal || runtime.destination;
+  if (goal && isSegmentClear(room, ship.x, ship.y, goal.x, goal.y, routeClearance(ship))) {
+    runtime.slide = null;
+    return false;
+  }
+  const side = chooseStaticSlideSide(ship, slide, goal);
+  const tangent = slideTangent(slide, side);
+  if (!tangent) return false;
+  if (slide.side !== side) {
+    slide.side = side;
+    bumpMovementMetric("staticSlideSideChoices");
+  }
+  if (!Number.isFinite(Number(slide.steeringAt))) {
+    slide.steeringAt = now;
+    bumpMovementMetric("staticSlideActivations");
+  }
+  const elapsed = Math.max(0, now - (Number(slide.startedAt) || now));
+  const maximum = Math.min(
+    Number(stats.maxSpeed) || 0,
+    Number.isFinite(Number(ship.stats?.maxSpeed)) && Number(ship.stats.maxSpeed) > 0
+      ? Number(ship.stats.maxSpeed)
+      : Number(stats.maxSpeed) || 0
+  );
+  plan.desiredHeading = Math.atan2(tangent.y, tangent.x);
+  if (hasDrive(stats) && maximum > 0) {
+    const ratio = elapsed >= STATIC_SLIDE_ESCAPE_AFTER_MS
+      ? STATIC_SLIDE_ESCAPE_SPEED_RATIO
+      : STATIC_SLIDE_SPEED_RATIO;
+    const slideSpeed = Math.min(
+      maximum,
+      Math.max(STATIC_SLIDE_MIN_SPEED, maximum * ratio)
+    );
+    plan.desiredSpeed = slideSpeed;
+    plan.speedCeiling = slideSpeed;
+    plan.phase = "travelling";
+    runtime.arrived = false;
+    runtime.orderComplete = false;
+  }
+  return true;
+}
+
+function tryStaticSlideRecovery(room, ship, runtime, now) {
+  const slide = runtime.slide;
+  if (!slide || now < Number(slide.recoveryAt)) return false;
+  const normalLength = fastHypot(Number(slide.normalX) || 0, Number(slide.normalY) || 0);
+  if (!(normalLength > 0.001)) return false;
+  const nx = slide.normalX / normalLength;
+  const ny = slide.normalY / normalLength;
+  const side = slide.side === -1 || slide.side === 1 ? slide.side : 1;
+  const tangent = slideTangent(slide, side) || { x: -ny, y: nx };
+  const directions = [
+    { x: nx, y: ny },
+    { x: nx + tangent.x, y: ny + tangent.y },
+    { x: nx - tangent.x, y: ny - tangent.y },
+    tangent,
+    { x: -tangent.x, y: -tangent.y }
+  ];
+  const distances = [
+    physicalCollisionRadius(ship) + 12,
+    physicalCollisionRadius(ship) + 32,
+    physicalCollisionRadius(ship) + 64,
+    physicalCollisionRadius(ship) + 96
+  ];
+  let best = null;
+  for (const rawDirection of directions) {
+    const directionLength = fastHypot(rawDirection.x, rawDirection.y);
+    if (!(directionLength > 0.001)) continue;
+    const dx = rawDirection.x / directionLength;
+    const dy = rawDirection.y / directionLength;
+    for (const distance of distances) {
+      const candidate = {
+        x: ship.x + dx * distance,
+        y: ship.y + dy * distance
+      };
+      const clear = nearestClearPoint(room, candidate.x, candidate.y, navigationClearanceRadius(ship));
+      if (!clear?.clear) continue;
+      const adjustedDistance = fastHypot(clear.x - ship.x, clear.y - ship.y);
+      if (adjustedDistance > STATIC_SLIDE_RECOVERY_MAX_DISTANCE) continue;
+      if (!isSegmentClear(
+        room,
+        ship.x,
+        ship.y,
+        clear.x,
+        clear.y,
+        physicalCollisionRadius(ship)
+      )) continue;
+      if (!best || adjustedDistance < best.distance) {
+        best = { x: clear.x, y: clear.y, distance: adjustedDistance };
+      }
+    }
+  }
+  if (!best) {
+    slide.recoveryAt = now + 1000;
+    return false;
+  }
+  const oldX = ship.x;
+  const oldY = ship.y;
+  ship.x = best.x;
+  ship.y = best.y;
+  ship._collisionCorrectionX = (ship._collisionCorrectionX || 0) + ship.x - oldX;
+  ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + ship.y - oldY;
+  runtime.slide = null;
+  runtime.path = [];
+  runtime.waypointIndex = 0;
+  runtime.route = null;
+  runtime.blocked = false;
+  bumpMovementMetric("staticSlideRecoveries");
+  return true;
 }
 
 // Pure distance arithmetic over the cached route, so this is safe to run every
@@ -1205,10 +1566,10 @@ function movementToggles(ship) {
 // second; a charger is already touching its target, so the only thing the band
 // has to absorb is separation jitter. Anything wider would read as the ship
 // letting go.
-function engagementRanges(ship, target, type) {
+function engagementRanges(ship, target, type, explicit = false) {
   const hull = engagementGeometry(ship, target).contact;
   if (type !== "repair" && combatStance(ship) === "charge") {
-    const enter = hull;
+    const enter = hull + CHARGE_CONTACT_PADDING;
     return {
       enter,
       resume: enter + CHARGE_CLING_SLACK,
@@ -1221,10 +1582,16 @@ function engagementRanges(ship, target, type) {
   // A ship with nothing that reaches still has to stop somewhere short of
   // wearing its target as a hat.
   const contact = hull + REPAIR_STANDOFF_PAD;
-  const enter = Math.max(contact, reach * HOLD_RANGE_RATIO);
+  // A player-selected attack is a firing order, not a formation-positioning
+  // order: stop as soon as this hull has its own weapon envelope and LOS. The
+  // stance's 80% comfort range remains for automatically acquired targets.
+  const explicitAttack = explicit && type === "attack";
+  const enter = Math.max(contact, explicitAttack ? reach : reach * HOLD_RANGE_RATIO);
   return {
     enter,
-    resume: Math.max(contact, reach * HOLD_RESUME_RATIO),
+    resume: explicitAttack
+      ? enter + SOFT_FRIENDLY_RANGE_PAD
+      : Math.max(contact, reach * HOLD_RESUME_RATIO),
     // The arrival controller intentionally stops ARRIVE_DISTANCE short of its
     // command. Compensate here so the visible resting range, not the invisible
     // route endpoint, is exactly the stance percentage.
@@ -1243,7 +1610,7 @@ function trackedEntity(room, targetId) {
 // One plan per substep: where to point, how fast to go, and what phase to
 // report. Pure -- it reads the world and the order and returns numbers; nothing
 // here moves the ship.
-function planMovement(room, ship, runtime, stats, route) {
+function planMovement(room, ship, runtime, stats, route, steeringHeading = null, steeringPoint = null) {
   const command = runtime.command;
   const resting = { desiredHeading: restingHeading(ship, command), desiredSpeed: 0 };
 
@@ -1332,9 +1699,10 @@ function planMovement(room, ship, runtime, stats, route) {
   // The one point the controller steers at. It has no idea whether this is the
   // destination itself or a corner the search picked to get around an asteroid.
   const goal = route?.goal || destination;
-  const goalDistance = fastHypot(goal.x - (ship.x || 0), goal.y - (ship.y || 0));
+  const steeringGoal = steeringPoint || goal;
+  const goalDistance = fastHypot(steeringGoal.x - (ship.x || 0), steeringGoal.y - (ship.y || 0));
   const bearing = goalDistance > BEARING_MIN_DISTANCE
-    ? bearingTo(ship, goal)
+    ? bearingTo(ship, steeringGoal)
     : (ship.angle || 0);
   // A moving ship always faces the point it is currently flying toward. A
   // formation heading is an arrival-facing preference only; using it during
@@ -1342,12 +1710,18 @@ function planMovement(room, ship, runtime, stats, route) {
   // the speed/braking limits are calculated from this waypoint's real bearing.
   // That mismatch delays sideways corrections and can leave a ship oscillating
   // around its slot after an avoidance or separation correction.
-  const desiredHeading = bearing;
+  const desiredHeading = steeringHeading !== null
+    && steeringHeading !== undefined
+    && Number.isFinite(Number(steeringHeading))
+    ? Number(steeringHeading)
+    : bearing;
 
   // Speed from the ground still to cover -- along the whole remaining route, so
   // intermediate waypoints are rounded at speed and the ship comes to rest only
   // at the end.
-  const remainingToEnd = Math.max(0, (route ? route.remaining : distance) - ARRIVE_DISTANCE);
+  const remainingToEnd = steeringPoint
+    ? Math.max(0, goalDistance)
+    : Math.max(0, (route ? route.remaining : distance) - ARRIVE_DISTANCE);
   const safeArrivalSpeed = Math.sqrt(2 * brakingAcceleration(stats) * remainingToEnd);
 
   // Speed from the geometry of the turn: a ship doing v with turn rate w flies
@@ -1361,7 +1735,9 @@ function planMovement(room, ship, runtime, stats, route) {
   // bend with three thousand pixels of clear run still ahead of it. Taking the
   // corner itself is cornerLimit's job.
   const turnRate = maxTurnRate(stats);
-  const stoppingGoal = route && !route.isFinal ? route.remaining : goalDistance;
+  const stoppingGoal = steeringPoint
+    ? goalDistance
+    : (route && !route.isFinal ? route.remaining : goalDistance);
   const turnLimit = turnRate > 0 ? turnRate * Math.max(stoppingGoal, ARRIVE_DISTANCE) : Infinity;
 
   // A ramming run keeps neither of those.
@@ -1385,7 +1761,7 @@ function planMovement(room, ship, runtime, stats, route) {
   // Alignment throttle: full speed pointing at the goal, nothing at all pointing
   // away from it. The ship accelerates gently out of a turn and hard once it is
   // on course, and it never has to stop and aim before setting off.
-  const headingError = angleDifference(ship.angle || 0, bearing);
+  const headingError = angleDifference(ship.angle || 0, desiredHeading);
   const alignment = clampNumber(Math.cos(headingError), 0, 1);
   const effectiveMaxSpeed = Number(stats.maxSpeed) || 0;
   const paperMaxSpeed = Number(ship.stats?.maxSpeed);
@@ -1448,15 +1824,31 @@ function sanitizeMovementState(room, ship) {
 }
 
 function movementStep(room, ship, runtime, stats, routed, traffic, dt) {
-  const plan = planMovement(room, ship, runtime, stats, routed ? routeView(ship, runtime, stats) : null);
+  const route = routed ? routeView(ship, runtime, stats) : null;
+  const bypassHeading = traffic?.mode === "bypass" && Number.isFinite(traffic.heading)
+    ? traffic.heading
+    : null;
+  const bypassPoint = traffic?.mode === "bypass" && traffic.point
+    && Number.isFinite(Number(traffic.point.x))
+    && Number.isFinite(Number(traffic.point.y))
+    ? traffic.point
+    : null;
+  const plan = planMovement(room, ship, runtime, stats, route, bypassHeading, bypassPoint);
+  const sliding = applyStaticSlideSteering(
+    room,
+    ship,
+    runtime,
+    stats,
+    route,
+    plan,
+    Number(ship._simNow) || 0
+  );
 
   // Traffic has one of four explicit outcomes. A bypass owns the temporary
   // heading; following and queueing only cap forward speed. No generic lateral
   // nudge or proportional speed multiplier is applied to the route.
-  if (traffic?.mode === "bypass" && Number.isFinite(traffic.heading)) {
-    plan.desiredHeading = traffic.heading;
-  }
-  if (Number.isFinite(traffic?.speedCap)) {
+  if (!sliding && Number.isFinite(bypassHeading)) plan.desiredHeading = bypassHeading;
+  if (!sliding && Number.isFinite(traffic?.speedCap)) {
     plan.desiredSpeed = Math.min(plan.desiredSpeed, traffic.speedCap);
     if (Number.isFinite(plan.speedCeiling)) plan.speedCeiling = Math.min(plan.speedCeiling, traffic.speedCap);
   }
@@ -1533,6 +1925,8 @@ function updateShipMovement(room, ship, dt, now) {
     runtime.blocked = false;
   }
 
+  refreshStaticSlide(room, ship, runtime, ship._simNow);
+  tryStaticSlideRecovery(room, ship, runtime, ship._simNow);
   const routed = runtime.destination
     ? resolveRoute(room, ship, runtime, ship._simNow)
     : false;
@@ -1541,6 +1935,7 @@ function updateShipMovement(room, ship, dt, now) {
     runtime.waypointIndex = 0;
     runtime.route = null;
   }
+  refreshStaticSlide(room, ship, runtime, ship._simNow);
 
   // Also once per tick: the spatial query is the expensive part, and a threat
   // that is worth dodging does not appear and vanish inside a single frame.
@@ -1569,7 +1964,10 @@ function updateShipMovement(room, ship, dt, now) {
 // -- a ship shoved by a third party, a hull spawning into a crowd -- using
 // circles, so it can only ever undo positional overlap and never opposes a turn.
 function updateShipSeparation(room, ships, dt, now = 0) {
-  return resolveShipSeparation(room, ships, dt, now, getSeparationOptions());
+  return resolveShipSeparation(room, ships, dt, now, {
+    ...getSeparationOptions(),
+    dt
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1618,12 +2016,19 @@ function issueAttack(room, ship, commandId, targetId, now, options = {}) {
     targetId,
     manual: true
   });
+  const runtime = ensureMovementRuntime(ship);
+  runtime.combatSlot = options.combatSlot || null;
   if (target) {
-    const runtime = ensureMovementRuntime(ship);
     const distance = engagementGeometry(ship, target).distance;
     if (combatStance(ship) !== "charge"
-      && distance <= engagementRanges(ship, target, "attack").enter
-      && currentFiringLineClear(room, ship, target)) {
+      && distance <= engagementRanges(ship, target, "attack", true).enter
+      && currentFiringLineClear(room, ship, target)
+      && (!runtime.combatSlot
+        || (combatSlotPoint(target, runtime.combatSlot)
+          && fastHypot(
+            combatSlotPoint(target, runtime.combatSlot).x - ship.x,
+            combatSlotPoint(target, runtime.combatSlot).y - ship.y
+          ) <= COMBAT_SLOT_POSITION_TOLERANCE))) {
       runtime.holdEngaged = true;
     }
   }
@@ -1879,7 +2284,23 @@ function commandShips(room, player, x, y, options = {}) {
 
   if (enemy) {
     const now = gameplayNow(room);
-    for (const ship of ships) issueAttack(room, ship, commandId, livingTarget.id, now);
+    const assignments = new Map();
+    const modes = new Set(ships.map((ship) => combatModeForShip(ship)).filter(Boolean));
+    for (const mode of modes) {
+      const existing = combatGroupForTarget(room, livingTarget, mode);
+      const selectedForMode = ships.filter((ship) => combatModeForShip(ship) === mode);
+      const group = Array.from(new Map(
+        [...existing, ...selectedForMode].map((ship) => [ship.id, ship])
+      ).values());
+      const modeAssignments = assignCombatSlots(room, group, livingTarget, mode, now);
+      applyCombatSlotAssignments(group, modeAssignments);
+      for (const [shipId, slot] of modeAssignments) assignments.set(shipId, slot);
+    }
+    for (const ship of ships) {
+      issueAttack(room, ship, commandId, livingTarget.id, now, {
+        combatSlot: assignments.get(ship.id) || null
+      });
+    }
     return { ok: true, code: "attack", commanded: ships.length };
   }
   if (ally) {
@@ -1978,6 +2399,10 @@ function applyCombatStyle(ship, combatStyle) {
   // interpreted correctly, and leaving it stale made a ship continue flying
   // its previous stance while snapshots reported the newly selected one.
   ship.combatStyleRaw = combatStyle;
+  const runtime = ensureMovementRuntime(ship);
+  runtime.combatSlot = null;
+  runtime.holdEngaged = false;
+  runtime.chargeEngaged = false;
 }
 
 // Merge, not replace: a request naming one toggle leaves the rest of the ship's

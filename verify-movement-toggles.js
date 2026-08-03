@@ -10,7 +10,6 @@
 //   autoTurn             face what you are engaging once you have stopped
 //   autoEngage           go after targets nobody ordered you to
 //   pursue               go after a target that opens the range again
-//   matchFormationSpeed  travel at the group's pace rather than your own
 
 const assert = require("assert");
 const { movementTestTick } = require("./tools/movementTestTick");
@@ -336,7 +335,7 @@ function run() {
       `with pursue off it should let the target go (${standing.followed.toFixed(0)} px)`);
   }
 
-  // --- matchFormationSpeed --------------------------------------------------
+  // --- independent formation speed -----------------------------------------
   {
     // One fast hull and one slow one, sent to the same place together.
     const run = (toggles) => {
@@ -353,22 +352,17 @@ function run() {
       return { peak, pace: slow.stats.maxSpeed, own: fast.stats.maxSpeed };
     };
 
-    // What the toggle governs is the fast hull's cruise, not the gap: the pace
-    // is a speed cap, and it does nothing about the slow hull taking far longer
-    // to reach that speed in the first place. So a heavy group still strings out
-    // on the way up regardless -- the honest thing to assert is the cap itself.
-    const paced = run(null);
-    assert(paced.peak <= paced.pace + 2,
-      `by default the fast hull is held to the group's pace (${paced.peak.toFixed(0)} px/s against a pace of ${paced.pace.toFixed(0)})`);
+    // Formation slots do not impose a shared throttle. The fast hull keeps its
+    // own speed envelope even when the same order also contains a heavy hull.
+    const defaultRun = run(null);
+    assert(defaultRun.peak > defaultRun.pace + 20,
+      `the fast hull should retain its own pace (${defaultRun.peak.toFixed(0)} px/s against a slow hull at ${defaultRun.pace.toFixed(0)})`);
 
-    const loose = run({ matchFormationSpeed: false });
-    assert(loose.peak > paced.pace + 20,
-      `with matchFormationSpeed off it should run at its own pace (${loose.peak.toFixed(0)} px/s)`);
     // Bounded generously against the *design* figure, because the runtime one
     // is the design figure after power allocation and command auras have had
     // their say and runs a little above it.
-    assert(loose.peak <= loose.own * 1.2,
-      `...and no faster than its own hull allows (${loose.peak.toFixed(0)} px/s against a rated ${loose.own.toFixed(0)})`);
+    assert(defaultRun.peak <= defaultRun.own * 1.2,
+      `...and no faster than its own hull allows (${defaultRun.peak.toFixed(0)} px/s against a rated ${defaultRun.own.toFixed(0)})`);
   }
 
   console.log("verify-movement-toggles: OK");

@@ -171,8 +171,8 @@ function run() {
     simulate(room, ships, 45);
     const contact = hullContact(gunship, enemy);
     const settled = rangeTo(gunship, enemy);
-    assert(Math.abs(settled - contact) < 3,
-      `a ship with no charge should settle at contact (${settled.toFixed(1)} px vs ${contact.toFixed(1)})`);
+    assert(settled >= contact - 2 && settled <= contact + 16,
+      `a ship with no charge should settle on the padded contact ring (${settled.toFixed(1)} px vs ${contact.toFixed(1)})`);
     assert(speedOf(gunship) < 2,
       `...under the arrival controller rather than ramming (${speedOf(gunship).toFixed(1)} px/s)`);
     assert(facingError(gunship, enemy) < 0.1,
@@ -209,7 +209,7 @@ function run() {
         // Speed on the last tick still clear of the hull. Sampling once they are
         // touching measures what the separation solver left behind rather than
         // what the ship arrived at.
-        if (range > contact * 1.05) {
+        if (range > contact + 16) {
           clear = speedOf(attacker);
           if (range > contact * 2) touching = false;
         } else {

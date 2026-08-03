@@ -277,7 +277,8 @@ function run() {
       let closest = Infinity;
       const queued = { a: false, b: false };
       simulate(room, [a, b], 40, () => {
-        closest = Math.min(closest, Math.hypot(a.x - b.x, a.y - b.y));
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        closest = Math.min(closest, distance);
         if (a.movement.traffic?.mode === "queue" && a.movement.traffic.crossing) queued.a = true;
         if (b.movement.traffic?.mode === "queue" && b.movement.traffic.crossing) queued.b = true;
       });

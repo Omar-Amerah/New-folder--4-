@@ -152,12 +152,13 @@ function stationOverlapsCircle(station, x, y, radius) {
   return false;
 }
 
-function resolveStationCollision(room, ship, shipRadius) {
+function resolveStationCollision(room, ship, shipRadius, onContact = null) {
   if (!room?.stations?.length) return false;
   const shipX = ship.x || 0;
   const shipY = ship.y || 0;
   let hit = false;
-  for (const station of room.stations) {
+  for (let stationIndex = 0; stationIndex < room.stations.length; stationIndex += 1) {
+    const station = room.stations[stationIndex];
     if (!station?.collisionPieces?.length) continue;
     // station.radius already bounds every solid piece. Almost every ship on the
     // map is nowhere near a given structure, and this runs for each of them on
@@ -181,7 +182,8 @@ function resolveStationCollision(room, ship, shipRadius) {
       ? shipHullCircles(ship)
       : [{ x: ship.x || 0, y: ship.y || 0, radius: shipRadius }];
     for (const circle of circles) {
-      for (const piece of station.collisionPieces) {
+      for (let pieceIndex = 0; pieceIndex < station.collisionPieces.length; pieceIndex += 1) {
+        const piece = station.collisionPieces[pieceIndex];
       const cos = piece.cos !== undefined ? piece.cos : Math.cos(-piece.angle);
       const sin = piece.sin !== undefined ? -piece.sin : Math.sin(-piece.angle);
       const local = rotatePoint(circle.x - piece.x, circle.y - piece.y, cos, sin);
@@ -233,6 +235,14 @@ function resolveStationCollision(room, ship, shipRadius) {
       if (inwardSpeed < 0) {
         ship.vx -= inwardSpeed * worldN.x;
         ship.vy -= inwardSpeed * worldN.y;
+      }
+      if (typeof onContact === "function") {
+        onContact({
+          obstacleId: `station:${String(station.id ?? stationIndex)}:${String(piece.id ?? pieceIndex)}`,
+          normalX: worldN.x,
+          normalY: worldN.y,
+          penetration
+        });
       }
       hit = true;
       }

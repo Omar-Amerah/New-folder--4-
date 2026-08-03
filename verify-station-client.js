@@ -260,6 +260,7 @@ const {
   stationStateLabel,
   stationLocalBoundsForTest,
   stationHangarLocalForTest,
+  stationHangarCoverLocalForTest,
   stationShellOutlineForTest
 } = await import('./public/src/game/pixi/pixiStations.js');
 
@@ -314,6 +315,12 @@ assert.deepEqual(localHangar.map((bay) => bay.id), ['left', 'central', 'right'],
 assert.deepEqual(localHangar.map((bay) => bay.centreY), [-224, 0, 224], 'renderer preserves the three launch centrelines');
 assert.equal(localHangar[0].halfWidth, 84, 'renderer preserves each three-cell aperture half-width');
 assert.equal(localHangar[0].length, 392, 'renderer preserves each seven-cell corridor depth');
+const hangarCovers = stationHangarCoverLocalForTest(rendererStation);
+assert.equal(hangarCovers.length, 3, 'renderer creates one cosmetic cover per hangar');
+for (const cover of hangarCovers) {
+  assert(Math.abs((cover.coverEndX - cover.coverStartX) - cover.length * (2 / 3)) < 0.001, 'hangar cover spans the rear two-thirds of its corridor');
+  assert(Math.abs((cover.coverBottomY - cover.coverTopY) - cover.halfWidth * 2) < 0.001, 'hangar cover spans the full hangar aperture width');
+}
 const outline = stationShellOutlineForTest(rendererStation);
 const outlineBounds = outline.reduce((bounds, point) => ({
   minX: Math.min(bounds.minX, point.x),

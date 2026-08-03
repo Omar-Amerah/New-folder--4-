@@ -7,7 +7,6 @@ const { INCREMENTAL_SPATIAL_INDEX } = require("./performanceFlags");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
-  ASTEROID_RESTITUTION,
   SEPARATION_BROAD_PHASE_PAD,
   SEPARATION_CORRECTION,
   SEPARATION_ITERATIONS,
@@ -16,16 +15,57 @@ const {
   WORLD_MARGIN
 } = require("./movementTuning");
 const { bumpMovementMetric } = require("./movementMetrics");
+const { areEntityAllies } = require("./relationships");
 const {
+  trafficIsPositioned,
   trafficPriorityWinner,
   trafficPairKey
 } = require("./movementTrafficPriority");
 
 let cachedResolveStationCollision = null;
-function resolveStationCollision(room, ship, shipRadius) {
+function resolveStationCollision(room, ship, shipRadius, onContact = null) {
   if (!cachedResolveStationCollision) cachedResolveStationCollision = require("./stations").resolveStationCollision;
   if (!cachedResolveStationCollision) return false;
-  return cachedResolveStationCollision(room, ship, shipRadius);
+  return cachedResolveStationCollision(room, ship, shipRadius, onContact);
+}
+
+const STATIC_SLIDE_CONTACT_MS = 500;
+const STATIC_SLIDE_REPLAN_MS = 1500;
+const STATIC_SLIDE_RECOVERY_MS = 2500;
+
+function recordStaticSlideContact(ship, contact) {
+  const runtime = ship?.movement;
+  if (!runtime || typeof runtime !== "object" || !contact) return;
+  const nowValue = Number(ship._simNow);
+  const now = Number.isFinite(nowValue) ? nowValue : 0;
+  const obstacleId = String(contact.obstacleId);
+  const previous = runtime.slide;
+  const previousAt = Number(previous?.lastContactAt);
+  const continuous = previous
+    && previous.obstacleId === obstacleId
+    && (!Number.isFinite(previousAt) || now - previousAt <= STATIC_SLIDE_CONTACT_MS);
+  const startedAt = continuous && Number.isFinite(Number(previous.startedAt))
+    ? Number(previous.startedAt)
+    : now;
+  runtime.slide = {
+    obstacleId,
+    normalX: Number(contact.normalX) || 0,
+    normalY: Number(contact.normalY) || 0,
+    side: continuous && (previous.side === -1 || previous.side === 1) ? previous.side : 0,
+    startedAt,
+    expiresAt: now + STATIC_SLIDE_CONTACT_MS,
+    replanAt: continuous && Number.isFinite(Number(previous.replanAt))
+      ? Number(previous.replanAt)
+      : startedAt + STATIC_SLIDE_REPLAN_MS,
+    recoveryAt: continuous && Number.isFinite(Number(previous.recoveryAt))
+      ? Number(previous.recoveryAt)
+      : startedAt + STATIC_SLIDE_RECOVERY_MS,
+    lastContactAt: now,
+    lastX: Number(ship.x) || 0,
+    lastY: Number(ship.y) || 0,
+    replanCount: continuous ? (Number(previous.replanCount) || 0) : 0,
+    recoveryCount: continuous ? (Number(previous.recoveryCount) || 0) : 0
+  };
 }
 
 function physicalCollisionRadius(ship) {
@@ -60,6 +100,64 @@ function shipIsStopped(ship) {
       || phase === "idle");
 }
 
+const COLLISION_CONTACT_CONTINUITY_MS = 250;
+const COLLISION_CONTACT_RETENTION_MS = 4000;
+
+function recordShipContact(room, a, b, tick) {
+  const contacts = room._shipCollisionContacts || (room._shipCollisionContacts = new Map());
+  const key = trafficPairKey(a, b);
+  const previous = contacts.get(key);
+  const at = Number.isFinite(Number(tick)) ? Number(tick) : 0;
+  const previousAt = Number(previous?.at);
+  const continuous = previous
+    && Number.isFinite(previousAt)
+    && at - previousAt <= COLLISION_CONTACT_CONTINUITY_MS;
+  const startedAt = continuous && Number.isFinite(Number(previous.startedAt))
+    ? Number(previous.startedAt)
+    : at;
+  const contact = {
+    at,
+    startedAt,
+    duration: Math.max(0, at - startedAt),
+    consecutive: continuous ? (Number(previous.consecutive) || 0) + 1 : 1
+  };
+  contacts.set(key, contact);
+  return contact;
+}
+
+function friendlyShipPair(room, a, b) {
+  return areEntityAllies(room, a?.ownerId, b);
+}
+
+function friendlyChargePair(a, b) {
+  const isCharge = (ship) => {
+    const style = ship?.combatStyleRaw || ship?.combatStyle;
+    return ship?.movement?.command?.type === "attack"
+      && String(style || "").toLowerCase() === "charge";
+  };
+  return isCharge(a) && isCharge(b);
+}
+
+function friendlyTrafficSoftContact(room, a, b, now) {
+  const stateFor = (ship, other) => {
+    const traffic = ship?.movement?.traffic;
+    return traffic?.mode === "soft"
+      && traffic.blockerId !== null
+      && traffic.blockerId !== undefined
+      && String(traffic.blockerId) === String(other?.id);
+  };
+  if (stateFor(a, b) || stateFor(b, a)) return true;
+  const remembered = room?._trafficBlockedPairs?.get?.(trafficPairKey(a, b));
+  const blockedAt = Number(remembered?.blockedAt);
+  const lastAt = Number(remembered?.lastAt);
+  const tick = Number(now);
+  return Number.isFinite(blockedAt)
+    && Number.isFinite(lastAt)
+    && Number.isFinite(tick)
+    && tick - blockedAt >= 1500
+    && tick - lastAt <= 4000;
+}
+
 // Remove only the yielding hull's component toward the right-of-way winner.
 // Tangential motion is retained, and the winner is never touched here.
 function cancelYieldingInwardMovement(yielding, normalTowardWinner) {
@@ -69,6 +167,42 @@ function cancelYieldingInwardMovement(yielding, normalTowardWinner) {
   yielding.vx -= dot * normalTowardWinner.x;
   yielding.vy -= dot * normalTowardWinner.y;
   return true;
+}
+
+// Soft contact must not turn a follower's forward progress into a backwards
+// shove. A small correction still keeps the two hulls from becoming perfectly
+// coincident, but it is capped below one frame of travel so a timed-out
+// follower can press through a friendly blocker instead of meeting a second
+// hard barrier at the old soft-gap boundary.
+function friendlySoftCorrection(
+  yielding,
+  correction,
+  penetration,
+  minimum,
+  normalTowardWinner = null,
+  dt = 1 / 30
+) {
+  const residual = Math.max(0, Number(penetration) - Math.max(0, Number(minimum) * 0.25));
+  if (!(residual > 0)) return 0;
+  const inwardSpeed = normalTowardWinner
+    ? (yielding?.vx || 0) * normalTowardWinner.x
+      + (yielding?.vy || 0) * normalTowardWinner.y
+    : 0;
+  // Once the friendly timeout has elapsed, a follower that is still driving
+  // into the blocker must be allowed to cross it. Side contact still receives
+  // a small positional guard below, but a forward guard would recreate the
+  // very soft-gap barrier this stage is meant to release.
+  if (inwardSpeed > STOPPED_SPEED) return 0;
+  const safeDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Number(dt) : 1 / 30;
+  const frameTravel = fastHypot(yielding?.vx || 0, yielding?.vy || 0) * safeDt;
+  // The timed release is allowed to leave a small overlap. Once the follower
+  // is in that stage, a fixed multi-pixel correction can exceed its entire
+  // final approach travel and turn a soft pass into a stationary oscillation.
+  // Keep only a small per-iteration guard; the earlier hard/sidestep stages
+  // have already handled material separation.
+  const softCap = Math.max(0.25, frameTravel)
+    / Math.max(1, SEPARATION_ITERATIONS);
+  return Math.min(correction, residual * 0.9, softCap);
 }
 
 
@@ -91,7 +225,8 @@ function resolveMapCollision(room, ship) {
       )
       : (room.map?.asteroids || []));
   let hit = false;
-  for (const asteroid of asteroids) {
+  for (let asteroidIndex = 0; asteroidIndex < asteroids.length; asteroidIndex += 1) {
+    const asteroid = asteroids[asteroidIndex];
     if (!asteroid) continue;
     let dx = (ship.x || 0) - asteroid.x;
     let dy = (ship.y || 0) - asteroid.y;
@@ -114,11 +249,21 @@ function resolveMapCollision(room, ship) {
     ship._collisionCorrectionY = (ship._collisionCorrectionY || 0) + normalY * penetration;
     const inwardSpeed = (ship.vx || 0) * normalX + (ship.vy || 0) * normalY;
     if (inwardSpeed < 0) {
-      ship.vx -= inwardSpeed * normalX * ASTEROID_RESTITUTION;
-      ship.vy -= inwardSpeed * normalY * ASTEROID_RESTITUTION;
+      // Static geometry is hard but frictionless: remove only the component
+      // entering the surface. The tangent is deliberately left untouched.
+      ship.vx -= inwardSpeed * normalX;
+      ship.vy -= inwardSpeed * normalY;
     }
+    recordStaticSlideContact(ship, {
+      obstacleId: `asteroid:${String(asteroid.id ?? asteroidIndex)}`,
+      normalX,
+      normalY,
+      penetration
+    });
   }
-  if (!launchControlled && resolveStationCollision(room, ship, radius)) hit = true;
+  if (!launchControlled && resolveStationCollision(room, ship, radius, (contact) => {
+    recordStaticSlideContact(ship, contact);
+  })) hit = true;
   const edge = WORLD_MARGIN + radius;
   const beforeX = ship.x;
   const beforeY = ship.y;
@@ -179,13 +324,34 @@ function resolveSeparationPair(room, a, b, options = null) {
     normalY = 0;
   }
 
-  const correctedPenetration = Math.max(0, overlap.penetration - SEPARATION_SLOP);
-  const correction = correctedPenetration
-    * (Number.isFinite(options?.correction) ? options.correction : SEPARATION_CORRECTION);
   const tick = Number(a._simNow || b._simNow) || 0;
   const releaseDistance = broadMinimum + 96;
   const winnerId = trafficPriorityWinner(room, a, b, tick, releaseDistance);
-  const yielding = winnerId === a.id ? a : b;
+  const yielding = trafficIsPositioned(a) !== trafficIsPositioned(b)
+    ? (trafficIsPositioned(a) ? b : a)
+    : (winnerId === a.id ? a : b);
+  const contact = recordShipContact(room, a, b, tick);
+  const friendly = friendlyShipPair(room, a, b);
+  const softFriendlyContact = friendly && !friendlyChargePair(a, b)
+    && (contact.duration >= 1500 || friendlyTrafficSoftContact(room, a, b, tick));
+  const sidestepContact = friendly && contact.duration >= 400;
+  const normalTowardWinner = yielding === a
+    ? { x: normalX, y: normalY }
+    : { x: -normalX, y: -normalY };
+  const correctedPenetration = Math.max(0, overlap.penetration - SEPARATION_SLOP);
+  let correction = correctedPenetration
+    * (Number.isFinite(options?.correction) ? options.correction : SEPARATION_CORRECTION)
+    * (sidestepContact ? 0.8 : 1);
+  if (softFriendlyContact) {
+    correction = friendlySoftCorrection(
+      yielding,
+      correction,
+      overlap.penetration,
+      broadMinimum,
+      normalTowardWinner,
+      options?.dt
+    );
+  }
   const moveA = yielding === a ? correction : 0;
   const moveB = yielding === b ? correction : 0;
   const width = room.world?.width || WORLD.width;
@@ -205,24 +371,21 @@ function resolveSeparationPair(room, a, b, options = null) {
   b._collisionCorrectionX = (b._collisionCorrectionX || 0) + b.x - oldBX;
   b._collisionCorrectionY = (b._collisionCorrectionY || 0) + b.y - oldBY;
 
-  cancelYieldingInwardMovement(
-    yielding,
-    yielding === a ? { x: normalX, y: normalY } : { x: -normalX, y: -normalY }
-  );
+  if (!softFriendlyContact) {
+    cancelYieldingInwardMovement(
+      yielding,
+      normalTowardWinner
+    );
+  } else {
+    bumpMovementMetric("friendlySoftContactCount");
+  }
   collisionBump(room, "shipCollisionPairs");
   collisionBump(room, "shipCollisionPenetrationCorrected", correctedPenetration);
-  const pairKey = trafficPairKey(a, b);
-  const contacts = room._shipCollisionContacts || (room._shipCollisionContacts = new Map());
-  const previous = contacts.get(pairKey);
   const stationary = [a, b].find((ship) =>
     shipIsStopped(ship)
     && fastHypot(ship._integratedMovementX || 0, ship._integratedMovementY || 0) < 0.5);
-  const consecutive = previous && tick - previous.at < 300
-    ? previous.consecutive + 1
-    : 1;
-  contacts.set(pairKey, { at: tick, consecutive });
   if (stationary
-    && consecutive === 12
+    && contact.consecutive === 12
     && fastHypot(
       stationary._collisionCorrectionX || 0,
       stationary._collisionCorrectionY || 0
@@ -235,8 +398,6 @@ function resolveSeparationPair(room, a, b, options = null) {
 function getLiveShips(room) {
   return Array.from(room.ships?.values() || []).filter((ship) => ship && ship.alive);
 }
-
-const COLLISION_CONTACT_RETENTION_MS = 1000;
 
 function pruneCollisionContacts(room, now) {
   const contacts = room?._shipCollisionContacts;
@@ -496,6 +657,12 @@ module.exports = {
   navigationClearanceRadius,
   physicalCollisionRadius,
   cancelYieldingInwardMovement,
+  friendlyTrafficSoftContact,
+  friendlyChargePair,
+  friendlyShipPair,
+  friendlySoftCorrection,
+  recordShipContact,
+  recordStaticSlideContact,
   resolveFleetMapCollisions,
   resolveMapCollision,
   resolveSeparationPair,

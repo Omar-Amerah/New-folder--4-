@@ -3,10 +3,10 @@
 // Per-ship movement state for the rewritten controller.
 //
 // One order, one destination, one phase. Everything the autopilot needs to fly
-// the ship this tick is here, and nothing else is: there is no stance memory,
-// no orbit anchor, no cached facing command. The controller recomputes its
-// desire from the world every substep, so there is no second copy of the truth
-// to drift out of step with the first.
+// the ship this tick is here. Combat positioning adds one deliberate exception:
+// a target-relative slot is cached until the target/group/route genuinely changes.
+// There is no orbit anchor or cached facing command; normal steering still reads
+// the authoritative world and route every substep.
 //
 // `path` and `waypointIndex` are reserved for the obstacle-avoidance phase and
 // stay empty until then -- a ship flies straight at its destination today.
@@ -52,6 +52,12 @@ function createMovementRuntime() {
     // on the target it will detonate against. Recomputed every tick, never
     // latched -- see updateShipMovement.
     ramming: false,
+    // Stable target-relative combat positioning. Slot assignment is replaced
+    // only when the target/group changes or the static route proves it blocked.
+    combatSlot: null,
+    // A short-lived static-obstacle contact decision. Collision resolution owns
+    // the normal and lifetime; steering owns the committed tangent side.
+    slide: null,
     // One deterministic local-traffic decision for the current encounter.
     // This is route control, not a second movement command.
     traffic: {
@@ -61,7 +67,8 @@ function createMovementRuntime() {
       side: 0,
       bypass: null,
       priorityId: null,
-      crossing: false
+      crossing: false,
+      blockedAt: null
     }
   };
 }
@@ -75,6 +82,8 @@ function ensureMovementRuntime(ship) {
     ship.movement = createMovementRuntime();
     return ship.movement;
   }
+  if (!Object.prototype.hasOwnProperty.call(runtime, "slide")) runtime.slide = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "combatSlot")) runtime.combatSlot = null;
   return runtime;
 }
 
@@ -112,6 +121,8 @@ function setMovementCommand(ship, command) {
   runtime.chargeEngaged = false;
   runtime.blocked = false;
   runtime.firingSolution = null;
+  runtime.combatSlot = null;
+  runtime.slide = null;
   runtime.traffic = {
     mode: "clear",
     blockerId: null,
@@ -119,7 +130,8 @@ function setMovementCommand(ship, command) {
     side: 0,
     bypass: null,
     priorityId: null,
-    crossing: false
+    crossing: false,
+    blockedAt: null
   };
   if (!runtime.command) runtime.phase = "idle";
   else if (runtime.command.type === "stop") runtime.phase = "braking";

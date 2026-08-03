@@ -329,8 +329,7 @@ function renderSelectionControls() {
 const MOVEMENT_TOGGLE_DESCRIPTIONS = {
   autoTurn: "Turn to face whatever the ship is engaging once it has stopped, so fixed weapons bear.",
   autoEngage: "Move to engage targets the ship picks out for itself. Off, it holds station and fires at whatever comes into range.",
-  pursue: "Go after a target that opens the range again. Off, the ship keeps the position it took and lets it go.",
-  matchFormationSpeed: "Travel at the group's pace so it arrives together. Off, every ship runs at its own top speed."
+  pursue: "Go after a target that opens the range again. Off, the ship keeps the position it took and lets it go."
 };
 
 // A checkbox over a mixed selection shows indeterminate rather than picking a

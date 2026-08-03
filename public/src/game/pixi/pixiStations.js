@@ -55,6 +55,8 @@ const RELAY_STATION = INFRASTRUCTURE.relayStation || {};
 const NEUTRAL_COLOR = "#9fb0c6";
 const FRIENDLY_COLOR = TEAM_COLORS.blue;
 const ENEMY_COLOR = TEAM_COLORS.red;
+const HANGAR_COVER_DEPTH_RATIO = 2 / 3;
+const HANGAR_COVER_FILL = "#253747";
 
 let pixiStationPool = null;
 
@@ -183,6 +185,31 @@ function stationHangarBaysLocal(station, bounds) {
   }).filter(Boolean).sort((a, b) => a.centreY - b.centreY);
 }
 
+// A launch is authoritative on the server, but a freshly created hull should
+// also read as a hull emerging from the station on the client. The canopy is
+// deliberately derived from the same bay records and is not collision or
+// gameplay geometry: it covers the rear two-thirds of the corridor and the
+// full width of its opening, leaving the approach visible as the ship comes
+// out.
+function stationHangarCoverGeometry(station, bounds) {
+  const scale = Number(station.moduleScale) || (station.stationType === "home" ? 56 : SHIP_SCALE);
+  return stationHangarBaysLocal(station, bounds).map((bay) => {
+    const coverLength = Math.min(
+      bay.length * HANGAR_COVER_DEPTH_RATIO,
+      Math.max(0, bay.length - scale)
+    );
+    const topY = bay.centreY - bay.halfWidth;
+    const openingHeight = bay.halfWidth * 2;
+    return {
+      ...bay,
+      coverStartX: bay.rearWallX,
+      coverEndX: bay.rearWallX + coverLength,
+      coverTopY: topY,
+      coverBottomY: topY + openingHeight
+    };
+  });
+}
+
 function createPixiStationView(env) {
   const PIXI = env.PIXI;
   const root = new PIXI.Container();
@@ -210,10 +237,12 @@ function createPixiStationView(env) {
   const turretContainer = new PIXI.Container();
   turretContainer.label = "StationTurrets";
   turretContainer.position.set(0, 0);
+  const turretContainerWorldSpace = Boolean(env.layers.stationWeapons);
 
   root.addChild(auraGfx);
   root.addChild(shellGfx);
-  root.addChild(turretContainer);
+  if (turretContainerWorldSpace) env.layers.stationWeapons.addChild(turretContainer);
+  else root.addChild(turretContainer);
   root.addChild(shieldGfx);
   root.addChild(hudGfx);
   root.addChild(stateText);
@@ -224,6 +253,7 @@ function createPixiStationView(env) {
     auraGfx,
     shellGfx,
     turretContainer,
+    turretContainerWorldSpace,
     shieldGfx,
     hudGfx,
     stateText,
@@ -250,6 +280,7 @@ function createPixiStationView(env) {
       this.shieldGfx.clear();
       this.hudGfx.clear();
       this.turretContainer.removeChildren();
+      this.turretContainer.visible = false;
       for (const sprite of this.turretSprites) {
         if (sprite.__lease) {
           sprite.__lease.release();
@@ -259,6 +290,13 @@ function createPixiStationView(env) {
       }
       this.turretSprites = [];
       this.turretsByDesignIndex.clear();
+    },
+    destroy() {
+      if (this.turretContainerWorldSpace) {
+        if (this.turretContainer.parent) this.turretContainer.parent.removeChild(this.turretContainer);
+        if (!this.turretContainer.destroyed) this.turretContainer.destroy({ children: false });
+      }
+      if (!this.root.destroyed) this.root.destroy({ children: true, texture: false, textureSource: false });
     }
   };
 }
@@ -505,6 +543,66 @@ function regularPolygon(radius, sides, rotation = 0) {
   return points;
 }
 
+function stationLocalToWorld(station, point) {
+  const angle = Number(station?.angle) || 0;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: (Number(station?.x) || 0) + point.x * cos - point.y * sin,
+    y: (Number(station?.y) || 0) + point.x * sin + point.y * cos
+  };
+}
+
+function drawStationCoverPolygon(gfx, station, points) {
+  if (!gfx || points.length === 0) return;
+  const first = stationLocalToWorld(station, points[0]);
+  gfx.moveTo(first.x, first.y);
+  for (let i = 1; i < points.length; i += 1) {
+    const point = stationLocalToWorld(station, points[i]);
+    gfx.lineTo(point.x, point.y);
+  }
+  gfx.closePath();
+}
+
+function drawStationHangarCovers(gfx, station, bounds, accent) {
+  if (!gfx || station?.stationType !== "home") return;
+  const scale = Number(station.moduleScale) || 56;
+  const lit = trimAlpha(station.state, 1);
+  const covers = stationHangarCoverGeometry(station, bounds);
+  for (const cover of covers) {
+    if (!(cover.coverEndX > cover.coverStartX)) continue;
+    const lip = scale * 0.38;
+    const points = [
+      { x: cover.coverStartX, y: cover.coverTopY },
+      { x: cover.coverEndX - lip, y: cover.coverTopY },
+      { x: cover.coverEndX, y: cover.coverTopY + scale * 0.24 },
+      { x: cover.coverEndX, y: cover.coverBottomY },
+      { x: cover.coverEndX - lip, y: cover.coverBottomY },
+      { x: cover.coverStartX, y: cover.coverBottomY }
+    ];
+    drawStationCoverPolygon(gfx, station, points);
+    gfx.fill({ color: HANGAR_COVER_FILL, alpha: 1 });
+    gfx.stroke({ width: scale * 0.09, color: accent, alpha: lit * 0.72 });
+
+    // Short ribs sell the canopy as a physical overhang while keeping the
+    // cover visibly cosmetic over the ship underneath.
+    for (const ratio of [0.34, 0.67]) {
+      const x = cover.coverStartX + (cover.coverEndX - cover.coverStartX) * ratio;
+      const top = stationLocalToWorld(station, { x, y: cover.coverTopY + scale * 0.12 });
+      const bottom = stationLocalToWorld(station, { x, y: cover.coverBottomY - scale * 0.06 });
+      gfx.moveTo(top.x, top.y);
+      gfx.lineTo(bottom.x, bottom.y);
+    }
+    gfx.stroke({ width: scale * 0.06, color: accent, alpha: lit * 0.38 });
+
+    const frontTop = stationLocalToWorld(station, { x: cover.coverEndX, y: cover.coverTopY + scale * 0.24 });
+    const frontBottom = stationLocalToWorld(station, { x: cover.coverEndX, y: cover.coverBottomY });
+    gfx.moveTo(frontTop.x, frontTop.y);
+    gfx.lineTo(frontBottom.x, frontBottom.y);
+    gfx.stroke({ width: scale * 0.13, color: accent, alpha: lit * 0.72 });
+  }
+}
+
 // A destroyed hull is unlit and a neutral one has no allegiance to advertise,
 // so the accent trim carries the station's state without a second colour scheme.
 function trimAlpha(state, lit) {
@@ -672,8 +770,8 @@ function drawHomeShell(gfx, station, bounds, accent, state) {
   drawEdgeLights(gfx, { x: bounds.minX, y: bounds.minY + chamfer }, { x: bounds.minX, y: bounds.maxY - chamfer }, 4, lightSize, accent, lit * 0.9);
 
   // 9. Three genuine launch voids. Each corridor has one straight pair of
-  // guide strips, one centreline and one complete rear-body tile. No chevrons,
-  // interior gun chains or diagonal maze lines compete with the opening.
+  // guide strips, a centreline and outward-pointing approach chevrons, plus
+  // one complete rear-body tile.
   for (const bay of bays) {
     const lane = {
       halfWidth: bay.halfWidth,
@@ -697,6 +795,16 @@ function drawHomeShell(gfx, station, bounds, accent, state) {
     gfx.moveTo(rampStartX, lane.centreY + scale * 0.04);
     gfx.lineTo(rampEndX, lane.centreY + scale * 0.04);
     gfx.stroke({ width: scale * 0.12, color: accent, alpha: stationIsPowered(state) ? 0.45 : 0.12 });
+
+    // Approach arrows on the corridor floor, pointing out through the mouth.
+    // Keep the historical three markers for every authored bay.
+    for (let i = 0; i < 3; i += 1) {
+      const x = lane.innerX + bay.length * (0.3 + i * 0.2);
+      gfx.moveTo(x, lane.centreY - lane.halfWidth * 0.34);
+      gfx.lineTo(x + scale * 0.7, lane.centreY);
+      gfx.lineTo(x, lane.centreY + lane.halfWidth * 0.34);
+    }
+    gfx.stroke({ width: scale * 0.12, color: accent, alpha: lit * 0.3 });
 
     // One complete rear-body tile closes the corridor visually. It is the same
     // scale-wide solid tile represented by the server's rear collision piece.
@@ -956,6 +1064,8 @@ function hangarGeometrySignature(station) {
 }
 
 export function updatePixiStations(env, now, players, bounds) {
+  const stationCovers = env.layers.stationCovers;
+  stationCovers?.clear?.();
   const stations = state.snapshot?.stations;
   if (!Array.isArray(stations) || stations.length === 0) {
     if (pixiStationPool) {
@@ -983,6 +1093,8 @@ export function updatePixiStations(env, now, players, bounds) {
     view.root.position.set(station.x, station.y);
     view.auraGfx.rotation = Number(station.angle) || 0;
     view.shellGfx.rotation = Number(station.angle) || 0;
+    if (view.turretContainerWorldSpace) view.turretContainer.position.set(station.x, station.y);
+    else view.turretContainer.position.set(0, 0);
     view.turretContainer.rotation = Number(station.angle) || 0;
 
     // Weapon art only. The station's interior components are never baked or
@@ -1048,6 +1160,7 @@ export function updatePixiStations(env, now, players, bounds) {
     }
 
     const localBounds = stationLocalBounds(station);
+    drawStationHangarCovers(stationCovers, station, localBounds, color);
     // Quantised so a regenerating shield does not rebuild the ring every frame.
     const shieldSignature = `${Math.round((station.maxShield > 0 ? station.shield / station.maxShield : 0) * 200)}|${Math.round(localBounds.maxX)}|${Math.round(Number(station.shieldRadius) || 0)}`;
     if (view.shieldSignature !== shieldSignature) {
@@ -1127,6 +1240,10 @@ export function stationLocalBoundsForTest(station) {
 
 export function stationHangarLocalForTest(station) {
   return stationHangarBaysLocal(station, stationLocalBounds(station));
+}
+
+export function stationHangarCoverLocalForTest(station) {
+  return stationHangarCoverGeometry(station, stationLocalBounds(station));
 }
 
 export function stationShellOutlineForTest(station) {

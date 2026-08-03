@@ -24,12 +24,15 @@ const {
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   cancelYieldingInwardMovement,
-  physicalCollisionRadius
+  friendlyChargePair,
+  friendlyShipPair,
+  friendlyTrafficSoftContact,
+  friendlySoftCorrection,
+  physicalCollisionRadius,
+  recordShipContact,
+  resolveSeparationPair
 } = require("./movementCollision");
-const {
-  trafficPairKey,
-  trafficPriorityWinner
-} = require("./movementTrafficPriority");
+const { trafficIsPositioned, trafficPriorityWinner } = require("./movementTrafficPriority");
 const {
   getMovementContactPairs,
   markMovementContactPairsUnsafe
@@ -40,6 +43,7 @@ const MAX_PACKED_CORRECTION = SEPARATION_BROAD_PHASE_PAD;
 // The small extra comparison tolerance prevents a final floating-point residue
 // from consuming the entire bounded iteration budget for a touching pair.
 const PACKED_CONVERGENCE_TOLERANCE = SEPARATION_SLOP + 0.1;
+const PACKED_FINAL_RECOVERY_MIN_PENETRATION = 8;
 
 function finite(value, fallback = 0) {
   const number = Number(value);
@@ -241,21 +245,18 @@ function buildContactIslands(room, ships, pairs) {
 function recordContact(room, a, b, now, penetration) {
   collisionBump(room, "shipCollisionPairs");
   collisionBump(room, "shipCollisionPenetrationCorrected", Math.max(0, penetration));
-  const pairKey = trafficPairKey(a, b);
-  const contacts = room._shipCollisionContacts || (room._shipCollisionContacts = new Map());
-  const previous = contacts.get(pairKey);
   const tick = Number(a._simNow || b._simNow || now) || 0;
-  const consecutive = previous && tick - previous.at < 300 ? previous.consecutive + 1 : 1;
-  contacts.set(pairKey, { at: tick, consecutive });
+  const contact = recordShipContact(room, a, b, tick);
   const stationary = [a, b].find((ship) =>
     shipIsStopped(ship)
     && fastHypot(ship._integratedMovementX || 0, ship._integratedMovementY || 0) < 0.5
   );
   if (stationary
-    && consecutive === 12
+    && contact.consecutive === 12
     && fastHypot(stationary._collisionCorrectionX || 0, stationary._collisionCorrectionY || 0) > 2) {
     collisionBump(room, "towingRegressionDetections");
   }
+  return contact;
 }
 
 function applyBatchCorrections(room, ships, state) {
@@ -405,11 +406,14 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
         meaningfulOverlaps += 1;
         overlapsResolved += 1;
         bump(room, "separationOverlapsResolved");
-        recordContact(room, a, b, now, Math.max(0, penetration - SEPARATION_SLOP));
+        const contact = recordContact(room, a, b, now, Math.max(0, penetration - SEPARATION_SLOP));
 
         const normal = normalForOverlap(a, b, result.overlap, result.broadDx, result.broadDy);
         const correctedPenetration = Math.max(0, penetration - SEPARATION_SLOP);
-        const correction = correctedPenetration * SEPARATION_CORRECTION;
+        const friendly = friendlyShipPair(room, a, b);
+        const softFriendlyContact = friendly && !friendlyChargePair(a, b)
+          && (contact.duration >= 1500 || friendlyTrafficSoftContact(room, a, b, now));
+        const sidestepContact = friendly && contact.duration >= 400;
         const winnerId = trafficPriorityWinner(
           room,
           a,
@@ -417,7 +421,25 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
           now,
           physicalCollisionRadius(a) + physicalCollisionRadius(b) + 96
         );
-        const yielding = winnerId === a.id ? a : b;
+        const yielding = trafficIsPositioned(a) !== trafficIsPositioned(b)
+          ? (trafficIsPositioned(a) ? b : a)
+          : (winnerId === a.id ? a : b);
+        const normalTowardWinner = yielding === a
+          ? normal
+          : { x: -normal.x, y: -normal.y };
+        let correction = correctedPenetration
+          * SEPARATION_CORRECTION
+          * (sidestepContact ? 0.8 : 1);
+        if (softFriendlyContact) {
+          correction = friendlySoftCorrection(
+            yielding,
+            correction,
+            penetration,
+            physicalCollisionRadius(a) + physicalCollisionRadius(b),
+            normalTowardWinner,
+            dt
+          );
+        }
         const moveA = yielding === a ? correction : 0;
         const moveB = yielding === b ? correction : 0;
         a._packedCorrectionX = finite(a._packedCorrectionX) - normal.x * moveA;
@@ -425,10 +447,14 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
         b._packedCorrectionX = finite(b._packedCorrectionX) + normal.x * moveB;
         b._packedCorrectionY = finite(b._packedCorrectionY) + normal.y * moveB;
 
-        cancelYieldingInwardMovement(
-          yielding,
-          yielding === a ? normal : { x: -normal.x, y: -normal.y }
-        );
+        if (!softFriendlyContact) {
+          cancelYieldingInwardMovement(
+            yielding,
+            yielding === a ? normal : { x: -normal.x, y: -normal.y }
+          );
+        } else {
+          collisionBump(room, "friendlySoftContactCount");
+        }
         if (penetration > SEPARATION_SLOP) state.unresolved.push(pair);
       }
     }
@@ -453,6 +479,40 @@ function solvePackedFleetSeparation(room, shipList, dt, now = 0, options = null,
       if (finite(pair?._packedLastPenetration) > PACKED_CONVERGENCE_TOLERANCE) state.unresolved.push(pair);
     }
   }
+
+  // A batched island correction can move one hull deeply into a neighbouring
+  // pair after that pair's own narrow phase has already run. The pair is still
+  // in the island, so recover only these material residuals with the same
+  // deterministic yielding rule. Small residuals remain in the existing soft
+  // contact allowance instead of making a packed formation churn.
+  if (remaining > 0) {
+    let corrections = 0;
+    for (const pair of state.unresolved) {
+      if (finite(pair?._packedLastPenetration) < PACKED_FINAL_RECOVERY_MIN_PENETRATION) continue;
+      const a = pair?.a;
+      const b = pair?.b;
+      if (!liveShip(room, a) || !liveShip(room, b) || a === b) continue;
+      const contactKey = [String(a.id), String(b.id)].sort().join("|");
+      const softFriendly = friendlyShipPair(room, a, b)
+        && Number(room._shipCollisionContacts?.get(contactKey)?.duration) >= 1500;
+      if (softFriendly) continue;
+      if (resolveSeparationPair(room, a, b, { ...(options || {}), correction: 1 })) corrections += 1;
+    }
+    if (corrections > 0) {
+      correctionApplications += corrections;
+      const settled = scanRemainingOverlaps(room, state.islandPairs, options, checked);
+      remaining = settled.remaining;
+      maximumPenetration = Math.max(maximumPenetration, settled.maximum);
+      state.unresolved.length = 0;
+      for (const islandPairs of state.islandPairs) {
+        for (const pair of islandPairs) {
+          if (finite(pair?._packedLastPenetration) > PACKED_CONVERGENCE_TOLERANCE) state.unresolved.push(pair);
+        }
+      }
+      bump(room, "packedFleetFinalRecoveryOperations", corrections);
+    }
+  }
+
   const recoveryOperations = recoverNewcomers(room, state, now);
   if (recoveryOperations) {
     const recoveredChecked = { value: 0 };

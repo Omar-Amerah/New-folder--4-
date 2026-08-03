@@ -36,6 +36,7 @@ const { canonicalBlueprintSignature, getOrCreateTemplate } = require("./src/serv
 const { planSpawnRegions } = require("./src/server/spawnPlanner");
 const { tickRoom } = require("./src/server/simulation");
 const { stopShips } = require("./src/server/movement");
+const { spawnShip } = require("./src/server/ships");
 
 function section(label) {
   console.log(`  ${label}`);
@@ -265,12 +266,45 @@ function run() {
     assert(Math.abs(lateral - hangar.centreY) < 1e-9, "each player begins on its assigned straight launch centreline");
     assert(!resolveStationCollision(launchRoom, ship, ship.physicalRadius || 26), "launching ship is not trapped by its own station");
   }
+
+  const frontBlockerOwner = launchRoom.players.get("blue-1");
+  const centralHangar = launchStation.hangars[1];
+  const launchNormal = { x: Math.cos(launchStation.angle), y: Math.sin(launchStation.angle) };
+  const frontBlocker = spawnShip(launchRoom, frontBlockerOwner, 33, 1, {
+    design: frontBlockerOwner.design,
+    wiring: frontBlockerOwner.wiring,
+    stats: frontBlockerOwner.stats,
+    spawnPoint: {
+      x: centralHangar.mouth.x + launchNormal.x * 40,
+      y: centralHangar.mouth.y + launchNormal.y * 40,
+      ok: true,
+      angle: launchStation.angle
+    },
+    requestId: "launch-front-blocker"
+  });
+  assert(frontBlocker, "a real hull can be placed ahead of an active launch");
+  stopShips(launchRoom, frontBlockerOwner, [frontBlocker.id]);
+  const blockerStartAlong = (frontBlocker.x - launchStation.x) * launchNormal.x
+    + (frontBlocker.y - launchStation.y) * launchNormal.y;
+  const launchAlong = new Map();
+  for (const ship of launchRoom.ships.values()) {
+    if (ship.launchPhase) launchAlong.set(ship.id, ship.launchPhase.along);
+  }
   for (let tick = 0; tick < 500 && (launchStation.activeLaunches.length || launchStation.productionQueue.length); tick += 1) {
     tickRoom(launchRoom, 1 / 30, 66 + tick * 33);
+    for (const ship of launchRoom.ships.values()) {
+      if (!ship.launchPhase) continue;
+      const previous = launchAlong.get(ship.id);
+      assert(ship.launchPhase.along >= previous - 1e-9, "launch progress never moves backward under traffic");
+      launchAlong.set(ship.id, ship.launchPhase.along);
+    }
   }
   assert.strictEqual(launchStation.activeLaunches.length, 0, "all central launches release deterministically");
   assert.strictEqual(launchStation.productionQueue.length, 0, "all queued players eventually launch through the three hangars");
-  assert(launchRoom.ships.size === 3 && [...launchRoom.ships.values()].every((ship) => !ship.launchPhase), "released ships remain in the room with launch control cleared");
+  const blockerEndAlong = (frontBlocker.x - launchStation.x) * launchNormal.x
+    + (frontBlocker.y - launchStation.y) * launchNormal.y;
+  assert(blockerEndAlong > blockerStartAlong, "a hull in front of the mouth is moved outward for a launch");
+  assert(launchRoom.ships.size === 4 && [...launchRoom.ships.values()].every((ship) => !ship.launchPhase), "released ships remain in the room with launch control cleared");
 
   section("Ships in front of a mouth cannot blockade the next spawn");
   const blocker = [...launchRoom.ships.values()].find((ship) => ship.alive);

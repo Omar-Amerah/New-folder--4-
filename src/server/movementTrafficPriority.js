@@ -23,6 +23,16 @@ function trafficIsStationary(ship) {
     || movement?.command?.type === "stop";
 }
 
+function trafficIsPositioned(ship) {
+  const movement = ship?.movement;
+  return !movement?.command
+    || movement.arrived === true
+    || movement.orderComplete === true
+    || movement.phase === "positioned"
+    || movement.phase === "idle"
+    || movement.command?.type === "stop";
+}
+
 function activeRouteGoal(ship) {
   const movement = ship?.movement;
   if (!movement?.destination) return null;
@@ -41,6 +51,33 @@ function trafficRouteProgress(ship) {
       ? fastHypot(goal.x - (ship.x || 0), goal.y - (ship.y || 0))
       : Infinity
   };
+}
+
+function attackCommand(ship) {
+  return ship?.movement?.command?.type === "attack"
+    && Boolean(ship.movement.command.targetId);
+}
+
+function chargeShip(ship) {
+  const style = ship?.combatStyleRaw || ship?.combatStyle;
+  return attackCommand(ship) && String(style || "").toLowerCase() === "charge";
+}
+
+function attackerRange(ship) {
+  if (!attackCommand(ship)) return Infinity;
+  const stats = ship?.stats || {};
+  const ranges = [stats.blasterRange, stats.missileRange, stats.railgunRange, stats.beamRange]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return ranges.length ? Math.min(...ranges) : Infinity;
+}
+
+function unfinishedMovement(ship) {
+  const movement = ship?.movement;
+  if (!movement?.command || movement.arrived === true || movement.orderComplete === true) return false;
+  return movement.command.type === "move"
+    || movement.command.type === "attack"
+    || movement.command.type === "repair";
 }
 
 function trafficPriorityMap(room) {
@@ -70,18 +107,40 @@ function trafficPriorityWinner(room, a, b, now, releaseDistance) {
 
   const aStopped = trafficIsStationary(a);
   const bStopped = trafficIsStationary(b);
+  const aPositioned = trafficIsPositioned(a);
+  const bPositioned = trafficIsPositioned(b);
   let winner;
-  if (aStopped !== bStopped) {
+  if (aPositioned !== bPositioned) {
+    winner = aPositioned ? a : b;
+  } else if (aStopped !== bStopped) {
     winner = aStopped ? a : b;
   } else {
-    const aProgress = trafficRouteProgress(a);
-    const bProgress = trafficRouteProgress(b);
-    if (aProgress.index !== bProgress.index) {
-      winner = aProgress.index > bProgress.index ? a : b;
-    } else if (Math.abs(aProgress.distance - bProgress.distance) > 0.5) {
-      winner = aProgress.distance < bProgress.distance ? a : b;
+    const aCharge = chargeShip(a);
+    const bCharge = chargeShip(b);
+    if (aCharge !== bCharge) {
+      winner = aCharge ? a : b;
     } else {
-      winner = compareEntityIds(a, b) <= 0 ? a : b;
+      const aRange = attackerRange(a);
+      const bRange = attackerRange(b);
+      if (Math.abs(aRange - bRange) > 0.5) {
+        winner = aRange < bRange ? a : b;
+      } else {
+        const aUnfinished = unfinishedMovement(a);
+        const bUnfinished = unfinishedMovement(b);
+        if (aUnfinished !== bUnfinished) {
+          winner = aUnfinished ? a : b;
+        } else {
+          const aProgress = trafficRouteProgress(a);
+          const bProgress = trafficRouteProgress(b);
+          if (aProgress.index !== bProgress.index) {
+            winner = aProgress.index > bProgress.index ? a : b;
+          } else if (Math.abs(aProgress.distance - bProgress.distance) > 0.5) {
+            winner = aProgress.distance < bProgress.distance ? a : b;
+          } else {
+            winner = compareEntityIds(a, b) <= 0 ? a : b;
+          }
+        }
+      }
     }
   }
 
@@ -90,6 +149,7 @@ function trafficPriorityWinner(room, a, b, now, releaseDistance) {
 }
 
 module.exports = {
+  trafficIsPositioned,
   trafficIsStationary,
   trafficPairKey,
   trafficPriorityWinner
