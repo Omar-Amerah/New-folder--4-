@@ -478,11 +478,26 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     <= maxFriendlyCorrectionPerTick(shipB) + EPSILON, "ship B correction is bounded");
   // Contact is measured against the hulls, so the pair is pushed apart until the
   // cells no longer share space -- not out to the sum of two bounding radii.
+  // Correction is deliberately partial per tick, so it converges over a few
+  // rather than snapping the overlap out in one.
   const { findShipHullOverlap } = require("./src/server/componentGeometry");
+  const { POSITION_SLOP } = require("./src/server/movementTuning");
   assert.ok(Math.hypot(dx, dy) > SEPARATION_START_GAP, "the overlap is reduced without teleporting");
+  const startPenetration = findShipHullOverlap(
+    { ...shipA, x: 500, y: 500 },
+    { ...shipB, x: 500 + SEPARATION_START_GAP, y: 500 }
+  ).penetration;
+  const afterOneTick = findShipHullOverlap(shipA, shipB);
+  assert.ok(!afterOneTick || afterOneTick.penetration < startPenetration * 0.5,
+    "one tick takes out most of the overlap");
+  for (let tick = 0; tick < 8; tick += 1) {
+    shipA._friendlyCorrectionDistance = 0;
+    shipB._friendlyCorrectionDistance = 0;
+    updateShipSeparation(room, [shipA, shipB], 16.666, tick + 1);
+  }
   const residual = findShipHullOverlap(shipA, shipB);
-  assert.ok(!residual || residual.penetration < 0.01,
-    "and the hulls end up clear of each other");
+  assert.ok(!residual || residual.penetration <= POSITION_SLOP + EPSILON,
+    "and successive ticks settle the hulls clear of each other");
   room.spatialIndex.updateLiveEntities("ships", [shipA, shipB], shipBroadPhaseRadius);
   const foundA = room.spatialIndex.queryRange("ships", shipA.x, shipA.y, 1).find((s) => s.id === "sa");
   const foundB = room.spatialIndex.queryRange("ships", shipB.x, shipB.y, 1).find((s) => s.id === "sb");

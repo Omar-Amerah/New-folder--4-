@@ -55,6 +55,14 @@ module.exports = Object.freeze({
   // spawn or dense pile-up is recovered over successive ticks instead of
   // becoming a visible one-frame relocation.
   STATIC_COLLISION_MAX_TICK_CORRECTION: 8,
+  // Overlap shallower than this is left alone. Two hulls resting against each
+  // other sit a hair inside one another permanently, and correcting that every
+  // tick is a standing shove that shows up as contact jitter.
+  POSITION_SLOP: 0.5,
+  // How much of the remaining overlap one tick takes out. Short of the whole
+  // depth on purpose, so a correction converges over a couple of ticks instead
+  // of overshooting into the ship on the other side.
+  POSITION_CORRECTION_RATIO: 0.8,
   ASTEROID_QUERY_PAD: 128,
 
   // --- Navigation ---------------------------------------------------------

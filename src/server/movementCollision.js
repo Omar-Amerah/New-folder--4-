@@ -6,6 +6,8 @@ const { bump } = require("./roomTelemetry");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
+  POSITION_CORRECTION_RATIO,
+  POSITION_SLOP,
   STATIC_COLLISION_MAX_TICK_CORRECTION,
   WORLD_MARGIN
 } = require("./movementTuning");
@@ -210,18 +212,43 @@ function normalForPair(a, b, dx, dy, distance) {
   return compareEntityIds(a, b) <= 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
 }
 
-function removeInwardVelocity(ship, normal, sign) {
-  const velocityAlongNormal = (ship.vx || 0) * normal.x + (ship.vy || 0) * normal.y;
-  const inward = sign > 0 ? velocityAlongNormal > 0 : velocityAlongNormal < 0;
-  if (!inward) return false;
-  ship.vx -= velocityAlongNormal * normal.x;
-  ship.vy -= velocityAlongNormal * normal.y;
-  return true;
-}
+// One impulse for the pair, on their RELATIVE closing speed.
+//
+// Deleting each ship's own inward velocity is the right answer against an
+// asteroid, which really is immovable and really does absorb everything. It is
+// the wrong answer for two moving ships: a hull doing 120 that catches one doing
+// 80 loses its whole 120 and the fleet's momentum simply disappears. Only the 40
+// they are closing at belongs to the collision; the 80 they share is travel.
+//
+// Restitution is zero, so nothing bounces -- the pair ends up moving together
+// along the normal, sharing the momentum they had by mass. Tangential motion is
+// untouched, so a glancing contact slides.
+function resolvePairVelocity(a, b, normal, immovableA, immovableB) {
+  const inverseMassA = immovableA ? 0 : 1 / massOf(a);
+  const inverseMassB = immovableB ? 0 : 1 / massOf(b);
+  const inverseMassSum = inverseMassA + inverseMassB;
+  if (!(inverseMassSum > 0)) return false;
 
-function rememberShipContactNormal(ship, normalX, normalY) {
-  const normals = ship._shipContactNormals || (ship._shipContactNormals = []);
-  normals.push({ x: normalX, y: normalY });
+  const relativeX = (b.vx || 0) - (a.vx || 0);
+  const relativeY = (b.vy || 0) - (a.vy || 0);
+  const closingSpeed = relativeX * normal.x + relativeY * normal.y;
+  // Already separating, or travelling together at the same speed. Two ships in
+  // formation resting against each other are not a collision and must not be
+  // charged for one.
+  if (closingSpeed >= 0) return false;
+
+  const impulse = -closingSpeed / inverseMassSum;
+  const impulseX = impulse * normal.x;
+  const impulseY = impulse * normal.y;
+  if (!immovableA) {
+    a.vx -= impulseX * inverseMassA;
+    a.vy -= impulseY * inverseMassA;
+  }
+  if (!immovableB) {
+    b.vx += impulseX * inverseMassB;
+    b.vy += impulseY * inverseMassB;
+  }
+  return true;
 }
 
 function addFriendlyCorrection(room, ship, dx, dy) {
@@ -278,20 +305,27 @@ function resolveSeparationPair(room, a, b) {
   const normal = normalForPair(a, b, overlap.dx, overlap.dy, overlap.distance);
   const immovableA = immovableInContact(a);
   const immovableB = immovableInContact(b);
-  // Mass-weighted, except against a hull that cannot be moved at all: that one
-  // keeps its place and the other takes the whole correction.
+  resolvePairVelocity(a, b, normal, immovableA, immovableB);
+
+  // Positional correction is a separate job from the impulse: it undoes overlap
+  // the integrator has already produced. Ignore a sliver of it -- two hulls
+  // resting against each other are always a hair inside one another, and
+  // correcting that every tick is a permanent low-level shove for no visible
+  // benefit -- and resolve the rest over a couple of ticks rather than exactly.
+  const correctable = Math.max(0, penetration - POSITION_SLOP) * POSITION_CORRECTION_RATIO;
   let desiredA = 0;
   let desiredB = 0;
   if (immovableA) {
-    desiredB = penetration;
+    desiredB = correctable;
   } else if (immovableB) {
-    desiredA = penetration;
+    desiredA = correctable;
   } else {
+    // By inverse mass, so the lighter hull gives way.
     const massA = massOf(a);
     const massB = massOf(b);
     const totalMass = massA + massB;
-    desiredA = penetration * massB / totalMass;
-    desiredB = penetration * massA / totalMass;
+    desiredA = correctable * massB / totalMass;
+    desiredB = correctable * massA / totalMass;
   }
   const availableA = Math.max(0, maxFriendlyCorrectionPerTick(a) - (Number(a._friendlyCorrectionDistance) || 0));
   const availableB = Math.max(0, maxFriendlyCorrectionPerTick(b) - (Number(b._friendlyCorrectionDistance) || 0));
@@ -303,14 +337,6 @@ function resolveSeparationPair(room, a, b) {
   const moveB = immovableB ? 0 : Math.min(desiredB, availableB);
   const appliedA = moveA > 0 ? addFriendlyCorrection(room, a, -normal.x * moveA, -normal.y * moveA) : 0;
   const appliedB = moveB > 0 ? addFriendlyCorrection(room, b, normal.x * moveB, normal.y * moveB) : 0;
-  if (!immovableA) {
-    removeInwardVelocity(a, normal, 1);
-    rememberShipContactNormal(a, normal.x, normal.y);
-  }
-  if (!immovableB) {
-    removeInwardVelocity(b, normal, -1);
-    rememberShipContactNormal(b, -normal.x, -normal.y);
-  }
   const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
   if (!immovableA) modified.add(a.id);
   if (!immovableB) modified.add(b.id);

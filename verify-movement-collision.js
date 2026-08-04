@@ -11,6 +11,7 @@ const assert = require("node:assert/strict");
 const { movementTestTick } = require("./tools/movementTestTick");
 const {
   commandShips,
+  commandShipsToDestination,
   maxFriendlyCorrectionPerTick,
   physicalCollisionRadius,
   resolveMapCollision,
@@ -110,39 +111,194 @@ function run() {
     assert.equal(resolveSeparationPair(room, a, b), null,
       "overlapping bounding circles alone are not a contact");
     assert.equal(a.x, 1000, "no correction is applied");
-    assert(!a._shipContactNormals, "and no contact normal is recorded");
+    assert.equal(a.vx, 0, "and no impulse is applied");
   }
 
-  // --- two moving hulls collide -------------------------------------------
-  for (const [label, ownerB] of [["friendly", "p1"], ["hostile", "p2"]]) {
-    const a = makeShip({ id: `${label}-a`, x: 1000, y: 1000, vx: 120, vy: 45 });
-    const b = makeShip({ id: `${label}-b`, x: 1030, y: 1000, vx: -120, vy: 45, ownerId: ownerB });
-    const room = makeRoom([a, b]);
-    const overlap = findShipHullOverlap(a, b);
-    assert(overlap, `sanity: the ${label} hulls overlap`);
-    const length = Math.hypot(overlap.dx, overlap.dy);
-    const normal = { x: overlap.dx / length, y: overlap.dy / length };
-    const tangent = { x: -normal.y, y: normal.x };
-    const beforeTangentA = a.vx * tangent.x + a.vy * tangent.y;
-    const beforeTangentB = b.vx * tangent.x + b.vy * tangent.y;
-    const before = [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
+  // --- the pair impulse ----------------------------------------------------
+  //
+  // A ship-to-ship contact is not a wall. Only the speed the two are CLOSING at
+  // belongs to the collision; whatever they have in common is travel and has to
+  // survive. These cases pin that down.
+  {
+    const contact = (options = {}) => {
+      const a = makeShip({
+        id: `impulse-a-${++sequence}`,
+        x: 1000,
+        y: 1000,
+        vx: options.ax || 0,
+        vy: options.ay || 0,
+        design: options.designA || BASE
+      });
+      const b = makeShip({
+        id: `impulse-b-${++sequence}`,
+        x: 1000 + (options.gap ?? 30),
+        y: 1000 + (options.offsetY || 0),
+        vx: options.bx || 0,
+        vy: options.by || 0,
+        ownerId: options.ownerB || "p1",
+        design: options.designB || BASE
+      });
+      if (options.massA) a.stats.mass = options.massA;
+      if (options.massB) b.stats.mass = options.massB;
+      const room = makeRoom([a, b]);
+      const overlap = findShipHullOverlap(a, b);
+      assert(overlap, "sanity: the hulls overlap");
+      const normal = { x: overlap.dx, y: overlap.dy };
+      const tangent = { x: -normal.y, y: normal.x };
+      const project = (ship, axis) => ship.vx * axis.x + ship.vy * axis.y;
+      const before = {
+        normalA: project(a, normal),
+        normalB: project(b, normal),
+        tangentA: project(a, tangent),
+        tangentB: project(b, tangent),
+        positionA: { x: a.x, y: a.y },
+        positionB: { x: b.x, y: b.y }
+      };
+      const result = resolveSeparationPair(room, a, b);
+      return { a, b, room, normal, tangent, project, before, result };
+    };
 
-    const result = resolveSeparationPair(room, a, b);
-    assert(result, `an overlapping ${label} pair should resolve`);
-    assert(Math.abs((a.vx * tangent.x + a.vy * tangent.y) - beforeTangentA) < 1e-9,
-      `tangential velocity survives on ${label} A`);
-    assert(Math.abs((b.vx * tangent.x + b.vy * tangent.y) - beforeTangentB) < 1e-9,
-      `tangential velocity survives on ${label} B`);
-    assert((a.vx * normal.x + a.vy * normal.y) <= 1e-9,
-      `velocity into the ${label} contact is removed from A`);
-    assert((b.vx * normal.x + b.vy * normal.y) >= -1e-9,
-      `velocity into the ${label} contact is removed from B`);
-    assert(Math.hypot(a.x - before[0].x, a.y - before[0].y) <= maxFriendlyCorrectionPerTick(a) + 1e-9,
-      `${label} A stays inside its per-tick correction budget`);
-    assert(Math.hypot(b.x - before[1].x, b.y - before[1].y) <= maxFriendlyCorrectionPerTick(b) + 1e-9,
-      `${label} B stays inside its per-tick correction budget`);
-    // Deeply overlapped hulls are separated gradually, never in one jump.
-    assert(findShipHullOverlap(a, b), `one pass does not fully resolve a deep ${label} overlap`);
+    // Rear-end, equal mass: the speed they share is travel, only the speed they
+    // are closing at is the collision. Both come out at the average of the two,
+    // and neither is stopped. Measured along the contact normal, which the hull
+    // geometry decides -- the point is the relationship, not the axis.
+    for (const [label, ownerB] of [["friendly", "p1"], ["hostile", "p2"]]) {
+      const { a, b, project, normal, before, result } = contact({ ax: 120, bx: 80, ownerB });
+      assert(result, `an overlapping ${label} pair should resolve`);
+      const average = (before.normalA + before.normalB) / 2;
+      assert(before.normalA > before.normalB, "sanity: A is catching B");
+      assert(Math.abs(project(a, normal) - average) < 1e-9,
+        `${label} rear-end: the faster ship keeps the shared momentum`
+          + ` (${project(a, normal).toFixed(2)} against an average of ${average.toFixed(2)})`);
+      assert(Math.abs(project(b, normal) - average) < 1e-9,
+        `${label} rear-end: the slower ship is carried up to it`
+          + ` (${project(b, normal).toFixed(2)})`);
+      // The whole point: what was 120 did not become 0.
+      assert(project(a, normal) > before.normalB - 1e-9,
+        `${label} rear-end: the catching ship must not be stopped by the contact`);
+    }
+
+    // Two ships travelling together at the same speed are not colliding, however
+    // deeply their hulls happen to overlap. This is the case the remembered
+    // contact normal used to stop dead.
+    {
+      const { a, b, project, normal, before } = contact({ ax: 100, bx: 100 });
+      assert(Math.abs(project(a, normal) - before.normalA) < 1e-9,
+        `same-speed contact must not brake A (${project(a, normal).toFixed(2)})`);
+      assert(Math.abs(project(b, normal) - before.normalB) < 1e-9,
+        `same-speed contact must not brake B (${project(b, normal).toFixed(2)})`);
+      assert(Math.abs(a.vx - 100) < 1e-9 && Math.abs(b.vx - 100) < 1e-9,
+        "and neither loses any of its actual velocity");
+    }
+
+    // Momentum along the normal is conserved when the masses differ, and the
+    // lighter hull is the one that changes most.
+    {
+      const { a, b, project, normal, before } = contact({ ax: 150, bx: 0, massA: 20, massB: 100 });
+      const momentumBefore = before.normalA * 20 + before.normalB * 100;
+      const momentumAfter = project(a, normal) * 20 + project(b, normal) * 100;
+      assert(Math.abs(momentumAfter - momentumBefore) < 1e-6,
+        `normal momentum is conserved (${momentumBefore.toFixed(1)} -> ${momentumAfter.toFixed(1)})`);
+      const changeA = Math.abs(project(a, normal) - before.normalA);
+      const changeB = Math.abs(project(b, normal) - before.normalB);
+      assert(changeA > changeB * 4,
+        `the light hull gives way to the heavy one (${changeA.toFixed(1)} against ${changeB.toFixed(1)})`);
+    }
+
+    // Glancing: tangential motion is untouched, so hulls slide past rather than
+    // sticking to each other.
+    {
+      const { a, b, project, tangent, before } = contact({ ax: 120, ay: 60, bx: -120, by: 60 });
+      assert(Math.abs(project(a, tangent) - before.tangentA) < 1e-9, "tangential velocity survives on A");
+      assert(Math.abs(project(b, tangent) - before.tangentB) < 1e-9, "tangential velocity survives on B");
+    }
+
+    // Already separating: nothing to resolve, so nothing is taken.
+    {
+      const { a, b, project, normal, before } = contact({ ax: -60, bx: 90 });
+      assert(Math.abs(project(a, normal) - before.normalA) < 1e-9, "a separating pair keeps A's velocity");
+      assert(Math.abs(project(b, normal) - before.normalB) < 1e-9, "a separating pair keeps B's velocity");
+    }
+
+    // Correction stays bounded and gradual whatever the impulse did.
+    {
+      const { a, b, before, result } = contact({ ax: 120, bx: -120 });
+      assert(result, "a head-on pair resolves");
+      assert(Math.hypot(a.x - before.positionA.x, a.y - before.positionA.y)
+        <= maxFriendlyCorrectionPerTick(a) + 1e-9, "A stays inside its per-tick correction budget");
+      assert(Math.hypot(b.x - before.positionB.x, b.y - before.positionB.y)
+        <= maxFriendlyCorrectionPerTick(b) + 1e-9, "B stays inside its per-tick correction budget");
+      assert(findShipHullOverlap(a, b), "one pass does not fully resolve a deep overlap");
+    }
+
+    // Resting contact: a sliver of overlap is left alone rather than producing a
+    // standing shove every tick.
+    {
+      const a = makeShip({ id: "rest-a", x: 1000, y: 1000 });
+      const b = makeShip({ id: "rest-b", x: 1000, y: 1000 });
+      // Back off until the hulls barely touch.
+      let gap = 0;
+      while (findShipHullOverlap(a, b)?.penetration > 0.2 && gap < 200) {
+        gap += 0.1;
+        b.x = 1000 + gap;
+      }
+      const room = makeRoom([a, b]);
+      const before = { x: a.x, y: a.y };
+      resolveSeparationPair(room, a, b);
+      assert(Math.hypot(a.x - before.x, a.y - before.y) < 1e-9,
+        "a resting contact inside the slop is not corrected");
+    }
+  }
+
+  // --- a crowd travelling in sustained contact -----------------------------
+  {
+    // One shared destination, so these hulls stay pressed against each other for
+    // the whole journey. Contact that repeats every tick must not bleed the
+    // group's speed away, and no ship may be brought to a sudden stop by a
+    // neighbour it is travelling alongside.
+    const ships = Array.from({ length: 6 }, (_, index) => makeShip({
+      id: `convoy-${index}`,
+      x: 900 + (index % 3) * 34,
+      y: 1500 + Math.floor(index / 3) * 34
+    }));
+    const room = makeRoom(ships);
+    commandShipsToDestination(room, ships, { x: 7000, y: 1500 }, { prefix: "convoy" });
+
+    const speedOf = (ship) => Math.hypot(ship.vx, ship.vy);
+    let worstDrop = 0;
+    let slowestUnderWay = Infinity;
+    let contactTicks = 0;
+    let previous = ships.map(speedOf);
+    for (let index = 0; index < 500; index += 1) {
+      movementTestTick(room, ships, DT, index * DT * 1000);
+      let touching = false;
+      for (let i = 0; i < ships.length && !touching; i += 1) {
+        for (let j = i + 1; j < ships.length && !touching; j += 1) {
+          if (findShipHullOverlap(ships[i], ships[j])) touching = true;
+        }
+      }
+      if (touching) contactTicks += 1;
+      ships.forEach((ship, shipIndex) => {
+        const speed = speedOf(ship);
+        // Only judge ships that are still a long way from the destination, so
+        // ordinary arrival braking is not counted as a collision stall.
+        if (Math.hypot(ship.x - 7000, ship.y - 1500) > 1500 && index > 60) {
+          slowestUnderWay = Math.min(slowestUnderWay, speed);
+          worstDrop = Math.max(worstDrop, previous[shipIndex] - speed);
+        }
+        previous[shipIndex] = speed;
+      });
+    }
+
+    assert(contactTicks > 100,
+      `sanity: these hulls should actually be in contact while travelling (${contactTicks} ticks)`);
+    assert(slowestUnderWay > 150,
+      `a crowd in contact should keep travelling (slowest ${slowestUnderWay.toFixed(0)} px/s)`);
+    // Braking authority is five times acceleration, so one tick can legitimately
+    // take off a good chunk of speed. What must not happen is a contact deleting
+    // a ship's whole velocity in a single step.
+    assert(worstDrop < 60,
+      `no contact may stop a ship dead (worst single-tick loss ${worstDrop.toFixed(1)} px/s)`);
   }
 
   // --- a dense formation converging on one area ----------------------------

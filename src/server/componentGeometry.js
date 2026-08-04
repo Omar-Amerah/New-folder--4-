@@ -281,10 +281,21 @@ function shipHullCircles(ship) {
   return circles;
 }
 
+// Where two hulls are touching, and which way to push them apart.
+//
+// Depth is the deepest overlapping pair of cells, but the DIRECTION is the
+// penetration-weighted average over every overlapping pair. Taking the single
+// deepest pair's direction makes the contact normal jump between neighbouring
+// cells as two hulls slide or rotate past each other, which reads as the
+// correction kicking sideways. Averaging gives one stable manifold for the
+// whole contact. The square weighting keeps a deep contact dominant over the
+// grazing cells around it.
 function findShipHullOverlap(a, b) {
   const circlesA = shipHullCircles(a);
   const circlesB = shipHullCircles(b);
-  let best = null;
+  let deepest = 0;
+  let normalX = 0;
+  let normalY = 0;
   for (let i = 0; i < circlesA.length; i += 1) {
     const ca = circlesA[i];
     for (let j = 0; j < circlesB.length; j += 1) {
@@ -296,10 +307,25 @@ function findShipHullOverlap(a, b) {
       if (distanceSquared >= minimum * minimum) continue;
       const distance = Math.sqrt(distanceSquared);
       const penetration = minimum - distance;
-      if (!best || penetration > best.penetration) best = { dx, dy, distance, penetration };
+      if (penetration > deepest) deepest = penetration;
+      if (distance > 1e-6) {
+        const weight = penetration * penetration / distance;
+        normalX += dx * weight;
+        normalY += dy * weight;
+      }
     }
   }
-  return best;
+  if (!(deepest > 0)) return null;
+  let length = Math.hypot(normalX, normalY);
+  if (!(length > 1e-9)) {
+    // Every overlapping pair is concentric, or they cancel exactly. Fall back to
+    // the line between the two hulls.
+    normalX = (b.x || 0) - (a.x || 0);
+    normalY = (b.y || 0) - (a.y || 0);
+    length = Math.hypot(normalX, normalY);
+    if (!(length > 1e-9)) return { dx: 1, dy: 0, distance: 1, penetration: deepest };
+  }
+  return { dx: normalX / length, dy: normalY / length, distance: 1, penetration: deepest };
 }
 
 function getShipComponentCellWorldCoords(ship) {

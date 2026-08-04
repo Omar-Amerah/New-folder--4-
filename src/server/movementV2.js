@@ -211,7 +211,7 @@ function applyMovementDamping(ship, plan, drive, dt) {
 // angle, which is what made a turning ship snap onto its new heading. What comes
 // out of a turn here is a curve, and whatever sideways component the turn, a
 // shove or a collision left is still there afterwards.
-function applyPropulsion(ship, plan, stats, dt, contactNormals = null) {
+function applyPropulsion(ship, plan, stats, dt) {
   const drive = hasDrive(stats);
   const desiredSpeed = Math.max(0, Number(plan.desiredSpeed) || 0);
 
@@ -245,16 +245,14 @@ function applyPropulsion(ship, plan, stats, dt, contactNormals = null) {
 
   applyMovementDamping(ship, plan, drive, dt);
 
-  // A contact normal is a wall the hull is already resting on. Keep whatever
-  // slides along it and drop only what pushes into it, so a physical slide
-  // survives the controller's next planning step.
-  for (const normal of contactNormals || []) {
-    const inward = ship.vx * normal.x + ship.vy * normal.y;
-    if (inward > 0) {
-      ship.vx -= inward * normal.x;
-      ship.vy -= inward * normal.y;
-    }
-  }
+  // Nothing here constrains the hull against another ship. A ship-to-ship
+  // contact is resolved symmetrically, once, by the separation pass after every
+  // hull has integrated. Carrying last tick's contact normal into this tick's
+  // propulsion treated the other ship as a stationary wall and deleted the
+  // velocity a second time -- which stopped two hulls travelling together dead,
+  // for a contact that had no closing speed at all. Static geometry is
+  // different: an asteroid really is immovable, and resolveMapCollision takes
+  // velocity into it out on the spot, per substep.
 
   const totalSpeed = fastHypot(ship.vx, ship.vy);
   const maximumSpeed = Number(stats.maxSpeed);
@@ -1212,7 +1210,7 @@ function movementStep(room, ship, runtime, stats, routed, dt) {
     turnTowardHeading(ship, plan.desiredHeading, stats, dt);
     runtime.phase = plan.phase;
   }
-  applyPropulsion(ship, plan, stats, dt, ship._shipContactNormals);
+  applyPropulsion(ship, plan, stats, dt);
   integratePosition(room, ship, dt);
   bumpMovementMetric("staticCollisionSubstepChecks");
   resolveMapCollision(room, ship);
@@ -1228,7 +1226,6 @@ function updateShipMovement(room, ship, dt, now) {
     ship._friendlyCorrectionDistance = 0;
     ship._integratedMovementX = 0;
     ship._integratedMovementY = 0;
-    ship._shipContactNormals = null;
     ship.turnActivity = 0;
     return;
   }
@@ -1304,9 +1301,6 @@ function updateShipMovement(room, ship, dt, now) {
     movementStep(room, ship, runtime, stats, routed, stepDt);
   }
   syncMovementTarget(ship);
-  // A contact normal constrains the following integration only. The separation
-  // pass below replaces it with the contacts that actually exist this tick.
-  ship._shipContactNormals = null;
 }
 
 function updateShipSeparation(room, ships, dt, now = 0) {
