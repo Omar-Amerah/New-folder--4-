@@ -90,11 +90,15 @@ const MOMENTUM_HOLD_ANGLE = Math.PI / 2;
 const WAYPOINT_CAPTURE_RATIO = 0.75;
 const ROUTE_REPLAN_DISTANCE = 48;
 const ROUTE_STUCK_MS = 500;
+const ROUTE_UNREACHABLE_RETRY_MS = 2000;
 const ROUTE_PROGRESS_EPSILON = 8;
 const ROUTE_LOOKAHEAD_SPEED_FACTOR = 0.7;
 const ROUTE_LOOKAHEAD_MIN_MULTIPLIER = 2;
 const ROUTE_LOOKAHEAD_MAX_MULTIPLIER = 6;
 const ROUTE_TURN_PAUSE_HEADING_ERROR = 0.7;
+// How close the route's first point has to be to the ship before it counts as
+// "where the ship already is" rather than a leg it has to fly.
+const ROUTE_START_SNAP = 1;
 const CHARGE_CLING_SLACK = 24;
 const CHARGE_SETTLE_RADIAL_SPEED = 24;
 const CHARGE_PURSUE_SPEED = 8;
@@ -153,11 +157,6 @@ function applyManualRotation(ship, stats, dt) {
   ship.angle = normalizeHullAngle((ship.angle || 0) + direction * rate * dt);
   ship.turnActivity = direction;
   applyTurnHeat(ship, ship.turnActivity, dt);
-}
-
-function forwardSpeedOf(ship) {
-  return (ship.vx || 0) * Math.cos(ship.angle || 0)
-    + (ship.vy || 0) * Math.sin(ship.angle || 0);
 }
 
 // Full thrust while the nose is roughly on the bearing, tapering to nothing at
@@ -707,7 +706,16 @@ function planRoute(room, ship, runtime, destination, now) {
     );
     path = search.waypoints.slice();
     reachable = search.reachedGoal;
-    if (path.length > 1) path.shift();
+    // The search returns its own start point first. Usually that is where the
+    // ship already is and dropping it is right -- but when the hull begins
+    // inside its navigation padding the search starts from the nearest point it
+    // could legally occupy instead, and that point is an escape leg. Discarding
+    // it aims the ship at the waypoint beyond, which is exactly the leg the
+    // padding says it cannot fly, and it turns, brakes and replans instead.
+    if (path.length > 1
+      && fastHypot(path[0].x - ship.x, path[0].y - ship.y) <= ROUTE_START_SNAP) {
+      path.shift();
+    }
     if (!path.length) {
       path = [{ x: ship.x, y: ship.y }];
       reachable = false;
@@ -727,7 +735,11 @@ function planRoute(room, ship, runtime, destination, now) {
     terminal: { ...path[path.length - 1] },
     navigation: ensureRoomNavigation(room),
     plannedAt: now,
-    replanAt: now + ROUTE_STUCK_MS,
+    // A route that arrives is only rechecked on the stuck cadence. One that
+    // could not reach the destination will be retried once it has been flown
+    // out, and there is no point doing that twice a second for a ship parked
+    // against a wall that is not going to move.
+    replanAt: now + (reachable ? ROUTE_STUCK_MS : ROUTE_UNREACHABLE_RETRY_MS),
     progressDistance: pathRemainingDistance(path, 0, ship.x, ship.y),
     progressAlongRoute: pathRemainingDistance(path, 0, ship.x, ship.y),
     progressAt: now
@@ -888,12 +900,24 @@ function routeNeedsReplan(room, ship, runtime, destination, now) {
     updateRouteProgress(ship, runtime, now);
     return false;
   }
-  // A route that could not reach the destination is one moment's answer. The
-  // ship has moved since -- often only a few pixels, and often to somewhere a
-  // route does exist. Its terminal waypoint is its own position, so no progress
-  // test can ever fail and nothing else here would try again: without this the
-  // order latches "blocked" for as long as it stands.
-  if (route.reachable === false) return true;
+  // A route that could not reach the destination is still a route, and a
+  // partial one that is carrying the ship somewhere useful must be flown, not
+  // reconsidered every half second -- that is what makes a ship dither between
+  // two sides of an obstacle. Retry the destination only once the partial route
+  // has nothing left to give: its terminal has been reached.
+  //
+  // The degenerate case is the one that has to be caught. When the search
+  // returns nothing at all the fallback route is a single waypoint at the
+  // ship's own position, so its terminal is always "reached" and no progress
+  // test below could ever fail it. Without this the order would latch blocked
+  // for as long as it stood.
+  if (route.reachable === false) {
+    const terminal = route.terminal;
+    if (!terminal) return true;
+    const arrived = fastHypot(terminal.x - ship.x, terminal.y - ship.y)
+      <= Math.max(route.clearance, ARRIVE_DISTANCE);
+    if (arrived) return true;
+  }
   const index = routeWaypointIndex(runtime);
   const goal = runtime.path[index];
   if (goal && !isSegmentClear(room, ship.x, ship.y, goal.x, goal.y, route.clearance)) {
@@ -1019,8 +1043,13 @@ function holdWeaponFacingHeading(room, ship, runtime, target) {
     : bearingTo(ship, targetAttackPointFrom(ship.x || 0, ship.y || 0, target));
 }
 
+// Where a ship that has stopped points. A commanded final facing is the resting
+// default, not an override: it is what the hull settles on with nothing to
+// shoot at. An engagement outranks it, because a formation arriving on its
+// heading and then refusing to look at the enemy in front of it is not what the
+// heading was for. Either way this is orientation only -- it never moves a ship
+// off the point it was sent to.
 function stationaryHeading(room, ship, runtime, command) {
-  if (Number.isFinite(command?.finalFacing)) return command.finalFacing;
   if (combatStance(ship) !== "sentry") {
     const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
     if (engaged) {
@@ -1062,7 +1091,9 @@ function planMovement(room, ship, runtime, stats, route) {
         ? bearingTo(ship, point)
         : ship.angle || 0,
       desiredSpeed: 0,
-      phase: Math.abs(forwardSpeedOf(ship)) > REST_SPEED ? "braking" : "positioned"
+      // Still braking while it is still moving, whichever way that is relative
+      // to the nose: a hull sliding sideways has not stopped.
+      phase: fastHypot(ship.vx || 0, ship.vy || 0) > REST_SPEED ? "braking" : "positioned"
     };
   }
 
@@ -1101,7 +1132,10 @@ function planMovement(room, ship, runtime, stats, route) {
     runtime.arrived = false;
   }
 
-  const speed = forwardSpeedOf(ship);
+  // Total speed, not the component along the nose. With retained momentum a
+  // hull can be barely moving forwards while sliding hard across itself, and
+  // calling that arrived parks the order while the ship coasts off its slot.
+  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
   if (canLatch && distance <= arrivalRadius
     && (speed <= DESTINATION_ARRIVE_SPEED || restingOnFriendly)) {
     runtime.arrived = true;
@@ -1234,7 +1268,22 @@ function updateShipMovement(room, ship, dt, now) {
     runtime.blocked = false;
   }
 
-  const directCharge = runtime.command?.type === "attack" && combatStance(ship) === "charge";
+  // Charge runs straight at its target -- but only while there is a straight
+  // run to make. With a rock or a station between the two, driving at the
+  // bearing grinds the hull along the obstacle for as long as the order stands,
+  // so it takes the ordinary static route instead and drops back to closing
+  // directly the moment the last leg is clear.
+  const charging = runtime.command?.type === "attack" && combatStance(ship) === "charge";
+  const directCharge = charging
+    && (!runtime.destination
+      || isSegmentClear(
+        room,
+        ship.x,
+        ship.y,
+        runtime.destination.x,
+        runtime.destination.y,
+        routeClearance(ship)
+      ));
   const routed = runtime.destination && !directCharge
     ? resolveRoute(room, ship, runtime, ship._simNow)
     : false;
@@ -1370,7 +1419,11 @@ function commandShips(room, player, x, y, options = {}) {
       // Every ship has its own slot, so the shared crowding envelope that a
       // single stacked destination needed would only stop ships short of it.
       arrivalRadius: ARRIVE_DISTANCE,
-      finalFacing: options.finalFacing,
+      // A formation that arrives pointing every which way is not a formation.
+      // Absent an explicit heading, the shape's own direction of travel is the
+      // one they all end on. Automatic combat facing may still turn a parked
+      // hull afterwards; that changes orientation, never position.
+      finalFacing: Number.isFinite(options.finalFacing) ? options.finalFacing : plan.direction,
       manual: true,
       formation: {
         type: plan.formation,

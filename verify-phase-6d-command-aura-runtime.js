@@ -539,6 +539,12 @@ function runSourceLocalInvalidationChecks() {
 }
 
 function runTickRoomIntegrationChecks() {
+  // Inside the playable area on both axes. The mover has to be somewhere the
+  // navigator considers legal, or its first move is a leg back into bounds
+  // rather than the boundary crossing this fixture is about. Only the x
+  // separation matters to the aura.
+  const LANE_Y = 1200;
+
   function prepareMovingRecipient(room) {
     const ship = room.ships.get("dst");
     ship.angle = Math.PI;
@@ -546,14 +552,14 @@ function runTickRoomIntegrationChecks() {
     setMovementCommand(ship, {
       id: "phase-6d-boundary-move",
       type: "move",
-      destination: { x: RANGE - 100, y: 0 }
+      destination: { x: RANGE - 100, y: LANE_Y }
     });
     return ship;
   }
 
   const room = makeRoom([
-    { id: "src", ownerId: "p1", x: 0, y: 0, types: ["core", "fireControlCommandCentre"] },
-    { id: "dst", ownerId: "p1", x: RANGE + 0.00025, y: 0, types: ["core", "engine"] }
+    { id: "src", ownerId: "p1", x: 0, y: LANE_Y, types: ["core", "fireControlCommandCentre"] },
+    { id: "dst", ownerId: "p1", x: RANGE + 0.00025, y: LANE_Y, types: ["core", "engine"] }
   ]);
   const movingRecipient = prepareMovingRecipient(room);
   tickRoom(room, 0.1, 1000);

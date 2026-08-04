@@ -288,6 +288,95 @@ function run() {
       `the ship should not stop inside the gap (slowest ${slowestInGap.toFixed(1)} px/s)`);
   }
 
+  // --- a route out of the padding keeps its escape leg ---------------------
+  {
+    // The hull is legal where it stands but sits inside its own navigation
+    // padding, so the planner starts the route from the nearest point it could
+    // properly occupy. That first point is a leg to fly, not the ship's own
+    // position, and dropping it aims the ship at the waypoint beyond -- through
+    // the very clearance the padding was protecting.
+    const asteroid = { id: "hug", x: 2000, y: 2000, radius: 300 };
+    const ship = makeShip({ x: 2000, y: 2000 });
+    const clearance = physicalCollisionRadius(ship) + 8;
+    // Just outside physical contact, well inside navigation clearance.
+    ship.x = asteroid.x - (asteroid.radius + physicalCollisionRadius(ship) + 2);
+    const room = makeRoom([ship], [asteroid]);
+    commandShips(room, room.players.get("p1"), 800, 2000, { shipIds: [ship.id] });
+    movementTestTick(room, [ship], DT, 0);
+
+    const first = ship.movement.path[0];
+    assert(first, "the planner should produce a route");
+    if (Math.hypot(first.x - ship.x, first.y - ship.y) > 1) {
+      assert(worstAsteroidClearance(ship, [asteroid]) < 8,
+        "sanity: the hull really is inside its navigation padding");
+    }
+    // Whatever it planned, it gets clear and arrives.
+    let worstClearance = Infinity;
+    tick(room, [ship], 900, () => {
+      worstClearance = Math.min(worstClearance, worstAsteroidClearance(ship, [asteroid]));
+    });
+    assert(worstClearance > -0.5, `it must not be driven into the rock (${worstClearance.toFixed(1)} px)`);
+    assert(distanceTo(ship, 800, 2000) <= ARRIVE_DISTANCE + 6,
+      `a ship starting inside its padding should still get away and arrive (${distanceTo(ship, 800, 2000).toFixed(0)} px)`);
+    assert(clearance > 0);
+  }
+
+  // --- a partial route is flown, not reconsidered every half second --------
+  {
+    // A clear pocket walled in by rock. The destination is a point the hull
+    // could legally occupy, so the planner keeps it, but no route can get
+    // there: what comes back is a partial route to the nearest reachable
+    // ground. That route has to be flown rather than rebuilt on a timer, or the
+    // ship dithers on the spot instead of travelling.
+    const pocket = { x: 3400, y: 2040 };
+    const asteroids = Array.from({ length: 8 }, (_, index) => {
+      const angle = (index / 8) * Math.PI * 2;
+      return {
+        id: `wall-${index}`,
+        x: pocket.x + Math.cos(angle) * 420,
+        y: pocket.y + Math.sin(angle) * 420,
+        radius: 300
+      };
+    });
+    const ship = makeShip({ x: 900, y: 2040 });
+    const room = makeRoom([ship], asteroids);
+    commandShips(room, room.players.get("p1"), pocket.x, pocket.y, { shipIds: [ship.id] });
+    assert.equal(ship.movement.destination.x, pocket.x,
+      "sanity: the destination is a legal point and is kept");
+    movementTestTick(room, [ship], DT, 0);
+    assert.equal(ship.movement.route.reachable, false,
+      "sanity: a sealed pocket cannot be routed to");
+
+    let replansEnRoute = 0;
+    let replansTotal = 0;
+    let plannedAt = ship.movement.route?.plannedAt;
+    let travelled = 0;
+    let previous = { x: ship.x, y: ship.y };
+    tick(room, [ship], 900, () => {
+      const route = ship.movement.route;
+      if (route && route.plannedAt !== plannedAt) {
+        replansTotal += 1;
+        // Still flying the route it has, rather than parked on its terminal.
+        const terminal = route.terminal;
+        if (terminal && Math.hypot(ship.x - terminal.x, ship.y - terminal.y) > route.clearance) {
+          replansEnRoute += 1;
+        }
+        plannedAt = route.plannedAt;
+      }
+      travelled += Math.hypot(ship.x - previous.x, ship.y - previous.y);
+      previous = { x: ship.x, y: ship.y };
+    });
+
+    assert(travelled > 800, `the ship should fly the partial route it has (${travelled.toFixed(0)} px)`);
+    assert(worstAsteroidClearance(ship, asteroids) > -0.5, "and stop short of the wall, not inside it");
+    // The route it is flying is not reconsidered on a timer. Retrying the
+    // destination only starts once the partial route has been flown out.
+    assert(replansEnRoute <= 2,
+      `a partial route should be flown, not rebuilt underneath the ship (${replansEnRoute} replans en route)`);
+    // 900 ticks is 30 seconds. Retrying twice a second would be sixty searches.
+    assert(replansTotal < 20, `and retried on a backoff once parked (${replansTotal} total)`);
+  }
+
   console.log("verify-movement-navigation: OK");
 }
 

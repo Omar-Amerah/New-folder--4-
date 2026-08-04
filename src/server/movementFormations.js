@@ -39,12 +39,63 @@ const MIN_DIRECTION_DISTANCE = 1;
 // spacing either side of the axis leave a diameter of daylight between them.
 const WEDGE_RANK_DEPTH = 0.9;
 const WEDGE_RANK_WIDTH = 1;
+// How many times an obstacle-adjusted slot may be walked further out before it
+// is left where it is. Bounded so a pocket of clear ground surrounded by rock
+// cannot spin here.
+const SLOT_CONFLICT_ATTEMPTS = 6;
 
 // Deterministic order in, deterministic slots out. Two identical orders must
 // assign the same ship to the same slot, so the sort is the stable entity-id
 // comparison used everywhere else in movement.
 function orderShipsForFormation(ships) {
   return (ships || []).filter((ship) => ship).slice().sort(compareEntityIds);
+}
+
+// Which ship takes which slot. The shape is generated in index order, so
+// handing out slots in entity-id order gives the leftmost ship whichever slot
+// its id happens to sort to, and the fleet spends the whole move crossing
+// through itself to trade places.
+//
+// Instead, rank both sides by the same thing -- position across the axis of
+// travel, then down it -- and pair them off in order. A ship on the left of the
+// group gets a slot on the left of the shape, so the formation assembles out of
+// the order the fleet is already in.
+//
+// Still a pure function of the order: the same ships, in the same places, sent
+// to the same point always produce the same assignment. Entity id breaks any
+// tie, so two hulls sitting on the same spot cannot flip between plans.
+function acrossThenAlong(direction) {
+  const cos = Math.cos(direction);
+  const sin = Math.sin(direction);
+  return (x, y) => ({ across: -x * sin + y * cos, along: x * cos + y * sin });
+}
+
+function pairShipsToOffsets(ships, offsets, direction) {
+  const project = acrossThenAlong(direction);
+  const rankedShips = ships
+    .map((ship, index) => ({
+      ship,
+      index,
+      ...project(Number(ship.x) || 0, Number(ship.y) || 0)
+    }))
+    .sort((left, right) => (
+      (left.across - right.across)
+      || (right.along - left.along)
+      || compareEntityIds(left.ship, right.ship)
+    ));
+  // Offsets are already in formation space, so their own coordinates are the
+  // ranking: +y across, +x along.
+  const rankedOffsets = offsets
+    .map((offset, index) => ({ offset, index }))
+    .sort((left, right) => (
+      (left.offset.y - right.offset.y)
+      || (right.offset.x - left.offset.x)
+      || (left.index - right.index)
+    ));
+  return rankedShips.map((entry, rank) => ({
+    ship: entry.ship,
+    offset: rankedOffsets[rank].offset
+  }));
 }
 
 // Spacing comes from what the hulls physically are, not from an assumed maximum
@@ -126,6 +177,48 @@ function resolveSlotPoint(room, ship, requestedX, requestedY) {
   };
 }
 
+function slotsTooClose(a, b) {
+  const minimum = physicalCollisionRadius(a.ship) + physicalCollisionRadius(b.ship);
+  return fastHypot(a.x - b.x, a.y - b.y) < minimum;
+}
+
+// Slots on the generated lattice are spaced by construction, but a slot walked
+// out of an asteroid is not: several slots inside the same rock are each moved
+// to the nearest clear ground, which can be the same patch of it. One pass over
+// the moved slots, in index order, pushes any that landed on top of another one
+// further out along its own side of the shape. The lattice is never rebuilt and
+// nothing that was already clear is touched.
+function separateAdjustedSlots(room, slots, centre) {
+  for (const slot of slots) {
+    if (!slot.adjusted) continue;
+    let outX = slot.x - centre.x;
+    let outY = slot.y - centre.y;
+    const length = fastHypot(outX, outY);
+    if (length < 1e-6) {
+      outX = 1;
+      outY = 0;
+    } else {
+      outX /= length;
+      outY /= length;
+    }
+    for (let attempt = 0; attempt < SLOT_CONFLICT_ATTEMPTS; attempt += 1) {
+      const conflict = slots.find((other) => other !== slot && slotsTooClose(slot, other));
+      if (!conflict) break;
+      const needed = physicalCollisionRadius(slot.ship)
+        + physicalCollisionRadius(conflict.ship)
+        + FORMATION_VISUAL_GAP
+        - fastHypot(slot.x - conflict.x, slot.y - conflict.y);
+      const point = resolveSlotPoint(room, slot.ship, slot.x + outX * needed, slot.y + outY * needed);
+      // Nowhere to go: leave it where it is rather than walking it somewhere
+      // arbitrary. Collision will settle the last of it on arrival.
+      if (fastHypot(point.x - slot.x, point.y - slot.y) < 1e-6) break;
+      slot.x = point.x;
+      slot.y = point.y;
+      slot.reachable = point.reachable;
+    }
+  }
+}
+
 function planFormation(room, ships, options = {}) {
   const ordered = orderShipsForFormation(ships);
   const formation = sanitizeFormationType(options.formation);
@@ -137,10 +230,10 @@ function planFormation(room, ships, options = {}) {
   };
   const direction = formationDirection(ordered, centre, options.direction);
   const spacing = formationSpacing(ordered);
+  const offsets = ordered.map((ship, index) => formationOffset(index, ordered.length, spacing, formation));
   const cos = Math.cos(direction);
   const sin = Math.sin(direction);
-  const slots = ordered.map((ship, index) => {
-    const offset = formationOffset(index, ordered.length, spacing, formation);
+  const slots = pairShipsToOffsets(ordered, offsets, direction).map(({ ship, offset }, index) => {
     const requestedX = centre.x + offset.x * cos - offset.y * sin;
     const requestedY = centre.y + offset.x * sin + offset.y * cos;
     const point = resolveSlotPoint(room, ship, requestedX, requestedY);
@@ -159,6 +252,7 @@ function planFormation(room, ships, options = {}) {
       reachable: point.reachable
     };
   });
+  separateAdjustedSlots(room, slots, centre);
   return { x: centre.x, y: centre.y, formation, direction, spacing, slots };
 }
 

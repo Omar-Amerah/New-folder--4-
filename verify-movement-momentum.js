@@ -224,6 +224,29 @@ function run() {
       "a settled ship should not jitter");
   }
 
+  // --- arrival is judged on total speed, not forward speed -----------------
+  {
+    // Parked on the destination, barely moving along the nose but sliding hard
+    // across it. Judging arrival on the forward component alone would call this
+    // stopped and let the hull coast off its slot under parked damping.
+    const ship = makeShip({ x: 2000, y: 2000, angle: 0 });
+    const room = makeRoom([ship]);
+    const destination = { x: 2000, y: 2000 };
+    commandShips(room, room.players.get("p1"), destination.x, destination.y, { shipIds: [ship.id] });
+    ship.vx = 0;
+    ship.vy = 240;
+    movementTestTick(room, [ship], DT, 0);
+    assert.equal(ship.movement.arrived, false,
+      "a hull sliding sideways on the spot has not arrived");
+    assert.notEqual(ship.movement.phase, "positioned",
+      "...and is not reported as positioned");
+
+    tick(room, [ship], 400);
+    assert.equal(ship.movement.arrived, true, "it does settle once it has actually stopped");
+    assert(Math.hypot(ship.x - destination.x, ship.y - destination.y) <= ARRIVE_DISTANCE + 6,
+      "and settles on the destination rather than drifting off it");
+  }
+
   console.log("verify-movement-momentum: OK");
 }
 
