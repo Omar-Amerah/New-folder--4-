@@ -18,15 +18,23 @@ const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const { selectOwnedLivingShips } = require("./selection");
 const { canTeamTargetEntity } = require("./visibility");
 const {
+  APPROACH_DAMPING,
+  APPROACH_DAMPING_DISTANCE,
+  ARRIVED_DAMPING,
   ARRIVE_DISTANCE,
   ARRIVE_LATCH_RATIO,
+  DAMPING_REFERENCE_HZ,
   DESTINATION_ARRIVE_SPEED,
   FINAL_FACING_TOLERANCE,
+  FULL_THRUST_HEADING_ERROR,
   HOLD_RANGE_RATIO,
   HOLD_RESUME_RATIO,
+  LATERAL_DAMPING,
   MAX_MOVEMENT_DT,
   REPAIR_STANDOFF_PAD,
-  REST_SPEED
+  REST_SPEED,
+  TRAVEL_DAMPING,
+  UNPOWERED_DAMPING
 } = require("./movementTuning");
 const { getMaxEffectiveWeaponRange, shipHasArmedProximityCharge } = require("./componentData");
 const {
@@ -152,36 +160,95 @@ function forwardSpeedOf(ship) {
     + (ship.vy || 0) * Math.sin(ship.angle || 0);
 }
 
-function moveSpeedToward(ship, desiredSpeed, speedCeiling, stats, dt, contactNormals = null) {
+// Full thrust while the nose is roughly on the bearing, tapering to nothing at
+// 90 degrees and never applied beyond it. Past a right angle the only useful
+// thing an engine can do is stop, so the helm brakes and turns instead.
+function alignmentThrottle(headingError) {
+  // Tested on the angle rather than the sign of its cosine: cos(PI/2) is not
+  // exactly zero in floating point, and "a right angle" has to mean nothing.
+  if (!(Math.abs(headingError) < MOMENTUM_HOLD_ANGLE)) return 0;
+  return clampNumber(
+    Math.cos(headingError) / Math.cos(FULL_THRUST_HEADING_ERROR),
+    0,
+    1
+  );
+}
+
+function dampingStep(retention, dt) {
+  return Math.pow(retention, dt * DAMPING_REFERENCE_HZ);
+}
+
+function forwardDamping(plan) {
+  if (!(plan.desiredSpeed > 0)) return ARRIVED_DAMPING;
+  return plan.approaching ? APPROACH_DAMPING : TRAVEL_DAMPING;
+}
+
+// Drag, split along and across the hull. Along the nose it is deliberately near
+// nothing while cruising and strong once parked. Across it, it is what turns
+// retained sideways momentum into a settling arc rather than a permanent skid.
+// Neither ever zeroes a component outright: a collision slide decays, it is not
+// deleted.
+function applyMovementDamping(ship, plan, drive, dt) {
+  if (!drive) {
+    const coast = dampingStep(UNPOWERED_DAMPING, dt);
+    ship.vx *= coast;
+    ship.vy *= coast;
+    return;
+  }
   const forwardX = Math.cos(ship.angle || 0);
   const forwardY = Math.sin(ship.angle || 0);
   const lateralX = -forwardY;
   const lateralY = forwardX;
-  const speed = (ship.vx || 0) * forwardX + (ship.vy || 0) * forwardY;
-  const lateralSpeed = contactNormals?.length
-    ? (ship.vx || 0) * lateralX + (ship.vy || 0) * lateralY
-    : 0;
-  if (!hasDrive(stats)) {
-    const damping = 0.05;
-    ship.vx = (ship.vx || 0) * (1 - damping * dt);
-    ship.vy = (ship.vy || 0) * (1 - damping * dt);
-    return;
+  const forward = ((ship.vx || 0) * forwardX + (ship.vy || 0) * forwardY)
+    * dampingStep(forwardDamping(plan), dt);
+  const lateral = ((ship.vx || 0) * lateralX + (ship.vy || 0) * lateralY)
+    * dampingStep(LATERAL_DAMPING, dt);
+  ship.vx = forwardX * forward + lateralX * lateral;
+  ship.vy = forwardY * forward + lateralY * lateral;
+}
+
+// Momentum-based propulsion: acceleration is ADDED to the velocity the ship
+// already carries, along the nose. It is never a velocity rebuilt from the hull
+// angle, which is what made a turning ship snap onto its new heading. What comes
+// out of a turn here is a curve, and whatever sideways component the turn, a
+// shove or a collision left is still there afterwards.
+function applyPropulsion(ship, plan, stats, dt, contactNormals = null) {
+  const drive = hasDrive(stats);
+  const desiredSpeed = Math.max(0, Number(plan.desiredSpeed) || 0);
+
+  if (drive) {
+    const forwardX = Math.cos(ship.angle || 0);
+    const forwardY = Math.sin(ship.angle || 0);
+    const headingError = Number.isFinite(plan.desiredHeading)
+      ? angleDifference(ship.angle || 0, plan.desiredHeading)
+      : 0;
+    const throttle = alignmentThrottle(headingError);
+    const forwardSpeed = (ship.vx || 0) * forwardX + (ship.vy || 0) * forwardY;
+    if (throttle > 0 && forwardSpeed < desiredSpeed) {
+      const step = Math.min(
+        driveAcceleration(stats) * throttle * dt,
+        desiredSpeed - forwardSpeed
+      );
+      ship.vx += forwardX * step;
+      ship.vy += forwardY * step;
+      applyEngineHeat(ship, throttle, dt);
+    }
+    // Deceleration acts against travel, not along the hull. A ship pointed away
+    // from where it is going therefore sheds speed however it is facing, and no
+    // braking case can ever read as thrust that carries it further away.
+    const speed = fastHypot(ship.vx, ship.vy);
+    if (speed > desiredSpeed && speed > 1e-9) {
+      const step = Math.min(brakingAcceleration(stats) * dt, speed - desiredSpeed);
+      ship.vx -= (ship.vx / speed) * step;
+      ship.vy -= (ship.vy / speed) * step;
+    }
   }
 
-  const target = Math.max(0, Number(desiredSpeed) || 0);
-  const ceiling = Math.max(target, Number.isFinite(speedCeiling) ? speedCeiling : target);
-  let requested = 0;
-  if (speed < target) requested = target - speed;
-  else if (speed > ceiling) requested = ceiling - speed;
-  const available = (requested < 0 ? brakingAcceleration(stats) : driveAcceleration(stats)) * dt;
-  const delta = clampNumber(requested, -available, available);
-  let next = Math.max(0, speed + delta);
-  if (next < REST_SPEED && ceiling < REST_SPEED) next = 0;
-  // Collision response may leave a tangential component. Keep it while the
-  // controller changes only the forward component; otherwise the next planning
-  // tick would erase a physical slide and drive the hull back into the contact.
-  ship.vx = forwardX * next + lateralX * lateralSpeed;
-  ship.vy = forwardY * next + lateralY * lateralSpeed;
+  applyMovementDamping(ship, plan, drive, dt);
+
+  // A contact normal is a wall the hull is already resting on. Keep whatever
+  // slides along it and drop only what pushes into it, so a physical slide
+  // survives the controller's next planning step.
   for (const normal of contactNormals || []) {
     const inward = ship.vx * normal.x + ship.vy * normal.y;
     if (inward > 0) {
@@ -189,13 +256,18 @@ function moveSpeedToward(ship, desiredSpeed, speedCeiling, stats, dt, contactNor
       ship.vy -= inward * normal.y;
     }
   }
+
   const totalSpeed = fastHypot(ship.vx, ship.vy);
   const maximumSpeed = Number(stats.maxSpeed);
   if (Number.isFinite(maximumSpeed) && maximumSpeed > 0 && totalSpeed > maximumSpeed) {
     ship.vx *= maximumSpeed / totalSpeed;
     ship.vy *= maximumSpeed / totalSpeed;
+  } else if (!(desiredSpeed > 0) && totalSpeed < REST_SPEED) {
+    // Converging on zero asymptotically never arrives, and a ship asked to hold
+    // station must actually be still.
+    ship.vx = 0;
+    ship.vy = 0;
   }
-  applyEngineHeat(ship, Math.min(1, Math.abs(requested) / Math.max(available, 1e-9)), dt);
 }
 
 function integratePosition(room, ship, dt) {
@@ -706,34 +778,48 @@ function routeLookaheadDistance(ship) {
   );
 }
 
-function routeLookaheadPoint(room, ship, runtime, distance) {
+// A point `distance` along the remaining route from where the ship is now.
+function pointAlongRoute(ship, runtime, distance) {
   const path = runtime.path;
-  if (!path?.length) return null;
-  const clearance = runtime.route?.clearance ?? routeClearance(ship);
   let remaining = Math.max(0, Number(distance) || 0);
   let fromX = ship.x;
   let fromY = ship.y;
-  let candidate = null;
-  const startIndex = routeWaypointIndex(runtime);
-  for (let index = startIndex; index < path.length; index += 1) {
+  for (let index = routeWaypointIndex(runtime); index < path.length; index += 1) {
     const target = path[index];
     const dx = target.x - fromX;
     const dy = target.y - fromY;
     const length = fastHypot(dx, dy);
     if (length > remaining && length > 1e-6) {
       const ratio = remaining / length;
-      candidate = { x: fromX + dx * ratio, y: fromY + dy * ratio };
-      break;
+      return { x: fromX + dx * ratio, y: fromY + dy * ratio };
     }
     remaining -= length;
     fromX = target.x;
     fromY = target.y;
   }
-  if (!candidate) candidate = { x: fromX, y: fromY };
-  if (isSegmentClear(room, ship.x, ship.y, candidate.x, candidate.y, clearance)) return candidate;
-  const waypoint = path[startIndex];
-  if (waypoint && isSegmentClear(room, ship.x, ship.y, waypoint.x, waypoint.y, clearance)) return { ...waypoint };
-  return candidate;
+  return { x: fromX, y: fromY };
+}
+
+// Steering ahead of the route is what smooths a corner, but only ever toward
+// somewhere the hull could actually fly to. Returning a candidate the clearance
+// check has already rejected is the same as steering into the obstacle, which
+// under retained momentum is a hull scraping the rock rather than a wide miss.
+// When nothing along the route is reachable the caller gets null and brakes.
+function routeLookaheadPoint(room, ship, runtime, distance) {
+  const path = runtime.path;
+  if (!path?.length) return null;
+  const clearance = runtime.route?.clearance ?? routeClearance(ship);
+  const reachable = (point) => point
+    && isSegmentClear(room, ship.x, ship.y, point.x, point.y, clearance);
+  const candidate = pointAlongRoute(ship, runtime, distance);
+  if (reachable(candidate)) return candidate;
+  const waypoint = path[routeWaypointIndex(runtime)];
+  if (reachable(waypoint)) return { ...waypoint };
+  for (const fraction of [0.5, 0.25]) {
+    const shorter = pointAlongRoute(ship, runtime, distance * fraction);
+    if (reachable(shorter)) return shorter;
+  }
+  return null;
 }
 
 function maxTurnRate(stats) {
@@ -776,6 +862,12 @@ function routeNeedsReplan(room, ship, runtime, destination, now) {
     updateRouteProgress(ship, runtime, now);
     return false;
   }
+  // A route that could not reach the destination is one moment's answer. The
+  // ship has moved since -- often only a few pixels, and often to somewhere a
+  // route does exist. Its terminal waypoint is its own position, so no progress
+  // test can ever fail and nothing else here would try again: without this the
+  // order latches "blocked" for as long as it stands.
+  if (route.reachable === false) return true;
   const index = routeWaypointIndex(runtime);
   const goal = runtime.path[index];
   if (goal && !isSegmentClear(room, ship.x, ship.y, goal.x, goal.y, route.clearance)) {
@@ -808,10 +900,15 @@ function routeView(room, ship, runtime, stats) {
   const index = routeWaypointIndex(runtime);
   const goal = index >= 0 && runtime.path[index] ? runtime.path[index] : destination;
   const lookaheadDistance = routeLookaheadDistance(ship);
+  const lookahead = routeLookaheadPoint(room, ship, runtime, lookaheadDistance);
   return {
     goal,
     remaining: routeRemainingDistance(ship, runtime, destination),
-    lookahead: routeLookaheadPoint(room, ship, runtime, lookaheadDistance),
+    lookahead,
+    // Nothing along the route can be flown to from here. Steer at the active
+    // waypoint and come off the throttle rather than carrying speed toward a
+    // point the clearance check has already refused.
+    mustBrake: !lookahead,
     cornerLimit: cornerSpeedLimit(ship, runtime, stats, lookaheadDistance),
     reachable: runtime.route?.reachable !== false,
     terminal: runtime.route?.terminal || destination
@@ -825,6 +922,17 @@ function restingHeading(ship, command) {
 
 function bearingTo(ship, point) {
   return Math.atan2(point.y - (ship.y || 0), point.x - (ship.x || 0));
+}
+
+// How far off the bearing to point the nose so that thrust cancels the sideways
+// speed the hull is carrying. atan2 bounds it: a ship sliding much faster than
+// it is being asked to travel turns fully across its own drift to kill it, and
+// one tracking straight gets no correction at all.
+function crabAngle(ship, bearing, referenceSpeed) {
+  const crossTrack = (ship.vx || 0) * -Math.sin(bearing) + (ship.vy || 0) * Math.cos(bearing);
+  const forward = Math.max(Number(referenceSpeed) || 0, REST_SPEED);
+  if (Math.abs(crossTrack) < REST_SPEED) return 0;
+  return Math.atan2(-crossTrack, forward);
 }
 
 function holdWeaponFacingHeading(room, ship, runtime, target) {
@@ -973,7 +1081,7 @@ function planMovement(room, ship, runtime, stats, route) {
   const goal = route?.goal || destination;
   const steeringGoal = route?.lookahead || goal;
   const goalDistance = fastHypot(steeringGoal.x - (ship.x || 0), steeringGoal.y - (ship.y || 0));
-  const desiredHeading = goalDistance > BEARING_MIN_DISTANCE
+  const bearing = goalDistance > BEARING_MIN_DISTANCE
     ? bearingTo(ship, steeringGoal)
     : (ship.angle || 0);
   const remainingToEnd = Math.max(0, (route ? route.remaining : distance) - arrivalRadius);
@@ -981,26 +1089,43 @@ function planMovement(room, ship, runtime, stats, route) {
   const turnRate = maxTurnRate(stats);
   const turnLimit = turnRate > 0 ? turnRate * Math.max(route ? route.remaining : goalDistance, arrivalRadius) : Infinity;
   const ramming = Boolean(runtime.ramming && !runtime.chargeEngaged);
-  const headingError = angleDifference(ship.angle || 0, desiredHeading);
-  const alignment = clampNumber(Math.cos(headingError), 0, 1);
   const effectiveMaxSpeed = Number(stats.maxSpeed) || 0;
   const paperMaxSpeed = Number(ship.stats?.maxSpeed);
   const ownMaxSpeed = Number.isFinite(paperMaxSpeed) && paperMaxSpeed > 0
     ? Math.min(effectiveMaxSpeed, paperMaxSpeed)
     : effectiveMaxSpeed;
+  // Nothing along the route can be flown to from here -- the hull has drifted
+  // inside its own clearance envelope. Come off the throttle to a speed it can
+  // cancel within one arrival distance and keep steering at the active
+  // waypoint, which is the direction that opens the gap again. Stopping dead
+  // would only park the ship in the pinch it is trying to leave.
+  const blockedLimit = route?.mustBrake
+    ? Math.sqrt(2 * brakingAcceleration(stats) * ARRIVE_DISTANCE)
+    : Infinity;
   const permitted = Math.min(
     ownMaxSpeed,
     ramming ? Infinity : safeArrivalSpeed,
     ramming ? Infinity : turnLimit,
-    route ? route.cornerLimit : Infinity
+    route ? route.cornerLimit : Infinity,
+    blockedLimit
   );
-  const desiredSpeed = permitted * alignment;
-  const speedCeiling = permitted * momentumRetention(headingError);
+  // Above a right angle of heading error the ship is asked to shed speed rather
+  // than hold it, and the taper stops that becoming a cliff at exactly 90
+  // degrees. Below it, momentum is kept: the alignment taper lives in the
+  // throttle, so a slight misalignment costs thrust, not the speed already made.
+  // The hull carries momentum, so where its nose points and where it is
+  // actually going are two different things. Aim off into the ship's own slip:
+  // the helm steers by how fast the ship is sliding across the bearing, which
+  // is what holds a route through a corner instead of letting the drift carry
+  // the hull into the obstacle the route was drawn around.
+  const desiredHeading = bearing + crabAngle(ship, bearing, permitted);
+  const headingError = angleDifference(ship.angle || 0, desiredHeading);
+  const desiredSpeed = permitted * momentumRetention(headingError);
   return {
     desiredHeading,
     desiredSpeed,
-    speedCeiling,
-    phase: speedCeiling < speed - REST_SPEED ? "braking" : "travelling"
+    approaching: distance <= APPROACH_DAMPING_DISTANCE,
+    phase: desiredSpeed < speed - REST_SPEED ? "braking" : "travelling"
   };
 }
 
@@ -1016,7 +1141,7 @@ function movementStep(room, ship, runtime, stats, routed, dt) {
     turnTowardHeading(ship, plan.desiredHeading, stats, dt);
     runtime.phase = plan.phase;
   }
-  moveSpeedToward(ship, plan.desiredSpeed, plan.speedCeiling, stats, dt, ship._friendlyContactNormals);
+  applyPropulsion(ship, plan, stats, dt, ship._friendlyContactNormals);
   integratePosition(room, ship, dt);
   bumpMovementMetric("staticCollisionSubstepChecks");
   resolveMapCollision(room, ship);
@@ -1280,14 +1405,15 @@ function applyMovementToggles(ship, toggles) {
 module.exports = {
   FORMATION_TYPES,
   SUPPORTED_MOVEMENT_TYPES,
+  alignmentThrottle,
   applyCombatStyle,
   applyMovementToggles,
+  applyPropulsion,
   commandShips,
   commandShipsToDestination,
   createMovementRuntime,
   integratePosition,
   maxFriendlyCorrectionPerTick,
-  moveSpeedToward,
   navigationClearanceRadius,
   nearestClearPoint: require("./movementNavigation").nearestClearPoint,
   physicalCollisionRadius,

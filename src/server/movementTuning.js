@@ -63,6 +63,39 @@ module.exports = Object.freeze({
   NAV_WAYPOINT_CAPTURE_RATIO: 0.75,
   NAV_PROGRESS_EPSILON: 8,
 
+  // --- Propulsion and drag ------------------------------------------------
+  // Thrust is added to the velocity the ship already has, so the hull carries
+  // momentum through a turn instead of having its velocity rebuilt along the
+  // nose every step. Drag is what bounds that momentum, and it is expressed as
+  // a per-frame retention raised to dt * DAMPING_REFERENCE_HZ, so the handling
+  // does not change with the tick rate.
+  DAMPING_REFERENCE_HZ: 60,
+  // Cruising. Deliberately near-transparent: the effective maximum speed of the
+  // hull is what caps a ship, and drag heavy enough to be the real limit would
+  // quietly override every engine stat on the ship. It is here so an unpowered
+  // coast eventually ends, not to set the top speed.
+  TRAVEL_DAMPING: 0.9995,
+  // Closing on the destination. Enough bite that the braking profile is not the
+  // only thing shedding speed on the way in.
+  APPROACH_DAMPING: 0.99,
+  // How close to the arrival point counts as closing on it.
+  APPROACH_DAMPING_DISTANCE: 85,
+  // Parked, or asked to stop. Strong, so residual drift dies rather than being
+  // carried into a slow wander around the destination.
+  ARRIVED_DAMPING: 0.86,
+  // Sideways momentum -- what a turn, a shove or a collision slide leaves the
+  // hull carrying across its own nose. It decays on its own so a turning ship
+  // arcs and then settles, rather than skating. This is the only drag that acts
+  // across the hull; nothing here ever zeroes the component outright.
+  LATERAL_DAMPING: 0.97,
+  // With no working engine there is no propulsion and no lateral authority
+  // either, so the whole vector coasts down at one gentle rate.
+  UNPOWERED_DAMPING: 0.99917,
+  // Forward thrust is at full throttle inside this much heading error, tapers
+  // to nothing at 90 degrees, and is not applied at all beyond it: a ship whose
+  // destination is behind it brakes and turns rather than driving further away.
+  FULL_THRUST_HEADING_ERROR: Math.PI / 4,
+
   // --- Integration --------------------------------------------------------
   MAX_MOVEMENT_DT: 0.25,
 

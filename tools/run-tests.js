@@ -47,6 +47,7 @@ const GROUPS = {
     "verify-component-indexes.js",
     "verify-movement-simplified.js",
     "verify-movement-formations.js",
+    "verify-movement-momentum.js",
     "verify-movement-hold-facing.js",
     "verify-propulsion-rebalance.js",
     "verify-targeting.js",
