@@ -570,7 +570,22 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance, options 
   }
   // Only a route that arrives may end on the requested point. A partial one ends
   // on the cell the search actually settled, which is already the last entry.
-  if (reachedGoal) smoothed[smoothed.length - 1] = { x: goalX, y: goalY };
+  //
+  // Substituting the exact destination for the cell centre the smoother
+  // validated can invalidate the leg that reached it -- the two are up to half a
+  // cell apart, which is the whole margin in a tight passage. Keep the cell as a
+  // waypoint whenever that happens, rather than failing validation below and
+  // discarding a route that is otherwise perfectly good.
+  if (reachedGoal) {
+    const lastIndex = smoothed.length - 1;
+    const exact = { x: goalX, y: goalY };
+    const approach = lastIndex > 0 ? smoothed[lastIndex - 1] : null;
+    const detour = approach
+      && !isSegmentClear(room, approach.x, approach.y, exact.x, exact.y, required)
+      && isSegmentClear(room, smoothed[lastIndex].x, smoothed[lastIndex].y, exact.x, exact.y, required);
+    if (detour) smoothed.push(exact);
+    else smoothed[lastIndex] = exact;
+  }
   for (let waypointIndex = 1; waypointIndex < smoothed.length; waypointIndex += 1) {
     if (!isSegmentClear(
       room,
