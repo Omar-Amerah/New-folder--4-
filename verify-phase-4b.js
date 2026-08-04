@@ -438,11 +438,14 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     hp: 100,
     shield: 0
   };
+  // Close enough that the single hull cells genuinely overlap. A one-cell hull
+  // spans about 9 px, so the old 20 px offset was two ships not touching.
+  const SEPARATION_START_GAP = 12;
   const shipB = {
     id: "sb",
     ownerId: "p1",
     team: 1,
-    x: 520,
+    x: 500 + SEPARATION_START_GAP,
     y: 500,
     vx: 0,
     vy: 0,
@@ -473,7 +476,13 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     <= maxFriendlyCorrectionPerTick(shipA) + EPSILON, "ship A correction is bounded");
   assert.ok(Math.hypot(shipB.x - beforeB.x, shipB.y - beforeB.y)
     <= maxFriendlyCorrectionPerTick(shipB) + EPSILON, "ship B correction is bounded");
-  assert.ok(Math.hypot(dx, dy) > 20, "the overlap is reduced without teleporting");
+  // Contact is measured against the hulls, so the pair is pushed apart until the
+  // cells no longer share space -- not out to the sum of two bounding radii.
+  const { findShipHullOverlap } = require("./src/server/componentGeometry");
+  assert.ok(Math.hypot(dx, dy) > SEPARATION_START_GAP, "the overlap is reduced without teleporting");
+  const residual = findShipHullOverlap(shipA, shipB);
+  assert.ok(!residual || residual.penetration < 0.01,
+    "and the hulls end up clear of each other");
   room.spatialIndex.updateLiveEntities("ships", [shipA, shipB], shipBroadPhaseRadius);
   const foundA = room.spatialIndex.queryRange("ships", shipA.x, shipA.y, 1).find((s) => s.id === "sa");
   const foundB = room.spatialIndex.queryRange("ships", shipB.x, shipB.y, 1).find((s) => s.id === "sb");

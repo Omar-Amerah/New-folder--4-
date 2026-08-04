@@ -1178,7 +1178,7 @@ function movementStep(room, ship, runtime, stats, routed, dt) {
     turnTowardHeading(ship, plan.desiredHeading, stats, dt);
     runtime.phase = plan.phase;
   }
-  applyPropulsion(ship, plan, stats, dt, ship._friendlyContactNormals);
+  applyPropulsion(ship, plan, stats, dt, ship._shipContactNormals);
   integratePosition(room, ship, dt);
   bumpMovementMetric("staticCollisionSubstepChecks");
   resolveMapCollision(room, ship);
@@ -1194,7 +1194,7 @@ function updateShipMovement(room, ship, dt, now) {
     ship._friendlyCorrectionDistance = 0;
     ship._integratedMovementX = 0;
     ship._integratedMovementY = 0;
-    ship._friendlyContactNormals = null;
+    ship._shipContactNormals = null;
     ship.turnActivity = 0;
     return;
   }
@@ -1257,7 +1257,7 @@ function updateShipMovement(room, ship, dt, now) {
   syncMovementTarget(ship);
   // A contact normal constrains the following integration only. The separation
   // pass below replaces it with the contacts that actually exist this tick.
-  ship._friendlyContactNormals = null;
+  ship._shipContactNormals = null;
 }
 
 function updateShipSeparation(room, ships, dt, now = 0) {

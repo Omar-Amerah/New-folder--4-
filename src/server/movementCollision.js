@@ -3,7 +3,7 @@
 const { clampNumber, compareEntityIds, fastHypot, hashString } = require("./utils");
 const { WORLD } = require("./config");
 const { bump } = require("./roomTelemetry");
-const { areEntityAllies } = require("./relationships");
+const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
   STATIC_COLLISION_MAX_TICK_CORRECTION,
@@ -31,7 +31,6 @@ function physicalCollisionRadius(ship) {
 }
 
 const NAVIGATION_SAFETY_MARGIN = 8;
-const FRIENDLY_CONTACT_SLOP = 16;
 
 function navigationClearanceRadius(ship) {
   return physicalCollisionRadius(ship) + NAVIGATION_SAFETY_MARGIN;
@@ -190,8 +189,13 @@ function maxFriendlyCorrectionPerTick(ship) {
   return Math.min(8, physicalCollisionRadius(ship) * 0.15);
 }
 
-function friendlyShipPair(room, a, b) {
-  return areEntityAllies(room, a?.ownerId, b);
+// A hull the station is still launching has fixed authority: launch control owns
+// its position outright, so it behaves as infinite mass here and takes none of
+// the correction. Whatever it is touching -- friendly or hostile -- takes all of
+// it. Two launching hulls cannot be in each other's way; their corridors do not
+// intersect.
+function immovableInContact(ship) {
+  return Boolean(ship?.launchPhase);
 }
 
 function massOf(ship) {
@@ -215,8 +219,8 @@ function removeInwardVelocity(ship, normal, sign) {
   return true;
 }
 
-function rememberFriendlyContactNormal(ship, normalX, normalY) {
-  const normals = ship._friendlyContactNormals || (ship._friendlyContactNormals = []);
+function rememberShipContactNormal(ship, normalX, normalY) {
+  const normals = ship._shipContactNormals || (ship._shipContactNormals = []);
   normals.push({ x: normalX, y: normalY });
 }
 
@@ -242,56 +246,74 @@ function addFriendlyCorrection(room, ship, dx, dy) {
   return applied;
 }
 
+// Ships are solid to each other regardless of team. What differs between an
+// allied and a hostile contact is nothing at all here: both are pushed apart,
+// both keep their tangential motion, and neither takes damage from touching.
+// Ramming remains a proximity-charge effect and lives in combat.js.
+//
+// The bounding circles are the cheap rejection, not the collision. A circle
+// drawn around a long hull covers a great deal of empty space, and stopping
+// ships on it is what makes them halt with visible daylight between them. Pairs
+// that pass it are resolved against the hull cells themselves.
 function resolveSeparationPair(room, a, b) {
   if (!a || !b || a === b || a.alive === false || b.alive === false) return null;
-  if (!friendlyShipPair(room, a, b)) return null;
-  if (a.launchPhase && b.launchPhase) return null;
+  if (immovableInContact(a) && immovableInContact(b)) return null;
   bump(room, "separationPairsExamined");
-  const dx = (b.x || 0) - (a.x || 0);
-  const dy = (b.y || 0) - (a.y || 0);
-  const distance = fastHypot(dx, dy);
-  const minimum = physicalCollisionRadius(a) + physicalCollisionRadius(b);
-  if (distance >= minimum) {
-    if (distance <= minimum + FRIENDLY_CONTACT_SLOP) {
-      const normal = normalForPair(a, b, dx, dy, distance);
-      removeInwardVelocity(a, normal, 1);
-      removeInwardVelocity(b, normal, -1);
-      rememberFriendlyContactNormal(a, normal.x, normal.y);
-      rememberFriendlyContactNormal(b, -normal.x, -normal.y);
-      const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
-      modified.add(a.id);
-      modified.add(b.id);
-    }
+  const centreDx = (b.x || 0) - (a.x || 0);
+  const centreDy = (b.y || 0) - (a.y || 0);
+  const bound = physicalCollisionRadius(a) + physicalCollisionRadius(b);
+  if (centreDx * centreDx + centreDy * centreDy >= bound * bound) {
     bump(room, "separationBroadPhaseRejected");
-    return distance <= minimum + FRIENDLY_CONTACT_SLOP
-      ? { penetration: 0, correctionApplied: 0, modified: true }
-      : null;
+    return null;
   }
+
   bump(room, "separationNarrowPhaseChecks");
-  const penetration = minimum - distance;
-  const normal = normalForPair(a, b, dx, dy, distance);
-  const massA = massOf(a);
-  const massB = massOf(b);
-  const totalMass = massA + massB;
-  const desiredA = penetration * massB / totalMass;
-  const desiredB = penetration * massA / totalMass;
+  const overlap = findShipHullOverlap(a, b);
+  if (!overlap) {
+    bump(room, "separationHullPhaseRejected");
+    return null;
+  }
+
+  const penetration = overlap.penetration;
+  const normal = normalForPair(a, b, overlap.dx, overlap.dy, overlap.distance);
+  const immovableA = immovableInContact(a);
+  const immovableB = immovableInContact(b);
+  // Mass-weighted, except against a hull that cannot be moved at all: that one
+  // keeps its place and the other takes the whole correction.
+  let desiredA = 0;
+  let desiredB = 0;
+  if (immovableA) {
+    desiredB = penetration;
+  } else if (immovableB) {
+    desiredA = penetration;
+  } else {
+    const massA = massOf(a);
+    const massB = massOf(b);
+    const totalMass = massA + massB;
+    desiredA = penetration * massB / totalMass;
+    desiredB = penetration * massA / totalMass;
+  }
   const availableA = Math.max(0, maxFriendlyCorrectionPerTick(a) - (Number(a._friendlyCorrectionDistance) || 0));
   const availableB = Math.max(0, maxFriendlyCorrectionPerTick(b) - (Number(b._friendlyCorrectionDistance) || 0));
   // A contact created by an earlier correction may find one endpoint at its
   // complete-tick budget already. Let the other endpoint still move within its
   // own budget; otherwise Pass 2 could observe an overlap and be unable to
   // settle it at all.
-  const moveA = Math.min(desiredA, availableA);
-  const moveB = Math.min(desiredB, availableB);
-  const appliedA = addFriendlyCorrection(room, a, -normal.x * moveA, -normal.y * moveA);
-  const appliedB = addFriendlyCorrection(room, b, normal.x * moveB, normal.y * moveB);
-  removeInwardVelocity(a, normal, 1);
-  removeInwardVelocity(b, normal, -1);
-  rememberFriendlyContactNormal(a, normal.x, normal.y);
-  rememberFriendlyContactNormal(b, -normal.x, -normal.y);
+  const moveA = immovableA ? 0 : Math.min(desiredA, availableA);
+  const moveB = immovableB ? 0 : Math.min(desiredB, availableB);
+  const appliedA = moveA > 0 ? addFriendlyCorrection(room, a, -normal.x * moveA, -normal.y * moveA) : 0;
+  const appliedB = moveB > 0 ? addFriendlyCorrection(room, b, normal.x * moveB, normal.y * moveB) : 0;
+  if (!immovableA) {
+    removeInwardVelocity(a, normal, 1);
+    rememberShipContactNormal(a, normal.x, normal.y);
+  }
+  if (!immovableB) {
+    removeInwardVelocity(b, normal, -1);
+    rememberShipContactNormal(b, -normal.x, -normal.y);
+  }
   const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
-  modified.add(a.id);
-  modified.add(b.id);
+  if (!immovableA) modified.add(a.id);
+  if (!immovableB) modified.add(b.id);
   bump(room, "separationOverlapsResolved");
   collisionBump(room, "shipCollisionPairs");
   collisionBump(room, "shipCollisionPenetrationCorrected", penetration);

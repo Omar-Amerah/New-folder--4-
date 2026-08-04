@@ -336,7 +336,7 @@ test("M capital ship pushes a light blocker aside", () => {
     blocker.y += blocker.vy * 0.05;
     for (const item of [capital, blocker]) {
       item._friendlyCorrectionDistance = 0;
-      item._friendlyContactNormals = null;
+      item._shipContactNormals = null;
     }
     const stepId = beginMovementContactStep(r, [capital, blocker], tick * 50);
     buildMovementContactPairs(r, [capital, blocker], tick * 50, { stepId });

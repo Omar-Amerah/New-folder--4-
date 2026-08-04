@@ -2,7 +2,8 @@
 
 const { PARTS } = require("./components");
 const { INFRASTRUCTURE } = require("./config");
-const { angleDifference, clampNumber, rotateToward, performanceNow, compareEntityIds } = require("./utils");
+const { angleDifference, clampNumber, rotateToward, performanceNow } = require("./utils");
+const { areEntityAllies } = require("./relationships");
 const { computeStats } = require("./shipStats");
 const { createGeneratedPowerWiring } = require("./shipDesign");
 const { initComponentState, isComponentAlive, repairShipComponents } = require("./componentHealth");
@@ -813,12 +814,30 @@ function processStationProduction(room, station, dt, now) {
   }
 }
 
-// Launches have right-of-way over moving hulls. This is deliberately a
-// station-owned operation rather than a side effect of generic separation:
-// separation may only see an overlap after it has already displaced the new
-// ship. Blockers are ordered by their outward distance and translated along the
-// launch normal, so a parked wall of ships is opened deterministically.
-function moveLaunchBlockers(room, station, hangar, ship, phase, along, now) {
+// A launching hull is immovable while the station owns it, so the corridor has
+// to be opened rather than driven through. Allied ships sitting in the lane
+// immediately ahead are asked to step ASIDE -- never forwards, so a launch can
+// never shunt a parked line across the map or shove anyone into a rock.
+//
+// Only allies are nudged. A hostile hull is not ours to move: the launching ship
+// is immovable to separation, so an enemy that parks in the mouth is pushed out
+// by the ordinary collision pass instead, and until it is the launch simply
+// waits.
+//
+// Returns true when the lane immediately ahead is clear enough to advance.
+const LAUNCH_LANE_LOOKAHEAD = 96;
+const LAUNCH_YIELD_SPEED = 220;
+
+function launchYieldPointClear(room, ship, x, y, radius) {
+  const { isStaticObstacleLineClear } = require("./movementNavigation");
+  const width = room?.world?.width || 0;
+  const height = room?.world?.height || 0;
+  if (width > 0 && (x < radius || x > width - radius)) return false;
+  if (height > 0 && (y < radius || y > height - radius)) return false;
+  return isStaticObstacleLineClear(room, x, y, x, y, radius);
+}
+
+function yieldLaunchBlockers(room, station, hangar, ship, phase, along, dt, now) {
   const normal = phase.normal || { x: Math.cos(station.angle), y: Math.sin(station.angle) };
   const lateral = { x: -normal.y, y: normal.x };
   const launchRadius = Number(phase.physicalRadius) || Number(ship.physicalRadius) || 26;
@@ -826,7 +845,10 @@ function moveLaunchBlockers(room, station, hangar, ship, phase, along, now) {
     Number(phase.lateralExtent) || 0,
     Number(hangar.apertureHalfWidth) || 0
   );
-  const blockers = [];
+  const nose = along + launchRadius;
+  const step = LAUNCH_YIELD_SPEED * Math.max(0, Number(dt) || 0);
+  let blocked = false;
+
   for (const candidate of room.ships?.values?.() || []) {
     if (!candidate?.alive || candidate.id === ship.id || candidate.launchPhase) continue;
     const dx = candidate.x - station.x;
@@ -834,38 +856,48 @@ function moveLaunchBlockers(room, station, hangar, ship, phase, along, now) {
     const candidateAlong = dx * normal.x + dy * normal.y;
     const candidateAcross = dx * lateral.x + dy * lateral.y;
     const candidateRadius = Number(candidate.physicalRadius) || Number(candidate.radius) || 26;
-    if (candidateAlong < -candidateRadius) continue;
-    if (Math.abs(candidateAcross - hangar.centreY) > laneHalfWidth + candidateRadius) continue;
-    blockers.push({ candidate, along: candidateAlong, across: candidateAcross, radius: candidateRadius });
-  }
-  blockers.sort((a, b) => {
-    if (Math.abs(a.along - b.along) > 0.001) return a.along - b.along;
-    return compareEntityIds(a.candidate, b.candidate);
-  });
+    // Local only. A ship far up the lane is not in the way of this tick's
+    // movement and is none of the launch's business.
+    if (candidateAlong + candidateRadius < nose) continue;
+    if (candidateAlong - candidateRadius > nose + LAUNCH_LANE_LOOKAHEAD) continue;
+    const overlap = laneHalfWidth + candidateRadius - Math.abs(candidateAcross - hangar.centreY);
+    if (overlap <= 0) continue;
 
-  let clearFront = along + launchRadius;
-  for (const blocker of blockers) {
-    const requiredAlong = clearFront + blocker.radius + 1;
-    let blockerAlong = blocker.along;
-    if (blockerAlong < requiredAlong) {
-      const displacement = requiredAlong - blockerAlong;
-      const candidate = blocker.candidate;
-      candidate.x += normal.x * displacement;
-      candidate.y += normal.y * displacement;
-      candidate._collisionCorrectionX = (candidate._collisionCorrectionX || 0) + normal.x * displacement;
-      candidate._collisionCorrectionY = (candidate._collisionCorrectionY || 0) + normal.y * displacement;
-      const inwardSpeed = (candidate.vx || 0) * normal.x + (candidate.vy || 0) * normal.y;
+    // Not ours to move. The launching hull is immovable to the collision pass,
+    // so a hostile parked in the mouth is pushed out by that instead.
+    if (!areEntityAllies(room, ship.ownerId, candidate)) continue;
+
+    // Out the nearer side first, then the other, a bounded amount per tick, and
+    // only ever to somewhere the hull can actually sit.
+    const nearerSide = candidateAcross >= hangar.centreY ? 1 : -1;
+    const move = Math.min(step, overlap);
+    if (!(move > 0)) continue;
+    let yielded = false;
+    for (const side of [nearerSide, -nearerSide]) {
+      const nextX = candidate.x + lateral.x * side * move;
+      const nextY = candidate.y + lateral.y * side * move;
+      if (!launchYieldPointClear(room, candidate, nextX, nextY, candidateRadius)) continue;
+      candidate.x = nextX;
+      candidate.y = nextY;
+      candidate._collisionCorrectionX = (candidate._collisionCorrectionX || 0) + lateral.x * side * move;
+      candidate._collisionCorrectionY = (candidate._collisionCorrectionY || 0) + lateral.y * side * move;
+      // Take out the component of its velocity heading further into the lane, so
+      // it stops fighting the nudge, and leave the rest alone.
+      const inwardSpeed = ((candidate.vx || 0) * lateral.x + (candidate.vy || 0) * lateral.y) * side;
       if (inwardSpeed < 0) {
-        candidate.vx -= inwardSpeed * normal.x;
-        candidate.vy -= inwardSpeed * normal.y;
+        candidate.vx -= inwardSpeed * lateral.x * side;
+        candidate.vy -= inwardSpeed * lateral.y * side;
       }
-      candidate._launchYieldUntil = Math.max(Number(candidate._launchYieldUntil) || 0, Number(now) || 0) + 250;
-      candidate._launchYieldStationId = station.id;
-      blockerAlong = requiredAlong;
-      bumpCounter(room, "stationLaunchBlockersMoved");
+      bumpCounter(room, "stationLaunchBlockersYielded");
+      yielded = true;
+      break;
     }
-    clearFront = Math.max(clearFront, blockerAlong + blocker.radius);
+    // Pinned: solid geometry on both sides. Nothing may be forced through a
+    // rock or a station wall, so the launch waits for it to move on its own.
+    if (!yielded) blocked = true;
   }
+
+  return !blocked;
 }
 
 function finiteLaunchNumber(value) {
@@ -1158,8 +1190,14 @@ function updateStationLaunches(room, station, dt, now) {
     const previousAlong = Number.isFinite(Number(phase.along))
       ? Math.max(startAlong, Number(phase.along))
       : startAlong;
-    const along = Math.min(releaseDistance, previousAlong + speed * safeDt);
-    moveLaunchBlockers(room, station, hangar, ship, phase, along, now);
+    // Open the lane before committing to the step. If it cannot be opened, the
+    // launch holds where it is: the hull is never driven through anything, and
+    // nothing in front of it is ever pushed forwards to make room.
+    const laneClear = yieldLaunchBlockers(room, station, hangar, ship, phase, previousAlong, safeDt, now);
+    const along = laneClear
+      ? Math.min(releaseDistance, previousAlong + speed * safeDt)
+      : previousAlong;
+    if (!laneClear) bumpCounter(room, "stationLaunchesHeldForLane");
     ship.angle = phase.angle;
     ship.vx = normal.x * speed;
     ship.vy = normal.y * speed;

@@ -18,7 +18,7 @@ const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
+const { computeDesignCollisionRadius, findShipHullOverlap } = require("./src/server/componentGeometry");
 const { getMaxEffectiveWeaponRange } = require("./src/server/componentData");
 
 const DT = 1 / 30;
@@ -185,11 +185,15 @@ function run() {
           Math.hypot(ship.x - previous.x, ship.y - previous.y) - integrated - correctionAllowance
         );
       }
+      // Hulls, not bounding circles: ships are allowed to sit closer than the
+      // sum of their radii, which is exactly the point of hull-level contact.
+      // What they may not do is share space.
       for (let i = 0; i < ships.length; i += 1) {
         for (let j = i + 1; j < ships.length; j += 1) {
-          const gap = distance(ships[i], ships[j]);
-          assert(gap + 8 >= physicalCollisionRadius(ships[i]) + physicalCollisionRadius(ships[j]),
-            `crowd ships visibly overlap at tick ${tickIndex}: ${ships[i].id}/${ships[j].id} gap ${gap}`);
+          const overlap = findShipHullOverlap(ships[i], ships[j]);
+          assert(!overlap || overlap.penetration <= 8,
+            `crowd ships visibly overlap at tick ${tickIndex}: ${ships[i].id}/${ships[j].id}`
+              + ` penetration ${overlap ? overlap.penetration.toFixed(1) : 0}`);
         }
       }
     }

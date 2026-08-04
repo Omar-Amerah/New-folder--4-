@@ -24,7 +24,7 @@ const { initComponentState } = require("./src/server/componentHealth");
 const { initializeComponentPower } = require("./src/server/componentPower");
 const { initShipHeat } = require("./src/server/heat");
 const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
+const { computeDesignCollisionRadius, findShipHullOverlap } = require("./src/server/componentGeometry");
 
 const DT = 1 / 30;
 const BASE = [
@@ -35,12 +35,12 @@ const BASE = [
 
 let sequence = 0;
 
-function makeShip({ x, y, id = null, angle = 0, vx = 0, vy = 0, design = BASE, physicalRadius = null }) {
+function makeShip({ x, y, id = null, angle = 0, vx = 0, vy = 0, design = BASE, physicalRadius = null, ownerId = "p1" }) {
   const stats = computeStats(design);
   const ship = {
     id: id || `collision-${++sequence}`,
-    ownerId: "p1",
-    team: "A",
+    ownerId,
+    team: ownerId === "p1" ? "A" : "B",
     alive: true,
     removed: false,
     x,
@@ -71,12 +71,19 @@ function makeShip({ x, y, id = null, angle = 0, vx = 0, vy = 0, design = BASE, p
 }
 
 function makeRoom(ships, asteroids = [], stations = []) {
+  const players = new Map();
+  for (const ship of ships) {
+    if (!players.has(ship.ownerId)) {
+      players.set(ship.ownerId, { id: ship.ownerId, team: ship.team, ships: [] });
+    }
+    players.get(ship.ownerId).ships.push(ship);
+  }
   return {
     phase: "active",
     world: { width: 8000, height: 6000 },
     map: { asteroids, relays: [], revision: 1 },
     ships: new Map(ships.map((ship) => [ship.id, ship])),
-    players: new Map([["p1", { id: "p1", team: "A", ships: [...ships] }]]),
+    players,
     stations,
     stationsById: new Map(stations.map((station) => [station.id, station])),
     drones: new Map(),
@@ -87,24 +94,55 @@ function makeRoom(ships, asteroids = [], stations = []) {
 }
 
 function run() {
-  // --- two moving friendlies collide --------------------------------------
+  // --- contact is resolved against hulls, not bounding circles -------------
   {
-    const a = makeShip({ id: "pair-a", x: 1000, y: 1000, vx: 120, vy: 45, physicalRadius: 40 });
-    const b = makeShip({ id: "pair-b", x: 1055, y: 1000, vx: -120, vy: 45, physicalRadius: 40 });
+    // Far enough apart that the bounding circles overlap but the hulls do not.
+    // A circle-based solver would stop these two with visible daylight between
+    // them; nothing should happen here at all.
+    const near = physicalCollisionRadius(makeShip({ x: 0, y: 0 })) * 2 - 6;
+    const a = makeShip({ id: "clear-a", x: 1000, y: 1000 });
+    const b = makeShip({ id: "clear-b", x: 1000 + near, y: 1000 });
     const room = makeRoom([a, b]);
+    assert(Math.hypot(b.x - a.x, b.y - a.y)
+      < physicalCollisionRadius(a) + physicalCollisionRadius(b),
+    "sanity: the bounding circles overlap");
+    assert(!findShipHullOverlap(a, b), "sanity: the hulls do not");
+    assert.equal(resolveSeparationPair(room, a, b), null,
+      "overlapping bounding circles alone are not a contact");
+    assert.equal(a.x, 1000, "no correction is applied");
+    assert(!a._shipContactNormals, "and no contact normal is recorded");
+  }
+
+  // --- two moving hulls collide -------------------------------------------
+  for (const [label, ownerB] of [["friendly", "p1"], ["hostile", "p2"]]) {
+    const a = makeShip({ id: `${label}-a`, x: 1000, y: 1000, vx: 120, vy: 45 });
+    const b = makeShip({ id: `${label}-b`, x: 1030, y: 1000, vx: -120, vy: 45, ownerId: ownerB });
+    const room = makeRoom([a, b]);
+    const overlap = findShipHullOverlap(a, b);
+    assert(overlap, `sanity: the ${label} hulls overlap`);
+    const length = Math.hypot(overlap.dx, overlap.dy);
+    const normal = { x: overlap.dx / length, y: overlap.dy / length };
+    const tangent = { x: -normal.y, y: normal.x };
+    const beforeTangentA = a.vx * tangent.x + a.vy * tangent.y;
+    const beforeTangentB = b.vx * tangent.x + b.vy * tangent.y;
     const before = [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
 
     const result = resolveSeparationPair(room, a, b);
-    assert(result, "an overlapping friendly pair should resolve");
-    assert.equal(a.vy, 45, "tangential velocity survives on A");
-    assert.equal(b.vy, 45, "tangential velocity survives on B");
-    assert(Math.abs(a.vx) < 1e-9 && Math.abs(b.vx) < 1e-9, "velocity into the contact is removed");
+    assert(result, `an overlapping ${label} pair should resolve`);
+    assert(Math.abs((a.vx * tangent.x + a.vy * tangent.y) - beforeTangentA) < 1e-9,
+      `tangential velocity survives on ${label} A`);
+    assert(Math.abs((b.vx * tangent.x + b.vy * tangent.y) - beforeTangentB) < 1e-9,
+      `tangential velocity survives on ${label} B`);
+    assert((a.vx * normal.x + a.vy * normal.y) <= 1e-9,
+      `velocity into the ${label} contact is removed from A`);
+    assert((b.vx * normal.x + b.vy * normal.y) >= -1e-9,
+      `velocity into the ${label} contact is removed from B`);
     assert(Math.hypot(a.x - before[0].x, a.y - before[0].y) <= maxFriendlyCorrectionPerTick(a) + 1e-9,
-      "A stays inside its per-tick correction budget");
+      `${label} A stays inside its per-tick correction budget`);
     assert(Math.hypot(b.x - before[1].x, b.y - before[1].y) <= maxFriendlyCorrectionPerTick(b) + 1e-9,
-      "B stays inside its per-tick correction budget");
+      `${label} B stays inside its per-tick correction budget`);
     // Deeply overlapped hulls are separated gradually, never in one jump.
-    assert(Math.hypot(b.x - a.x, b.y - a.y) < 80, "one pass does not fully resolve a deep overlap");
+    assert(findShipHullOverlap(a, b), `one pass does not fully resolve a deep ${label} overlap`);
   }
 
   // --- a dense formation converging on one area ----------------------------
@@ -139,8 +177,8 @@ function run() {
       }
       for (let i = 0; i < ships.length; i += 1) {
         for (let j = i + 1; j < ships.length; j += 1) {
-          const minimum = physicalCollisionRadius(ships[i]) + physicalCollisionRadius(ships[j]);
-          worstOverlap = Math.max(worstOverlap, minimum - Math.hypot(ships[i].x - ships[j].x, ships[i].y - ships[j].y));
+          const overlap = findShipHullOverlap(ships[i], ships[j]);
+          if (overlap) worstOverlap = Math.max(worstOverlap, overlap.penetration);
         }
       }
     }
