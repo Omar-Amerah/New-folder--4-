@@ -15,6 +15,7 @@ const {
   physicalCollisionRadius,
   planFormation
 } = require("./src/server/movement");
+const { getMaxEffectiveWeaponRange } = require("./src/server/componentData");
 const { FORMATION_VISUAL_GAP } = require("./src/server/movementTuning");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
@@ -36,13 +37,14 @@ const HEAVY = [
   { x: 6, y: 9, type: "frame" },
   { x: 9, y: 9, type: "frame" }
 ];
+const GUNSHIP = [...BASE, { x: 6, y: 7, type: "blaster", rotation: 0 }];
 
-function makeShip({ id, x, y, design = BASE, angle = 0, ownerId = "p1" }) {
+function makeShip({ id, x, y, design = BASE, angle = 0, ownerId = "p1", combatStyle = "hold" }) {
   const stats = computeStats(design);
   const ship = {
     id,
     ownerId,
-    team: "A",
+    team: ownerId === "p1" ? "A" : "B",
     alive: true,
     removed: false,
     x,
@@ -57,8 +59,8 @@ function makeShip({ id, x, y, design = BASE, angle = 0, ownerId = "p1" }) {
     design: design.map((part) => ({ ...part })),
     wiring: createGeneratedPowerWiring(design),
     stats: { ...stats },
-    combatStyle: "hold",
-    combatStyleRaw: "hold",
+    combatStyle,
+    combatStyleRaw: combatStyle,
     weaponAngles: [],
     weaponCooldowns: [],
     desiredAngles: [],
@@ -72,13 +74,15 @@ function makeShip({ id, x, y, design = BASE, angle = 0, ownerId = "p1" }) {
   return ship;
 }
 
-function makeRoom(ships, asteroids = []) {
+function makeRoom(ships, asteroids = [], enemy = null) {
+  const all = enemy ? [...ships, enemy] : ships;
   const players = new Map([["p1", { id: "p1", team: "A", ships: [...ships] }]]);
+  if (enemy) players.set("p2", { id: "p2", team: "B", ships: [enemy] });
   return {
     phase: "active",
     world: { width: 6000, height: 4000 },
     map: { asteroids, relays: [], revision: 1 },
-    ships: new Map(ships.map((ship) => [ship.id, ship])),
+    ships: new Map(all.map((ship) => [ship.id, ship])),
     players,
     stations: [],
     stationsById: new Map(),
@@ -291,6 +295,83 @@ function run() {
     assert.deepEqual(ships.map(slotOf), wedgeSlots, "the wedge slots stand for the whole order");
     assert(ships.every((ship, index) => Math.hypot(ship.x - wedgeSlots[index].x, ship.y - wedgeSlots[index].y) < 40),
       "ships should end up on the new slots, not the old ones");
+  }
+
+  // --- a formation handed a Hold attack ------------------------------------
+  {
+    const ships = column(3, { design: GUNSHIP, x: 900, y0: 1000, pitch: 260 });
+    const enemy = makeShip({ id: "enemy", x: 3400, y: 1500, design: GUNSHIP, ownerId: "p2" });
+    const room = makeRoom(ships, [], enemy);
+    commandShips(room, room.players.get("p1"), 2000, 1400, {
+      shipIds: ships.map((ship) => ship.id),
+      formation: "line"
+    });
+    const slots = ships.map(slotOf);
+    for (let index = 0; index < 60; index += 1) movementTestTick(room, ships, DT, index * DT * 1000);
+
+    commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
+      shipIds: ships.map((ship) => ship.id),
+      targetId: enemy.id
+    });
+    assert(ships.every((ship) => ship.movement.command.type === "attack"),
+      "the attack order replaces the move order");
+    assert(ships.every((ship) => ship.movement.command.formation === null),
+      "combat orders carry no formation");
+    assert(ships.every((ship) => ship.movement.command.targetId === enemy.id),
+      "the fleet shares only the target identity");
+
+    for (let index = 0; index < 900; index += 1) {
+      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
+    }
+    assert(ships.every((ship) => ship.movement.holdEngaged),
+      `each ship should find its own firing position (${ships.map((ship) => ship.movement.phase).join(",")})`);
+    assert.equal(new Set(ships.map((ship) => `${ship.x.toFixed(1)}:${ship.y.toFixed(1)}`)).size, ships.length,
+      "no two ships are assigned one shared combat position");
+    // The formation slots stopped controlling translation the moment the attack
+    // order landed: nothing is holding a ship on the line it was flying.
+    assert(ships.some((ship, index) => Math.hypot(ship.x - slots[index].x, ship.y - slots[index].y) > 200),
+      "old formation slots must not keep pulling ships");
+    const reach = getMaxEffectiveWeaponRange(ships[0]);
+    const ranges = ships.map((ship) => Math.hypot(ship.x - enemy.x, ship.y - enemy.y));
+    assert(ranges.every((range) => range <= reach + 80), "each ship stops inside its own firing envelope");
+    // No ring: the stopping distances are whatever each approach produced, not
+    // one shared radius the group was arranged on.
+    assert(ships.every((ship) => ship.movement.command.formation === null
+      && !Object.keys(ship.movement).some((key) => key.toLowerCase().includes("slot"))),
+    "no combat formation or ring state is created");
+  }
+
+  // --- a formation handed a Charge -----------------------------------------
+  {
+    const ships = column(3, { design: GUNSHIP, x: 900, y0: 1000, pitch: 260 })
+      .map((ship) => makeShip({ id: ship.id, x: ship.x, y: ship.y, design: GUNSHIP, combatStyle: "charge" }));
+    const enemy = makeShip({ id: "charge-enemy", x: 3400, y: 1500, design: BASE, ownerId: "p2" });
+    const room = makeRoom(ships, [], enemy);
+    commandShips(room, room.players.get("p1"), 2000, 1400, {
+      shipIds: ships.map((ship) => ship.id),
+      formation: "wedge"
+    });
+    for (let index = 0; index < 60; index += 1) movementTestTick(room, ships, DT, index * DT * 1000);
+
+    commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
+      shipIds: ships.map((ship) => ship.id),
+      targetId: enemy.id
+    });
+    assert(ships.every((ship) => ship.movement.command.formation === null),
+      "a Charge order carries no formation either");
+
+    for (let index = 0; index < 1200; index += 1) {
+      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
+    }
+    const reach = getMaxEffectiveWeaponRange(ships[0]);
+    for (const ship of ships) {
+      const gap = Math.hypot(ship.x - enemy.x, ship.y - enemy.y);
+      const contact = physicalCollisionRadius(ship) + physicalCollisionRadius(enemy);
+      assert(gap <= contact + 24,
+        `Charge should close to contact (${gap.toFixed(0)} px against ${contact.toFixed(0)})`);
+      assert(gap < reach * 0.3,
+        `Charge must not stop at a fraction of weapon range (${gap.toFixed(0)} px, reach ${reach.toFixed(0)})`);
+    }
   }
 
   console.log("verify-movement-formations: OK");

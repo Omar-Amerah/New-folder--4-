@@ -252,6 +252,61 @@ function run() {
     assert(room.bullets.length > 0, "a valid Hold orientation should reach the ordinary firing path");
   }
 
+  // A hull that already exposes useful weapons keeps its heading when the
+  // alternative is merely as good, and gives it up when weapon state makes it
+  // useless. Facing is a stable decision, not a per-tick optimisation.
+  {
+    const symmetric = [
+      ...BASE,
+      { x: 6, y: 7, type: "blaster", rotation: 0 },
+      { x: 8, y: 8, type: "blaster", rotation: 180 }
+    ];
+    const ship = makeShip(2000, 2000, symmetric, "p1");
+    const target = makeShip(2400, 2000, UNARMED, "p2");
+    const room = makeRoom(ship, target);
+
+    // Facing the target and facing away expose one blaster each. Neither is
+    // better, so the hull does not turn.
+    const kept = chooseHoldWeaponFacing(room, ship, target, 0);
+    assert.strictEqual(kept.weaponCount, 1, "one of the two fixed blasters bears at a time");
+    assert(Math.abs(angleDelta(kept.heading, 0)) < 1e-6,
+      "an equally good alternative must not turn the hull");
+
+    // Lose the weapon the current heading was exposing, and the same evaluation
+    // must give up that heading.
+    ship.componentHp[3] = 0;
+    ship.componentAliveRevision = (ship.componentAliveRevision || 1) + 1;
+    const flipped = chooseHoldWeaponFacing(room, ship, target, 0);
+    assert.strictEqual(flipped.weaponCount, 1, "the rear blaster can still bear");
+    assert(Math.abs(angleDelta(flipped.heading, Math.PI)) < 0.2,
+      "a heading that no longer exposes anything must be given up");
+  }
+
+  // A ship parked on a completed formation slot may turn to bring weapons to
+  // bear. It may not translate: facing is a hull orientation, never a new slot.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, { ...BLASTER, rotation: 90 }], "p1");
+    const enemy = makeShip(2400, 2000, UNARMED, "p2");
+    const room = makeRoom(ship, enemy);
+    const command = commandShips(room, room.players.get("p1"), 2300, 2000, { shipIds: [ship.id] });
+    assert.strictEqual(command.code, "move");
+    const slot = { ...ship.movement.destination };
+    simulate(room, [ship], 20);
+    assert(ship.movement.orderComplete, "the move order should complete");
+    assert(Math.hypot(ship.x - slot.x, ship.y - slot.y) < 20, "the ship settles on its slot");
+
+    const parked = { x: ship.x, y: ship.y };
+    const beforeAngle = ship.angle;
+    ship.combatTargetId = enemy.id;
+    simulate(room, [ship], 3);
+    assert(Math.abs(angleDelta(ship.angle, beforeAngle)) > 0.2,
+      "a side-mounted weapon should rotate the parked hull onto the target");
+    assert(Math.hypot(ship.x - parked.x, ship.y - parked.y) < 2,
+      "combat facing must not translate a ship off its formation slot");
+    assert.deepStrictEqual({ ...ship.movement.command.destination }, slot,
+      "...nor change where the order sent it");
+  }
+
   console.log("verify-movement-hold-facing: OK");
 }
 
