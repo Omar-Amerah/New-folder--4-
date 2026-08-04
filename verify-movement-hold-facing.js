@@ -212,15 +212,12 @@ function run() {
       targetId: target.id
     });
     assert.strictEqual(command.code, "attack");
-    // The order hands out a clump place first: being inside weapon range is an
-    // approach condition, not arrival. Hold latches once the ship is standing on
-    // the position it was actually sent to.
-    simulate(room, [attacker], 6);
+    simulate(room, [attacker], 1);
     const parked = { x: attacker.x, y: attacker.y };
     const facing = attacker.movement.holdFacing?.heading;
-    assert(attacker.movement.holdEngaged, "the ship should latch Hold once it reaches its attack slot");
-    assert.strictEqual(attacker.movement.attackSlot, null,
-      "reaching the slot releases it: Hold owns the hull from here");
+    assert(attacker.movement.holdEngaged, "the close target should latch Hold immediately");
+    assert.strictEqual(attacker.movement.attackLane, null,
+      "a ship that can already fire is given no approach lane");
     assert(Number.isFinite(facing), "a parked Hold ship should publish a facing decision");
 
     target.y += 80;

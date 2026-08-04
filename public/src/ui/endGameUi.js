@@ -112,8 +112,8 @@ function renderBattleReport() {
     for (const player of players) {
       const isMe = mine && mine.id === player.id;
       const rowClass = isMe ? "report-player-row report-row-me" : "report-player-row";
-      html += `<tr class="${rowClass}" style="color: ${player.color}">
-        <td>${escapeHtml(player.name)}</td>
+      html += `<tr class="${rowClass}" style="color: #ffffff">
+        <td style="color: ${player.color}">${escapeHtml(player.name)}</td>
         <td>${player.kills || 0}</td>
         <td>${player.losses || 0}</td>
         <td>${player.shipsBuilt || 0}</td>

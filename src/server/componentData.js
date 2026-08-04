@@ -295,27 +295,6 @@ function getEffectiveWeaponRanges(ship) {
   };
 }
 
-// Does this hull carry anything that can actually shoot another ship at range?
-//
-// Deliberately narrower than getMaxEffectiveWeaponRange, which reports a floor
-// for every hull whether or not it is armed. Point defence and flak are
-// interception systems, a repair beam is not a weapon, and a demolition charge
-// has no reach -- none of them give a ship a Hold engagement range, so none of
-// them may be used to decide how close a Hold formation has to be placed.
-function shipHasOffensiveWeapon(ship) {
-  for (const index of getShipComponentIndexes(ship).weaponIndices) {
-    const module = ship?.design?.[index];
-    const weapon = PARTS[module?.type]?.weapon;
-    if (!weapon || module.type === "repairBeam") continue;
-    if (!isAlive(ship, index)) continue;
-    const profile = getEffectiveWeaponStatsInternal(ship, index) || weapon;
-    const family = profile.type || weapon.type;
-    if (family === "pointDefense" || family === "flak" || family === "charge") continue;
-    if ((Number(profile.range) || 0) > 0) return true;
-  }
-  return false;
-}
-
 // Does this hull carry a demolition charge that could still go off?
 //
 // True for either size -- the 1x1 Demolition Charge and the 2x3 Proximity
@@ -340,4 +319,4 @@ function shipHasArmedProximityCharge(ship) {
 function getWeaponDataSupport(ship, weaponIndex) { if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return cloneSupport(null, weaponIndex); const state = ensureShipDataSupport(ship); return cloneSupport(state?.weaponBonusByIndex?.[weaponIndex], weaponIndex); }
 function getEffectiveWeaponStats(ship, weaponIndex) { const profile = getEffectiveWeaponStatsInternal(ship, weaponIndex); return profile ? { ...profile } : null; }
 function getSourceDataAllocation(ship, sourceIndex) { if (!Number.isInteger(sourceIndex) || sourceIndex < 0) return null; const state = ensureShipDataSupport(ship); return cloneAllocation(state?.sourceAllocationByIndex?.[sourceIndex], sourceIndex); }
-module.exports = { shipHasArmedProximityCharge, shipHasOffensiveWeapon, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getEffectiveWeaponStatsCached, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };
+module.exports = { shipHasArmedProximityCharge, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getEffectiveWeaponStatsCached, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };

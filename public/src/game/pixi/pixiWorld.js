@@ -412,19 +412,36 @@ function updatePixiBullets(env, players, bounds, renderTime) {
       currentIds.add(bullet.id);
       let p = projectilePresentationById.get(bullet.id);
       if (!p) {
-        p = { id: bullet.id, type: bullet.type, subtype: bullet.subtype, ownerId: bullet.ownerId, previousSample: null, currentSample: null, renderedX: 0, renderedY: 0, renderedVx: 0, renderedVy: 0, terminal: null };
+        p = { id: bullet.id, type: bullet.type, subtype: bullet.subtype, ownerId: bullet.ownerId, previousSample: null, currentSample: null, renderedX: 0, renderedY: 0, renderedVx: 0, renderedVy: 0, hasRenderedPosition: false, terminal: null };
         projectilePresentationById.set(bullet.id, p);
       }
       if (snapshotChanged) {
         if (bullet.terminal) {
           if (!p.terminal) {
-            let fromX = p.renderedX;
-            let fromY = p.renderedY;
-            const fromVx = p.renderedVx;
-            const fromVy = p.renderedVy;
-            if (fromX === 0 && fromY === 0 && !p.currentSample) {
+            let fromX, fromY, fromVx, fromVy;
+            if (
+              p.hasRenderedPosition
+              && Number.isFinite(p.renderedX)
+              && Number.isFinite(p.renderedY)
+            ) {
+              fromX = p.renderedX;
+              fromY = p.renderedY;
+              fromVx = p.renderedVx;
+              fromVy = p.renderedVy;
+            } else if (
+              bullet.fromX !== undefined
+              && Number.isFinite(bullet.fromX)
+              && Number.isFinite(bullet.fromY)
+            ) {
+              fromX = bullet.fromX;
+              fromY = bullet.fromY;
+              fromVx = Number(bullet.fromVx) || 0;
+              fromVy = Number(bullet.fromVy) || 0;
+            } else {
               fromX = bullet.x;
               fromY = bullet.y;
+              fromVx = 0;
+              fromVy = 0;
             }
             const dx = bullet.x - fromX;
             const dy = bullet.y - fromY;
@@ -438,6 +455,8 @@ function updatePixiBullets(env, players, bounds, renderTime) {
               finalY: bullet.y,
               fromX,
               fromY,
+              fromVx,
+              fromVy,
               startTime: pTime,
               impactTime: pTime + travelMs,
               endTime: pTime + travelMs + fadeMs,
@@ -475,6 +494,7 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         p.renderedY = p.terminal.fromY;
         p.renderedVx = 0;
         p.renderedVy = 0;
+        p.hasRenderedPosition = true;
       } else if (pTime < p.terminal.impactTime) {
         const span = Math.max(1, p.terminal.impactTime - p.terminal.startTime);
         const t = (pTime - p.terminal.startTime) / span;
@@ -483,11 +503,13 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         const dtSec = span / 1000;
         p.renderedVx = (p.terminal.finalX - p.terminal.fromX) / dtSec;
         p.renderedVy = (p.terminal.finalY - p.terminal.fromY) / dtSec;
+        p.hasRenderedPosition = true;
       } else {
         p.renderedX = p.terminal.finalX;
         p.renderedY = p.terminal.finalY;
         p.renderedVx = 0;
         p.renderedVy = 0;
+        p.hasRenderedPosition = true;
       }
       if (pTime >= p.terminal.endTime && !currentIds.has(id)) {
         toDelete.push(id);
@@ -506,17 +528,20 @@ function updatePixiBullets(env, players, bounds, renderTime) {
           p.renderedY = a.y + (b.y - a.y) * t;
           p.renderedVx = a.vx + (b.vx - a.vx) * t;
           p.renderedVy = a.vy + (b.vy - a.vy) * t;
+          p.hasRenderedPosition = true;
         } else if (pTime < a.simulationTimeMs) {
           p.renderedX = a.x;
           p.renderedY = a.y;
           p.renderedVx = a.vx;
           p.renderedVy = a.vy;
+          p.hasRenderedPosition = true;
         } else {
           const delta = (pTime - b.simulationTimeMs) / 1000;
           p.renderedX = b.x + b.vx * delta;
           p.renderedY = b.y + b.vy * delta;
           p.renderedVx = b.vx;
           p.renderedVy = b.vy;
+          p.hasRenderedPosition = true;
         }
       } else if (p.currentSample) {
         const delta = Math.max(0, (pTime - p.currentSample.simulationTimeMs) / 1000);
@@ -524,6 +549,7 @@ function updatePixiBullets(env, players, bounds, renderTime) {
         p.renderedY = p.currentSample.y + p.currentSample.vy * delta;
         p.renderedVx = p.currentSample.vx;
         p.renderedVy = p.currentSample.vy;
+        p.hasRenderedPosition = true;
       }
     } else {
       if (!p.currentSample) {
@@ -540,6 +566,7 @@ function updatePixiBullets(env, players, bounds, renderTime) {
       p.renderedY = projected.y;
       p.renderedVx = projected.vx;
       p.renderedVy = projected.vy;
+      p.hasRenderedPosition = true;
     }
 
     if (p.terminal && pTime >= p.terminal.impactTime) {
@@ -547,6 +574,10 @@ function updatePixiBullets(env, players, bounds, renderTime) {
     }
     const x = p.renderedX;
     const y = p.renderedY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      toDelete.push(id);
+      continue;
+    }
     if (bounds && !isCircleVisible(x, y, 20, bounds)) continue;
     if (state.debugStats) state.debugStats.drawnBullets++;
 

@@ -15,11 +15,9 @@
 const assert = require("node:assert/strict");
 const { movementTestTick } = require("./tools/movementTestTick");
 const {
-  ATTACK_NO_RETREAT_TOLERANCE,
   FORMATION_TYPES,
   commandShips,
   physicalCollisionRadius,
-  planAttackFormation,
   planFormation,
   sanitizeFormationType
 } = require("./src/server/movement");
@@ -477,8 +475,10 @@ function run() {
       "ships should end up on the new slots, not the old ones");
   }
 
-  // --- a Hold attack is one clump on the near side of the enemy ------------
+  // --- an enemy click arranges nothing --------------------------------------
   {
+    // No clump, no slots, no assembly. Every ship takes the target and advances
+    // on it; whoever can already shoot stops and shoots.
     const ships = column(5, { design: GUNSHIP, x: 900, y0: 800, pitch: 220 });
     const enemy = makeShip({ id: "enemy", x: 3400, y: 1500, design: GUNSHIP, ownerId: "p2" });
     const room = makeRoom(ships, [], enemy);
@@ -489,235 +489,115 @@ function run() {
     });
     assert.equal(result.code, "attack");
     assert(ships.every((ship) => ship.movement.command.formation === null),
-      "combat orders carry no move formation");
+      "combat orders carry no formation");
 
-    const slots = ships.map(attackSlotState);
-    assert(slots.every(Boolean), "every Hold ship gets an attack slot");
-    assert.equal(new Set(slots.map((slot) => `${slot.forwardOffset.toFixed(3)}:${slot.lateralOffset.toFixed(3)}`)).size,
-      ships.length, "each slot in the clump is distinct");
-    assert.equal(new Set(slots.map((slot) => slot.assignedShipId)).size, ships.length,
-      "one slot per ship");
-
-    // One clump: every slot shares the same anchor, approach axis and centre.
-    assert.equal(new Set(slots.map((slot) => (
-      `${slot.targetId}:${slot.awayX.toFixed(9)}:${slot.awayY.toFixed(9)}:${slot.centreDistance.toFixed(6)}`
-    ))).size, 1, "all attack slots belong to one clump");
-    // The clump forms on the side the fleet is already coming from.
-    const away = Math.atan2(fleet.y - enemy.y, fleet.x - enemy.x);
-    assert(angleError(Math.atan2(slots[0].awayY, slots[0].awayX), away) < 1e-9,
-      "the approach axis points from the target back toward the fleet");
-
-    // Not five independent near-identical radial destinations: the slots are
-    // spread across the approach axis, and the group is a cluster.
-    const points = slots.map((slot) => attackSlotWorldPoint(slot, enemy));
-    const lateralSpread = Math.max(...slots.map((slot) => slot.lateralOffset))
-      - Math.min(...slots.map((slot) => slot.lateralOffset));
-    assert(lateralSpread > expectedSpacing(ships),
-      `an enemy click must spread the fleet, not stack it (${lateralSpread.toFixed(0)} px)`);
-    for (let i = 0; i < points.length; i += 1) {
-      for (let j = i + 1; j < points.length; j += 1) {
-        assert(Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y)
-          >= physicalCollisionRadius(ships[i]) + physicalCollisionRadius(ships[j]),
-        "attack slots must not overlap");
-      }
+    // What each ship carries is a direction and its own place across the fleet.
+    const lanes = ships.map(attackLaneState);
+    assert(lanes.every(Boolean), "every Hold ship gets an approach lane");
+    const forward = Math.atan2(enemy.y - fleet.y, enemy.x - fleet.x);
+    for (const lane of lanes) {
+      assert(angleError(Math.atan2(lane.forwardY, lane.forwardX), forward) < 1e-9,
+        "every lane runs along the fleet-to-target axis");
+      assert(Math.abs(Math.hypot(lane.forwardX, lane.forwardY) - 1) < 1e-9, "the axis is a unit vector");
     }
-
-    // Assignments do not drift while the fleet closes, and nobody crosses the
-    // group to reach a slot on the far side of it.
-    const cos = Math.cos(-away);
-    const sin = Math.sin(-away);
-    const acrossOf = (x, y) => (x - enemy.x) * sin + (y - enemy.y) * cos;
-    const startOrder = ships.map((ship) => acrossOf(ship.x, ship.y));
-    const assignedOrder = slots.map((slot) => slot.lateralOffset);
+    // Parallel lanes, not one shared point: the lateral spread of the fleet is
+    // exactly the lateral spread of its destinations.
+    const spread = Math.max(...lanes.map((lane) => lane.lateralOffset))
+      - Math.min(...lanes.map((lane) => lane.lateralOffset));
+    assert(spread > 800, `an enemy click preserves the fleet's own spread (${spread.toFixed(0)} px)`);
+    const destinations = ships.map((ship) => ({ ...ship.movement.destination || {} }));
+    const distinct = new Set(destinations.map((point) => `${Math.round(point.x)}:${Math.round(point.y)}`));
+    assert.equal(distinct.size, ships.length, "no two ships are sent to the same point");
+    // Lateral order is preserved, so nobody crosses the fleet to get to a lane.
+    const lateralOf = (ship) => (ship.x - fleet.x) * -Math.sin(forward) + (ship.y - fleet.y) * Math.cos(forward);
     for (let i = 0; i < ships.length; i += 1) {
       for (let j = i + 1; j < ships.length; j += 1) {
-        assert(!((startOrder[i] - startOrder[j]) * (assignedOrder[i] - assignedOrder[j]) < 0),
-          `${ships[i].id} and ${ships[j].id} would have to cross the clump`);
+        assert(!((lateralOf(ships[i]) - lateralOf(ships[j])) * (lanes[i].lateralOffset - lanes[j].lateralOffset) < 0),
+          `${ships[i].id} and ${ships[j].id} would have to trade sides`);
       }
-    }
-
-    const identity = slots.map((slot) => ({ ...slot }));
-    for (let index = 0; index < 240; index += 1) {
-      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
-    }
-    for (let index = 0; index < ships.length; index += 1) {
-      const current = attackSlotState(ships[index]);
-      if (!current) continue;
-      assert.equal(current.assignedShipId, identity[index].assignedShipId, "no reassignment while approaching");
-      assert.equal(current.forwardOffset, identity[index].forwardOffset, "offsets are stable while approaching");
-      assert.equal(current.lateralOffset, identity[index].lateralOffset, "offsets are stable while approaching");
     }
 
     for (let index = 0; index < 1200; index += 1) {
       movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
     }
     assert(ships.every((ship) => ship.movement.holdEngaged),
-      `each ship should reach its slot and engage (${ships.map((ship) => ship.movement.phase).join(",")})`);
-    assert(ships.every((ship) => ship.movement.attackSlot === null),
-      "a ship releases its slot when it enters Hold");
+      `every ship engages (${ships.map((ship) => ship.movement.phase).join(",")})`);
+    assert(ships.every((ship) => ship.movement.attackLane === null),
+      "the lane is dropped once a ship can fire");
     assert.equal(new Set(ships.map((ship) => `${ship.x.toFixed(1)}:${ship.y.toFixed(1)}`)).size, ships.length,
-      "no two ships are assigned one shared combat position");
+      "no two ships share one combat position");
+    for (const ship of ships) {
+      assert(Math.hypot(ship.x - enemy.x, ship.y - enemy.y) <= holdRangeOf(ship) + 1,
+        `${ship.id} stopped inside its own firing envelope`);
+    }
   }
 
-  // --- the whole clump is placed by the shortest usable range --------------
+  // --- a ship that can already fire stops where it is -----------------------
   {
-    // Four long-range gunships in front, one shorter-ranged hull at the back:
-    // the clump goes where the ship in the rear-most slot can still fire, and
-    // nobody is pushed forward on their own.
-    const front = Array.from({ length: 4 }, (_, index) => makeShip({
-      id: `long-${index}`,
-      x: 3750,
-      y: 1500 + index * 90,
-      design: GUNSHIP
-    }));
-    const rear = makeShip({ id: "short-range", x: 900, y: 1650, design: SHORT_RANGE });
-    const ships = [...front, rear];
-    const enemy = makeShip({ id: "enemy", x: 4200, y: 1650, design: GUNSHIP, ownerId: "p2" });
+    // The whole point of dropping the clump. A ship in range when the order
+    // lands does not move anywhere tidier first, and it is not given a lane.
+    const ready = makeShip({ id: "ready", x: 3100, y: 1500, design: GUNSHIP });
+    const behind = column(3, { design: GUNSHIP, x: 900, y0: 1200, pitch: 260 });
+    const ships = [ready, ...behind];
+    const enemy = makeShip({ id: "enemy", x: 3500, y: 1500, design: GUNSHIP, ownerId: "p2" });
     const room = makeRoom(ships, [], enemy);
+    assert(Math.hypot(ready.x - enemy.x, ready.y - enemy.y) <= holdRangeOf(ready),
+      "sanity: the front ship starts in range");
 
-    const shortReach = holdRangeOf(rear);
-    const longReach = holdRangeOf(front[0]);
-    assert(shortReach < longReach, "the test needs a genuinely shorter-ranged hull");
-
+    const parked = { x: ready.x, y: ready.y };
     commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
       shipIds: ships.map((ship) => ship.id),
       targetId: enemy.id
     });
+    assert(ready.movement.holdEngaged, "it Holds on the tick the order lands, before any movement");
+    assert.equal(ready.movement.attackLane, null, "and takes no approach lane");
+    assert(behind.every((ship) => ship.movement.attackLane), "the ships still out of range advance");
 
-    const slots = ships.map(attackSlotState);
-    const rearSlot = attackSlotState(rear);
-    // Starting furthest from the enemy, the short-range hull takes a slot in the
-    // back of the clump -- it is not pushed forward through the ships in front
-    // of it to make up its own range, and nothing sorted the group by reach.
-    assert(rearSlot.forwardOffset > 0,
-      `the ship that started furthest back belongs to the rear of the clump (${rearSlot.forwardOffset.toFixed(0)})`);
-    // Every slot -- the rear-most included -- is inside the shortest range.
-    for (const slot of slots) {
-      const point = attackSlotWorldPoint(slot, enemy);
-      const range = Math.hypot(point.x - enemy.x, point.y - enemy.y);
-      assert(range <= shortReach,
-        `slot at ${range.toFixed(0)} px is outside the shortest usable range ${shortReach.toFixed(0)}`);
-    }
-    // ...and the clump is not simply piled onto the enemy either.
-    assert(slots.every((slot) => {
-      const point = attackSlotWorldPoint(slot, enemy);
-      return Math.hypot(point.x - enemy.x, point.y - enemy.y)
-        >= physicalCollisionRadius(enemy) + physicalCollisionRadius(rear);
-    }), "the clump keeps its distance from the target's hull");
-
-    // The long-range ships are already inside their own reach at the order, and
-    // must not stop there.
-    const longStart = Math.hypot(front[0].x - enemy.x, front[0].y - enemy.y);
-    assert(longStart < longReach, "the front ships should begin inside their own weapon range");
-    assert(front.every((ship) => !ship.movement.holdEngaged),
-      "being in range at command time must not latch Hold");
-
-    for (let index = 0; index < 1500; index += 1) {
-      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
-    }
-    assert(ships.every((ship) => ship.movement.holdEngaged),
-      `every armed ship eventually enters Hold (${ships.map((ship) => `${ship.id}:${ship.movement.phase}`).join(",")})`);
-    const rearRange = Math.hypot(rear.x - enemy.x, rear.y - enemy.y);
-    assert(rearRange <= shortReach + 40,
-      `the short-range ship must be in range where it stops (${rearRange.toFixed(0)} vs ${shortReach.toFixed(0)})`);
-  }
-
-  // --- a long-range ship out in front does not latch Hold early ------------
-  {
-    const scout = makeShip({ id: "scout", x: 3300, y: 1500, design: GUNSHIP });
-    const pack = Array.from({ length: 3 }, (_, index) => makeShip({
-      id: `pack-${index}`,
-      x: 1000,
-      y: 1200 + index * 260,
-      design: GUNSHIP
-    }));
-    const ships = [scout, ...pack];
-    const enemy = makeShip({ id: "enemy", x: 3800, y: 1500, design: GUNSHIP, ownerId: "p2" });
-    const room = makeRoom(ships, [], enemy);
-    commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
-      shipIds: ships.map((ship) => ship.id),
-      targetId: enemy.id
-    });
-
-    const slot = attackSlotState(scout);
-    const target = attackSlotWorldPoint(slot, enemy);
-    const startRange = Math.hypot(scout.x - enemy.x, scout.y - enemy.y);
-    assert(startRange <= holdRangeOf(scout),
-      "the scout should already be inside weapon range before it reaches its slot");
-    assert(Math.hypot(scout.x - target.x, scout.y - target.y) > 60,
-      "...and not already standing on its slot");
-
-    let latchedBeforeArrival = false;
-    let arrivedAt = -1;
     for (let index = 0; index < 900; index += 1) {
       movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
-      const point = attackSlotWorldPoint(slot, enemy);
-      const atSlot = Math.hypot(scout.x - point.x, scout.y - point.y) <= 40;
-      if (scout.movement.holdEngaged) {
-        if (!atSlot && arrivedAt < 0) latchedBeforeArrival = true;
-        if (arrivedAt < 0) arrivedAt = index;
-        break;
-      }
-      if (atSlot && arrivedAt < 0) arrivedAt = index;
     }
-    assert.equal(latchedBeforeArrival, false, "crossing into range must not latch Hold early");
-    assert(scout.movement.holdEngaged, "it engages once it is standing on its assigned slot");
-    assert(arrivedAt >= 0, "it reached the slot before engaging");
+    assert(Math.hypot(ready.x - parked.x, ready.y - parked.y) < 40,
+      `the front ship fought from where it stood (${Math.hypot(ready.x - parked.x, ready.y - parked.y).toFixed(0)} px)`);
+    assert(behind.every((ship) => ship.movement.holdEngaged), "and the rest close and engage");
   }
 
-  // --- a moving target carries the clump with it ---------------------------
+  // --- a short-range ship is not blocked by the long-range ships ------------
   {
-    const ships = column(4, { design: GUNSHIP, x: 900, y0: 1000, pitch: 240 });
-    const enemy = makeShip({ id: "runner", x: 4200, y: 1600, design: GUNSHIP, ownerId: "p2" });
+    // The long guns stop at their own range. The short-range hull has to get
+    // considerably closer, and its own lane is what lets it past them.
+    const long = Array.from({ length: 4 }, (_, index) => makeShip({
+      id: `long-${index}`,
+      x: 1400,
+      y: 1200 + index * 150,
+      design: GUNSHIP
+    }));
+    const short = makeShip({ id: "short-range", x: 1400, y: 1650, design: SHORT_RANGE });
+    const ships = [...long, short];
+    const enemy = makeShip({ id: "enemy", x: 4200, y: 1425, design: GUNSHIP, ownerId: "p2" });
     const room = makeRoom(ships, [], enemy);
+    assert(holdRangeOf(short) < holdRangeOf(long[0]), "sanity: a genuinely shorter reach");
+
     commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
       shipIds: ships.map((ship) => ship.id),
       targetId: enemy.id
     });
-    const planned = ships.map((ship) => ({ ...attackSlotState(ship) }));
-
-    for (let index = 0; index < 120; index += 1) {
-      enemy.x += 4;
-      enemy.y += 2;
-      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
-    }
-
-    for (let index = 0; index < ships.length; index += 1) {
-      const slot = attackSlotState(ships[index]);
-      assert(slot, "a ship still approaching keeps its slot");
-      assert.equal(slot.assignedShipId, planned[index].assignedShipId, "no reassignment because the target moved");
-      assert.equal(slot.forwardOffset, planned[index].forwardOffset, "offsets are preserved");
-      assert.equal(slot.lateralOffset, planned[index].lateralOffset, "offsets are preserved");
-      assert.equal(slot.awayX, planned[index].awayX, "the clump keeps its orientation");
-      // The destination the ship is flying to has moved with the enemy.
-      const expected = attackSlotWorldPoint(slot, enemy);
-      assert(Math.hypot(ships[index].movement.destination.x - expected.x,
-        ships[index].movement.destination.y - expected.y) < 1e-6,
-      "the slot translates with the target");
-    }
-
     for (let index = 0; index < 2000; index += 1) {
       movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
     }
-    assert(ships.every((ship) => ship.movement.holdEngaged && ship.movement.attackSlot === null),
-      "engaged ships are released from attack-slot control");
-    // A target that walks in closer does not drag an engaged hull backward.
-    const parked = ships.map((ship) => ({ x: ship.x, y: ship.y }));
-    for (let index = 0; index < 120; index += 1) {
-      enemy.x -= 3;
-      movementTestTick(room, [...ships, enemy], DT, 80000 + index * DT * 1000);
-    }
-    assert(ships.every((ship, index) => Math.hypot(ship.x - parked[index].x, ship.y - parked[index].y) < 12),
-      "a closer target must not pull an engaged Hold ship backward");
+    assert(ships.every((ship) => ship.movement.holdEngaged),
+      `every ship reaches a firing position (${ships.map((ship) => `${ship.id}:${ship.movement.phase}`).join(",")})`);
+    const shortRange = Math.hypot(short.x - enemy.x, short.y - enemy.y);
+    assert(shortRange <= holdRangeOf(short) + 1,
+      `the short-range ship gets into its own range (${shortRange.toFixed(0)} vs ${holdRangeOf(short).toFixed(0)})`);
+    // It had to pass the long guns to do it, and it is not stuck behind them.
+    assert(long.every((ship) => Math.hypot(ship.x - enemy.x, ship.y - enemy.y) > shortRange),
+      "the long-range ships stopped further out, and did not trap it");
   }
 
-  // --- retargeting never orders a ship to reverse --------------------------
+  // --- nobody is ever sent away from the target ----------------------------
   {
-    // The clump is planned at an absolute distance from the enemy, around the
-    // fleet's centre. A ship out in front of the group is already past where
-    // that shape is going to be, so its nearest free slot is behind it -- and
-    // without the no-retreat rule it would turn round and back into formation
-    // while the enemy sat in front of it.
+    // Retargeting is where a formation model went wrong: the ship out in front
+    // was past where the new shape would be, so it turned round to join it.
     const point = makeShip({ id: "point", x: 4400, y: 1180, design: GUNSHIP });
     const followers = [
       makeShip({ id: "mid-a", x: 2600, y: 1350, design: GUNSHIP }),
@@ -731,220 +611,103 @@ function run() {
     const room = makeRoom(ships, [], [first, second]);
     const shipIds = ships.map((ship) => ship.id);
 
-    // Already fighting the first enemy, in a clump planned around it.
     commandShips(room, room.players.get("p1"), first.x, first.y, { shipIds, targetId: first.id });
     for (let index = 0; index < 30; index += 1) {
       movementTestTick(room, [...ships, first, second], DT, index * DT * 1000);
     }
-    assert(ships.every((ship) => ship.movement.attackSlot), "the first order plans a clump");
 
-    // Retarget. The front ship is inside its own weapon range of the new enemy
-    // and past where the new clump will sit.
-    const startRange = Math.hypot(point.x - second.x, point.y - second.y);
-    assert(startRange <= holdRangeOf(point), "the front ship starts in range of the new target");
+    assert(Math.hypot(point.x - second.x, point.y - second.y) <= holdRangeOf(point),
+      "the front ship starts in range of the new target");
     commandShips(room, room.players.get("p1"), second.x, second.y, { shipIds, targetId: second.id });
-
-    // It has a valid Hold position already: it keeps it rather than reforming.
-    assert(point.movement.holdEngaged, "an already-in-range front ship Holds where it is");
-    assert.equal(point.movement.attackSlot, null, "...and gives up the slot behind it");
+    assert(point.movement.holdEngaged, "retargeting onto something it can already hit engages it at once");
     const parked = { x: point.x, y: point.y };
 
-    // Everyone else still gets their own distinct place in the one clump.
-    const slots = followers.map(attackSlotState);
-    assert(slots.every(Boolean), "the rest of the fleet still receives clump slots");
-    assert.equal(new Set(slots.map((slot) => (
-      `${slot.forwardOffset.toFixed(3)}:${slot.lateralOffset.toFixed(3)}`
-    ))).size, followers.length, "rear ships receive distinct clump positions");
-
-    const away = { x: slots[0].awayX, y: slots[0].awayY };
-    const depthOf = (entity) => entity.x * away.x + entity.y * away.y;
-    const startDepth = new Map(ships.map((ship) => [ship.id, depthOf(ship)]));
-    // No ship is sent backwards: a destination further from the target than the
-    // hull already is would be a reversal, whoever it belongs to.
-    const assertNoReversingDestination = (label) => {
+    // No destination, for anyone, is further from the target than the hull is.
+    const assertNoReversal = (label) => {
       for (const ship of ships) {
-        const slot = attackSlotState(ship);
-        if (!slot || !ship.movement.destination) continue;
-        const retreat = (ship.movement.destination.x - ship.x) * slot.awayX
-          + (ship.movement.destination.y - ship.y) * slot.awayY;
-        assert(retreat <= ATTACK_NO_RETREAT_TOLERANCE + 1e-6,
-          `${label}: ${ship.id} is being sent ${retreat.toFixed(0)} px away from its target`);
+        const destination = ship.movement.destination;
+        if (!destination || ship.movement.holdEngaged) continue;
+        const own = Math.hypot(ship.x - second.x, ship.y - second.y);
+        const sent = Math.hypot(destination.x - second.x, destination.y - second.y);
+        assert(sent <= own + 1e-6,
+          `${label}: ${ship.id} is being sent ${(sent - own).toFixed(0)} px further from its target`);
       }
     };
-    assertNoReversingDestination("on retarget");
-
-    // ...and the target closing on the fleet cannot reintroduce it, even though
-    // the whole clump walks backwards with the enemy.
+    assertNoReversal("on retarget");
     for (let index = 0; index < 400; index += 1) {
+      // ...and a target closing on the fleet cannot reintroduce it either.
       if (index < 200) second.x -= 3;
       movementTestTick(room, [...ships, first, second], DT, index * DT * 1000);
-      assertNoReversingDestination(`tick ${index}`);
-    }
-    for (const ship of ships) {
-      assert(depthOf(ship) <= startDepth.get(ship.id) + 40,
-        `${ship.id} ended up further back than it started`);
+      assertNoReversal(`tick ${index}`);
     }
     assert(Math.hypot(point.x - parked.x, point.y - parked.y) < 60,
-      "the front ship held its position rather than reforming");
+      "the front ship held its ground rather than reforming");
   }
 
-  // --- an enemy that drives into the group ---------------------------------
+  // --- a moving target is pursued, not re-planned around -------------------
   {
-    // The clump hangs off the target, so an enemy closing past the front of it
-    // would otherwise push every unengaged slot out behind the ships. Hold does
-    // not give ground: the approach is abandoned at point-blank range and the
-    // ordinary rules take over.
-    const ships = column(3, { design: GUNSHIP, x: 900, y0: 1200, pitch: 240 });
-    const enemy = makeShip({ id: "rammer", x: 3600, y: 1440, design: GUNSHIP, ownerId: "p2" });
+    const ships = column(4, { design: GUNSHIP, x: 900, y0: 1000, pitch: 240 });
+    const enemy = makeShip({ id: "runner", x: 4200, y: 1600, design: GUNSHIP, ownerId: "p2" });
     const room = makeRoom(ships, [], enemy);
     commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
       shipIds: ships.map((ship) => ship.id),
       targetId: enemy.id
     });
-    assert(ships.every((ship) => ship.movement.attackSlot), "the order plans a clump");
+    const planned = ships.map((ship) => ({ ...attackLaneState(ship) }));
 
-    // Teleport the enemy into the middle of the still-approaching fleet.
-    enemy.x = centreOf(ships).x;
-    enemy.y = centreOf(ships).y;
-    const before = ships.map((ship) => ({ x: ship.x, y: ship.y }));
-    for (let index = 0; index < 90; index += 1) {
+    for (let index = 0; index < 120; index += 1) {
+      enemy.x += 4;
+      enemy.y += 2;
       movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
     }
-    assert(ships.every((ship) => ship.movement.attackSlot === null),
-      "a target at point-blank range releases the clump rather than pushing ships back");
-    assert(ships.every((ship, index) => (
-      Math.hypot(ship.x - enemy.x, ship.y - enemy.y)
-        <= Math.hypot(before[index].x - enemy.x, before[index].y - enemy.y) + 40
-    )), "no ship is driven backward away from a target that closed on it");
-  }
-
-  // --- a blocked attack slot gets a bounded, local adjustment --------------
-  {
-    const ships = column(5, { design: GUNSHIP, x: 900, y0: 1000, pitch: 220 });
-    const enemy = makeShip({ id: "enemy", x: 3600, y: 1600, design: GUNSHIP, ownerId: "p2" });
-    const clean = makeRoom(ships, [], enemy);
-    const holdRange = (ship) => ({ range: holdRangeOf(ship), armed: true });
-    const unobstructed = planAttackFormation(clean, ships, enemy, { holdRange });
-    const blocked = unobstructed.slots.find((slot) => (
-      unobstructed.slots.every((other) => other === slot
-        || Math.hypot(other.x - slot.x, other.y - slot.y) > 130)
-    )) || unobstructed.slots[0];
-    const blockedIndex = unobstructed.slots.indexOf(blocked);
-
-    const asteroid = { id: "slot-rock", x: blocked.x, y: blocked.y, radius: 40 };
-    const room = makeRoom(ships, [asteroid], enemy);
-    const plan = planAttackFormation(room, ships, enemy, { holdRange });
-
-    assert.equal(plan.slots.filter((slot) => slot.adjusted).length, 1,
-      "only the blocked slot is adjusted");
-    for (let index = 0; index < plan.slots.length; index += 1) {
-      if (index === blockedIndex) continue;
-      assert.equal(plan.slots[index].x, unobstructed.slots[index].x, "other slots are unchanged");
-      assert.equal(plan.slots[index].y, unobstructed.slots[index].y, "other slots are unchanged");
+    for (let index = 0; index < ships.length; index += 1) {
+      const lane = attackLaneState(ships[index]);
+      if (!lane) continue;
+      assert.equal(lane.lateralOffset, planned[index].lateralOffset, "lanes are not re-planned mid-order");
+      assert.equal(lane.forwardX, planned[index].forwardX, "...nor is the axis");
+      // The destination tracks the target rather than a point fixed in space.
+      const sent = Math.hypot(ships[index].movement.destination.x - enemy.x,
+        ships[index].movement.destination.y - enemy.y);
+      assert(sent <= holdRangeOf(ships[index]) + 1, "the lane still ends at firing range of the target");
     }
-    const moved = plan.slots[blockedIndex];
-    assert(moved.reachable, "the adjusted slot is a point the hull can occupy");
-    assert(Math.hypot(moved.x - asteroid.x, moved.y - asteroid.y)
-      >= asteroid.radius + physicalCollisionRadius(moved.ship),
-    "the adjusted slot clears the rock");
-    assert(Math.hypot(moved.x - blocked.x, moved.y - blocked.y) < 400,
-      "the adjustment stays local to the slot");
-    assert.equal(Math.sign(moved.lateralOffset), Math.sign(unobstructed.slots[blockedIndex].lateralOffset),
-      "the adjusted slot stays on its own side of the clump");
-    assert.equal(plan.centreDistance, unobstructed.centreDistance,
-      "one blocked slot does not move the clump");
+
+    for (let index = 0; index < 2000; index += 1) {
+      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
+    }
+    assert(ships.every((ship) => ship.movement.holdEngaged && ship.movement.attackLane === null),
+      "engaged ships have no lane left");
+    const parked = ships.map((ship) => ({ x: ship.x, y: ship.y }));
+    for (let index = 0; index < 120; index += 1) {
+      enemy.x -= 3;
+      movementTestTick(room, [...ships, enemy], DT, 80000 + index * DT * 1000);
+    }
+    assert(ships.every((ship, index) => Math.hypot(ship.x - parked[index].x, ship.y - parked[index].y) < 12),
+      "a closer target must not pull an engaged Hold ship backward");
   }
 
-  // --- a slot the hull can sit on but cannot shoot from --------------------
+  // --- a lane that ends in a rock falls back to the per-ship search ---------
   {
-    // The slot itself is clear; what is blocked is the line from it to the
-    // enemy. That gets a bounded walk around the slot, on the same side of the
-    // clump, rather than a new plan for everybody.
     const ship = makeShip({ id: "sniper", x: 1000, y: 1500, design: GUNSHIP });
     const enemy = makeShip({ id: "enemy", x: 3000, y: 1500, design: GUNSHIP, ownerId: "p2" });
-    const clean = makeRoom([ship], [], enemy);
-    const planned = planAttackFormation(clean, [ship], enemy, {
-      holdRange: (candidate) => ({ range: holdRangeOf(candidate), armed: true })
-    });
-    const slotPoint = planned.slots[0];
-    // Between the slot and the target, well clear of both.
-    const asteroid = {
-      id: "sight-rock",
-      x: (slotPoint.x + enemy.x) / 2,
-      y: 1500,
-      radius: 60
-    };
+    // Straddling the lane's own end point, between the ship and the target.
+    const standoff = holdRangeOf(ship) - 16;
+    const asteroid = { id: "sight-rock", x: enemy.x - standoff, y: 1500, radius: 120 };
     const room = makeRoom([ship], [asteroid], enemy);
     commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
       shipIds: [ship.id],
       targetId: enemy.id
     });
-    const original = { ...attackSlotState(ship) };
-    assert(Math.hypot(slotPoint.x - asteroid.x, slotPoint.y - asteroid.y)
-      > asteroid.radius + physicalCollisionRadius(ship),
-    "the slot itself must be clear ground -- this is a line-of-sight case");
 
-    for (let index = 0; index < 900; index += 1) {
+    for (let index = 0; index < 1200; index += 1) {
       movementTestTick(room, [ship, enemy], DT, index * DT * 1000);
       if (ship.movement.holdEngaged) break;
     }
-    assert(ship.movement.holdEngaged, "the ship should find a spot it can shoot from");
-    assert.equal(ship.movement.firingSolution, null,
-      "the slot was walked around, not abandoned for a per-ship firing search");
-    const adjustment = Math.hypot(ship.x - slotPoint.x, ship.y - slotPoint.y);
-    assert(adjustment > 40, "the slot must have been adjusted at all");
-    assert(adjustment < 400, `the adjustment stays bounded and local (${adjustment.toFixed(0)} px)`);
-    // Same side of the clump, and still the same clump: the centre did not move.
-    assert.equal(Math.sign(original.lateralOffset) || 1, Math.sign(
-      (ship.y - enemy.y) * original.awayX - (ship.x - enemy.x) * original.awayY
-    ) || 1, "the adjusted position keeps its own side of the clump");
-  }
-
-  // --- armed and unarmed ships together ------------------------------------
-  {
-    const armed = Array.from({ length: 3 }, (_, index) => makeShip({
-      id: `armed-${index}`,
-      x: 1400,
-      y: 1200 + index * 240,
-      design: GUNSHIP
-    }));
-    const unarmed = makeShip({ id: "hauler", x: 900, y: 1440, design: BASE });
-    const ships = [...armed, unarmed];
-    const enemy = makeShip({ id: "enemy", x: 4000, y: 1440, design: GUNSHIP, ownerId: "p2" });
-    const room = makeRoom(ships, [], enemy);
-    commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
-      shipIds: ships.map((ship) => ship.id),
-      targetId: enemy.id
-    });
-
-    const slots = ships.map(attackSlotState);
-    assert(slots.every(Boolean), "an unarmed ship still gets a slot");
-    // The armed ships set the distance: a hull with nothing that reaches does
-    // not drag the clump onto the enemy.
-    const armedOnly = planAttackFormation(room, armed, enemy, {
-      holdRange: (ship) => ({ range: holdRangeOf(ship), armed: true })
-    });
-    assert(Math.abs(slots[0].centreDistance - armedOnly.centreDistance) < 200,
-      `an unarmed ship must not collapse the clump (${slots[0].centreDistance.toFixed(0)} vs ${armedOnly.centreDistance.toFixed(0)})`);
-    assert(slots[0].centreDistance > physicalCollisionRadius(enemy) * 4,
-      "the clump is not stacked on the target");
-    // Safe, non-overlapping, and toward the back.
-    const points = slots.map((slot) => attackSlotWorldPoint(slot, enemy));
-    for (let i = 0; i < points.length; i += 1) {
-      for (let j = i + 1; j < points.length; j += 1) {
-        assert(Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y)
-          >= physicalCollisionRadius(ships[i]) + physicalCollisionRadius(ships[j]),
-        "unarmed and armed slots must not overlap");
-      }
-    }
-
-    for (let index = 0; index < 1500; index += 1) {
-      movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
-    }
-    assert(armed.every((ship) => ship.movement.holdEngaged), "the armed ships engage");
-    assert(Math.hypot(unarmed.x - attackSlotWorldPoint(slots[3], enemy).x,
-      unarmed.y - attackSlotWorldPoint(slots[3], enemy).y) < 120,
-    "the unarmed ship reaches its clump slot");
+    assert(ship.movement.holdEngaged, "it should still find somewhere it can shoot from");
+    assert(Math.hypot(ship.x - asteroid.x, ship.y - asteroid.y)
+      >= asteroid.radius + physicalCollisionRadius(ship) - 1,
+    "and not be parked inside the rock");
+    assert(Math.hypot(ship.x - enemy.x, ship.y - enemy.y) <= holdRangeOf(ship) + 1,
+      "...within its own range");
   }
 
   // --- Charge is not a clump stance ----------------------------------------

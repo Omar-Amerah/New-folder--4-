@@ -8,14 +8,10 @@
 // module runs per tick: there is no fleet anchor, no shared throttle and no
 // shape that keeps pulling ships back into line.
 //
-// There is one shape -- a compact clump -- used for both jobs:
-//
-//   planFormation       an ordinary move. Slots are fixed world points around
-//                       the clicked position, and the order is finished.
-//   planAttackFormation a Hold attack. Slots are fixed offsets in a frame
-//                       anchored on the target, so the clump translates with a
-//                       moving enemy. The runtime carries the offset; the shape
-//                       is still never rebuilt.
+// There is one shape, a compact clump, and it belongs to exactly one order:
+// a move to an empty point. Clicking an enemy arranges nothing at all -- see
+// planAttackLanes in movementV2.js. A fleet that has to assemble before it may
+// start shooting loses ships to the assembling.
 //
 // What a formation decides is therefore only "where does each hull end up".
 
@@ -42,11 +38,6 @@ const MIN_DIRECTION_DISTANCE = 1;
 // is left where it is. Bounded so a pocket of clear ground surrounded by rock
 // cannot spin here.
 const SLOT_CONFLICT_ATTEMPTS = 6;
-// Slack between the rear of an attack clump and the shortest selected weapon
-// range, so a hull that stops a little wide of its slot is still inside it.
-const HOLD_RANGE_PADDING = 24;
-// Daylight between the front of an attack clump and the target's own hull.
-const CONTACT_PADDING = 24;
 
 // Deterministic order in, deterministic slots out. Two identical orders must
 // assign the same ship to the same slot, so the sort is the stable entity-id
@@ -326,187 +317,12 @@ function planFormation(room, ships, options = {}) {
   return { x: centre.x, y: centre.y, formation, direction, spacing, slots };
 }
 
-// --- Hold attack clump ------------------------------------------------------
-
-// How far out the target's own hull reaches. A station is not a circle, so its
-// widest half-extent stands in for one; it only has to keep the front of the
-// clump from being planned inside the thing it is shooting at.
-function targetContactExtent(target) {
-  if (Array.isArray(target?.collisionPieces)) {
-    return Math.max(
-      Number(target.radius) || 0,
-      (Number(target.width) || 0) / 2,
-      (Number(target.height) || 0) / 2
-    );
-  }
-  return physicalCollisionRadius(target);
-}
-
-// The direction the clump forms in: from the target back toward the fleet, so
-// the group assembles on the side it is already coming from and nobody has to
-// fly around the enemy. Deterministic when the two centres coincide -- the
-// fleet's own heading, reversed, puts the clump behind where the hulls point.
-function attackApproachUnit(ships, target) {
-  const fleet = fleetCentre(ships);
-  const awayX = fleet.x - (Number(target.x) || 0);
-  const awayY = fleet.y - (Number(target.y) || 0);
-  const length = fastHypot(awayX, awayY);
-  if (length > MIN_DIRECTION_DISTANCE) return { x: awayX / length, y: awayY / length };
-  const heading = averageShipHeading(ships);
-  return { x: -Math.cos(heading), y: -Math.sin(heading) };
-}
-
-// Where the clump centre goes.
-//
-// The whole shape is placed by the SHORTEST usable Hold range in the selection,
-// measured against the slot that ends up furthest from the target. That is what
-// lets a short-range hull take a rear slot and still be able to fire from it,
-// without anyone being pushed forward individually and without the group being
-// sorted by weapon range.
-//
-// A slot sits at (centreDistance + forwardOffset) along the approach axis and
-// lateralOffset across it, so the constraint per slot is
-// hypot(centreDistance + forwardOffset, lateralOffset) <= range. Solving that
-// for the centre and taking the tightest is the rear-extent rule with the
-// clump's width carried through it.
-function attackCentreDistance(offsets, range) {
-  let distance = Infinity;
-  for (const offset of offsets) {
-    const lateral = Math.abs(offset.y);
-    const reach = lateral >= range ? 0 : Math.sqrt(range * range - lateral * lateral);
-    distance = Math.min(distance, reach - offset.x);
-  }
-  return distance - HOLD_RANGE_PADDING;
-}
-
-// One clump on the near side of the target, in a frame anchored on the target
-// itself. `holdRange(ship)` reports that ship's usable Hold engagement range and
-// whether it is genuinely armed; an unarmed hull still gets a slot, at the back,
-// but its range does not drag the whole fleet onto the enemy.
-function planAttackFormation(room, ships, target, options = {}) {
-  const ordered = orderShipsForFormation(ships);
-  if (!ordered.length || !target) return null;
-  const holdRange = typeof options.holdRange === "function" ? options.holdRange : () => ({ range: 0 });
-
-  const away = attackApproachUnit(ordered, target);
-  const lateralX = -away.y;
-  const lateralY = away.x;
-  const targetX = Number(target.x) || 0;
-  const targetY = Number(target.y) || 0;
-
-  const spacing = formationSpacing(ordered);
-  const offsets = clumpOffsets(ordered.length, spacing);
-  const direction = Math.atan2(away.y, away.x);
-
-  let minimumHoldRange = Infinity;
-  let nominalRange = 0;
-  let armedCount = 0;
-  let largestHull = 0;
-  for (const ship of ordered) {
-    largestHull = Math.max(largestHull, physicalCollisionRadius(ship));
-    const reported = holdRange(ship) || {};
-    const range = Math.max(0, Number(reported.range) || 0);
-    nominalRange = Math.max(nominalRange, range);
-    if (!reported.armed || !(range > 0)) continue;
-    armedCount += 1;
-    minimumHoldRange = Math.min(minimumHoldRange, range);
-  }
-  // Nobody in the selection can actually shoot. Their nominal envelope still
-  // has to put them somewhere sensible, and it must not be zero -- that would
-  // stack an unarmed group on top of the enemy.
-  if (!armedCount) minimumHoldRange = nominalRange;
-
-  let frontExtent = 0;
-  let backExtent = 0;
-  for (const offset of offsets) {
-    frontExtent = Math.max(frontExtent, -offset.x + largestHull);
-    backExtent = Math.max(backExtent, offset.x);
-  }
-  const minimumCentreDistance = targetContactExtent(target) + frontExtent + CONTACT_PADDING;
-  const centreDistance = Math.max(
-    minimumCentreDistance,
-    attackCentreDistance(offsets, minimumHoldRange)
-  );
-  const centre = {
-    x: targetX + away.x * centreDistance,
-    y: targetY + away.y * centreDistance
-  };
-  const toWorld = (offset) => ({
-    x: centre.x + away.x * offset.x + lateralX * offset.y,
-    y: centre.y + away.y * offset.x + lateralY * offset.y
-  });
-
-  const slots = pairShipsToOffsets(ordered, offsets, toWorld).map(({ ship, offset }, index) => {
-    const { x: requestedX, y: requestedY } = toWorld(offset);
-    const point = resolveSlotPoint(room, ship, requestedX, requestedY);
-    return {
-      ship,
-      shipId: ship.id,
-      index,
-      x: point.x,
-      y: point.y,
-      requestedX,
-      requestedY,
-      forwardOffset: offset.x,
-      lateralOffset: offset.y,
-      clearance: point.clearance,
-      adjusted: point.adjusted,
-      reachable: point.reachable
-    };
-  });
-  separateAdjustedSlots(room, slots, centre);
-  // An adjusted slot is folded back into its own offset rather than kept as a
-  // separate correction, so the whole clump -- adjustment included -- translates
-  // with the target as one rigid shape.
-  for (const slot of slots) {
-    const dx = slot.x - centre.x;
-    const dy = slot.y - centre.y;
-    slot.forwardOffset = dx * away.x + dy * away.y;
-    slot.lateralOffset = dx * lateralX + dy * lateralY;
-  }
-
-  return {
-    targetId: String(target.id),
-    x: centre.x,
-    y: centre.y,
-    awayX: away.x,
-    awayY: away.y,
-    centreDistance,
-    minimumCentreDistance,
-    minimumHoldRange,
-    armedCount,
-    backExtent,
-    frontExtent,
-    direction,
-    spacing,
-    slots
-  };
-}
-
-// The world point an attack slot currently stands for. The offsets are fixed
-// for the life of the order; what moves is the target they hang off.
-function attackSlotPoint(slot, target) {
-  const away = { x: Number(slot.awayX) || 0, y: Number(slot.awayY) || 0 };
-  const lateralX = -away.y;
-  const lateralY = away.x;
-  const along = (Number(slot.centreDistance) || 0) + (Number(slot.forwardOffset) || 0);
-  const across = Number(slot.lateralOffset) || 0;
-  return {
-    x: (Number(target.x) || 0) + away.x * along + lateralX * across,
-    y: (Number(target.y) || 0) + away.y * along + lateralY * across
-  };
-}
-
 module.exports = {
-  CONTACT_PADDING,
   DEFAULT_FORMATION_TYPE,
   FORMATION_TYPES,
-  HOLD_RANGE_PADDING,
-  attackSlotPoint,
   clumpOffsets,
   formationDirection,
   formationSpacing,
-  planAttackFormation,
   planFormation,
   sanitizeFormationType
 };
