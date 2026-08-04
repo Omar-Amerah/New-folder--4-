@@ -24,7 +24,7 @@
     "test:live-turrets": "node verify-live-turrets.js",
     "test:heat": "node verify-heat.js",
     "test:engine-exhaust": "node verify-engine-exhaust.js",
-    "test:movement": "node verify-movement-simplified.js && node verify-movement-formations.js && node verify-movement-momentum.js && node verify-movement-hold-facing.js",
+    "test:movement": "node verify-movement-simplified.js && node verify-movement-formations.js && node verify-movement-momentum.js && node verify-movement-navigation.js && node verify-movement-hold-facing.js",
     "test:movement-phase2": "node verify-movement-phase2.js",
     "test:movement-phase4": "node verify-movement-phase4.js",
     "test:movement-hold-facing": "node verify-movement-hold-facing.js",
@@ -233,7 +233,8 @@
     "test:movement-toggles": "node verify-movement-toggles.js",
     "test:movement-simplified": "node verify-movement-simplified.js",
     "test:movement-formations": "node verify-movement-formations.js",
-    "test:movement-momentum": "node verify-movement-momentum.js"
+    "test:movement-momentum": "node verify-movement-momentum.js",
+    "test:movement-navigation": "node verify-movement-navigation.js"
   },
   "keywords": [
     "browser-game",

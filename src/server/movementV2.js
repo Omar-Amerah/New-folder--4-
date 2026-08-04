@@ -718,6 +718,10 @@ function planRoute(room, ship, runtime, destination, now) {
   runtime.route = {
     commandId: runtime.command?.id || null,
     destination: { x: destination.x, y: destination.y },
+    // Where the first leg starts from. The passed-waypoint test needs the leg a
+    // waypoint was approached along, and for the first one that is not another
+    // waypoint.
+    origin: { x: ship.x, y: ship.y },
     clearance,
     reachable,
     terminal: { ...path[path.length - 1] },
@@ -733,14 +737,36 @@ function planRoute(room, ship, runtime, destination, now) {
   if (!reachable) bumpMovementMetric("pathUnreachableCount");
 }
 
-function advanceWaypointsByCapture(ship, runtime) {
+// Has the hull crossed the plane through this waypoint, perpendicular to the leg
+// it was approached along? Under momentum a wide, fast corner can miss the
+// capture circle entirely, and a waypoint left behind is reached, not pending.
+function waypointPassed(ship, runtime, index) {
+  const waypoint = runtime.path[index];
+  const previous = index > 0 ? runtime.path[index - 1] : runtime.route?.origin;
+  if (!waypoint || !previous) return false;
+  const incomingX = waypoint.x - previous.x;
+  const incomingY = waypoint.y - previous.y;
+  if (fastHypot(incomingX, incomingY) < 1e-6) return false;
+  return (ship.x - waypoint.x) * incomingX + (ship.y - waypoint.y) * incomingY > 0;
+}
+
+function advanceWaypoints(room, ship, runtime) {
   const path = runtime.path;
   if (!path?.length) return;
   const previousIndex = routeWaypointIndex(runtime);
   let index = previousIndex;
   const capture = waypointCaptureRadius(ship);
-  while (index < path.length - 1
-    && fastHypot(ship.x - path[index].x, ship.y - path[index].y) < capture) {
+  const clearance = runtime.route?.clearance ?? routeClearance(ship);
+  while (index < path.length - 1) {
+    const captured = fastHypot(ship.x - path[index].x, ship.y - path[index].y) < capture;
+    // Skipping a waypoint the ship has flown past is only safe if the leg from
+    // where the hull actually is to the next one is clear -- the route was drawn
+    // between waypoints, not from wherever the overshoot ended up. When it is
+    // not, the waypoint stands and the ship goes back for it.
+    const passed = !captured
+      && waypointPassed(ship, runtime, index)
+      && isSegmentClear(room, ship.x, ship.y, path[index + 1].x, path[index + 1].y, clearance);
+    if (!captured && !passed) break;
     index += 1;
     bumpMovementMetric("waypointAdvanceCount");
   }
@@ -896,11 +922,20 @@ function resolveRoute(room, ship, runtime, now) {
 function routeView(room, ship, runtime, stats) {
   const destination = runtime.destination;
   if (!destination) return null;
-  advanceWaypointsByCapture(ship, runtime);
+  advanceWaypoints(room, ship, runtime);
   const index = routeWaypointIndex(runtime);
   const goal = index >= 0 && runtime.path[index] ? runtime.path[index] : destination;
   const lookaheadDistance = routeLookaheadDistance(ship);
   const lookahead = routeLookaheadPoint(room, ship, runtime, lookaheadDistance);
+  // An intermediate waypoint left more than a right angle behind, which the
+  // passed-waypoint test above declined to skip. Carrying speed around it draws
+  // a circle: the turn radius at cruise is wider than the capture circle, so the
+  // ship sweeps past, comes round, and misses it again. Brake to a speed whose
+  // turn radius fits inside that circle, keep steering at the route, and let the
+  // throttle come back once the waypoint is ahead again.
+  const orbitRisk = index >= 0
+    && index < runtime.path.length - 1
+    && Math.abs(angleDifference(ship.angle || 0, bearingTo(ship, goal))) > MOMENTUM_HOLD_ANGLE;
   return {
     goal,
     remaining: routeRemainingDistance(ship, runtime, destination),
@@ -909,6 +944,7 @@ function routeView(room, ship, runtime, stats) {
     // waypoint and come off the throttle rather than carrying speed toward a
     // point the clearance check has already refused.
     mustBrake: !lookahead,
+    orbitLimit: orbitRisk ? maxTurnRate(stats) * waypointCaptureRadius(ship) : Infinity,
     cornerLimit: cornerSpeedLimit(ship, runtime, stats, lookaheadDistance),
     reachable: runtime.route?.reachable !== false,
     terminal: runtime.route?.terminal || destination
@@ -1107,6 +1143,7 @@ function planMovement(room, ship, runtime, stats, route) {
     ramming ? Infinity : safeArrivalSpeed,
     ramming ? Infinity : turnLimit,
     route ? route.cornerLimit : Infinity,
+    route ? route.orbitLimit : Infinity,
     blockedLimit
   );
   // Above a right angle of heading error the ship is asked to shed speed rather
