@@ -364,14 +364,38 @@ function run() {
       movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
     }
     const reach = getMaxEffectiveWeaponRange(ships[0]);
+    let atContact = 0;
     for (const ship of ships) {
       const gap = Math.hypot(ship.x - enemy.x, ship.y - enemy.y);
       const contact = physicalCollisionRadius(ship) + physicalCollisionRadius(enemy);
-      assert(gap <= contact + 24,
-        `Charge should close to contact (${gap.toFixed(0)} px against ${contact.toFixed(0)})`);
+      // The stance is contact-seeking, so the only thing that may hold a hull
+      // short is another hull. Friendlies are solid and deliberately not
+      // navigable, so a charger behind one that is itself in contact is pressed
+      // as far in as the stance can get it -- which is the current behaviour,
+      // and not a standoff distance the controller chose.
+      if (gap <= contact + 24) {
+        atContact += 1;
+      } else {
+        // Occluding the run-in: a friendly nearer the target whose hull covers
+        // the line this ship would have to fly down.
+        const unitX = (enemy.x - ship.x) / gap;
+        const unitY = (enemy.y - ship.y) / gap;
+        const blocker = ships.find((other) => {
+          if (other === ship) return false;
+          const along = (other.x - ship.x) * unitX + (other.y - ship.y) * unitY;
+          const lateral = Math.abs((other.x - ship.x) * -unitY + (other.y - ship.y) * unitX);
+          return along > 0 && along < gap
+            && lateral < physicalCollisionRadius(ship) + physicalCollisionRadius(other);
+        });
+        assert(blocker,
+          `Charge should close to contact unless a friendly is in the way (${gap.toFixed(0)} px against ${contact.toFixed(0)})`);
+        assert(ship.movement.chargeEngaged === false,
+          "a charger held up by its own wing has not decided it has arrived");
+      }
       assert(gap < reach * 0.3,
         `Charge must not stop at a fraction of weapon range (${gap.toFixed(0)} px, reach ${reach.toFixed(0)})`);
     }
+    assert(atContact >= 2, `most of the wing should make contact (${atContact} of ${ships.length})`);
   }
 
   console.log("verify-movement-formations: OK");

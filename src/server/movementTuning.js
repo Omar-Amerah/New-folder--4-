@@ -70,11 +70,12 @@ module.exports = Object.freeze({
   // a per-frame retention raised to dt * DAMPING_REFERENCE_HZ, so the handling
   // does not change with the tick rate.
   DAMPING_REFERENCE_HZ: 60,
-  // Cruising. Deliberately near-transparent: the effective maximum speed of the
-  // hull is what caps a ship, and drag heavy enough to be the real limit would
-  // quietly override every engine stat on the ship. It is here so an unpowered
-  // coast eventually ends, not to set the top speed.
-  TRAVEL_DAMPING: 0.9995,
+  // Cruising, under power: none. What caps a ship is its effective maximum
+  // speed, and any drag at all here is subtracted from its engines -- worst for
+  // exactly the heavy, low-acceleration hulls that can least afford it. Ending
+  // a coast is UNPOWERED_DAMPING's job, and that only applies to a ship with no
+  // working drive, which is the only ship actually coasting.
+  TRAVEL_DAMPING: 1,
   // Closing on the destination. Enough bite that the braking profile is not the
   // only thing shedding speed on the way in.
   APPROACH_DAMPING: 0.99,

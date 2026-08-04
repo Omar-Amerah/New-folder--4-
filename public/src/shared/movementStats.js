@@ -1,11 +1,13 @@
 // Shared movement calculations for frontend component stats and backend ship stats.
 //
-// Movement is flight-assisted: velocity decays toward the commanded velocity and
-// ships point where they are going, so thrust is effectively omnidirectional and
-// `accel` is the single authority figure. There are deliberately no separate
-// lateral/braking/reverse accelerations -- the only component that ever supplied
-// them (a "vector thruster") does not exist, so they resolved to a flat per-hull
-// constant that made every ship accelerate ~16x harder than it could stop.
+// Ships fly on retained momentum: thrust is added to the velocity a hull already
+// carries, along its nose, so it arcs through a turn rather than snapping onto a
+// new heading. `accel` is the single authority figure. There are deliberately no
+// separate lateral/braking/reverse accelerations -- the only component that ever
+// supplied them (a "vector thruster") does not exist, so they resolved to a flat
+// per-hull constant that made every ship accelerate ~16x harder than it could
+// stop. Braking and the sideways decay that settles a turn are derived from
+// `accel` by the controller; see movementTuning.js.
 
 function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
 const ENGINE_FALLOFF = 0.96;
@@ -17,7 +19,13 @@ const MASS_DRAG_EXP = 0.45;
 const MASS_TURN_DIV = 100;
 const MASS_TURN_EXP = 0.70;
 const ENGINE_TURN_PER_THRUST = 0.001;
-const ACCEL_SCALE = 6.0;
+// Thrust-to-mass into px/s^2. Set so a light hull reaches cruise in about a
+// second and a half and a heavy one in three and a half, measured against the
+// hull's own maximum speed: slow enough that mass still reads as mass, quick
+// enough that a move order is answered rather than waited out. Braking is a
+// fixed multiple of this figure (see BRAKE_ACCEL_RATIO), so stopping distance
+// scales with it.
+const ACCEL_SCALE = 18.0;
 const SOFT_CAP_MASS_SLOPE = 0.7;
 const SOFT_CAP_MIN = 840;
 const SOFT_CAP_BASE = 1440;
