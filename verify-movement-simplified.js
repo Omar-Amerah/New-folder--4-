@@ -146,7 +146,7 @@ function assertNoLegacyMovementState() {
 }
 
 function run() {
-  // Ordinary group movement: one exact destination and one shared envelope.
+  // Ordinary group movement: one fixed formation slot per ship, resolved once.
   {
     const ships = Array.from({ length: 10 }, (_, index) => makeShip({
       id: `crowd-${index}`,
@@ -160,19 +160,17 @@ function run() {
       shipIds: ships.map((ship) => ship.id)
     });
     assert.equal(result.commanded, ships.length);
-    assert(ships.every((ship) => ship.movement.destination.x === destination.x
-      && ship.movement.destination.y === destination.y));
-    assert.equal(new Set(ships.map((ship) => `${ship.movement.destination.x}:${ship.movement.destination.y}`)).size, 1);
+    assert.equal(result.formation, "line");
+    assert.equal(new Set(ships.map((ship) => `${ship.movement.destination.x}:${ship.movement.destination.y}`)).size,
+      ships.length, "every ship should get its own fixed slot");
     assert.equal(new Set(ships.map((ship) => ship.movement.arrivalRadius)).size, 1);
-    const radii = ships.map(physicalCollisionRadius);
-    const expectedEnvelope = Math.max(
-      Math.max(...radii) * 1.5,
-      Math.sqrt(radii.reduce((sum, radius) => sum + radius * radius, 0)) * 1.2
-    );
-    assert.equal(ships[0].movement.arrivalRadius, expectedEnvelope);
+    assert.equal(ships[0].movement.arrivalRadius, 16,
+      "a ship with its own slot keeps the normal arrival radius");
+    assert(ships.every((ship) => ship.movement.command.formation?.type === "line"));
     assert(ships.every((ship) => !Object.keys(ship.movement).some((key) => (
       ["combatSlot", "holdApproach", "formationSlot", "laneIndex"].includes(key)
     ))));
+    const assignedSlots = new Map(ships.map((ship) => [ship.id, { ...ship.movement.destination }]));
 
     let maximumDisplacementOverIntegration = 0;
     for (let tickIndex = 0; tickIndex < 1500; tickIndex += 1) {
@@ -197,8 +195,12 @@ function run() {
     }
     assert(maximumDisplacementOverIntegration <= 0.01,
       `friendly correction exceeded its tick budget (${maximumDisplacementOverIntegration})`);
-    assert(Math.max(...ships.map((ship) => distance(ship, destination))) <= 400,
-      `the fleet should settle into one compact crowd (${ships.map((ship) => `${ship.id}:${distance(ship, destination).toFixed(0)}`).join(",")})`);
+    assert(ships.every((ship) => {
+      const slot = assignedSlots.get(ship.id);
+      return ship.movement.destination.x === slot.x && ship.movement.destination.y === slot.y;
+    }), "formation slots must not be regenerated while the order runs");
+    assert(Math.max(...ships.map((ship) => distance(ship, assignedSlots.get(ship.id)))) <= 60,
+      `every ship should settle on its own slot (${ships.map((ship) => `${ship.id}:${distance(ship, assignedSlots.get(ship.id)).toFixed(0)}`).join(",")})`);
     const settled = ships.map((ship) => [ship.x, ship.y]);
     tick(room, ships, 120, 25000);
     assert(ships.every((ship, index) => Math.hypot(ship.x - settled[index][0], ship.y - settled[index][1]) < 3),

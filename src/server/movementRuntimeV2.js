@@ -10,14 +10,35 @@
 // phase. A route is one committed A*/geometry/smoothing result, followed until
 // the order or the static world genuinely invalidates it.
 
-const { SUPPORTED_MOVEMENT_TYPES } = require("./movementFlags");
+const { FORMATION_TYPES, SUPPORTED_MOVEMENT_TYPES } = require("./movementFlags");
 
 const MOVEMENT_TYPES = new Set(SUPPORTED_MOVEMENT_TYPES);
+const FORMATION_TYPE_SET = new Set(FORMATION_TYPES);
 
 function finitePoint(point) {
   return point && Number.isFinite(point.x) && Number.isFinite(point.y)
     ? { x: Number(point.x), y: Number(point.y) }
     : null;
+}
+
+// What shape this ship's destination came out of, recorded on the order for
+// debugging and for the client's order marker. It is a record of a decision
+// already taken: the destination above is the whole of the instruction, and
+// nothing reads these fields back to steer.
+function finiteFormation(formation) {
+  if (!formation || typeof formation !== "object") return null;
+  const type = String(formation.type || "");
+  if (!FORMATION_TYPE_SET.has(type)) return null;
+  const number = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+  return {
+    type,
+    centreX: number(formation.centreX),
+    centreY: number(formation.centreY),
+    direction: number(formation.direction),
+    offsetX: number(formation.offsetX),
+    offsetY: number(formation.offsetY),
+    adjusted: Boolean(formation.adjusted)
+  };
 }
 
 function createMovementRuntime() {
@@ -86,6 +107,7 @@ function setMovementCommand(ship, command) {
       id: command.id == null ? null : String(command.id),
       type: String(command.type),
       destination: finitePoint(command.destination),
+      formation: command.type === "move" ? finiteFormation(command.formation) : null,
       targetId: command.targetId == null ? null : String(command.targetId),
       finalFacing: Number.isFinite(command.finalFacing) ? Number(command.finalFacing) : null,
       arrivalRadius: Number.isFinite(command.arrivalRadius)

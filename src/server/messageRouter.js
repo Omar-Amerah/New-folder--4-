@@ -352,7 +352,9 @@ function handleMessage(client, message) {
     commandShips(client.room, client.player, x, y, {
       shipIds: Object.prototype.hasOwnProperty.call(message, "shipIds") ? message.shipIds : undefined,
       targetId: typeof message.targetId === "string" ? message.targetId : null,
-      finalFacing: Number.isFinite(message.finalFacing) ? message.finalFacing : null
+      finalFacing: Number.isFinite(message.finalFacing) ? message.finalFacing : null,
+      formation: typeof message.formation === "string" ? message.formation : null,
+      direction: Number.isFinite(message.direction) ? message.direction : null
     });
     return;
   }

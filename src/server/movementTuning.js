@@ -41,6 +41,13 @@ module.exports = Object.freeze({
   // Turn penalty while running on the backup core.
   BACKUP_CORE_TURN_SCALE: 0.9,
 
+  // --- Command-time formations -------------------------------------------
+  // The one visual gap between formation slots. Slot spacing itself is derived
+  // from the physical collision radii of the ships being commanded, so this is
+  // only the daylight left between two hulls parked side by side -- enough that
+  // a formation does not arrive already touching, and no more.
+  FORMATION_VISUAL_GAP: 24,
+
   // --- Hard collision / separation ---------------------------------------
   SEPARATION_BROAD_PHASE_PAD: 16,
   // A static or ship-contact correction may be collected by several

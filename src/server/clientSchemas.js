@@ -11,6 +11,7 @@ const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-r
 // Taken from validation rather than restated, so the wire schema and the
 // sanitizer can never disagree about which toggles exist.
 const MOVEMENT_TOGGLES = new Set(require('./validation').MOVEMENT_TOGGLE_KEYS);
+const FORMATIONS = new Set(require('./movementFlags').FORMATION_TYPES);
 const SCHEMAS = Object.freeze(Object.fromEntries(TYPES.map((t)=>[t, Object.freeze({ type:t })])));
 function isPlainObject(v){return !!v && typeof v==='object' && !Array.isArray(v) && (Object.getPrototypeOf(v)===Object.prototype || Object.getPrototypeOf(v)===null);}
 function finiteNumbers(value, depth=0){ if(depth>MAX_DEPTH)return false; if(typeof value==='number')return Number.isFinite(value); if(Array.isArray(value))return value.length<=MAX_ARRAY&&value.every((v)=>finiteNumbers(v,depth+1)); if(isPlainObject(value))return Object.values(value).every((v)=>finiteNumbers(v,depth+1)); return true; }
@@ -50,7 +51,7 @@ function validateSpecific(m){
     case 'setDroneBayMode': { const miss=checkRequired(m,['shipId','componentId','mode']); if(miss)return miss; return id(m.shipId)&&id(m.componentId)&&['deployed','recalled'].includes(m.mode)?null:fail('invalid-drone-command','Invalid Drone Bay command'); }
     case 'setTelemetryFocus': { const miss=checkRequired(m,['shipId']); if(miss)return miss; return m.shipId===null||id(m.shipId)?null:fail('invalid-selection','Invalid telemetry focus'); }
     case 'setRallyPoint': { const miss=checkRequired(m,['x','y']); if(miss)return miss; return num(m.x)&&num(m.y)?null:fail('invalid-rally','Invalid rally point'); }
-    case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.finalFacing!==undefined&&!num(m.finalFacing,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid final facing'); // legacy formation field is accepted but ignored for compatibility; no formation plan is built
+    case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.finalFacing!==undefined&&!num(m.finalFacing,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid final facing'); if(m.formation!==undefined&&m.formation!==null&&!FORMATIONS.has(m.formation))return fail('invalid-command','Invalid formation'); if(m.direction!==undefined&&m.direction!==null&&!num(m.direction,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid formation direction');
 return null; }
     case 'resetRallyPoint': return null;
     case 'destruct': { const miss=checkRequired(m,['shipIds']); if(miss)return miss; if(!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null; }

@@ -26,8 +26,7 @@ const {
   HOLD_RESUME_RATIO,
   MAX_MOVEMENT_DT,
   REPAIR_STANDOFF_PAD,
-  REST_SPEED,
-  WORLD_MARGIN
+  REST_SPEED
 } = require("./movementTuning");
 const { getMaxEffectiveWeaponRange, shipHasArmedProximityCharge } = require("./componentData");
 const {
@@ -72,7 +71,8 @@ const {
   syncMovementTarget
 } = require("./movementRuntimeV2");
 const { bumpMovementMetric } = require("./movementMetrics");
-const { SUPPORTED_MOVEMENT_TYPES } = require("./movementFlags");
+const { FORMATION_TYPES, SUPPORTED_MOVEMENT_TYPES, sanitizeFormationType } = require("./movementFlags");
+const { planFormation } = require("./movementFormations");
 
 const MOVEMENT_SUBSTEP = 1 / 60;
 const BEARING_MIN_DISTANCE = 1;
@@ -1122,6 +1122,7 @@ function issueMove(ship, commandId, destination, options = {}) {
     id: `${commandId}:${ship.id}`,
     type: "move",
     destination: { x: destination.x, y: destination.y },
+    formation: options.formation,
     arrivalRadius: options.arrivalRadius,
     finalFacing: options.finalFacing,
     manual: options.manual
@@ -1192,21 +1193,41 @@ function commandShips(room, player, x, y, options = {}) {
     return { ok: true, code: "repair", commanded: ships.length };
   }
 
-  const width = room?.world?.width || WORLD.width;
-  const height = room?.world?.height || WORLD.height;
-  const destination = {
-    x: clampNumber(x, WORLD_MARGIN, width - WORLD_MARGIN),
-    y: clampNumber(y, WORLD_MARGIN, height - WORLD_MARGIN)
-  };
-  const arrivalRadius = sharedArrivalRadius(ships);
-  for (const ship of ships) {
-    issueMove(ship, commandId, destination, {
-      arrivalRadius,
+  // An ordinary move order is the one place a formation is resolved. Each ship
+  // leaves here with its own fixed destination and is on its own from then on:
+  // combat orders below never see a slot, and nothing recomputes the shape while
+  // the order runs.
+  const plan = planFormation(room, ships, {
+    x,
+    y,
+    formation: options.formation,
+    direction: options.direction
+  });
+  for (const slot of plan.slots) {
+    issueMove(slot.ship, commandId, { x: slot.x, y: slot.y }, {
+      // Every ship has its own slot, so the shared crowding envelope that a
+      // single stacked destination needed would only stop ships short of it.
+      arrivalRadius: ARRIVE_DISTANCE,
       finalFacing: options.finalFacing,
-      manual: true
+      manual: true,
+      formation: {
+        type: plan.formation,
+        centreX: plan.x,
+        centreY: plan.y,
+        direction: plan.direction,
+        offsetX: slot.offsetX,
+        offsetY: slot.offsetY,
+        adjusted: slot.adjusted
+      }
     });
   }
-  return { ok: true, code: "move", commanded: ships.length };
+  return {
+    ok: true,
+    code: "move",
+    commanded: plan.slots.length,
+    formation: plan.formation,
+    plan
+  };
 }
 
 function commandShipsToDestination(room, ships, destination, options = {}) {
@@ -1257,6 +1278,7 @@ function applyMovementToggles(ship, toggles) {
 }
 
 module.exports = {
+  FORMATION_TYPES,
   SUPPORTED_MOVEMENT_TYPES,
   applyCombatStyle,
   applyMovementToggles,
@@ -1269,11 +1291,13 @@ module.exports = {
   navigationClearanceRadius,
   nearestClearPoint: require("./movementNavigation").nearestClearPoint,
   physicalCollisionRadius,
+  planFormation,
   planMovement,
   resolveFleetMapCollisions,
   resolveMapCollision,
   resolveSeparationPair,
   rotateShips,
+  sanitizeFormationType,
   segmentCircleClearance,
   separationRadius,
   sharedArrivalRadius,

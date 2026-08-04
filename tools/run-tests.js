@@ -46,6 +46,7 @@ const GROUPS = {
     "verify-ship-spawn-collision.js",
     "verify-component-indexes.js",
     "verify-movement-simplified.js",
+    "verify-movement-formations.js",
     "verify-movement-hold-facing.js",
     "verify-propulsion-rebalance.js",
     "verify-targeting.js",
