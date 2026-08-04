@@ -111,10 +111,15 @@ const FRIENDLY_REST_SPEED = 4;
 const HOLD_FACING_TARGET_REPLAN_DISTANCE = 96;
 const HOLD_FACING_REEVALUATE_MS = 250;
 const HOLD_FACING_IMPROVEMENT_RATIO = 0.12;
-// How far the whole clump steps toward the target when a ship has reached its
-// slot and still cannot reach. Bounded below by the clump's own contact
-// distance, so this converges rather than walking the group onto the enemy.
-const ATTACK_CLUMP_CLOSE_STEP = 48;
+// How far a ship standing on its slot steps straight in when it still cannot
+// reach the target. Bounded below by the contact distance the plan was built
+// with, so this converges rather than walking the hull onto the enemy.
+const ATTACK_SLOT_CLOSE_STEP = 48;
+// How far behind a ship its own slot may sit before the slot is treated as a
+// reversal rather than an approach. A clump is planned at an absolute distance
+// from the target, so a ship that is already further forward than the shape
+// would otherwise be told to turn round and back into it.
+const ATTACK_NO_RETREAT_TOLERANCE = 24;
 // A slot whose firing line is blocked by static geometry is walked around its
 // own position, on its own side of the clump, in bounded steps. Nothing else
 // in the shape moves.
@@ -582,18 +587,55 @@ function activeAttackSlot(ship, runtime, target, type) {
   return slot;
 }
 
-// Bring the clump in by one deterministic step. Every ship still holding a slot
-// applies the same step to the same centre distance, so the shape keeps all of
-// its offsets and closes as one unit. Ships that have already engaged released
-// their slot and are not moved. Bounded below by the clump's own contact
-// distance, so this converges instead of walking the group onto the enemy.
-function closeAttackClump(slot) {
-  const next = Math.max(
-    Number(slot.minimumCentreDistance) || 0,
-    slot.centreDistance - ATTACK_CLUMP_CLOSE_STEP
-  );
-  if (!(next < slot.centreDistance - 1e-6)) return false;
-  slot.centreDistance = next;
+// A ship standing on its slot that still cannot reach closes the gap itself,
+// straight in, keeping the lateral offset that put it on its own side of the
+// group. Bounded below by the contact distance the plan was built with, so it
+// converges instead of walking the hull onto the enemy.
+//
+// This is deliberately the ship's own slot and nothing else. Every hull carries
+// its own copy of the plan, so "move the whole clump in" was never a thing this
+// could do: ships arrive at different times, and each one stepping its private
+// copy just deformed the shape by however much each had noticed so far.
+function closeAttackSlot(slot) {
+  const along = slot.centreDistance + slot.forwardOffset;
+  const next = Math.max(Number(slot.minimumCentreDistance) || 0, along - ATTACK_SLOT_CLOSE_STEP);
+  if (!(next < along - 1e-6)) return false;
+  slot.forwardOffset -= along - next;
+  return true;
+}
+
+// A Hold attack may take a ship sideways, or closer to its target. It may never
+// send it radially backwards.
+//
+// The planner places one clump at an absolute distance from the enemy, worked
+// out from the fleet's centre. Retargeting is where that bites: a ship out in
+// front of the group is already past where the new shape is going to be, and
+// its nearest free slot is still behind it -- so it would turn round and reverse
+// into the formation while the enemy sat in front of it. The same thing happens
+// on its own whenever the target closes on the fleet, because the whole clump
+// walks backwards with it.
+//
+// So: if the slot is behind the ship and the ship can already fire from where
+// it is, it has a Hold position -- it keeps it, and the slot is released. If it
+// cannot fire, the slot keeps its lateral offset and its depth is pulled forward
+// to where the hull already is, which turns the order into a sideways move.
+//
+// Returns false when the slot has been given up in favour of holding here.
+function refuseAttackSlotRetreat(room, ship, runtime, slot, target, distance, enter) {
+  const point = attackSlotPoint(slot, target);
+  // awayX/awayY point from the target back toward the fleet, so a positive
+  // projection means the slot lies behind the ship.
+  const retreat = (point.x - (ship.x || 0)) * (Number(slot.awayX) || 0)
+    + (point.y - (ship.y || 0)) * (Number(slot.awayY) || 0);
+  if (retreat <= ATTACK_NO_RETREAT_TOLERANCE) return true;
+  if (canEngageFromHere(room, ship, target, "attack", distance, enter)) {
+    runtime.attackSlot = null;
+    runtime.holdEngaged = true;
+    runtime.blocked = false;
+    clearRoute(runtime);
+    return false;
+  }
+  slot.forwardOffset -= retreat;
   return true;
 }
 
@@ -643,14 +685,10 @@ function nudgeAttackSlotIntoFiringLine(room, ship, slot, target, enter) {
 // turned red stopped wherever it happened to be, and everything behind it then
 // had to get past a parked ship. It keeps flying to its slot.
 function followAttackSlot(room, ship, runtime, slot, target, distance, enter, type) {
-  // The enemy has driven right into the group -- closer than the front of the
-  // clump was ever meant to sit. Flying back out to a station behind the target
-  // is not an approach, it is a retreat, and Hold does not give ground. The slot
-  // is released and the ordinary Hold rules take the hull from here.
-  if (distance <= (Number(slot.minimumCentreDistance) || 0) + ARRIVE_DISTANCE) {
-    runtime.attackSlot = null;
-    return false;
-  }
+  // Re-checked every tick, not just when the order was given: the target moves,
+  // and the clump hangs off it, so a slot that was ahead of the ship at command
+  // time can drift behind it afterwards.
+  if (!refuseAttackSlotRetreat(room, ship, runtime, slot, target, distance, enter)) return true;
   runtime.destination = attackSlotPoint(slot, target);
   runtime.blocked = false;
   const reached = fastHypot(
@@ -669,11 +707,11 @@ function followAttackSlot(room, ship, runtime, slot, target, distance, enter, ty
     return true;
   }
 
-  // Standing on the slot and still unable to shoot. Either the group is a
-  // little too far out, or this hull's own line is blocked. Both get one
-  // bounded adjustment, and neither reshuffles anybody.
+  // Standing on the slot and still unable to shoot. Either it is a little too
+  // far out, or this hull's own line is blocked. Both get one bounded
+  // adjustment to this ship's own slot, and neither reshuffles anybody.
   const adjusted = distance > enter
-    ? closeAttackClump(slot)
+    ? closeAttackSlot(slot)
     : nudgeAttackSlotIntoFiringLine(room, ship, slot, target, enter);
   if (adjusted) {
     runtime.destination = attackSlotPoint(slot, target);
@@ -1381,6 +1419,7 @@ function updateShipMovement(room, ship, dt, now) {
     ship._collisionCorrectionY = 0;
     ship._staticCollisionCorrectionDistance = 0;
     ship._friendlyCorrectionDistance = 0;
+    ship._friendlyPushVelocityAdded = 0;
     ship._integratedMovementX = 0;
     ship._integratedMovementY = 0;
     ship.turnActivity = 0;
@@ -1392,6 +1431,7 @@ function updateShipMovement(room, ship, dt, now) {
   ship._collisionCorrectionY = 0;
   ship._staticCollisionCorrectionDistance = 0;
   ship._friendlyCorrectionDistance = 0;
+  ship._friendlyPushVelocityAdded = 0;
   ship._integratedMovementX = 0;
   ship._integratedMovementY = 0;
   ship._staticCollisionLastAt = Number.isFinite(Number(ship._staticCollisionLastAt))
@@ -1513,10 +1553,11 @@ function issueAttack(room, ship, commandId, targetId, now, slot = null) {
   });
   const runtime = ensureMovementRuntime(ship);
   runtime.arrivalRadius = ARRIVE_DISTANCE;
-  if (slot) {
+  if (slot && target) {
     // The ship owes the order a place in the clump. Deliberately no early Hold
-    // latch: a hull that happens to already be in range must still take up its
-    // position rather than parking in front of the ships behind it.
+    // latch on range alone: a hull that happens to already be in range must
+    // still take up its position rather than parking in front of the ships
+    // behind it.
     runtime.attackSlot = {
       targetId: String(targetId),
       assignedShipId: String(ship.id),
@@ -1529,6 +1570,19 @@ function issueAttack(room, ship, commandId, targetId, now, slot = null) {
       minimumCentreDistance: slot.minimumCentreDistance,
       nudges: 0
     };
+    // The exception, and it is not about range: a ship already further forward
+    // than its own slot is being asked to reverse, not to approach. Retargeting
+    // is where that happens -- the new clump is planned around the fleet centre,
+    // and whoever was out in front is past it before the order is even given.
+    refuseAttackSlotRetreat(
+      room,
+      ship,
+      runtime,
+      runtime.attackSlot,
+      target,
+      engagementGeometry(ship, target).distance,
+      engagementRanges(ship, target, "attack").enter
+    );
   } else if (target && combatStance(ship) !== "charge") {
     const distance = engagementGeometry(ship, target).distance;
     if (distance <= engagementRanges(ship, target, "attack").enter
@@ -1698,6 +1752,7 @@ function applyMovementToggles(ship, toggles) {
 }
 
 module.exports = {
+  ATTACK_NO_RETREAT_TOLERANCE,
   FORMATION_TYPES,
   SUPPORTED_MOVEMENT_TYPES,
   alignmentThrottle,

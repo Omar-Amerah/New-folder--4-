@@ -6,11 +6,23 @@ const { bump } = require("./roomTelemetry");
 const { findShipHullOverlap } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
+  FRIENDLY_COMPRESSION_SPEED,
+  FRIENDLY_PUSH_ABSOLUTE_CAP,
+  FRIENDLY_PUSH_ACCELERATION,
+  FRIENDLY_PUSH_MASS_FACTOR_MAX,
+  FRIENDLY_PUSH_MASS_FACTOR_MIN,
+  FRIENDLY_PUSH_SPEED_RATIO,
+  FRIENDLY_TRANSFER_RATIO,
   POSITION_CORRECTION_RATIO,
   POSITION_SLOP,
   STATIC_COLLISION_MAX_TICK_CORRECTION,
   WORLD_MARGIN
 } = require("./movementTuning");
+
+// The separation pass runs once per authoritative tick with that tick's dt.
+// Callers that resolve a single pair directly -- diagnostics and tests -- get a
+// nominal tick so the push budget still means something.
+const DEFAULT_SEPARATION_DT = 1 / 30;
 
 let cachedResolveStationCollision = null;
 
@@ -212,41 +224,108 @@ function normalForPair(a, b, dx, dy, distance) {
   return compareEntityIds(a, b) <= 0 ? { x: 1, y: 0 } : { x: -1, y: 0 };
 }
 
-// One impulse for the pair, on their RELATIVE closing speed.
-//
-// Deleting each ship's own inward velocity is the right answer against an
-// asteroid, which really is immovable and really does absorb everything. It is
-// the wrong answer for two moving ships: a hull doing 120 that catches one doing
-// 80 loses its whole 120 and the fleet's momentum simply disappears. Only the 40
-// they are closing at belongs to the collision; the 80 they share is travel.
-//
-// Restitution is zero, so nothing bounces -- the pair ends up moving together
-// along the normal, sharing the momentum they had by mass. Tangential motion is
-// untouched, so a glancing contact slides.
-function resolvePairVelocity(a, b, normal, immovableA, immovableB) {
-  const inverseMassA = immovableA ? 0 : 1 / massOf(a);
-  const inverseMassB = immovableB ? 0 : 1 / massOf(b);
-  const inverseMassSum = inverseMassA + inverseMassB;
-  if (!(inverseMassSum > 0)) return false;
+function normalSpeed(ship, normal) {
+  return (ship.vx || 0) * normal.x + (ship.vy || 0) * normal.y;
+}
 
-  const relativeX = (b.vx || 0) - (a.vx || 0);
-  const relativeY = (b.vy || 0) - (a.vy || 0);
-  const closingSpeed = relativeX * normal.x + relativeY * normal.y;
-  // Already separating, or travelling together at the same speed. Two ships in
+// Change only the component along the normal. Whatever the hull was doing
+// across the contact is travel, not collision, so a glancing touch slides.
+function setNormalSpeed(ship, normal, speed) {
+  const delta = speed - normalSpeed(ship, normal);
+  ship.vx = (ship.vx || 0) + normal.x * delta;
+  ship.vy = (ship.vy || 0) + normal.y * delta;
+}
+
+// The most speed a contact may ever give this hull. A ship already travelling
+// faster than this under its own power is not slowed to it -- the cap governs
+// the speed the contact created, not the ship's own propulsion.
+function friendlyPushSpeedCap(ship) {
+  const maxSpeed = Number(ship?.stats?.maxSpeed);
+  const share = Number.isFinite(maxSpeed) && maxSpeed > 0
+    ? maxSpeed * FRIENDLY_PUSH_SPEED_RATIO
+    : FRIENDLY_PUSH_ABSOLUTE_CAP;
+  return Math.min(FRIENDLY_PUSH_ABSOLUTE_CAP, share);
+}
+
+// Velocity a hull may still be given by contact this tick.
+//
+// The separation pass runs up to twice per tick and a hull in a crowd has
+// several contacts in each. Metering the acceleration per contact alone would
+// let those multiply, so the budget is per ship per tick -- the same shape as
+// the positional correction budget above. It is reset by updateShipMovement.
+function remainingPushBudget(ship, dt) {
+  const used = Math.max(0, Number(ship._friendlyPushVelocityAdded) || 0);
+  return Math.max(0, FRIENDLY_PUSH_ACCELERATION * FRIENDLY_PUSH_MASS_FACTOR_MAX * dt - used);
+}
+
+// Contact between two hulls is a shove, not a transfer of momentum.
+//
+// The ship behind leans on the one in front. The front hull is accelerated, but
+// gradually (a per-tick acceleration budget, scaled by the mass ratio) and only
+// up to a small fraction of what its own engines could do -- so being touched at
+// cruising speed nudges it forward at walking pace instead of launching it. The
+// ship behind is slowed to just under the one in front, leaving a sliver of
+// closing speed so sustained thrust keeps the shove alive rather than the pair
+// latching apart and re-colliding every other tick.
+//
+// The caps meter speed the contact ADDS. A hull that is itself driving into the
+// contact loses that head-on closing speed outright: stopping a ship that ran
+// into something is not the launch the caps exist to prevent. So a head-on pair
+// both slow heavily and neither bounces.
+function resolveFriendlyPush(a, b, normal, immovableA, immovableB, dt) {
+  if (immovableA && immovableB) return false;
+  // The normal points from a toward b, so the hull with the greater speed along
+  // it is the one doing the pushing.
+  const speedA = normalSpeed(a, normal);
+  const speedB = normalSpeed(b, normal);
+  // Separating, or travelling together at the same speed. Two ships in
   // formation resting against each other are not a collision and must not be
   // charged for one.
-  if (closingSpeed >= 0) return false;
+  if (speedA <= speedB) return false;
 
-  const impulse = -closingSpeed / inverseMassSum;
-  const impulseX = impulse * normal.x;
-  const impulseY = impulse * normal.y;
-  if (!immovableA) {
-    a.vx -= impulseX * inverseMassA;
-    a.vy -= impulseY * inverseMassA;
+  const pusher = a;
+  const receiver = b;
+  const pusherImmovable = immovableA;
+  const receiverImmovable = immovableB;
+  const pusherSpeed = speedA;
+  const receiverSpeed = speedB;
+
+  // A hull the station is still launching has fixed authority: it is not moved
+  // by contact, but whatever runs into it still stops driving through it.
+  let nextReceiverSpeed = receiverSpeed;
+  if (!receiverImmovable) {
+    const base = Math.max(receiverSpeed, 0);
+    const closingSpeed = pusherSpeed - receiverSpeed;
+    const cap = friendlyPushSpeedCap(receiver);
+    const desired = Math.min(
+      base + closingSpeed * FRIENDLY_TRANSFER_RATIO,
+      Math.max(base, cap)
+    );
+    const massFactor = clampNumber(
+      massOf(pusher) / massOf(receiver),
+      FRIENDLY_PUSH_MASS_FACTOR_MIN,
+      FRIENDLY_PUSH_MASS_FACTOR_MAX
+    );
+    const increase = Math.min(
+      Math.max(0, desired - base),
+      FRIENDLY_PUSH_ACCELERATION * massFactor * Math.max(0, dt),
+      remainingPushBudget(receiver, Math.max(0, dt))
+    );
+    nextReceiverSpeed = base + increase;
+    receiver._friendlyPushVelocityAdded = Math.max(0, Number(receiver._friendlyPushVelocityAdded) || 0)
+      + increase;
+    setNormalSpeed(receiver, normal, nextReceiverSpeed);
   }
-  if (!immovableB) {
-    b.vx += impulseX * inverseMassB;
-    b.vy += impulseY * inverseMassB;
+
+  if (!pusherImmovable) {
+    // Slowed to just behind the hull in front so it is no longer driving through
+    // it -- but never reversed and never dragged below a standstill by the
+    // contact. A shove takes closing speed away; it does not hand any back.
+    const floor = Math.min(pusherSpeed, Math.max(nextReceiverSpeed, 0));
+    setNormalSpeed(pusher, normal, Math.max(
+      floor,
+      Math.min(pusherSpeed, nextReceiverSpeed + FRIENDLY_COMPRESSION_SPEED)
+    ));
   }
   return true;
 }
@@ -282,7 +361,7 @@ function addFriendlyCorrection(room, ship, dx, dy) {
 // drawn around a long hull covers a great deal of empty space, and stopping
 // ships on it is what makes them halt with visible daylight between them. Pairs
 // that pass it are resolved against the hull cells themselves.
-function resolveSeparationPair(room, a, b) {
+function resolveSeparationPair(room, a, b, dt = DEFAULT_SEPARATION_DT) {
   if (!a || !b || a === b || a.alive === false || b.alive === false) return null;
   if (immovableInContact(a) && immovableInContact(b)) return null;
   bump(room, "separationPairsExamined");
@@ -305,7 +384,7 @@ function resolveSeparationPair(room, a, b) {
   const normal = normalForPair(a, b, overlap.dx, overlap.dy, overlap.distance);
   const immovableA = immovableInContact(a);
   const immovableB = immovableInContact(b);
-  resolvePairVelocity(a, b, normal, immovableA, immovableB);
+  resolveFriendlyPush(a, b, normal, immovableA, immovableB, dt);
 
   // Positional correction is a separate job from the impulse: it undoes overlap
   // the integrator has already produced. Ignore a sliver of it -- two hulls
@@ -360,8 +439,10 @@ function updateShipSeparation(room, shipList, dt, now = 0) {
   const ships = liveShips(room, shipList);
   const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
   modified.clear();
+  const stepDt = Number.isFinite(Number(dt)) && Number(dt) > 0 ? Number(dt) : DEFAULT_SEPARATION_DT;
   for (const ship of ships) {
     if (!Number.isFinite(Number(ship._friendlyCorrectionDistance))) ship._friendlyCorrectionDistance = 0;
+    if (!Number.isFinite(Number(ship._friendlyPushVelocityAdded))) ship._friendlyPushVelocityAdded = 0;
   }
 
   const contactPairs = require("./movementContactPairs");
@@ -376,7 +457,7 @@ function updateShipSeparation(room, shipList, dt, now = 0) {
     bump(room, "separationIterations");
     let resolved = 0;
     for (const pair of pairs) {
-      const result = resolveSeparationPair(room, pair.a, pair.b);
+      const result = resolveSeparationPair(room, pair.a, pair.b, stepDt);
       if (result) resolved += 1;
     }
     if (!resolved) break;

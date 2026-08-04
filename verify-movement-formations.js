@@ -15,6 +15,7 @@
 const assert = require("node:assert/strict");
 const { movementTestTick } = require("./tools/movementTestTick");
 const {
+  ATTACK_NO_RETREAT_TOLERANCE,
   FORMATION_TYPES,
   commandShips,
   physicalCollisionRadius,
@@ -84,9 +85,10 @@ function makeShip({ id, x, y, design = BASE, angle = 0, ownerId = "p1", combatSt
 }
 
 function makeRoom(ships, asteroids = [], enemy = null) {
-  const all = enemy ? [...ships, enemy] : ships;
+  const enemies = enemy == null ? [] : [].concat(enemy);
+  const all = [...ships, ...enemies];
   const players = new Map([["p1", { id: "p1", team: "A", ships: [...ships] }]]);
-  if (enemy) players.set("p2", { id: "p2", team: "B", ships: [enemy] });
+  if (enemies.length) players.set("p2", { id: "p2", team: "B", ships: [...enemies] });
   return {
     phase: "active",
     world: { width: 6000, height: 4000 },
@@ -707,6 +709,83 @@ function run() {
     }
     assert(ships.every((ship, index) => Math.hypot(ship.x - parked[index].x, ship.y - parked[index].y) < 12),
       "a closer target must not pull an engaged Hold ship backward");
+  }
+
+  // --- retargeting never orders a ship to reverse --------------------------
+  {
+    // The clump is planned at an absolute distance from the enemy, around the
+    // fleet's centre. A ship out in front of the group is already past where
+    // that shape is going to be, so its nearest free slot is behind it -- and
+    // without the no-retreat rule it would turn round and back into formation
+    // while the enemy sat in front of it.
+    const point = makeShip({ id: "point", x: 4400, y: 1180, design: GUNSHIP });
+    const followers = [
+      makeShip({ id: "mid-a", x: 2600, y: 1350, design: GUNSHIP }),
+      makeShip({ id: "mid-b", x: 2600, y: 1650, design: GUNSHIP }),
+      makeShip({ id: "rear-a", x: 1500, y: 1400, design: GUNSHIP }),
+      makeShip({ id: "rear-b", x: 1500, y: 1600, design: GUNSHIP })
+    ];
+    const ships = [point, ...followers];
+    const first = makeShip({ id: "enemy-a", x: 2500, y: 3200, design: GUNSHIP, ownerId: "p2" });
+    const second = makeShip({ id: "enemy-b", x: 4600, y: 1500, design: GUNSHIP, ownerId: "p2" });
+    const room = makeRoom(ships, [], [first, second]);
+    const shipIds = ships.map((ship) => ship.id);
+
+    // Already fighting the first enemy, in a clump planned around it.
+    commandShips(room, room.players.get("p1"), first.x, first.y, { shipIds, targetId: first.id });
+    for (let index = 0; index < 30; index += 1) {
+      movementTestTick(room, [...ships, first, second], DT, index * DT * 1000);
+    }
+    assert(ships.every((ship) => ship.movement.attackSlot), "the first order plans a clump");
+
+    // Retarget. The front ship is inside its own weapon range of the new enemy
+    // and past where the new clump will sit.
+    const startRange = Math.hypot(point.x - second.x, point.y - second.y);
+    assert(startRange <= holdRangeOf(point), "the front ship starts in range of the new target");
+    commandShips(room, room.players.get("p1"), second.x, second.y, { shipIds, targetId: second.id });
+
+    // It has a valid Hold position already: it keeps it rather than reforming.
+    assert(point.movement.holdEngaged, "an already-in-range front ship Holds where it is");
+    assert.equal(point.movement.attackSlot, null, "...and gives up the slot behind it");
+    const parked = { x: point.x, y: point.y };
+
+    // Everyone else still gets their own distinct place in the one clump.
+    const slots = followers.map(attackSlotState);
+    assert(slots.every(Boolean), "the rest of the fleet still receives clump slots");
+    assert.equal(new Set(slots.map((slot) => (
+      `${slot.forwardOffset.toFixed(3)}:${slot.lateralOffset.toFixed(3)}`
+    ))).size, followers.length, "rear ships receive distinct clump positions");
+
+    const away = { x: slots[0].awayX, y: slots[0].awayY };
+    const depthOf = (entity) => entity.x * away.x + entity.y * away.y;
+    const startDepth = new Map(ships.map((ship) => [ship.id, depthOf(ship)]));
+    // No ship is sent backwards: a destination further from the target than the
+    // hull already is would be a reversal, whoever it belongs to.
+    const assertNoReversingDestination = (label) => {
+      for (const ship of ships) {
+        const slot = attackSlotState(ship);
+        if (!slot || !ship.movement.destination) continue;
+        const retreat = (ship.movement.destination.x - ship.x) * slot.awayX
+          + (ship.movement.destination.y - ship.y) * slot.awayY;
+        assert(retreat <= ATTACK_NO_RETREAT_TOLERANCE + 1e-6,
+          `${label}: ${ship.id} is being sent ${retreat.toFixed(0)} px away from its target`);
+      }
+    };
+    assertNoReversingDestination("on retarget");
+
+    // ...and the target closing on the fleet cannot reintroduce it, even though
+    // the whole clump walks backwards with the enemy.
+    for (let index = 0; index < 400; index += 1) {
+      if (index < 200) second.x -= 3;
+      movementTestTick(room, [...ships, first, second], DT, index * DT * 1000);
+      assertNoReversingDestination(`tick ${index}`);
+    }
+    for (const ship of ships) {
+      assert(depthOf(ship) <= startDepth.get(ship.id) + 40,
+        `${ship.id} ended up further back than it started`);
+    }
+    assert(Math.hypot(point.x - parked.x, point.y - parked.y) < 60,
+      "the front ship held its position rather than reforming");
   }
 
   // --- an enemy that drives into the group ---------------------------------

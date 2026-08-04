@@ -48,6 +48,35 @@ module.exports = Object.freeze({
   // a formation does not arrive already touching, and no more.
   FORMATION_VISUAL_GAP: 24,
 
+  // --- Friendly contact: shoving -----------------------------------------
+  // A ship-to-ship contact is a shove, not a transfer of momentum. Sharing the
+  // pair's normal speed by mass turns 120 into 0 into 60 and 60: the stationary
+  // hull is launched at half cruising speed by being touched. What ships
+  // actually do is bulldoze -- the one behind leans on the one in front, the
+  // front hull creeps forward at walking pace, and both of them slow down.
+  //
+  // Fraction of the closing speed the pushed hull is asked to take on. Low,
+  // because the rest is absorbed by the contact rather than shared.
+  FRIENDLY_TRANSFER_RATIO: 0.25,
+  // Ceiling on how hard contact alone may accelerate a hull, px/s^2, before the
+  // mass ratio scales it. This is what makes a shove develop over half a second
+  // instead of arriving as an impact.
+  FRIENDLY_PUSH_ACCELERATION: 45,
+  // ...and on the speed contact alone may give it: the smaller of this fraction
+  // of its own maximum and the absolute cap. A ship already travelling faster
+  // than that under its own power is NOT slowed to it -- the cap governs speed
+  // the contact created, never the ship's own propulsion.
+  FRIENDLY_PUSH_SPEED_RATIO: 0.2,
+  FRIENDLY_PUSH_ABSOLUTE_CAP: 30,
+  // How far the mass ratio may swing that acceleration. A heavy hull shifts a
+  // light one easily; a light one barely moves a heavy one; neither is launched.
+  FRIENDLY_PUSH_MASS_FACTOR_MIN: 0.25,
+  FRIENDLY_PUSH_MASS_FACTOR_MAX: 2,
+  // Closing speed left in the pusher afterwards. Without it the pair latches to
+  // exactly equal speeds, the contact ends, and the engine behind re-establishes
+  // it next tick -- which reads as juddering rather than as pushing.
+  FRIENDLY_COMPRESSION_SPEED: 3,
+
   // --- Hard collision / separation ---------------------------------------
   SEPARATION_BROAD_PHASE_PAD: 16,
   // A static or ship-contact correction may be collected by several

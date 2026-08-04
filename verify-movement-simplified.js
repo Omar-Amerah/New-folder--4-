@@ -262,7 +262,11 @@ function run() {
     assert(Math.hypot(b.x - beforeB.x, b.y - beforeB.y) <= maxFriendlyCorrectionPerTick(b) + 1e-6);
     assert.equal(a.vy, 17, "friendly collision should preserve tangent velocity on A");
     assert.equal(b.vy, 17, "friendly collision should preserve tangent velocity on B");
-    assert(Math.abs(a.vx) < 1e-9 && Math.abs(b.vx) < 1e-9, "inward normal velocity should be removed");
+    // A head-on contact takes the closing speed off both hulls without
+    // bouncing either of them back the way it came.
+    assert(a.vx >= 0 && a.vx < 6, `A's inward speed should be taken off without a bounce (${a.vx})`);
+    assert(b.vx >= 0 && b.vx < 6, `B's inward speed should be taken off without a bounce (${b.vx})`);
+    assert(a.vx - b.vx < 20, "and the pair is no longer closing");
   }
 
   // A slow-turning hull takes a direct, convergent path rather than circling a

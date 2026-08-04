@@ -18,7 +18,14 @@ const {
   resolveSeparationPair,
   updateShipMovement
 } = require("./src/server/movement");
-const { STATIC_COLLISION_MAX_TICK_CORRECTION } = require("./src/server/movementTuning");
+const {
+  FRIENDLY_COMPRESSION_SPEED,
+  FRIENDLY_PUSH_ABSOLUTE_CAP,
+  FRIENDLY_PUSH_ACCELERATION,
+  FRIENDLY_PUSH_MASS_FACTOR_MAX,
+  FRIENDLY_PUSH_SPEED_RATIO,
+  STATIC_COLLISION_MAX_TICK_CORRECTION
+} = require("./src/server/movementTuning");
 const { getMovementContactPairs } = require("./src/server/movementContactPairs");
 const { computeStats } = require("./src/server/shipStats");
 const { initComponentState } = require("./src/server/componentHealth");
@@ -114,11 +121,13 @@ function run() {
     assert.equal(a.vx, 0, "and no impulse is applied");
   }
 
-  // --- the pair impulse ----------------------------------------------------
+  // --- the friendly shove --------------------------------------------------
   //
-  // A ship-to-ship contact is not a wall. Only the speed the two are CLOSING at
-  // belongs to the collision; whatever they have in common is travel and has to
-  // survive. These cases pin that down.
+  // A ship-to-ship contact is a shove, not a transfer of momentum. Sharing the
+  // pair's normal speed by mass launched the stationary hull at half of the
+  // other's cruising speed just for being touched. Instead the hull in front is
+  // accelerated gradually and only up to a small contact speed, while the hull
+  // behind is slowed to just under it and leans on it.
   {
     const contact = (options = {}) => {
       const a = makeShip({
@@ -154,28 +163,101 @@ function run() {
         positionA: { x: a.x, y: a.y },
         positionB: { x: b.x, y: b.y }
       };
-      const result = resolveSeparationPair(room, a, b);
+      const result = resolveSeparationPair(room, a, b, options.dt ?? DT);
       return { a, b, room, normal, tangent, project, before, result };
     };
 
-    // Rear-end, equal mass: the speed they share is travel, only the speed they
-    // are closing at is the collision. Both come out at the average of the two,
-    // and neither is stopped. Measured along the contact normal, which the hull
-    // geometry decides -- the point is the relationship, not the axis.
+    const pushCap = (ship) => Math.min(
+      FRIENDLY_PUSH_ABSOLUTE_CAP,
+      (Number(ship.stats.maxSpeed) || 0) * FRIENDLY_PUSH_SPEED_RATIO
+    );
+
+    // Rear-end onto a ship that is already moving well above contact speed:
+    // it is not slowed to the contact cap merely because something touched it,
+    // and it is not dramatically accelerated either. The cap governs the speed
+    // the contact creates, never the ship's own propulsion.
     for (const [label, ownerB] of [["friendly", "p1"], ["hostile", "p2"]]) {
       const { a, b, project, normal, before, result } = contact({ ax: 120, bx: 80, ownerB });
       assert(result, `an overlapping ${label} pair should resolve`);
-      const average = (before.normalA + before.normalB) / 2;
       assert(before.normalA > before.normalB, "sanity: A is catching B");
-      assert(Math.abs(project(a, normal) - average) < 1e-9,
-        `${label} rear-end: the faster ship keeps the shared momentum`
-          + ` (${project(a, normal).toFixed(2)} against an average of ${average.toFixed(2)})`);
-      assert(Math.abs(project(b, normal) - average) < 1e-9,
-        `${label} rear-end: the slower ship is carried up to it`
-          + ` (${project(b, normal).toFixed(2)})`);
-      // The whole point: what was 120 did not become 0.
-      assert(project(a, normal) > before.normalB - 1e-9,
-        `${label} rear-end: the catching ship must not be stopped by the contact`);
+      assert(pushCap(b) < before.normalB, "sanity: B is already faster than contact speed");
+      assert(Math.abs(project(b, normal) - before.normalB) < 1e-9,
+        `${label} rear-end: a ship under its own power is not dragged to contact speed`
+          + ` (${project(b, normal).toFixed(2)} from ${before.normalB.toFixed(2)})`);
+      assert(Math.abs(project(a, normal) - (before.normalB + FRIENDLY_COMPRESSION_SPEED)) < 1e-9,
+        `${label} rear-end: the ship behind settles just behind it and leans`
+          + ` (${project(a, normal).toFixed(2)})`);
+    }
+
+    // The case the old impulse got wrong: 120 into a standing ship. The
+    // stationary hull creeps forward -- it is not launched at half of 120 -- and
+    // the acceleration it is given is metered per tick.
+    {
+      const { a, b, project, normal, before } = contact({ ax: 120, bx: 0 });
+      const gained = project(b, normal) - before.normalB;
+      assert(gained > 0, "the standing ship is pushed");
+      assert(gained <= FRIENDLY_PUSH_ACCELERATION * DT + 1e-9,
+        `one tick of contact may not exceed the push acceleration (${gained.toFixed(2)} px/s)`);
+      assert(gained < before.normalA * 0.05,
+        `a touched ship must not inherit a large share of cruising speed (${gained.toFixed(2)})`);
+      assert(project(a, normal) <= project(b, normal) + FRIENDLY_COMPRESSION_SPEED + 1e-9,
+        "the ship behind stops driving through the one in front");
+      assert(project(a, normal) >= project(b, normal) - 1e-9,
+        "...but is never reversed or dragged below a standstill by the contact");
+    }
+
+    // Sustained contact: the shove develops over time and settles at the cap,
+    // not at a fraction of the pusher's speed. The engine behind keeps working,
+    // which is what a ship bulldozing another actually looks like.
+    {
+      const a = makeShip({ id: "shove-a", x: 1000, y: 1000, vx: 120 });
+      const b = makeShip({ id: "shove-b", x: 1030, y: 1000 });
+      const room = makeRoom([a, b]);
+      const cap = pushCap(b);
+      let worstGain = 0;
+      for (let index = 0; index < 200; index += 1) {
+        a._friendlyCorrectionDistance = 0;
+        b._friendlyCorrectionDistance = 0;
+        a._friendlyPushVelocityAdded = 0;
+        b._friendlyPushVelocityAdded = 0;
+        // The hull behind holds full thrust straight at the one in front, and
+        // stays pressed against it. All of B's speed is therefore contact.
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const length = Math.hypot(dx, dy) || 1;
+        a.vx = dx / length * 120;
+        a.vy = dy / length * 120;
+        const beforeSpeed = Math.hypot(b.vx, b.vy);
+        assert(findShipHullOverlap(a, b), `sanity: the shove stays in contact (tick ${index})`);
+        resolveSeparationPair(room, a, b, DT);
+        worstGain = Math.max(worstGain, Math.hypot(b.vx, b.vy) - beforeSpeed);
+        b.x += b.vx * DT;
+        b.y += b.vy * DT;
+        a.x = b.x - dx / length * 30;
+        a.y = b.y - dy / length * 30;
+      }
+      const settled = Math.hypot(b.vx, b.vy);
+      assert(settled > cap * 0.8, `a sustained shove should get the front hull moving (${settled.toFixed(1)} px/s)`);
+      // The hull normal is not exactly the line between two asymmetric hulls, so
+      // the cap binds on the normal component rather than on the total.
+      assert(settled <= cap * 1.05,
+        `...but never much above the contact speed cap (${settled.toFixed(1)} against ${cap.toFixed(1)})`);
+      assert(settled < 120 * 0.3,
+        `...and nowhere near a share of the pusher's own speed (${settled.toFixed(1)} px/s)`);
+      assert(worstGain <= FRIENDLY_PUSH_ACCELERATION * FRIENDLY_PUSH_MASS_FACTOR_MAX * DT + 1e-9,
+        `no single tick may exceed the push budget (${worstGain.toFixed(2)} px/s)`);
+    }
+
+    // Two passes over the same contact in one tick share one acceleration
+    // budget, so a crowded hull cannot be accelerated several times over.
+    {
+      const { a, b, room, project, normal, before } = contact({ ax: 120, bx: 0 });
+      const afterOnePass = project(b, normal);
+      for (let pass = 0; pass < 4; pass += 1) resolveSeparationPair(room, a, b, DT);
+      const total = project(b, normal) - before.normalB;
+      assert(total <= FRIENDLY_PUSH_ACCELERATION * FRIENDLY_PUSH_MASS_FACTOR_MAX * DT + 1e-9,
+        `repeated passes share one per-tick budget (${total.toFixed(2)} px/s)`);
+      assert(project(b, normal) >= afterOnePass - 1e-9, "and never take speed back");
     }
 
     // Two ships travelling together at the same speed are not colliding, however
@@ -191,18 +273,20 @@ function run() {
         "and neither loses any of its actual velocity");
     }
 
-    // Momentum along the normal is conserved when the masses differ, and the
-    // lighter hull is the one that changes most.
+    // Mass still matters: it scales how hard the shove pushes. A heavy hull
+    // shifts a light one easily, a light one barely moves a heavy one, and
+    // neither is launched.
     {
-      const { a, b, project, normal, before } = contact({ ax: 150, bx: 0, massA: 20, massB: 100 });
-      const momentumBefore = before.normalA * 20 + before.normalB * 100;
-      const momentumAfter = project(a, normal) * 20 + project(b, normal) * 100;
-      assert(Math.abs(momentumAfter - momentumBefore) < 1e-6,
-        `normal momentum is conserved (${momentumBefore.toFixed(1)} -> ${momentumAfter.toFixed(1)})`);
-      const changeA = Math.abs(project(a, normal) - before.normalA);
-      const changeB = Math.abs(project(b, normal) - before.normalB);
-      assert(changeA > changeB * 4,
-        `the light hull gives way to the heavy one (${changeA.toFixed(1)} against ${changeB.toFixed(1)})`);
+      const heavyOntoLight = contact({ ax: 150, bx: 0, massA: 100, massB: 20 });
+      const lightOntoHeavy = contact({ ax: 150, bx: 0, massA: 20, massB: 100 });
+      const gainOf = ({ b, project, normal, before }) => project(b, normal) - before.normalB;
+      const shifted = gainOf(heavyOntoLight);
+      const barely = gainOf(lightOntoHeavy);
+      assert(shifted > barely * 3,
+        `a heavy hull shifts a light one more easily (${shifted.toFixed(2)} against ${barely.toFixed(2)})`);
+      assert(barely > 0, "...but a light hull still shifts a heavy one a little");
+      assert(shifted <= FRIENDLY_PUSH_ACCELERATION * FRIENDLY_PUSH_MASS_FACTOR_MAX * DT + 1e-9,
+        `and neither is launched (${shifted.toFixed(2)} px/s in one tick)`);
     }
 
     // Glancing: tangential motion is untouched, so hulls slide past rather than
@@ -218,6 +302,25 @@ function run() {
       const { a, b, project, normal, before } = contact({ ax: -60, bx: 90 });
       assert(Math.abs(project(a, normal) - before.normalA) < 1e-9, "a separating pair keeps A's velocity");
       assert(Math.abs(project(b, normal) - before.normalB) < 1e-9, "a separating pair keeps B's velocity");
+    }
+
+    // Head-on: both slow heavily and neither bounces. Speed a hull is driving
+    // into the contact with is removed outright -- that is not the launch the
+    // caps exist to prevent -- so only what is left is the metered shove.
+    {
+      const { a, b, project, normal, before } = contact({ ax: 120, bx: -120 });
+      const afterA = project(a, normal);
+      const afterB = project(b, normal);
+      assert(Math.abs(afterA) < Math.abs(before.normalA) * 0.1,
+        `head-on: A slows heavily (${afterA.toFixed(1)} from ${before.normalA.toFixed(1)})`);
+      assert(Math.abs(afterB) < Math.abs(before.normalB) * 0.1,
+        `head-on: B slows heavily (${afterB.toFixed(1)} from ${before.normalB.toFixed(1)})`);
+      assert(afterA >= 0 && afterA <= before.normalA,
+        "head-on: A is not bounced back the way it came");
+      assert(afterB >= before.normalB,
+        "head-on: B is not bounced back the way it came");
+      assert(afterA - afterB <= FRIENDLY_COMPRESSION_SPEED + 1e-9,
+        "head-on: the pair is no longer closing beyond the compression sliver");
     }
 
     // Correction stays bounded and gradual whatever the impulse did.
