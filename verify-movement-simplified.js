@@ -160,13 +160,13 @@ function run() {
       shipIds: ships.map((ship) => ship.id)
     });
     assert.equal(result.commanded, ships.length);
-    assert.equal(result.formation, "line");
+    assert.equal(result.formation, "clump");
     assert.equal(new Set(ships.map((ship) => `${ship.movement.destination.x}:${ship.movement.destination.y}`)).size,
       ships.length, "every ship should get its own fixed slot");
     assert.equal(new Set(ships.map((ship) => ship.movement.arrivalRadius)).size, 1);
     assert.equal(ships[0].movement.arrivalRadius, 16,
       "a ship with its own slot keeps the normal arrival radius");
-    assert(ships.every((ship) => ship.movement.command.formation?.type === "line"));
+    assert(ships.every((ship) => ship.movement.command.formation?.type === "clump"));
     assert(ships.every((ship) => !Object.keys(ship.movement).some((key) => (
       ["combatSlot", "holdApproach", "formationSlot", "laneIndex"].includes(key)
     ))));

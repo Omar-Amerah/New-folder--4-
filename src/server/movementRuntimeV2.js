@@ -60,6 +60,13 @@ function createMovementRuntime() {
     // Hold has reached its firing position. Also latched -- it is what makes the
     // ship ignore a target closing on it rather than backing away.
     holdEngaged: false,
+    // This ship's place in the clump a Hold attack order was planned as: a fixed
+    // offset in a frame anchored on the target, plus the identity of the order
+    // that handed it out. It is an approach instruction and nothing more -- it
+    // is released the moment the ship reaches it and engages, after which the
+    // ordinary Hold rules own the hull. There is no fleet controller behind it;
+    // every ship carries only its own offset.
+    attackSlot: null,
     // Charge has made a settled contact. It has its own latch because Hold's
     // wide range hysteresis is not a valid contact controller.
     chargeEngaged: false,
@@ -94,6 +101,7 @@ function ensureMovementRuntime(ship) {
   if (!Object.prototype.hasOwnProperty.call(runtime, "arrivalRadius")) runtime.arrivalRadius = 16;
   if (!Object.prototype.hasOwnProperty.call(runtime, "route")) runtime.route = null;
   if (!Object.prototype.hasOwnProperty.call(runtime, "holdFacing")) runtime.holdFacing = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "attackSlot")) runtime.attackSlot = null;
   return runtime;
 }
 
@@ -133,6 +141,9 @@ function setMovementCommand(ship, command) {
   runtime.firingSolution = null;
   runtime.engageApproach = null;
   runtime.holdFacing = null;
+  // A new order always retires the previous order's clump place. The command
+  // that issued this one re-assigns a slot afterwards if it planned one.
+  runtime.attackSlot = null;
   if (!runtime.command) runtime.phase = "idle";
   else if (runtime.command.type === "stop") runtime.phase = "braking";
   else if (runtime.command.type === "move") runtime.phase = "travelling";

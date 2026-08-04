@@ -69,7 +69,7 @@ const {
   migrateSavedDesignsStorage, normalizeDesign, persistDesign, persistLoadouts, persistSavedDesigns, savedDesignsEnvelope,
   exportBlueprints, importBlueprints
 } = storageMod;
-const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_FORMATION_KEY, LOCAL_SERVER_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY } = constants;
+const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY } = constants;
 
 const prefsMod = await import("./public/src/localPreferences.js");
 const { DEFAULT_PREFERENCES, LOCAL_PREFERENCES_KEY, loadPreferences, persistPreferences, validatePreferences } = prefsMod;
@@ -266,7 +266,7 @@ installStorage(new MemoryStorage());
 assert.equal(loadPreferences().preferences.renderQuality, DEFAULT_PREFERENCES.renderQuality, "settings defaults load");
 assert.equal(validatePreferences({ preferredTeam: "green", renderQuality: "ultra", interfaceScale: 5 }).preferredTeam, "blue", "invalid settings fall back");
 installStorage(new MemoryStorage());
-localStorage.setItem(LOCAL_NAME_KEY, "Ace"); localStorage.setItem(LOCAL_TEAM_KEY, "red"); localStorage.setItem(LOCAL_FORMATION_KEY, "wedge"); localStorage.setItem(LOCAL_SERVER_KEY, "https://example.test/path?token=secret"); localStorage.setItem("mfa.renderQuality", "low");
+localStorage.setItem(LOCAL_NAME_KEY, "Ace"); localStorage.setItem(LOCAL_TEAM_KEY, "red"); localStorage.setItem(LOCAL_SERVER_KEY, "https://example.test/path?token=secret"); localStorage.setItem("mfa.renderQuality", "low");
 const migratedPrefs = loadPreferences().preferences;
 assert.equal(migratedPrefs.pilotName, "Ace", "legacy pilot name migrates");
 assert.equal(migratedPrefs.preferredTeam, "red", "legacy team migrates");

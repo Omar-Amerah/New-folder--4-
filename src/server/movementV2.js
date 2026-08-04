@@ -36,7 +36,11 @@ const {
   TRAVEL_DAMPING,
   UNPOWERED_DAMPING
 } = require("./movementTuning");
-const { getMaxEffectiveWeaponRange, shipHasArmedProximityCharge } = require("./componentData");
+const {
+  getMaxEffectiveWeaponRange,
+  shipHasArmedProximityCharge,
+  shipHasOffensiveWeapon
+} = require("./componentData");
 const {
   MOVEMENT_TOGGLE_DEFAULTS,
   sanitizeCombatStyle,
@@ -80,7 +84,7 @@ const {
 } = require("./movementRuntimeV2");
 const { bumpMovementMetric } = require("./movementMetrics");
 const { FORMATION_TYPES, SUPPORTED_MOVEMENT_TYPES, sanitizeFormationType } = require("./movementFlags");
-const { planFormation } = require("./movementFormations");
+const { attackSlotPoint, planAttackFormation, planFormation } = require("./movementFormations");
 
 const MOVEMENT_SUBSTEP = 1 / 60;
 const BEARING_MIN_DISTANCE = 1;
@@ -107,6 +111,16 @@ const FRIENDLY_REST_SPEED = 4;
 const HOLD_FACING_TARGET_REPLAN_DISTANCE = 96;
 const HOLD_FACING_REEVALUATE_MS = 250;
 const HOLD_FACING_IMPROVEMENT_RATIO = 0.12;
+// How far the whole clump steps toward the target when a ship has reached its
+// slot and still cannot reach. Bounded below by the clump's own contact
+// distance, so this converges rather than walking the group onto the enemy.
+const ATTACK_CLUMP_CLOSE_STEP = 48;
+// A slot whose firing line is blocked by static geometry is walked around its
+// own position, on its own side of the clump, in bounded steps. Nothing else
+// in the shape moves.
+const ATTACK_SLOT_NUDGE_STEP = 48;
+const ATTACK_SLOT_NUDGE_ATTEMPTS = 4;
+const ATTACK_SLOT_NUDGE_ROUNDS = 2;
 
 function normalizeHullAngle(angle) {
   let normalized = Number(angle) % (Math.PI * 2);
@@ -549,6 +563,129 @@ function clearTargetReferences(ship) {
   ship.repairTargetId = null;
 }
 
+// --- Hold attack clump ------------------------------------------------------
+//
+// A Hold attack order hands every selected ship one fixed place in a single
+// clump anchored on the target (see planAttackFormation). What each hull
+// carries is its own offset and the identity of the order that gave it out --
+// there is no fleet controller, and no ship reads another ship's slot.
+
+// The clump place this ship still owes the order it is flying. Honoured only
+// for the exact target and the exact command it was planned for, so an
+// automatically acquired target or a superseded order can never inherit one.
+function activeAttackSlot(ship, runtime, target, type) {
+  const slot = runtime.attackSlot;
+  if (!slot || type !== "attack") return null;
+  if (combatStance(ship) !== "hold") return null;
+  if (slot.targetId !== String(target.id)) return null;
+  if (slot.commandId !== (runtime.command?.id || null)) return null;
+  return slot;
+}
+
+// Bring the clump in by one deterministic step. Every ship still holding a slot
+// applies the same step to the same centre distance, so the shape keeps all of
+// its offsets and closes as one unit. Ships that have already engaged released
+// their slot and are not moved. Bounded below by the clump's own contact
+// distance, so this converges instead of walking the group onto the enemy.
+function closeAttackClump(slot) {
+  const next = Math.max(
+    Number(slot.minimumCentreDistance) || 0,
+    slot.centreDistance - ATTACK_CLUMP_CLOSE_STEP
+  );
+  if (!(next < slot.centreDistance - 1e-6)) return false;
+  slot.centreDistance = next;
+  return true;
+}
+
+// On the slot, in range, and a rock is in the way. Walk this one slot around
+// its own position -- sideways first, and always on the side of the clump it
+// already belongs to -- until the firing line opens. Bounded in both step size
+// and number of rounds; nobody else's slot is reconsidered and the shape is
+// never rebuilt.
+function nudgeAttackSlotIntoFiringLine(room, ship, slot, target, enter) {
+  if ((Number(slot.nudges) || 0) >= ATTACK_SLOT_NUDGE_ROUNDS) return false;
+  const side = slot.lateralOffset < 0 ? -1 : 1;
+  const clearance = navigationClearanceRadius(ship);
+  const awayX = Number(slot.awayX) || 0;
+  const awayY = Number(slot.awayY) || 0;
+  const lateralX = -awayY;
+  const lateralY = awayX;
+  for (let attempt = 1; attempt <= ATTACK_SLOT_NUDGE_ATTEMPTS; attempt += 1) {
+    const shift = attempt * ATTACK_SLOT_NUDGE_STEP;
+    for (const candidate of [
+      { forward: 0, lateral: side * shift },
+      { forward: -shift, lateral: side * shift * 0.5 },
+      { forward: shift, lateral: side * shift * 0.5 }
+    ]) {
+      const forwardOffset = slot.forwardOffset + candidate.forward;
+      const lateralOffset = slot.lateralOffset + candidate.lateral;
+      const along = slot.centreDistance + forwardOffset;
+      const x = (Number(target.x) || 0) + awayX * along + lateralX * lateralOffset;
+      const y = (Number(target.y) || 0) + awayY * along + lateralY * lateralOffset;
+      if (targetDistanceFrom(x, y, target) > enter) continue;
+      const clear = nearestClearPoint(room, x, y, clearance);
+      if (!clear.clear || fastHypot(clear.x - x, clear.y - y) > 2) continue;
+      if (!firingLineClearFrom(room, x, y, target)) continue;
+      slot.forwardOffset = forwardOffset;
+      slot.lateralOffset = lateralOffset;
+      slot.nudges = (Number(slot.nudges) || 0) + 1;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Approach control for a ship that owes the order a clump place. Returns true
+// while the slot is still in charge of where the ship goes.
+//
+// The rule that matters is the one at the top: crossing into weapon range is
+// NOT arrival. A long-range hull that latched Hold the moment its reticle
+// turned red stopped wherever it happened to be, and everything behind it then
+// had to get past a parked ship. It keeps flying to its slot.
+function followAttackSlot(room, ship, runtime, slot, target, distance, enter, type) {
+  // The enemy has driven right into the group -- closer than the front of the
+  // clump was ever meant to sit. Flying back out to a station behind the target
+  // is not an approach, it is a retreat, and Hold does not give ground. The slot
+  // is released and the ordinary Hold rules take the hull from here.
+  if (distance <= (Number(slot.minimumCentreDistance) || 0) + ARRIVE_DISTANCE) {
+    runtime.attackSlot = null;
+    return false;
+  }
+  runtime.destination = attackSlotPoint(slot, target);
+  runtime.blocked = false;
+  const reached = fastHypot(
+    runtime.destination.x - (ship.x || 0),
+    runtime.destination.y - (ship.y || 0)
+  ) <= Math.max(ARRIVE_DISTANCE, Number(runtime.arrivalRadius) || ARRIVE_DISTANCE)
+    && fastHypot(ship.vx || 0, ship.vy || 0) <= DESTINATION_ARRIVE_SPEED;
+  if (!reached) return true;
+
+  if (canEngageFromHere(room, ship, target, type, distance, enter)) {
+    // The slot has done its job. From here the ordinary Hold rules own the
+    // hull: it stays where it actually is, and weapon facing turns it.
+    runtime.holdEngaged = true;
+    runtime.attackSlot = null;
+    clearRoute(runtime);
+    return true;
+  }
+
+  // Standing on the slot and still unable to shoot. Either the group is a
+  // little too far out, or this hull's own line is blocked. Both get one
+  // bounded adjustment, and neither reshuffles anybody.
+  const adjusted = distance > enter
+    ? closeAttackClump(slot)
+    : nudgeAttackSlotIntoFiringLine(room, ship, slot, target, enter);
+  if (adjusted) {
+    runtime.destination = attackSlotPoint(slot, target);
+    return true;
+  }
+
+  // Nothing left to try from the clump. Release the slot and let the ordinary
+  // per-ship Hold approach take it from here.
+  runtime.attackSlot = null;
+  return false;
+}
+
 function refreshEngagement(room, ship, runtime, now) {
   const command = runtime.command;
   const engagement = engagementTarget(room, ship, runtime);
@@ -561,6 +698,7 @@ function refreshEngagement(room, ship, runtime, now) {
     runtime.holdEngaged = false;
     runtime.chargeEngaged = false;
     runtime.blocked = false;
+    runtime.attackSlot = null;
     clearRoute(runtime);
     return;
   }
@@ -580,6 +718,7 @@ function refreshEngagement(room, ship, runtime, now) {
     runtime.holdEngaged = true;
     runtime.chargeEngaged = false;
     runtime.blocked = false;
+    runtime.attackSlot = null;
     clearRoute(runtime);
     return;
   }
@@ -591,6 +730,9 @@ function refreshEngagement(room, ship, runtime, now) {
 
   if (type === "attack" && combatStance(ship) === "charge") {
     runtime.holdEngaged = false;
+    // Charge never stops at a clump position. It is a contact-seeking stance
+    // and the Hold standoff geometry has nothing to say to it.
+    runtime.attackSlot = null;
     runtime.arrivalRadius = enter;
     const armed = shipHasArmedProximityCharge(ship);
     if (runtime.chargeEngaged) {
@@ -617,6 +759,13 @@ function refreshEngagement(room, ship, runtime, now) {
   runtime.chargeEngaged = false;
   runtime.ramming = false;
   runtime.arrivalRadius = ARRIVE_DISTANCE;
+
+  // A commanded Hold attack flies to its place in the clump first. Only once
+  // the ship is actually standing on it does the ordinary "can I fire from
+  // here" test get to latch Hold.
+  const slot = activeAttackSlot(ship, runtime, target, type);
+  if (slot && followAttackSlot(room, ship, runtime, slot, target, distance, enter, type)) return;
+
   if (runtime.holdEngaged) {
     const firingLineClear = type !== "attack" || currentFiringLineClear(room, ship, target);
     const chase = toggles.pursue && (distance > resume || !firingLineClear);
@@ -909,13 +1058,21 @@ function routeNeedsReplan(room, ship, runtime, destination, now) {
   // ship's own position, so its terminal is always "reached" and no progress
   // test below could ever fail it. Without this the order would latch blocked
   // for as long as it stood.
-  if (route.reachable === false) {
-    const terminal = route.terminal;
-    if (!terminal) return true;
-    const arrived = fastHypot(terminal.x - ship.x, terminal.y - ship.y)
+  const terminal = route.terminal;
+  const flownOut = terminal
+    && fastHypot(terminal.x - ship.x, terminal.y - ship.y)
       <= Math.max(route.clearance, ARRIVE_DISTANCE);
-    if (arrived) return true;
+  if (route.reachable === false) {
+    if (!terminal) return true;
+    if (flownOut) return true;
   }
+  // The route has been flown out and it does not end where the ship is going.
+  // That happens when the destination drifts under the replan threshold -- a
+  // Hold clump slot tracking a moving enemy, say. The braking profile is
+  // measured along the route, so without this the ship parks at the end of a
+  // route that stops short and never closes the last few tens of pixels.
+  if (flownOut
+    && fastHypot(destination.x - terminal.x, destination.y - terminal.y) > ARRIVE_DISTANCE) return true;
   const index = routeWaypointIndex(runtime);
   const goal = runtime.path[index];
   if (goal && !isSegmentClear(room, ship.x, ship.y, goal.x, goal.y, route.clearance)) {
@@ -1340,28 +1497,71 @@ function issueStop(ship, commandId, manual = true) {
   syncMovementTarget(ship);
 }
 
-function issueAttack(room, ship, commandId, targetId, now) {
+function issueAttack(room, ship, commandId, targetId, now, slot = null) {
   const target = trackedEntity(room, targetId);
   const viewerTeam = room?.players?.get?.(ship.ownerId)?.team ?? ship.team ?? ship.ownerId;
   clearTargetReferences(ship);
   if (target && room && !canTeamTargetEntity(room, viewerTeam, target, now)) return false;
   ship.combatTargetId = targetId;
   ship.focusTargetId = targetId;
+  const id = `${commandId}:${ship.id}`;
   setMovementCommand(ship, {
-    id: `${commandId}:${ship.id}`,
+    id,
     type: "attack",
     targetId,
     manual: true
   });
   const runtime = ensureMovementRuntime(ship);
   runtime.arrivalRadius = ARRIVE_DISTANCE;
-  if (target && combatStance(ship) !== "charge") {
+  if (slot) {
+    // The ship owes the order a place in the clump. Deliberately no early Hold
+    // latch: a hull that happens to already be in range must still take up its
+    // position rather than parking in front of the ships behind it.
+    runtime.attackSlot = {
+      targetId: String(targetId),
+      assignedShipId: String(ship.id),
+      commandId: id,
+      forwardOffset: slot.forwardOffset,
+      lateralOffset: slot.lateralOffset,
+      awayX: slot.awayX,
+      awayY: slot.awayY,
+      centreDistance: slot.centreDistance,
+      minimumCentreDistance: slot.minimumCentreDistance,
+      nudges: 0
+    };
+  } else if (target && combatStance(ship) !== "charge") {
     const distance = engagementGeometry(ship, target).distance;
     if (distance <= engagementRanges(ship, target, "attack").enter
       && currentFiringLineClear(room, ship, target)) runtime.holdEngaged = true;
   }
   syncMovementTarget(ship);
   return true;
+}
+
+// Which selected ships take a place in the attack clump. Only the stances that
+// actually stop at a firing position do: Charge is pursuing contact, and
+// Static/Sentry never leave where they are.
+function takesAttackSlot(ship) {
+  return combatStance(ship) === "hold";
+}
+
+// One clump per Hold attack order, planned once, on the near side of the
+// target. The whole shape is placed by the shortest usable weapon range in the
+// selection measured against its own rear-most slot, so a short-ranged hull at
+// the back is still able to fire when it gets there -- rather than being sent
+// forward on its own through the ships in front of it.
+function planHoldApproach(room, ships, target) {
+  const holders = ships.filter(takesAttackSlot);
+  if (!holders.length) return null;
+  return planAttackFormation(room, holders, target, {
+    holdRange: (ship) => ({
+      range: engagementRanges(ship, target, "attack").enter,
+      // An unarmed hull still gets a slot -- at the back, like any other ship
+      // that started furthest away -- but its (nominal) range does not drag the
+      // clump onto the target, and reaching its slot never claims it can fire.
+      armed: shipHasOffensiveWeapon(ship)
+    })
+  });
 }
 
 function issueRepair(ship, commandId, targetId) {
@@ -1390,8 +1590,19 @@ function commandShips(room, player, x, y, options = {}) {
 
   if (enemy) {
     const now = gameplayNow(room);
-    for (const ship of ships) issueAttack(room, ship, commandId, livingTarget.id, now);
-    return { ok: true, code: "attack", commanded: ships.length };
+    const plan = planHoldApproach(room, ships, livingTarget);
+    const slotByShipId = new Map((plan?.slots || []).map((slot) => [slot.shipId, {
+      forwardOffset: slot.forwardOffset,
+      lateralOffset: slot.lateralOffset,
+      awayX: plan.awayX,
+      awayY: plan.awayY,
+      centreDistance: plan.centreDistance,
+      minimumCentreDistance: plan.minimumCentreDistance
+    }]));
+    for (const ship of ships) {
+      issueAttack(room, ship, commandId, livingTarget.id, now, slotByShipId.get(ship.id) || null);
+    }
+    return { ok: true, code: "attack", commanded: ships.length, attackPlan: plan };
   }
   if (ally) {
     for (const ship of ships) issueRepair(ship, commandId, livingTarget.id);
@@ -1491,6 +1702,7 @@ module.exports = {
   SUPPORTED_MOVEMENT_TYPES,
   alignmentThrottle,
   applyCombatStyle,
+  attackSlotPoint,
   applyMovementToggles,
   applyPropulsion,
   commandShips,
@@ -1501,6 +1713,7 @@ module.exports = {
   navigationClearanceRadius,
   nearestClearPoint: require("./movementNavigation").nearestClearPoint,
   physicalCollisionRadius,
+  planAttackFormation,
   planFormation,
   planMovement,
   resolveFleetMapCollisions,
