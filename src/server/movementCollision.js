@@ -12,12 +12,17 @@ const {
 
 let cachedResolveStationCollision = null;
 
-function resolveStationCollision(room, ship, shipRadius) {
+// Station geometry is compound and resolves its own contacts, but the ceiling
+// on how far a hull may be translated in one tick is this module's to set. The
+// wrapper forwards it: dropping the argument here left every station correction
+// running at the default of "no limit", which is exactly the one-frame
+// relocation the per-tick budget exists to prevent.
+function resolveStationCollision(room, ship, shipRadius, onContact, maxCorrection) {
   if (!cachedResolveStationCollision) {
     cachedResolveStationCollision = require("./stations").resolveStationCollision;
   }
   return cachedResolveStationCollision
-    ? cachedResolveStationCollision(room, ship, shipRadius)
+    ? cachedResolveStationCollision(room, ship, shipRadius, onContact, maxCorrection)
     : false;
 }
 
@@ -122,6 +127,11 @@ function resolveMapCollision(room, ship) {
   if (!launchControlled) {
     const beforeStationX = ship.x;
     const beforeStationY = ship.y;
+    // resolveStationCollision keeps its own running total on the ship. Take it
+    // back before recording the move here, so the tick's correction is counted
+    // once rather than by both sides of the call.
+    const beforeCorrectionX = ship._collisionCorrectionX || 0;
+    const beforeCorrectionY = ship._collisionCorrectionY || 0;
     const stationHit = resolveStationCollision(
       room,
       ship,
@@ -129,6 +139,8 @@ function resolveMapCollision(room, ship) {
       null,
       staticCorrectionBudget(ship)
     );
+    ship._collisionCorrectionX = beforeCorrectionX;
+    ship._collisionCorrectionY = beforeCorrectionY;
     const stationDx = ship.x - beforeStationX;
     const stationDy = ship.y - beforeStationY;
     if (stationDx || stationDy) {

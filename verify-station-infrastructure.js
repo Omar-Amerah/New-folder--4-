@@ -26,6 +26,7 @@ const { PARTS } = require("./src/server/components");
 const { areEnemies } = require("./src/server/combat");
 const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
 const { resolveMapCollision } = require("./src/server/movement");
+const { STATIC_COLLISION_MAX_TICK_CORRECTION } = require("./src/server/movementTuning");
 const { updateEconomy } = require("./src/server/economy");
 const { spawnShip } = require("./src/server/ships");
 const { tickRoom } = require("./src/server/simulation");
@@ -756,9 +757,22 @@ function runHangarDoorChecks() {
     id: "shared-pass", x: 600, y: 500, vx: 0, vy: 0, radius: 46, physicalRadius: 26
   };
   assert(resolveMapCollision(solidRoom, sharedPassShip), "the shared map-collision pass includes station solids");
+  // The movement pass forwards its per-tick correction ceiling to the station
+  // solver, so a badly embedded hull is walked out over successive ticks rather
+  // than relocated a hundred pixels in one frame.
+  assert(
+    Math.abs(sharedPassShip.y - 500) <= STATIC_COLLISION_MAX_TICK_CORRECTION + 1e-6,
+    "one movement pass may not translate a hull by the whole penetration depth"
+  );
+  let ejectionTicks = 0;
+  while (Math.abs(sharedPassShip.y - 500) < 106 && ejectionTicks < 200) {
+    sharedPassShip._staticCollisionCorrectionDistance = 0;
+    resolveMapCollision(solidRoom, sharedPassShip);
+    ejectionTicks += 1;
+  }
   assert(
     Math.abs(sharedPassShip.y - 500) >= 106,
-    "movement substeps cannot leave a hull embedded inside a station"
+    "successive movement passes still clear an embedded hull of the station face"
   );
 
   section("Loitering outside the mouth no longer stalls the hangar");

@@ -49,6 +49,7 @@ const GROUPS = {
     "verify-movement-formations.js",
     "verify-movement-momentum.js",
     "verify-movement-navigation.js",
+    "verify-movement-collision.js",
     "verify-movement-hold-facing.js",
     "verify-propulsion-rebalance.js",
     "verify-targeting.js",
