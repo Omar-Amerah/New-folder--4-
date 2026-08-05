@@ -358,19 +358,22 @@ const MANUAL_ARTICLES_PART_2 = [
     title: "Combat Styles",
     summary: "Charge, Hold, Orbit, Kite, and Static define how ships move around their current combat target.",
     keywords: ["combat", "style", "hold", "charge", "orbit", "kite", "static", "behavior", "ai", "stance"],
-    howItWorks: "Each ship follows one of five combat movement styles. Charge pursues continuously, leads a moving target, and drives through weapon range to contact without braking. Hold approaches when outside preferred weapon range, then fires from an established position without retreating from closer targets. Orbit circles at its intended radius with a stable direction and continuous radial correction. Kite retreats when too close, slides along the world edge rather than pinning itself against it, stops retreating once safe range is restored, and approaches only when the target is beyond weapon range. Static never repositions for combat at all: it holds the ground it is standing on and turns to face whatever it is shooting. Ships acquire another nearby enemy when their current target becomes invalid. A move order you issue by hand overrides all of this until you give the ship another command.",
+    howItWorks: "Each ship follows one of five combat movement styles. Charge pursues continuously, leads a moving target, and drives through weapon range to contact without braking. Hold approaches when outside preferred weapon range, then fires from an established position without retreating from closer targets. Orbit flies a ring at its intended radius with a stable direction and continuous radial correction. Kite holds its target near the far edge of its main battery: it runs when the range collapses or a fast attacker is about to collapse it, eases back in when it drifts too far out, and closes only when the target leaves that battery's reach. There is no reverse thrust, so a kiting ship picks a hull heading that both opens the range and keeps guns bearing -- a rear-mounted railgun keeps firing while the ship accelerates away, while a nose gun loses coverage during the turn and gets it back once the range is safe. It routes around asteroids and stations and turns away from the map edge instead of grinding along it. Static never repositions for combat at all: it holds the ground it is standing on and turns to face whatever it is shooting. Ships acquire another nearby enemy when their current target becomes invalid. A move order you issue by hand overrides all of this until you give the ship another command.",
     importantStats: [
       { label: "Hold Range Ratio", value: "90% Of Max Weapon Range" },
       { label: "Charge Stop", value: "Contact Distance" },
       { label: "Orbit Range Ratio", value: "75% Of Max Weapon Range" },
-      { label: "Kite Safe Range", value: "90% Of Max Weapon Range" },
+      { label: "Kite Preferred Range", value: "90% Of Main Battery Reach" },
+      { label: "Kite Retreat Below", value: "78% Of Main Battery Reach" },
+      { label: "Kite Closes Above", value: "96% Of Main Battery Reach" },
       { label: "Static Movement", value: "None" }
     ],
-    practicalUse: "Hold is the general ranged default. Charge suits ships that must force close contact. Orbit rewards agile ships that can sustain a curved course. Kite suits long-range ships built to preserve separation. Static suits ships you want anchored exactly where you put them.",
+    practicalUse: "Hold is the general ranged default. Charge suits ships that must force close contact. Orbit rewards agile ships that can sustain a curved course. Kite suits fast, long-range ships, and it is at its best with the main gun mounted to the rear so the ship can shoot down its own wake. Static suits ships you want anchored exactly where you put them.",
     commonProblems: [
       "Ship not engaging? It may have no weapons with range, or the target is out of range.",
       "Hold ship moving closer? Its target has moved outside preferred weapon range.",
-      "Kite ship moving away? Its target is inside the safe-range threshold.",
+      "Kite ship moving away? Its target is inside the retreat threshold, or is closing fast enough to be about to cross it.",
+      "Kite ship not shooting while it runs? Its guns are mounted forward. Rotate the main weapon to the rear and it will fire down its own wake.",
       "Ship ignoring its stance? You gave it a move or stop order by hand -- those hold until you command it again.",
       "Want to change style mid-match? Select ships and use the combat style buttons in the match panel."
     ],

@@ -191,6 +191,62 @@ function drawComponentPort(size, x, y, radius, accent, innerScale = 0.45) {
   ctx.restore();
 }
 
+// --- Shared structural material -------------------------------------------------
+// The armour family (full cube, bevel, rounded corner, long wedge) is one
+// material: three overlapping plate bands, a lit top bevel and — for composite —
+// an amber laminate weave. Cut-away silhouettes clip these same strokes to their
+// own outline so a bevelled plate reads as the same steel as a full one.
+function drawArmorLaminate(size, color, composite, fine) {
+  const bandFills = [
+    mixColor(color, "#ffffff", 0.2),
+    mixColor(color, "#ffffff", 0.04),
+    mixColor(color, "#05070c", 0.26)
+  ];
+  ctx.strokeStyle = "rgba(3,6,12,0.6)";
+  ctx.lineWidth = fine;
+  for (let i = 0; i < 3; i += 1) {
+    ctx.fillStyle = bandFills[i];
+    roundRect(ctx, { x: -size * 0.47, y: -size * 0.47 + i * size * 0.32, width: size * 0.94, height: size * 0.3, radius: size * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.strokeStyle = composite ? "rgba(255,236,184,0.8)" : "rgba(255,238,218,0.65)";
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.42, -size * 0.42);
+  ctx.lineTo(size * 0.42, -size * 0.42);
+  ctx.stroke();
+  if (composite) {
+    ctx.strokeStyle = "rgba(255,214,140,0.45)";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.36, size * 0.4); ctx.lineTo(size * 0.02, -size * 0.02);
+    ctx.moveTo(-size * 0.02, size * 0.42); ctx.lineTo(size * 0.38, 0);
+    ctx.stroke();
+  }
+}
+
+// Frame counterpart to the laminate: dark internal bracing with one lit chord.
+function drawFrameBracing(size, fine, reach = 0.34) {
+  ctx.strokeStyle = "rgba(8,14,24,0.72)";
+  ctx.lineWidth = Math.max(1.2, size * 0.13);
+  ctx.beginPath();
+  ctx.moveTo(-size * reach, -size * reach); ctx.lineTo(size * reach, size * reach);
+  ctx.moveTo(size * reach, -size * reach); ctx.lineTo(-size * reach, size * reach);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(225,236,250,0.28)";
+  ctx.lineWidth = fine;
+  ctx.beginPath();
+  ctx.moveTo(-size * (reach - 0.03), -size * (reach - 0.03));
+  ctx.lineTo(size * (reach - 0.03), size * (reach - 0.03));
+  ctx.stroke();
+}
+
+// Corner rivets on whichever corners a cut-away shape actually keeps.
+function drawArmorRivets(size, color, corners) {
+  const rivet = mixColor(color, "#ffffff", 0.55);
+  for (const [x, y] of corners) drawComponentPort(size, x, y, 0.05, rivet, 0.5);
+}
+
 const COMPONENT_ART_ALIASES = Object.freeze({
   lightFrame: "frame",
   heavyFrame: "frame",
@@ -578,6 +634,33 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
       ctx.fillRect(size * 0.01, -size * 0.1, size * 0.06, size * 0.2);
     }
     drawTurretCap(size, color, 0.13);
+  } else if (artType === "thermalInductionLance") {
+    // Single-cell fallback for the same coil-wound lance the 1x2 footprint draws.
+    ctx.fillStyle = "#4c1d95";
+    roundRect(ctx, { x: -size * 0.04, y: -size * 0.1, width: size * 0.6, height: size * 0.2, radius: size * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#e9d5ff";
+    ctx.lineWidth = Math.max(0.9, size * 0.06);
+    for (const cx of [0.12, 0.28, 0.44]) {
+      ctx.beginPath();
+      ctx.moveTo(size * cx, -size * 0.18);
+      ctx.lineTo(size * cx, size * 0.18);
+      ctx.stroke();
+    }
+    ctx.save();
+    ctx.shadowColor = "#e879f9";
+    ctx.shadowBlur = qualityShadowBlur(5);
+    ctx.fillStyle = "#f5d0fe";
+    ctx.beginPath();
+    ctx.moveTo(size * 0.5, -size * 0.14);
+    ctx.lineTo(size * 0.66, -size * 0.05);
+    ctx.lineTo(size * 0.66, size * 0.05);
+    ctx.lineTo(size * 0.5, size * 0.14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    drawTurretCap(size, color, 0.13);
   } else if (artType === "aegisProjector") {
     drawAegisEmitterRing(size, size * 0.32);
   } else if (artType === "interceptorPod") {
@@ -679,6 +762,62 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
       ctx.fillRect(-hl * 0.66, -hc * 0.09, unit * 0.36, hc * 0.18);
       ctx.fillRect(-hl * 0.66 + unit * 0.135, -hc * 0.26, unit * 0.09, hc * 0.52);
     }
+  } else if (artType === "thermalInductionLance") {
+    // Induction lance: a slim waveguide wound with coil rings, fed from a rear
+    // charge cell, ending in a narrow violet emitter throat. Nothing like the
+    // beam emitter's wide focusing head — this one couples heat, not damage.
+    const violet = "#a855f7";
+    ctx.fillStyle = "#2e1065";
+    roundRect(ctx, { x: -hl * 0.82, y: -hc * 0.46, width: hl * 0.6, height: hc * 0.92, radius: unit * 0.09 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = violet;
+    roundRect(ctx, { x: -hl * 0.72, y: -hc * 0.26, width: hl * 0.38, height: hc * 0.52, radius: unit * 0.05 });
+    ctx.fill();
+
+    // Waveguide out to the muzzle.
+    ctx.fillStyle = "#4c1d95";
+    roundRect(ctx, { x: -hl * 0.3, y: -hc * 0.22, width: hl * 1.24 - unit * 0.05, height: hc * 0.44, radius: unit * 0.06 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Induction coils wrapped around the guide.
+    ctx.strokeStyle = "#e9d5ff";
+    ctx.lineWidth = Math.max(fine, unit * 0.075);
+    for (const cx of [-hl * 0.14, hl * 0.12, hl * 0.38]) {
+      ctx.beginPath();
+      ctx.moveTo(cx, -hc * 0.42);
+      ctx.lineTo(cx, hc * 0.42);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(216,180,254,0.55)";
+    ctx.lineWidth = Math.max(0.7, unit * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(-hl * 0.28, -hc * 0.34);
+    ctx.lineTo(hl * 0.5, -hc * 0.34);
+    ctx.moveTo(-hl * 0.28, hc * 0.34);
+    ctx.lineTo(hl * 0.5, hc * 0.34);
+    ctx.stroke();
+
+    // Emitter throat: a narrow hot slot rather than a broad lens.
+    ctx.save();
+    ctx.shadowColor = "#e879f9";
+    ctx.shadowBlur = qualityShadowBlur(7);
+    ctx.fillStyle = "#f5d0fe";
+    ctx.beginPath();
+    ctx.moveTo(hl * 0.62, -hc * 0.34);
+    ctx.lineTo(hl - unit * 0.04, -hc * 0.1);
+    ctx.lineTo(hl - unit * 0.04, hc * 0.1);
+    ctx.lineTo(hl * 0.62, hc * 0.34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(250,232,255,0.85)";
+    ctx.lineWidth = Math.max(fine, unit * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(-hl * 0.34, 0);
+    ctx.lineTo(hl * 0.6, 0);
+    ctx.stroke();
   } else if (artType === "torpedo") {
     // The loaded torpedo (finned tail, banded body, glowing warhead) rotates;
     // the launch trough stays on the hull as part of the mount.
@@ -803,17 +942,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
   }
 
   if (type === "frame") {
-    ctx.strokeStyle = "rgba(8,14,24,0.72)";
-    ctx.lineWidth = Math.max(1.2, size * 0.13);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.34, -size * 0.34); ctx.lineTo(size * 0.34, size * 0.34);
-    ctx.moveTo(size * 0.34, -size * 0.34); ctx.lineTo(-size * 0.34, size * 0.34);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(225,236,250,0.28)";
-    ctx.lineWidth = fine;
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.31, -size * 0.31); ctx.lineTo(size * 0.31, size * 0.31);
-    ctx.stroke();
+    drawFrameBracing(size, fine);
     drawComponentPort(size, 0, 0, 0.095, "#d8e2f0", 0.35);
     return true;
   }
@@ -855,77 +984,176 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
   }
 
   if (type === "ablativeArmor") {
-    // Full panel base with a darker edge.
-    roundRect(ctx, { x: -size * 0.47, y: -size * 0.47, width: size * 0.94, height: size * 0.94, radius: size * 0.08 });
-    ctx.fill();
+    // Sacrificial spall plating: the same three-course plate stack as the rest
+    // of the armour family, but each course is broken into staggered tiles with
+    // a charred leading edge and glowing seams — it burns away instead of
+    // stopping a shell, and the art has to say so at a glance.
+    ctx.save();
+    roundRect(ctx, { x: -size * 0.47, y: -size * 0.47, width: size * 0.94, height: size * 0.94, radius: size * 0.05 });
+    ctx.clip();
+
+    // Charred substrate: the tiles are bedded on it and its seams glow through.
+    ctx.fillStyle = "rgba(14,7,10,0.94)";
+    ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
+    ctx.strokeStyle = "rgba(255,146,64,0.55)";
+    ctx.lineWidth = Math.max(0.8, size * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.5, -size * 0.16); ctx.lineTo(size * 0.5, -size * 0.16);
+    ctx.moveTo(-size * 0.5, size * 0.16); ctx.lineTo(size * 0.5, size * 0.16);
+    ctx.moveTo(0, -size * 0.5); ctx.lineTo(0, size * 0.5);
     ctx.stroke();
-    // Overlapping sacrificial plates: slightly offset horizontal bands.
-    const bandCount = 3;
-    const bandH = size * 0.28;
-    for (let i = 0; i < bandCount; i += 1) {
-      const y = -size * 0.34 + i * size * 0.32;
-      const inset = (i % 2 === 0) ? size * 0.04 : -size * 0.04;
-      const fill = i % 2 === 0 ? mixColor(color, "#ffffff", 0.12) : mixColor(color, "#05070c", 0.18);
-      ctx.fillStyle = fill;
-      ctx.strokeStyle = "rgba(3,6,12,0.5)";
-      ctx.lineWidth = fine;
-      roundRect(ctx, { x: -size * 0.38 + inset, y, width: size * 0.76, height: bandH, radius: size * 0.04 });
-      ctx.fill();
-      ctx.stroke();
-      // Small rivet on every other plate.
-      if (i % 2 === 0) {
-        ctx.fillStyle = mixColor(color, "#ffffff", 0.5);
-        ctx.beginPath();
-        ctx.arc(-size * 0.2, y + bandH * 0.5, size * 0.04, 0, Math.PI * 2);
+
+    // Sacrificial heat-shield tiles: cut-corner plates, hottest at the leading
+    // edge where the top course has already charred through.
+    const tilePath = (cx, cy, w, h, cut) => {
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.5 + cut, cy - h * 0.5);
+      ctx.lineTo(cx + w * 0.5 - cut, cy - h * 0.5);
+      ctx.lineTo(cx + w * 0.5, cy - h * 0.5 + cut);
+      ctx.lineTo(cx + w * 0.5, cy + h * 0.5 - cut);
+      ctx.lineTo(cx + w * 0.5 - cut, cy + h * 0.5);
+      ctx.lineTo(cx - w * 0.5 + cut, cy + h * 0.5);
+      ctx.lineTo(cx - w * 0.5, cy + h * 0.5 - cut);
+      ctx.lineTo(cx - w * 0.5, cy - h * 0.5 + cut);
+      ctx.closePath();
+    };
+    const rowFills = [
+      mixColor(color, "#140609", 0.52),
+      mixColor(color, "#ffffff", 0.08),
+      mixColor(color, "#05070c", 0.28)
+    ];
+    const tileW = size * 0.42;
+    const tileH = size * 0.27;
+    const cut = size * 0.07;
+    for (let row = 0; row < 3; row += 1) {
+      const cy = -size * 0.31 + row * size * 0.31;
+      for (const cx of [-size * 0.23, size * 0.23]) {
+        ctx.fillStyle = rowFills[row];
+        ctx.strokeStyle = "rgba(3,6,12,0.6)";
+        ctx.lineWidth = fine;
+        tilePath(cx, cy, tileW, tileH, cut);
         ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = row === 0 ? "rgba(255,168,96,0.6)" : "rgba(255,255,255,0.2)";
+        ctx.lineWidth = Math.max(0.7, size * 0.022);
+        ctx.beginPath();
+        ctx.moveTo(cx - tileW * 0.5 + cut, cy - tileH * 0.5);
+        ctx.lineTo(cx + tileW * 0.5 - cut, cy - tileH * 0.5);
+        ctx.stroke();
       }
     }
-    // Panel seam highlight.
-    ctx.strokeStyle = "rgba(255,244,220,0.35)";
-    ctx.lineWidth = fine;
+
+    // One tile spalled away at the leading edge, exposing glowing substrate.
+    ctx.fillStyle = "rgba(255,132,52,0.5)";
     ctx.beginPath();
-    ctx.moveTo(-size * 0.25, -size * 0.4);
-    ctx.lineTo(-size * 0.25, size * 0.4);
-    ctx.stroke();
+    ctx.moveTo(size * 0.06, -size * 0.44);
+    ctx.lineTo(size * 0.34, -size * 0.44);
+    ctx.lineTo(size * 0.28, -size * 0.29);
+    ctx.lineTo(size * 0.1, -size * 0.33);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    drawArmorRivets(size, color, [[-0.42, -0.16], [0.42, -0.16], [-0.42, 0.42], [0.42, 0.42]]);
     return true;
   }
 
   if (type === "bevelFrame" || type === "bevelArmor" || type === "bevelCompositeArmor") {
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.46, -size * 0.46);
-    ctx.lineTo(size * 0.12, -size * 0.46);
-    ctx.lineTo(size * 0.46, -size * 0.12);
-    ctx.lineTo(size * 0.46, size * 0.46);
-    ctx.lineTo(-size * 0.46, size * 0.46);
-    ctx.closePath();
+    // Cell block with the leading corner chamfered away. It carries the same
+    // laminate/bracing as the full cube, clipped to the cut silhouette, plus a
+    // lit chamfer face so the cut reads as machined rather than as a missing
+    // corner.
+    const isFrame = type === "bevelFrame";
+    const s = size * 0.46;
+    const cut = size * 0.46;
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(-s, -s);
+      ctx.lineTo(s - cut, -s);
+      ctx.lineTo(s, -s + cut);
+      ctx.lineTo(s, s);
+      ctx.lineTo(-s, s);
+      ctx.closePath();
+    };
+    outline();
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = type === "bevelFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
-    ctx.lineWidth = line;
+
+    ctx.save();
+    outline();
+    ctx.clip();
+    if (isFrame) drawFrameBracing(size, fine, 0.3);
+    else drawArmorLaminate(size, color, type === "bevelCompositeArmor", fine);
+    // Chamfer face: a bright inner bevel band hugging the cut edge.
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+    ctx.lineWidth = Math.max(1.4, size * 0.11);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.3, -size * 0.3);
-    ctx.lineTo(size * 0.1, -size * 0.3);
-    ctx.lineTo(-size * 0.3, size * 0.1);
+    ctx.moveTo(s - cut - size * 0.06, -s - size * 0.06);
+    ctx.lineTo(s + size * 0.06, -s + cut + size * 0.06);
     ctx.stroke();
+    ctx.strokeStyle = "rgba(3,6,12,0.4)";
+    ctx.lineWidth = Math.max(0.8, size * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(s - cut + size * 0.09, -s + size * 0.14);
+    ctx.lineTo(s - size * 0.14, -s + cut - size * 0.09);
+    ctx.stroke();
+    ctx.restore();
+
+    outline();
+    ctx.strokeStyle = "rgba(3,6,12,0.72)";
+    ctx.lineWidth = Math.max(0.9, size * 0.08);
+    ctx.stroke();
+    if (isFrame) drawComponentPort(size, -0.08, 0.08, 0.085, "#d8e2f0", 0.35);
+    else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
     return true;
   }
 
   if (type === "roundedFrame" || type === "roundedArmor" || type === "roundedCompositeArmor") {
-    const r = size * 0.22;
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.46, -size * 0.46);
-    ctx.lineTo(size * 0.46 - r, -size * 0.46);
-    ctx.arcTo(size * 0.46, -size * 0.46, size * 0.46, -size * 0.46 + r, r);
-    ctx.lineTo(size * 0.46, size * 0.46);
-    ctx.lineTo(-size * 0.46, size * 0.46);
-    ctx.closePath();
+    // Same block with a full quarter-round on the leading corner: a swept
+    // shoulder that deflects fire instead of the barely visible fillet it used
+    // to be.
+    const isFrame = type === "roundedFrame";
+    const s = size * 0.46;
+    const r = size * 0.62;
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(-s, -s);
+      ctx.lineTo(s - r, -s);
+      ctx.arcTo(s, -s, s, -s + r, r);
+      ctx.lineTo(s, s);
+      ctx.lineTo(-s, s);
+      ctx.closePath();
+    };
+    outline();
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = type === "roundedFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
-    ctx.lineWidth = line;
+
+    ctx.save();
+    outline();
+    ctx.clip();
+    if (isFrame) drawFrameBracing(size, fine, 0.3);
+    else drawArmorLaminate(size, color, type === "roundedCompositeArmor", fine);
+    // Swept shoulder: a bright rim inside the arc with a darker shadow line
+    // behind it, so the curve reads as a rolled surface.
+    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+    ctx.lineWidth = Math.max(1.4, size * 0.1);
     ctx.beginPath();
-    ctx.arc(size * 0.46 - r, -size * 0.46 + r, r * 0.6, -Math.PI / 2, 0);
+    ctx.arc(s - r, -s + r, r - size * 0.04, -Math.PI * 0.5, 0);
     ctx.stroke();
+    ctx.strokeStyle = "rgba(3,6,12,0.4)";
+    ctx.lineWidth = Math.max(0.8, size * 0.05);
+    ctx.beginPath();
+    ctx.arc(s - r, -s + r, r - size * 0.16, -Math.PI * 0.5, 0);
+    ctx.stroke();
+    ctx.restore();
+
+    outline();
+    ctx.strokeStyle = "rgba(3,6,12,0.72)";
+    ctx.lineWidth = Math.max(0.9, size * 0.08);
+    ctx.stroke();
+    if (isFrame) drawComponentPort(size, -0.1, 0.1, 0.085, "#d8e2f0", 0.35);
+    else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
     return true;
   }
 
@@ -934,37 +1162,8 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     // and corner rivets. Composite adds diagonal laminate weave in amber.
     const composite = type === "compositeArmor";
     ctx.save();
-    const bandFills = [
-      mixColor(color, "#ffffff", 0.2),
-      mixColor(color, "#ffffff", 0.04),
-      mixColor(color, "#05070c", 0.26)
-    ];
-    ctx.strokeStyle = "rgba(3,6,12,0.6)";
-    ctx.lineWidth = fine;
-    for (let i = 0; i < 3; i += 1) {
-      ctx.fillStyle = bandFills[i];
-      roundRect(ctx, { x: -size * 0.47, y: -size * 0.47 + i * size * 0.32, width: size * 0.94, height: size * 0.3, radius: size * 0.05 });
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.strokeStyle = composite ? "rgba(255,236,184,0.8)" : "rgba(255,238,218,0.65)";
-    ctx.lineWidth = fine;
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.42, -size * 0.42);
-    ctx.lineTo(size * 0.42, -size * 0.42);
-    ctx.stroke();
-    if (composite) {
-      ctx.strokeStyle = "rgba(255,214,140,0.45)";
-      ctx.beginPath();
-      ctx.moveTo(-size * 0.36, size * 0.4); ctx.lineTo(size * 0.02, -size * 0.02);
-      ctx.moveTo(-size * 0.02, size * 0.42); ctx.lineTo(size * 0.38, 0);
-      ctx.stroke();
-    }
-    const rivet = mixColor(color, "#ffffff", 0.55);
-    drawComponentPort(size, -0.38, -0.32, 0.05, rivet, 0.5);
-    drawComponentPort(size, 0.38, -0.32, 0.05, rivet, 0.5);
-    drawComponentPort(size, -0.38, 0.36, 0.05, rivet, 0.5);
-    drawComponentPort(size, 0.38, 0.36, 0.05, rivet, 0.5);
+    drawArmorLaminate(size, color, composite, fine);
+    drawArmorRivets(size, color, [[-0.38, -0.32], [0.38, -0.32], [-0.38, 0.36], [0.38, 0.36]]);
     ctx.restore();
     return true;
   }
@@ -987,16 +1186,72 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
   }
 
   if (type === "compactEngine") {
-    drawRecessedPanel(size, 0.88, 0.86, 0.08);
-    // Single recessed exhaust bell and a compact power spine.
-    drawComponentPort(size, -0.38, 0, 0.16, "#b8f8ff", 0.45);
-    ctx.fillStyle = "#72ddf7";
-    roundRect(ctx, { x: -size * 0.12, y: -size * 0.22, width: size * 0.5, height: size * 0.44, radius: size * 0.08 });
-    ctx.fill();
-    ctx.strokeStyle = "rgba(225,248,255,0.55)";
+    // Single-cell sibling of the main engine, built from the same parts so the
+    // two read as one family: intake turbine forward (+x), cowled power section,
+    // one nozzle bell with a hot throat aft (-x).
+    drawRecessedPanel(size, 0.92, 0.88, 0.1);
+
+    // Cowling over the power section.
+    ctx.fillStyle = mixColor(color, "#ffffff", 0.12);
+    ctx.strokeStyle = "rgba(3,6,12,0.66)";
     ctx.lineWidth = fine;
+    roundRect(ctx, { x: -size * 0.16, y: -size * 0.27, width: size * 0.5, height: size * 0.54, radius: size * 0.09 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(225,248,255,0.5)";
     ctx.beginPath();
-    ctx.moveTo(-size * 0.02, 0); ctx.lineTo(size * 0.3, 0);
+    ctx.moveTo(size * 0.09, -size * 0.24); ctx.lineTo(size * 0.09, size * 0.24);
+    ctx.stroke();
+
+    // Nozzle bell aft: a slim shroud around a glowing throat.
+    ctx.fillStyle = "rgba(2,20,29,0.92)";
+    ctx.strokeStyle = "rgba(3,6,12,0.72)";
+    ctx.lineWidth = Math.max(0.8, size * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.17, -size * 0.2);
+    ctx.lineTo(-size * 0.42, -size * 0.28);
+    ctx.lineTo(-size * 0.42, size * 0.28);
+    ctx.lineTo(-size * 0.17, size * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(137,247,255,0.5)";
+    ctx.lineWidth = Math.max(0.7, size * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.42, -size * 0.28);
+    ctx.lineTo(-size * 0.42, size * 0.28);
+    ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = "#89f7ff";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#9ff6ff";
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.2, -size * 0.12);
+    ctx.lineTo(-size * 0.4, -size * 0.17);
+    ctx.lineTo(-size * 0.4, size * 0.17);
+    ctx.lineTo(-size * 0.2, size * 0.12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Intake turbine forward.
+    ctx.fillStyle = "rgba(3,12,20,0.9)";
+    ctx.beginPath();
+    ctx.arc(size * 0.3, 0, size * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#bcefff";
+    ctx.lineWidth = Math.max(0.8, size * 0.045);
+    ctx.beginPath();
+    ctx.arc(size * 0.3, 0, size * 0.105, 0, Math.PI * 2);
+    ctx.stroke();
+    drawComponentPort(size, 0.3, 0, 0.045, "#52d8ff", 0.6);
+
+    // Flank conduits tying turbine to nozzle.
+    ctx.strokeStyle = "rgba(132,230,255,0.7)";
+    ctx.lineWidth = Math.max(0.7, size * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.1, -size * 0.35); ctx.lineTo(size * 0.26, -size * 0.35);
+    ctx.moveTo(-size * 0.1, size * 0.35); ctx.lineTo(size * 0.26, size * 0.35);
     ctx.stroke();
     return true;
   }
@@ -1273,34 +1528,63 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     return true;
   }
   if (type === "closedCycleCooler") {
-    // Enclosed compressor housing with a sealed coolant loop, paired pipes and a
-    // central impeller. Distinct from the heat sink's passive fin stack and the
-    // radiator's exposed fan.
-    drawRecessedPanel(size, 0.8, 0.8, 0.12);
-    ctx.strokeStyle = "#67e8f9"; ctx.lineWidth = fine;
+    // Sealed refrigeration loop: a dark machinery bay holding a closed circuit
+    // of coolant pipe that runs from a capped inlet, round a driven compressor,
+    // out through a capped outlet. Reads as plumbing under pressure — nothing
+    // like the heat sink's open fin stack or the radiator's bare fan.
+    drawRecessedPanel(size, 0.88, 0.88, 0.12);
+
+    // Closed circuit: dark pipe casing with a bright coolant core inside it.
+    const loop = (width, stroke) => {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      roundRect(ctx, { x: -size * 0.31, y: -size * 0.31, width: size * 0.62, height: size * 0.62, radius: size * 0.16 });
+      ctx.stroke();
+    };
+    loop(Math.max(2, size * 0.16), "rgba(4,26,38,0.92)");
+    loop(Math.max(1, size * 0.075), "#5ce1f5");
+
+    // Compressor: a housed rotor with vanes, driven off the loop.
+    ctx.fillStyle = "rgba(3,14,22,0.92)";
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.28, 0, Math.PI * 2);
+    ctx.arc(0, 0, size * 0.185, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(186,240,255,0.5)";
+    ctx.lineWidth = fine;
     ctx.stroke();
     ctx.strokeStyle = "#22d3ee";
-    ctx.lineWidth = Math.max(1, size * 0.07);
+    ctx.lineWidth = Math.max(1, size * 0.05);
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.28, Math.PI * 0.1, Math.PI * 1.9);
-    ctx.stroke();
-    ctx.fillStyle = "#06b6d4";
-    ctx.beginPath();
-    for (let i = 0; i < 4; i += 1) {
-      const a = (i * Math.PI) / 2;
-      ctx.moveTo(Math.cos(a) * size * 0.08, Math.sin(a) * size * 0.08);
-      ctx.lineTo(Math.cos(a) * size * 0.24, Math.sin(a) * size * 0.24);
+    for (let i = 0; i < 3; i += 1) {
+      const a = (i * Math.PI * 2) / 3 - Math.PI / 6;
+      ctx.moveTo(Math.cos(a) * size * 0.05, Math.sin(a) * size * 0.05);
+      ctx.lineTo(Math.cos(a) * size * 0.15, Math.sin(a) * size * 0.15);
     }
     ctx.stroke();
-    drawComponentPort(size, 0, 0, 0.09, "#cffafe", 0.5);
-    ctx.strokeStyle = "#0891b2";
-    ctx.lineWidth = Math.max(0.7, size * 0.04);
+    drawComponentPort(size, 0, 0, 0.055, "#ecfeff", 0.55);
+
+    // Capped inlet and outlet on opposite faces — a sealed cycle, not an
+    // exhaust: the stubs stop at the housing wall.
+    ctx.strokeStyle = "rgba(4,26,38,0.92)";
+    ctx.lineWidth = Math.max(1.6, size * 0.13);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.36, -size * 0.22); ctx.lineTo(-size * 0.18, -size * 0.22);
-    ctx.moveTo(size * 0.36, size * 0.22); ctx.lineTo(size * 0.18, size * 0.22);
+    ctx.moveTo(-size * 0.44, -size * 0.19); ctx.lineTo(-size * 0.31, -size * 0.19);
+    ctx.moveTo(size * 0.44, size * 0.19); ctx.lineTo(size * 0.31, size * 0.19);
     ctx.stroke();
+    drawComponentPort(size, -0.42, -0.19, 0.075, "#a5f3fc", 0.5);
+    drawComponentPort(size, 0.42, 0.19, 0.075, "#a5f3fc", 0.5);
+
+    // Accumulator bottle on the return leg — the sealed charge this loop carries.
+    ctx.fillStyle = "rgba(4,26,38,0.92)";
+    ctx.strokeStyle = "rgba(165,243,252,0.5)";
+    ctx.lineWidth = Math.max(0.7, size * 0.03);
+    roundRect(ctx, { x: -size * 0.12, y: size * 0.24, width: size * 0.24, height: size * 0.14, radius: size * 0.06 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#67e8f9";
+    roundRect(ctx, { x: -size * 0.08, y: size * 0.275, width: size * 0.11, height: size * 0.07, radius: size * 0.03 });
+    ctx.fill();
     return true;
   }
   if (type === "heatPipe") {
@@ -2609,6 +2893,123 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     return true;
   }
 
+  if (type === "longWedgeFrame" || type === "longWedgeArmor" || type === "longWedgeCompositeArmor") {
+    // Two-cell prow: broad at the rear (-x), tapering to a blunt nose at +x.
+    // Without this branch the wedges fell through to the generic structural
+    // machine and rendered as a rectangle with a cross — nothing like a wedge.
+    const isFrame = type === "longWedgeFrame";
+    const composite = type === "longWedgeCompositeArmor";
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(-hl, -hc);
+      ctx.lineTo(hl * 0.86, -hc * 0.2);
+      ctx.lineTo(hl, -hc * 0.06);
+      ctx.lineTo(hl, hc * 0.06);
+      ctx.lineTo(hl * 0.86, hc * 0.2);
+      ctx.lineTo(-hl, hc);
+      ctx.closePath();
+    };
+    outline();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.save();
+    outline();
+    ctx.clip();
+    if (isFrame) {
+      // Truss: flank chords, a centre spar and diagonal web members.
+      ctx.strokeStyle = "rgba(8,14,24,0.7)";
+      ctx.lineWidth = Math.max(1.2, unit * 0.11);
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.92, -hc * 0.78);
+      ctx.lineTo(hl * 0.82, -hc * 0.12);
+      ctx.moveTo(-hl * 0.92, hc * 0.78);
+      ctx.lineTo(hl * 0.82, hc * 0.12);
+      ctx.moveTo(-hl * 0.92, 0);
+      ctx.lineTo(hl * 0.86, 0);
+      ctx.stroke();
+      ctx.lineWidth = Math.max(1, unit * 0.075);
+      ctx.beginPath();
+      const bays = 3;
+      for (let i = 0; i < bays; i += 1) {
+        const x0 = -hl * 0.9 + (hl * 1.7 * i) / bays;
+        const x1 = -hl * 0.9 + (hl * 1.7 * (i + 1)) / bays;
+        const t0 = 1 - (x0 + hl) / (hl * 2);
+        const t1 = 1 - (x1 + hl) / (hl * 2);
+        ctx.moveTo(x0, -hc * 0.78 * t0);
+        ctx.lineTo(x1, hc * 0.78 * t1);
+        ctx.moveTo(x0, hc * 0.78 * t0);
+        ctx.lineTo(x1, -hc * 0.78 * t1);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(225,236,250,0.3)";
+      ctx.lineWidth = Math.max(0.7, unit * 0.04);
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.92, -hc * 0.72);
+      ctx.lineTo(hl * 0.8, -hc * 0.1);
+      ctx.stroke();
+    } else {
+      // Laminate courses stacked along the length, so the wedge reads as the
+      // same plate material as the rest of the armour family.
+      const courses = Math.max(4, tilesLong * 2);
+      const span = (hl * 2) / courses;
+      const fills = [
+        mixColor(color, "#ffffff", 0.2),
+        mixColor(color, "#ffffff", 0.03),
+        mixColor(color, "#05070c", 0.26)
+      ];
+      ctx.strokeStyle = "rgba(3,6,12,0.6)";
+      ctx.lineWidth = fine;
+      for (let i = 0; i < courses; i += 1) {
+        ctx.fillStyle = fills[i % fills.length];
+        roundRect(ctx, { x: -hl + i * span + unit * 0.02, y: -hc, width: span - unit * 0.04, height: hc * 2, radius: unit * 0.05 });
+        ctx.fill();
+        ctx.stroke();
+      }
+      if (composite) {
+        ctx.strokeStyle = "rgba(255,214,140,0.45)";
+        ctx.lineWidth = fine;
+        ctx.beginPath();
+        for (let i = 0; i < 3; i += 1) {
+          const x = -hl * 0.62 + i * hl * 0.52;
+          ctx.moveTo(x - hc * 0.7, hc);
+          ctx.lineTo(x + hc * 0.7, -hc);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // Lit leading edges along both angled flanks: the signature of a prow.
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+    ctx.lineWidth = Math.max(1.3, unit * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(-hl, -hc);
+    ctx.lineTo(hl * 0.86, -hc * 0.2);
+    ctx.lineTo(hl, -hc * 0.06);
+    ctx.moveTo(-hl, hc);
+    ctx.lineTo(hl * 0.86, hc * 0.2);
+    ctx.lineTo(hl, hc * 0.06);
+    ctx.stroke();
+    ctx.restore();
+
+    outline();
+    ctx.strokeStyle = "rgba(3,6,12,0.72)";
+    ctx.lineWidth = Math.max(0.9, unit * 0.08);
+    ctx.stroke();
+
+    if (isFrame) {
+      drawFootprintPort(unit, -hl + unit * 0.34, 0, unit * 0.1, "#d8e2f0");
+      drawFootprintPort(unit, hl * 0.62, 0, unit * 0.08, "#d8e2f0");
+    } else {
+      const rivet = mixColor(color, "#ffffff", 0.55);
+      drawFootprintPort(unit, -hl + unit * 0.22, -hc * 0.66, unit * 0.07, rivet);
+      drawFootprintPort(unit, -hl + unit * 0.22, hc * 0.66, unit * 0.07, rivet);
+      drawFootprintPort(unit, hl * 0.42, 0, unit * 0.07, rivet);
+    }
+    return true;
+  }
+
   if (COMMAND_ROLE_ART[type]) {
     drawCommandDeckAssembly(type, unit, tilesLong, tilesCross, hl, hc, color);
     return true;
@@ -2729,34 +3130,6 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
     for (let c = 0; c < cols; c += 1) {
       const cx = -hl + unit * 0.24 + (hl * 2 - unit * 0.48) * (c / (cols - 1 || 1));
       ctx.fillRect(cx - unit * 0.06, -hc * 0.5, unit * 0.12, hc);
-    }
-  } else if (type.startsWith("longWedge")) {
-    // Two-cell tapered wedge: broad at -x (rear), pointed at +x (nose).
-    ctx.beginPath();
-    ctx.moveTo(-hl, -hc);
-    ctx.lineTo(hl, 0);
-    ctx.lineTo(-hl, hc);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    const isFrame = type === "longWedgeFrame";
-    ctx.strokeStyle = isFrame ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
-    ctx.lineWidth = Math.max(1, unit * 0.08);
-    if (isFrame) {
-      ctx.beginPath();
-      ctx.moveTo(-hl * 0.55, -hc * 0.5);
-      ctx.lineTo(hl * 0.2, 0);
-      ctx.lineTo(-hl * 0.55, hc * 0.5);
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(-hl * 0.6, -hc * 0.35);
-      ctx.lineTo(hl * 0.35, 0);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-hl * 0.6, hc * 0.35);
-      ctx.lineTo(hl * 0.35, 0);
-      ctx.stroke();
     }
   } else if (structural) {
     // Armour/frame/wings: one plate covering the whole footprint with seams.

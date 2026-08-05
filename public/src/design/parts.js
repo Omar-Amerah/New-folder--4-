@@ -14,7 +14,10 @@ export const PART_DEFS = {
   wingFrame: { name: "Wing Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
   wingArmor: { name: "Wing Armor", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
   wingCompositeArmor: { name: "Wing Composite Armor", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
-  ablativeArmor: { name: "Ablative Plating", color: "#ff8c69", glyph: "linear-gradient(160deg, #ffb89a, #c45c3e)" },
+  // Scorched crimson, deliberately away from Armor's orange and Composite's tan:
+  // ablative plating is a different material with a different failure mode and
+  // must not read as "another armour block" in the palette.
+  ablativeArmor: { name: "Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
   bevelArmor: { name: "Bevel Armour", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
   bevelCompositeArmor: { name: "Bevel Composite Armour", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
   bevelFrame: { name: "Bevel Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },

@@ -277,6 +277,87 @@ module.exports = Object.freeze({
   // obstacle. Small: this is a contact margin, not a comfortable standoff.
   ORBIT_PINCH_HULL_MARGIN: 10,
 
+  // --- Kite ---------------------------------------------------------------
+  // Kite is a travelling ranged stance: it holds its target near the far edge
+  // of its main battery, runs when the range collapses, and closes only when
+  // the target leaves that battery's reach. Like Orbit it never latches and is
+  // never given a position by anything above it -- every constant here shapes
+  // ONE ship's own band around its own target.
+  //
+  // There is no reverse thrust in the movement model, so "retreat" is a hull
+  // heading with an outward component plus ordinary forward propulsion. A
+  // rear-mounted gun is what lets that heading keep shooting; see the heading
+  // search in movementV2.js, which scores mount bearings rather than assuming
+  // the ship must look at what it is fighting.
+  //
+  // The band, as fractions of the main battery's all-heading reach. Preferred
+  // sits inside the edge rather than on it, because a ship parked exactly on
+  // its maximum range drops out of it every time the target drifts outward.
+  KITE_PREFERRED_RANGE_RATIO: 0.9,
+  // Below this the ship is being crowded and runs. The gap to preferred is the
+  // hysteresis: without it a one-pixel range change would flip the mode.
+  KITE_INNER_RANGE_RATIO: 0.78,
+  // Above this the target has left the band and is worth closing on -- if
+  // Pursue allows. Deliberately short of 1: re-approach has to start while the
+  // guns still reach, not after they have stopped.
+  KITE_OUTER_RANGE_RATIO: 0.96,
+
+  // How far ahead the target's own motion is projected when deciding whether
+  // the range is about to collapse. Short and bounded on purpose: this is
+  // reaction time, not a prediction of where the fight will be.
+  KITE_TARGET_PREDICTION_SECONDS: 0.6,
+  // Range error -> desired opening speed. Under 1 so the correction eases onto
+  // the preferred range instead of arriving at it under full power.
+  KITE_RANGE_GAIN: 0.8,
+  // Extra opening speed asked for on top of merely matching a closing target,
+  // so a retreat actually gains ground rather than holding the gap.
+  KITE_CLOSING_SPEED_BUFFER: 18,
+  // Closing speed at which the target counts as pressing, whatever the current
+  // range says.
+  KITE_CLOSING_TRIGGER_SPEED: 16,
+
+  // A retreat aim point is placed this far ahead: far enough that the hull has
+  // somewhere to be going, short enough that it stays inside checked geometry.
+  KITE_ESCAPE_LOOKAHEAD_MIN: 360,
+  KITE_ESCAPE_LOOKAHEAD_SECONDS: 2,
+  // The heading search is a cadence, never a per-tick decision. Between runs
+  // the committed heading stands and only the aim point moves ahead of the hull.
+  KITE_ESCAPE_REPLAN_MS: 500,
+  // How often a committed plan re-checks that the ground it is flying over is
+  // still clear.
+  KITE_CLEAR_SCAN_MS: 150,
+  // ...and immediately if the target has moved this far, because then the band
+  // the plan was drawn for is somewhere else.
+  KITE_TARGET_MOVE_REPLAN: 120,
+
+  // Kite reacts to the world edge before touching it. Collision clamping at the
+  // boundary is a safety net, not navigation: this inset is what keeps escape
+  // destinations off the wall in the first place.
+  KITE_EDGE_BUFFER_MIN: 120,
+  // How hard proximity to that inset biases the heading choice back inward.
+  KITE_EDGE_INWARD_BIAS: 0.35,
+
+  // A new heading has to be this much better than the one being flown before it
+  // is taken. This is what stops a ship alternating between two nearly equal
+  // escape sides every few ticks.
+  KITE_HEADING_IMPROVEMENT_RATIO: 0.12,
+  // Floor on the outward projection used to convert a desired opening speed
+  // into a forward speed. Without it a near-tangential heading divides by
+  // nothing and asks for infinite thrust.
+  KITE_MIN_ESCAPE_PROJECTION: 0.15,
+  // Extra room a Kite detour route is planned with, on top of the ordinary
+  // navigation envelope -- the same allowance and for the same reason as
+  // ORBIT_AVOIDANCE_ROUTE_PAD.
+  KITE_ROUTE_PAD: 24,
+
+  // Daylight between the two hulls when the guns want a band so short that the
+  // ship would otherwise be asked to stand inside its target.
+  KITE_CONTACT_PADDING: 48,
+  // How long a ship that could find nowhere safe to go waits before looking
+  // again. Bounded, so being boxed in for a moment does not run the candidate
+  // search every tick.
+  KITE_BLOCKED_RETRY_MS: 500,
+
   // --- Component heat from movement --------------------------------------
   ENGINE_HEAT_BASE: 2,
   ENGINE_HEAT_PER_THRUST: 0.018,

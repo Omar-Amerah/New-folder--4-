@@ -718,7 +718,30 @@ function updatePixiEffects(env, now, bounds, renderTime) {
       }
       drawn++;
 
-      if (effect.type === "beam") {
+      if (effect.type === "beam" && effect.subtype === "induction") {
+        // Thermal induction lance: a thin violet coupling beam, deliberately
+        // unlike the beam emitter's wide cyan cutting beam. It carries no
+        // damage, so it reads as a tight energised link with a hot bloom where
+        // it couples into the hull rather than a heavy burning column.
+        const beamT = clamp(age / 120, 0, 1);
+        const beamAlpha = 1 - beamT * 0.6;
+        const x2 = effect.x2 || x;
+        const y2 = effect.y2 || y;
+        const radius = effect.radius || 24;
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: Math.max(radius * 0.9, 8 / zoom), color: "rgba(147,51,234,0.22)", alpha: beamAlpha, cap: "round" });
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: Math.max(radius * 0.24, 3 / zoom), color: "rgba(216,180,254,0.7)", alpha: beamAlpha, cap: "round" });
+        gfx.moveTo(x, y);
+        gfx.lineTo(x2, y2);
+        gfx.stroke({ width: Math.max(radius * 0.07, 1.2 / zoom), color: "rgba(253,244,255,0.95)", alpha: beamAlpha, cap: "round" });
+        // Coupling bloom at the contact point, brighter as the ramp builds.
+        const ramp = clamp(Number(effect.charge) || 0, 0, 1);
+        gfx.circle(x2, y2, Math.max(radius * 0.22, 4 / zoom) * (0.7 + ramp * 0.6));
+        gfx.fill({ color: "#e879f9", alpha: beamAlpha * 0.55 });
+      } else if (effect.type === "beam") {
         const beamT = clamp(age / 120, 0, 1);
         const beamAlpha = 1 - beamT * 0.65;
         const x2 = effect.x2 || x;

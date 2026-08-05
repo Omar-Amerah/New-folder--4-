@@ -4,7 +4,7 @@
 // so the Pixi arena renderer and the blueprint/UI bakers share one source of truth.
 
 import { PART_STATS } from "../design/parts.js";
-import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.js";
+import { moduleRotationToRadians, normalizeRotation, directionalFootprintToShipRadians } from "../design/rotation.js";
 import { getOccupiedCells } from "../design/footprint.js";
 
 // Grid center for the 15x15 build grid (core sits here), so modules render
@@ -77,7 +77,8 @@ export function shipLocalBounds(design, scale = 13) {
 // the footprint's long axis. Used by the arena renderer and the blueprint/UI
 // bakers so blueprint and in-game visuals stay consistent.
 export function footprintLocalPlacement(part, scale) {
-  const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
+  const stat = PART_STATS[part.type] || {};
+  const footprint = stat.footprint || { width: 1, height: 1 };
   const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
   let sx = 0, sy = 0, minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
   for (const cell of cells) {
@@ -92,13 +93,20 @@ export function footprintLocalPlacement(part, scale) {
   const swap = rot === 90 || rot === 270;
   const w = swap ? footprint.height : footprint.width;
   const h = swap ? footprint.width : footprint.height;
+  // A rotatable cut-away shape (the long wedge) carries its direction in its
+  // own silhouette, so it has to follow the full placement rotation. The bare
+  // long-axis rule below only distinguishes the axis, which would render a prow
+  // placed at 180 deg still pointing forward.
+  const directionalShape = Boolean(stat.shapeType) && Boolean(stat.rotatable);
   return {
     cx: sx / cells.length,
     cy: sy / cells.length,
     tilesLong: Math.max(w, h),
     tilesCross: Math.min(w, h),
     // Long axis runs along local x when its x-span is the larger one, else local y.
-    longAxisAngle: (maxx - minx) >= (maxy - miny) ? 0 : Math.PI / 2,
+    longAxisAngle: directionalShape
+      ? directionalFootprintToShipRadians(rot, footprint)
+      : ((maxx - minx) >= (maxy - miny) ? 0 : Math.PI / 2),
     multi: cells.length > 1
   };
 }

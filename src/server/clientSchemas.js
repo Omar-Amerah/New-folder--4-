@@ -2,7 +2,7 @@ const { sanitizeRoomCode } = require('./validation');
 const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
 const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
 const TYPES = ['ping','join','ready','deploy','buyShip','setCombatStyle','setOrbitDirection','setMovementToggles','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','setColor','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
-// The four live stances plus the legacy names sanitizeCombatStyle() still maps
+// The five live stances plus the legacy names sanitizeCombatStyle() still maps
 // onto them. Deliberately permissive: an unrecognised style rejects the entire
 // deploy/buyShip message, so a blueprint saved under an old stance name would
 // fail to deploy rather than come in under its replacement.

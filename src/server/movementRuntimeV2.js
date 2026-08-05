@@ -120,8 +120,59 @@ function createMovementRuntime() {
     // next few metres ahead looked clear would turn back into the obstacle it
     // was halfway round.
     orbitAvoidance: null,
+    // --- Kite ---
+    // The Kite controller is flying this ship, so the ceiling below applies.
+    // Separate from the ceiling for the same reason Orbit's is: a legitimate
+    // ceiling of zero and "this ship is not kiting" are different instructions.
+    kiteSteering: false,
+    // Steering at a Kite aim point with nothing in the way. The point is a
+    // bearing regenerated ahead of the hull rather than a place, so while this
+    // is set the ordinary arrival and route limits do not apply to it. A
+    // committed detour around static geometry sets it false and IS a real
+    // destination, with the ordinary route limits back in force.
+    kiteDirect: false,
+    // What the radial range controller will allow this tick. Recomputed every
+    // tick and never latched.
+    kiteSpeedLimit: 0,
+    // The tactical mode last chosen: approach, maintain, retreat, reposition or
+    // blocked. Read for hysteresis, so a mode is not re-derived from scratch
+    // every tick and cannot flip on a one-pixel range change.
+    kiteMode: null,
+    // The hull heading being flown. Held between heading searches -- this is
+    // what stops a ship alternating between two nearly equal escape sides.
+    kiteHeading: null,
+    // The committed plan: which heading, which destination, and the band it was
+    // drawn for. Null while there is nothing to fly.
+    kitePlan: null,
+    // Cadence gates. Neither is a latch: the heading search and the clear-path
+    // sweep are simply not repeated on every tick of every kiting ship.
+    kiteReplanAt: 0,
+    kiteScanAt: 0,
+    // Which way round an obstacle or a world edge this ship went, +1 or -1, or
+    // 0 for none. Persisted so a ship escaping along a boundary does not change
+    // its mind halfway and end up pinned in the corner it started from.
+    kiteEscapeSide: 0,
+    // The target the state above was built for. A different one resets the
+    // band, the heading and the escape side rather than inheriting them.
+    kiteTargetId: null
   };
 }
+
+// Every Kite field, with the values a ship that has never kited carries. Used
+// both to build a fresh runtime and to bring an older one up to shape, so the
+// two can never describe different state.
+const KITE_RUNTIME_DEFAULTS = Object.freeze({
+  kiteSteering: false,
+  kiteDirect: false,
+  kiteSpeedLimit: 0,
+  kiteMode: null,
+  kiteHeading: null,
+  kitePlan: null,
+  kiteReplanAt: 0,
+  kiteScanAt: 0,
+  kiteEscapeSide: 0,
+  kiteTargetId: null
+});
 
 function ensureMovementRuntime(ship) {
   const runtime = ship.movement;
@@ -149,6 +200,12 @@ function ensureMovementRuntime(ship) {
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDirect")) runtime.orbitDirect = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitScanAt")) runtime.orbitScanAt = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitAvoidance")) runtime.orbitAvoidance = null;
+  // A runtime built before Kite had any state -- an older snapshot, a hand-made
+  // test fixture -- gets the whole block at its resting values rather than
+  // reaching the controller with half of it undefined.
+  for (const key of Object.keys(KITE_RUNTIME_DEFAULTS)) {
+    if (!Object.prototype.hasOwnProperty.call(runtime, key)) runtime[key] = KITE_RUNTIME_DEFAULTS[key];
+  }
   return runtime;
 }
 
@@ -197,6 +254,10 @@ function setMovementCommand(ship, command) {
   runtime.orbitSpeedLimit = 0;
   runtime.orbitDirect = false;
   runtime.orbitAvoidance = null;
+  // Kite keeps nothing across an order. Its band, heading, escape side and
+  // route were all chosen for the target of the order being replaced, and a
+  // stale speed ceiling would throttle whatever comes next.
+  for (const key of Object.keys(KITE_RUNTIME_DEFAULTS)) runtime[key] = KITE_RUNTIME_DEFAULTS[key];
   // A new order always retires the previous order's approach lane. The command
   // that issued this one hands out a new one if it planned any.
   runtime.attackLane = null;
@@ -232,6 +293,7 @@ function syncMovementTarget(ship) {
 }
 
 module.exports = {
+  KITE_RUNTIME_DEFAULTS,
   createMovementRuntime,
   ensureMovementRuntime,
   nextMovementCommandId,

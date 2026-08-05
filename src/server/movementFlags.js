@@ -3,10 +3,10 @@
 // Order types the movement controller understands.
 //
 // The rewrite's temporary scaffolding has been removed: there is no fallback
-// implementation to switch to any more, and the withdrawn combat stances are
-// handled where stances actually live -- sanitizeCombatStyle in validation.js
-// resolves Charge, Orbit and Kite to Hold, so no ship can end up carrying a
-// stance nothing flies.
+// implementation to switch to any more, and withdrawn combat stances are
+// handled where stances actually live -- WITHDRAWN_COMBAT_STYLES in
+// validation.js parks any stance the controller cannot fly on Hold, so no ship
+// can end up carrying one nothing flies. Nothing is parked there now.
 const SUPPORTED_MOVEMENT_TYPES = Object.freeze(["move", "stop", "attack", "repair"]);
 
 // The shape a group order comes out of. There is exactly one: a compact clump,

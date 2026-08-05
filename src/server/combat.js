@@ -541,6 +541,10 @@ function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, world
     room.effects.push({
       type: "beam",
       beamStyle: effectiveWeapon.beamStyle || "induction",
+      // beamStyle is not part of the replicated effect schema; subtype is, and
+      // it is what the renderer reads to draw the induction lance's violet
+      // coupling beam instead of the beam emitter's cyan cutting beam.
+      subtype: effectiveWeapon.beamStyle || "induction",
       ownerId: ship.ownerId,
       x: muzzle.x,
       y: muzzle.y,
@@ -548,6 +552,9 @@ function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, world
       y2: targetPos.y,
       radius: beamRadius,
       rampProgress: progress,
+      // Replicated ramp: `charge` is the effect schema's carried scalar, so the
+      // renderer can brighten the coupling bloom as the lance spins up.
+      charge: progress,
       shieldAttenuated,
       at: now
     });
@@ -3868,25 +3875,33 @@ function evaluateHoldWeaponCoverage(room, ship, target, heading, now) {
   };
 }
 
-// The radius an orbiting ship can hold its target at and still have the whole
-// main battery bear on it.
+// The main offensive battery: which guns a travelling stance is allowed to
+// choose its range and its heading for, and the radius at which all of them
+// reach.
 //
-// Orbit cannot use the Hold coverage measurement: that one is a property of a
-// chosen hull heading, and an orbiting hull's heading changes continuously as
-// it goes round. What Orbit needs is the radius that works at ANY heading, so
-// each gun is charged the full distance its mount can be swung away from the
+// A travelling stance cannot use the Hold coverage measurement: that one is a
+// property of a chosen hull heading, and an orbiting or kiting hull's heading
+// changes continuously. What it needs is the radius that works at ANY heading,
+// so each gun is charged the full distance its mount can be swung away from the
 // target -- the mount offset -- and the group is limited by its worst member.
 //
 // "Main battery" is the same group Hold stops for, and for the same reason: one
 // short-ranged secondary must not drag a long-ranged hull into a knife fight to
-// satisfy itself. Returns 0 for a ship with no offensive weapon reaching
-// anywhere, which is the caller's cue to fall back on the hull's own envelope.
+// satisfy itself. Point Defence, Flak and repair beams are already excluded by
+// holdFacingWeapons, along with anything destroyed, unpowered, overheated or
+// with no meaningful tactical output -- including the zero-damage induction
+// weapons, which are scored on the heat they can put into a hull instead. That
+// measure is for movement and facing only; nothing shows it as DPS.
+//
+// `standoffRange` is 0 for a ship with no offensive weapon reaching anywhere,
+// which is the caller's cue to fall back on the hull's own envelope.
+//
 // Unlike the Hold coverage measurement, which movement asks for on a cadence,
-// this one is wanted by every orbiting ship on every tick. Rebuilding the
+// this one is wanted by every travelling ship on every tick. Rebuilding the
 // weapon list that often is exactly the sort of per-tick allocation that has
 // shown up in server profiles before, and the answer only moves when the
 // weapons themselves do -- so it is keyed on the revisions that mark that.
-function mainBatteryOrbitRangeSignature(ship) {
+function mainBatterySignature(ship) {
   return [
     ensureEffectiveWeaponProfileCache(ship)?.revision || 0,
     ship?.designRevision || 0,
@@ -3896,27 +3911,80 @@ function mainBatteryOrbitRangeSignature(ship) {
   ].join("|");
 }
 
-function mainBatteryOrbitRange(ship) {
-  if (!ship || typeof ship !== "object") return 0;
-  const signature = mainBatteryOrbitRangeSignature(ship);
-  const cached = ship._orbitBatteryRange;
-  if (cached && cached.signature === signature) return cached.range;
+const EMPTY_MAIN_BATTERY = Object.freeze({
+  weapons: Object.freeze([]),
+  longestRange: 0,
+  groupRange: 0,
+  standoffRange: 0,
+  output: 0
+});
 
-  const weapons = holdFacingWeapons(ship);
-  let range = 0;
-  if (weapons.length) {
-    let longest = 0;
-    for (const weapon of weapons) longest = Math.max(longest, weapon.range);
-    const groupRange = longest * HOLD_COVERAGE_RANGE_GROUP_RATIO;
+function mainBatteryProfile(ship) {
+  if (!ship || typeof ship !== "object") return EMPTY_MAIN_BATTERY;
+  const signature = mainBatterySignature(ship);
+  const cached = ship._mainBatteryProfile;
+  if (cached && cached.signature === signature) return cached.profile;
+
+  const all = holdFacingWeapons(ship);
+  let profile = EMPTY_MAIN_BATTERY;
+  if (all.length) {
+    let longestRange = 0;
+    for (const weapon of all) longestRange = Math.max(longestRange, weapon.range);
+    const groupRange = longestRange * HOLD_COVERAGE_RANGE_GROUP_RATIO;
+    // Selected by range alone and in the order the design already gives them,
+    // so the same hull produces the same battery however its modules happen to
+    // be ordered.
+    const weapons = all.filter((weapon) => weapon.range >= groupRange);
     let reach = Infinity;
+    let output = 0;
     for (const weapon of weapons) {
-      if (weapon.range < groupRange) continue;
       reach = Math.min(reach, weapon.range - weapon.mountOffset);
+      output += weapon.expectedDps;
     }
-    range = Number.isFinite(reach) ? Math.max(0, reach) : 0;
+    profile = {
+      weapons,
+      longestRange,
+      groupRange,
+      standoffRange: Number.isFinite(reach) ? Math.max(0, reach) : 0,
+      output
+    };
   }
-  ship._orbitBatteryRange = { signature, range };
-  return range;
+  ship._mainBatteryProfile = { signature, profile };
+  return profile;
+}
+
+// The radius an orbiting ship can hold its target at and still have the whole
+// main battery bear on it. Orbit's own name for the shared measurement above.
+function mainBatteryOrbitRange(ship) {
+  return mainBatteryProfile(ship).standoffRange;
+}
+
+// What the main battery could actually do to this target from where the hull is
+// standing, if it were pointing `heading`.
+//
+// This is the same eligibility the firing path uses -- relationship, visibility,
+// range, fixed arcs, physical mount position -- parameterized with a candidate
+// hull heading, and it is what lets Kite choose a heading that runs away and
+// keeps shooting rather than one or the other. Secondaries are deliberately not
+// counted: they still fire, they just do not get a vote on where the hull looks.
+function evaluateMainBatteryFacing(room, ship, target, heading, now) {
+  const profile = mainBatteryProfile(ship);
+  if (!profile.weapons.length) {
+    return { output: 0, weaponCount: 0, totalOutput: 0 };
+  }
+  const evaluated = evaluateHoldFacing(
+    room,
+    ship,
+    target,
+    profile.weapons,
+    holdFacingAngle(heading),
+    now
+  );
+  return {
+    output: evaluated.score,
+    weaponCount: evaluated.weaponCount,
+    totalOutput: profile.output
+  };
 }
 
 // Choose a hull orientation only. This helper deliberately has no movement
@@ -6288,7 +6356,9 @@ module.exports = {
 
   chooseHoldWeaponFacing,
   evaluateHoldWeaponCoverage,
+  evaluateMainBatteryFacing,
   mainBatteryOrbitRange,
+  mainBatteryProfile,
 
   damageShip,
 

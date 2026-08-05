@@ -52,6 +52,7 @@ const GROUPS = {
     "tests/verify-movement-collision.js",
     "tests/verify-movement-hold-facing.js",
     "tests/verify-movement-orbit.js",
+    "tests/verify-movement-kite.js",
     "tests/verify-propulsion-rebalance.js",
     "tests/verify-targeting.js",
     "tests/verify-turrets.js",

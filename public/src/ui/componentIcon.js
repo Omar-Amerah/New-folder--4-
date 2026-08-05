@@ -78,6 +78,15 @@ function footprintArtAngle(type, rotationDeg, wCells, hCells) {
     const baseAngle = (footprint.width || 1) >= (footprint.height || 1) ? 0 : -Math.PI / 2;
     return baseAngle + moduleRotationToRadians(normalizeRotation(rotationDeg));
   }
+  if (stat.shapeType && stat.rotatable) {
+    // Rotatable cut-away shapes (the long wedge) point where they are placed;
+    // the footprint's long axis alone cannot tell 0 from 180 deg. Same facing
+    // the arena uses in footprintLocalPlacement, minus the blueprint-up offset.
+    return directionalFootprintToShipRadians(
+      normalizeRotation(rotationDeg),
+      stat.footprint
+    ) - Math.PI / 2;
+  }
   return wCells >= hCells ? 0 : -Math.PI / 2;
 }
 

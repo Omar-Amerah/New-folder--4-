@@ -12,24 +12,25 @@ function sanitizeTeam(team, fallbackId) {
 }
 
 
-// The combat stances the movement controller implements: Charge, Hold, Orbit,
-// Static.
+// The combat stances the movement controller implements: Charge, Hold, Kite,
+// Orbit, Static.
 //
-// Kite is withdrawn rather than deleted: the name still parses, so saved
-// blueprints, older clients and stored player preferences all keep loading, but
-// it resolves to Hold. That means a ship can never end up carrying a stance
-// nothing will fly, and it can be reinstated by removing it from this set once
-// the controller flies it.
+// A stance belongs here only once the controller actually flies it. Kite was
+// withdrawn to Hold for exactly as long as it had no controller; it has one now
+// (planKite in movementV2.js), so it is canonical again and every value that
+// was parked on Hold in the meantime -- saved blueprints, stored player
+// preferences, older clients that never stopped sending it -- loads as Kite.
 //
-// Clients are still free to send it; they simply get Hold back in the
-// acknowledgement and in the snapshot, which is what tells the UI what actually
-// happened.
-const WITHDRAWN_COMBAT_STYLES = new Set(["kite"]);
+// The set is kept rather than deleted: it is the seam a future stance is
+// withdrawn through, and an empty one states plainly that nothing is currently
+// parked.
+const WITHDRAWN_COMBAT_STYLES = new Set();
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
   if (WITHDRAWN_COMBAT_STYLES.has(clean)) return "hold";
-  if (clean === "charge" || clean === "hold" || clean === "orbit" || clean === "static") return clean;
+  if (clean === "charge" || clean === "hold" || clean === "kite"
+    || clean === "orbit" || clean === "static") return clean;
   // Compatibility for saved blueprints and older clients. The aggressive aliases
   // resolve to Charge, matching how the client's own normalizeCombatStyle maps
   // them, so a blueprint saved as "brawler" gets the stance it was named for.
