@@ -14,7 +14,7 @@ const {
 const { performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
 
-const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, PIPE_NETWORK_ATTACHMENT_BANDWIDTH, PIPE_NETWORK_PASSES } = HeatRules;
+const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, PIPE_NETWORK_ATTACHMENT_BANDWIDTH } = HeatRules;
 
 const TELEMETRY_STRIDE = 8;
 const TELEMETRY_FIELDS = Object.freeze([
@@ -882,7 +882,9 @@ function solvePipeNetworks(ship, elapsed) {
     }
     if (attachments.length === 0) continue;
 
-    const busTemperature = attachmentCapacity > 0 ? attachmentHeat / attachmentCapacity : 0;
+    const totalHeat = networkHeat + attachmentHeat;
+    const totalCapacity = networkCapacity + attachmentCapacity;
+    const busTemperature = totalCapacity > 0 ? totalHeat / totalCapacity : 0;
 
     let sourceTotal = 0;
     const sources = [];
@@ -905,23 +907,44 @@ function solvePipeNetworks(ship, elapsed) {
       }
     }
 
+    const pipeRatio = networkHeat / networkCapacity;
+    if (pipeRatio > busTemperature) {
+      const amount = networkHeat;
+      if (amount > 0) {
+        sources.push({ pipe: true, amount });
+        sourceTotal += amount;
+      }
+    } else if (pipeRatio < busTemperature) {
+      const amount = networkCapacity - networkHeat;
+      if (amount > 0) {
+        sinks.push({ pipe: true, amount });
+        sinkTotal += amount;
+      }
+    }
+
     const sourceScale = sourceTotal > 0 ? Math.min(1, sinkTotal / sourceTotal) : 0;
     const sinkScale = sinkTotal > 0 ? Math.min(1, sourceTotal / sinkTotal) : 0;
 
-    let actualSource = 0;
-    for (const { a, amount } of sources) {
-      const actual = amount * sourceScale;
-      a.heat = Math.max(0, a.heat - actual);
-      a.delta -= actual;
-      actualSource += actual;
+    let actualPipeSource = 0;
+    for (const s of sources) {
+      const actual = s.amount * sourceScale;
+      if (s.pipe) {
+        actualPipeSource += actual;
+      } else {
+        s.a.heat = Math.max(0, s.a.heat - actual);
+        s.a.delta -= actual;
+      }
     }
-    let actualSink = 0;
-    for (const { a, amount } of sinks) {
-      const actual = amount * sinkScale;
-      a.heat += actual;
-      a.delta += actual;
-      ship.componentHeatTransferredOut[a.pipeIndex] += actual;
-      actualSink += actual;
+    let actualPipeSink = 0;
+    for (const s of sinks) {
+      const actual = s.amount * sinkScale;
+      if (s.pipe) {
+        actualPipeSink += actual;
+      } else {
+        s.a.heat += actual;
+        s.a.delta += actual;
+        ship.componentHeatTransferredOut[s.a.pipeIndex] += actual;
+      }
     }
 
     for (const a of attachments) {
@@ -931,24 +954,13 @@ function solvePipeNetworks(ship, elapsed) {
       else if (a.delta < 0) ship.componentHeatTransferredOut[a.index] += -a.delta;
     }
 
-    const pipeDelta = actualSource - actualSink;
-    if (pipeDelta !== 0) {
-      let applied = 0;
-      for (let i = 0; i < alivePipes.length - 1; i += 1) {
-        const pipeIndex = alivePipes[i];
-        const share = pipeDelta * (ship.componentThermals[pipeIndex].capacity / networkCapacity);
-        const current = runtime.workingHeat[pipeIndex];
-        const clampedShare = Math.max(-current, share);
-        runtime.delta[pipeIndex] += clampedShare;
-        runtime.workingHeat[pipeIndex] = Math.max(0, current + clampedShare);
-        applied += clampedShare;
-      }
-      const lastPipe = alivePipes[alivePipes.length - 1];
-      const remaining = pipeDelta - applied;
-      const lastCurrent = runtime.workingHeat[lastPipe];
-      const lastClamped = Math.max(-lastCurrent, remaining);
-      runtime.delta[lastPipe] += lastClamped;
-      runtime.workingHeat[lastPipe] = Math.max(0, lastCurrent + lastClamped);
+    const finalPipeHeat = Math.max(0, Math.min(networkCapacity, networkHeat - actualPipeSource + actualPipeSink));
+    for (const pipeIndex of alivePipes) {
+      const target = finalPipeHeat * (ship.componentThermals[pipeIndex].capacity / networkCapacity);
+      const current = runtime.workingHeat[pipeIndex];
+      const clamped = Math.max(0, Math.min(ship.componentThermals[pipeIndex].capacity, target));
+      runtime.delta[pipeIndex] += clamped - current;
+      runtime.workingHeat[pipeIndex] = clamped;
     }
   }
 }
