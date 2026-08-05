@@ -96,18 +96,30 @@ function createMovementRuntime() {
     // Shedding the old tangential speed after a direction toggle. A reversal is
     // a physical turnaround, not a sign flip on the velocity.
     orbitReversing: false,
-    // Ceiling the orbit controller put on this tick's speed -- the turn-rate
-    // limit for the radius being flown, or the reversal brake. Zero and below
-    // mean "no orbit limit"; it is recomputed every tick and never latched.
+    // The orbit controller is flying this ship, so the ceiling below applies.
+    // Kept separate from the ceiling itself because a legitimate ceiling of
+    // zero -- braking hard for an obstacle -- and "this ship is not orbiting"
+    // are different instructions and must not share a sentinel.
+    orbitSteering: false,
+    // Ceiling the orbit controller put on this tick's speed: the turn-rate
+    // limit for the radius being flown, the room left before an obstacle, or
+    // the reversal brake. Recomputed every tick and never latched.
     orbitSpeedLimit: 0,
     // Steering straight at the orbit aim point, with no obstacle in the way.
     // The aim point is a bearing rather than a place, so while this is set the
     // ordinary arrival and route limits do not apply to it.
     orbitDirect: false,
-    // A static-obstacle detour around something sitting on the direct line to
-    // the aim point. Anchored on the orbit circle and re-planned on a cadence,
-    // because the aim point itself moves every tick.
-    orbitDetour: null,
+    // When this ship next sweeps its predicted path for static geometry. Only
+    // meaningful while nothing has been found; a committed manoeuvre is
+    // reconsidered on its own replan cadence instead.
+    orbitScanAt: 0,
+    // A committed manoeuvre around static geometry, or null while the ship is
+    // orbiting freely. `phase` is "detour" while the obstacle is still in the
+    // way and "rejoin" once there is a clear run back to the circle. It is
+    // deliberately latched: an orbit that dropped its detour as soon as the
+    // next few metres ahead looked clear would turn back into the obstacle it
+    // was halfway round.
+    orbitAvoidance: null,
   };
 }
 
@@ -132,9 +144,11 @@ function ensureMovementRuntime(ship) {
     runtime.orbitDirection = Number(ship.orbitDirection) === -1 ? -1 : 1;
   }
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitReversing")) runtime.orbitReversing = false;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSteering")) runtime.orbitSteering = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSpeedLimit")) runtime.orbitSpeedLimit = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDirect")) runtime.orbitDirect = false;
-  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDetour")) runtime.orbitDetour = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitScanAt")) runtime.orbitScanAt = 0;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitAvoidance")) runtime.orbitAvoidance = null;
   return runtime;
 }
 
@@ -179,9 +193,10 @@ function setMovementCommand(ship, command) {
   // way round a ship goes is a standing property of the ship, and re-targeting
   // must not silently put it back to clockwise.
   runtime.orbitReversing = false;
+  runtime.orbitSteering = false;
   runtime.orbitSpeedLimit = 0;
   runtime.orbitDirect = false;
-  runtime.orbitDetour = null;
+  runtime.orbitAvoidance = null;
   // A new order always retires the previous order's approach lane. The command
   // that issued this one hands out a new one if it planned any.
   runtime.attackLane = null;

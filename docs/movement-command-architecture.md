@@ -19,7 +19,7 @@ This document records the authoritative movement contract after the Section 6 re
 | `targetX`, `targetY`, `arrived`, `isManualMove`, `commandMode` | Server command and movement own destination state. Commands and rally-spawn movement set targets, `commandMode` and clear stale arrival; arrival/braking and combat-style movement update them. |
 | `combatStyle`, `focusTargetId`, `combatTargetId`, `repairTargetId` | Server command/combat own intent. Commands set focus/repair targets; combat may set `combatTargetId`; movement clears dead target/orbit state. |
 | `orbitDirection` | Ship-owned and persistent: `1` clockwise, `-1` anticlockwise. Survives stance changes, so re-selecting Orbit resumes the way round the ship was already going. `movement.orbitDirection` mirrors it for the steering to read; the hull's copy is authoritative. |
-| `movement.holdFacing`, `movement.holdCoverageRange`, `movement.orbitReversing`, `movement.orbitSpeedLimit`, `movement.orbitDetour` | Movement-only stance memory. Reset when the relevant target, command or stance changes — but a direction-only change resets the orbit steering and nothing else. |
+| `movement.holdFacing`, `movement.holdCoverageRange`, `movement.orbitReversing`, `movement.orbitSteering`, `movement.orbitSpeedLimit`, `movement.orbitAvoidance` | Movement-only stance memory. Reset when the relevant target, command or stance changes — but a direction-only change resets the orbit steering and nothing else. `orbitSteering` is a separate flag from `orbitSpeedLimit` because a legitimate ceiling of zero and "not orbiting" must not share a sentinel. |
 | `rallyPoint` | Player-owned authoritative rally target. It is validated and adjusted server-side; new purchased ships spawn-to-rally without commanding existing ships. |
 | `validEngineIndices`, `blockedEngineIndices`, component Power state | Component-health/heat/power derived state consumed by movement stats. Destroyed, blocked, overheated or underpowered propulsion contributes reduced or zero movement. |
 | `hullAngleWeapons` | Movement/combat-facing cache for hull-rotation candidate ranking; derived from immutable spawned design and not client-authored. |
@@ -72,7 +72,28 @@ Each tick, per ship:
 
 The orbit radius comes from `mainBatteryOrbitRange` in `combat.js`, not from `getMaxEffectiveWeaponRange`. It is the main battery's reach charged the full mount offset of its worst member, so it holds at any hull heading — which matters because an orbiting hull's heading changes continuously. Secondaries much shorter than the longest gun get no vote, by the same rule Hold uses. A contact floor keeps a short-ranged brawler orbiting around its target rather than through it.
 
-Steering is direct while the line to the aim point is clear. When a static obstacle blocks it, the ship routes to a detour anchor placed further round the circle and re-planned only on a cadence; feeding the moving aim point to A\* would invalidate the route as fast as it could be built. The orbit itself is never represented as a circular A\* path.
+### Orbit obstacle avoidance
+
+Avoidance is a committed manoeuvre with three states, and the middle one is the point of it:
+
+| State | Steering | Leaves when |
+|---|---|---|
+| `direct` | live tangent + radial field, aim point | the predicted path is blocked |
+| `detour` | routed by `searchPathWorld` to a fixed rejoin point on the circle | there is a clear run, at full navigation clearance, to that rejoin point |
+| `rejoin` | live field again, so the return is a curve rather than an arrival | the path ahead is clear **and** the ship is back on its radius and tangent |
+
+The first version was reactive and got ships killed on the geometry it was supposed to avoid. It tested only the 180px aim point, so a ship whose braking distance exceeded that had no room left by the time it noticed; and it cleared the detour as soon as that short segment looked clear, which happened a few degrees into the turn — live steering then pulled straight back toward the target and into the side of the rock. Nothing in `detour` consults the aim point, and only the clear run to the committed rejoin point ends it.
+
+Four separate mechanisms keep the hull off the geometry, and they are not interchangeable:
+
+- **Detection horizon** (`orbitAvoidanceLookahead`): braking distance + reaction + envelope, times `ORBIT_AVOIDANCE_MARGIN`. This buys *orbiting*, not safety — seeing the obstacle early makes the response a course correction instead of one large deviation per lap.
+- **Braking ceiling** (`orbitBrakingCeiling`): every tick, in every state, along the ship's *actual velocity* rather than its intended heading. This is the safety guarantee: the ship can always stop before what is directly ahead. Momentum, not planning, is what puts a hull into a rock its route went around.
+- **Pinch escape**: a hull inside its own clearance envelope reads "zero distance until blocked", which as a speed ceiling is a trap — it cancels the velocity that would carry the ship out, and the ship sits against the rock permanently. It brakes to a standstill, then gets a crawl, and the crawl is withheld while the bare hull itself is about to make contact.
+- **Detour route padding** (`ORBIT_AVOIDANCE_ROUTE_PAD`): a detour is planned wider than ordinary navigation, because it is flown under momentum around the outside of a corner. A route drawn along the edge of the ordinary envelope leaves a hull tracking it a few pixels wide of the line in contact.
+
+Rejoin points are probed at increasing arcs ahead (`ORBIT_REJOIN_ARCS`) in the ship's own direction — avoidance never reverses a player's C/AC choice — and the first reachable one wins, so a large station simply pushes the choice further round. Detection is cadenced (`ORBIT_AVOIDANCE_SCAN_MS` when clear, `ORBIT_AVOIDANCE_REPLAN_MS` once committed) because the geometry is static; the orbit itself is never represented as a circular A\* path.
+
+`verify-movement-orbit.js` covers this against the ship's *physical* collision radius and against real rotated station pieces. Measuring hull centre against asteroid radius alone — as an earlier version did — reports a comfortable margin for a ship that is flat against the rock.
 
 Hull facing follows the flight path, because the aim point is the destination and the ordinary steering points the nose at it. Hold's stationary weapon-facing decision is not applied — that one picks an orientation for a ship that has stopped. Weapons track and fire independently throughout, including while the ship is still closing on its radius, which is what makes the C/AC choice tactical for a broadside hull: it decides which side of the ship faces inward.
 

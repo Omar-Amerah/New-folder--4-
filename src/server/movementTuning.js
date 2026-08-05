@@ -199,17 +199,83 @@ module.exports = Object.freeze({
   // ...or the heading error to the new tangent that also ends it, for a hull
   // agile enough to have come round before it finished shedding the old speed.
   ORBIT_REVERSAL_HEADING_TOLERANCE: 0.35,
-  // How far round the circle a detour anchor is placed when an obstacle blocks
-  // the direct line to the aim point, in radians of orbit arc. Far enough that
-  // the route goes past the obstacle rather than into the near edge of it.
-  ORBIT_DETOUR_ARC: Math.PI / 3,
-  // Detours are re-planned on a cadence rather than per tick. The aim point
-  // moves every tick by design, and feeding that to A* would invalidate the
-  // route as fast as it could be built.
-  ORBIT_DETOUR_REPLAN_MS: 750,
-  // ...and immediately if the target has moved this far since the anchor was
-  // placed, because then the anchor is no longer on the circle it was on.
-  ORBIT_DETOUR_TARGET_MOVE: 120,
+  // --- Orbit obstacle avoidance -------------------------------------------
+  // Avoidance is a committed manoeuvre, not a per-tick reaction. The ship
+  // predicts far enough ahead to have somewhere to turn, commits to a route
+  // round the obstacle, and rejoins the circle on the far side; it does not
+  // abandon the route the instant the next few metres in front of it look
+  // clear, because that is what walks a hull into the side of the rock.
+  //
+  // How long the helm is assumed to take to act, in seconds. Added to the
+  // braking distance so detection happens while there is still room to turn
+  // rather than only room to stop.
+  ORBIT_AVOIDANCE_REACTION_TIME: 0.35,
+  // How much further than its stopping distance the ship looks. At 1 it would
+  // notice every obstacle exactly as it had to begin an emergency stop.
+  //
+  // What this buys is orbiting, not safety -- the braking ceiling and the pinch
+  // margin are what stop the hull touching anything. Seeing the obstacle early
+  // lets the response be a course correction; seeing it late forces one large
+  // deviation per lap, and measurably so: past a large asteroid, halving this
+  // cut angular progress from ten radians to three over the same thirty
+  // seconds. A ship that spends the fight negotiating a rock is not orbiting.
+  ORBIT_AVOIDANCE_MARGIN: 2,
+  // Chords the predicted orbit path is sampled in. The path curves, so a single
+  // straight sweep would both miss obstacles on the inside of the turn and
+  // invent ones on the outside. The count follows the horizon so that a long
+  // sweep is not sampled so coarsely that a chord cuts the corner off the arc
+  // and passes straight over whatever is sitting on it.
+  ORBIT_AVOIDANCE_STEP_LENGTH: 110,
+  ORBIT_AVOIDANCE_MIN_STEPS: 3,
+  ORBIT_AVOIDANCE_MAX_STEPS: 12,
+  // Extra room a detour route is planned with, on top of the ordinary
+  // navigation envelope. A detour is flown under momentum, round the outside of
+  // a corner, so a route drawn along the edge of the ordinary envelope leaves a
+  // hull tracking it a few pixels wide of the line in contact with the
+  // obstacle. See routeClearance in movementV2.js.
+  ORBIT_AVOIDANCE_ROUTE_PAD: 24,
+  // Where a rejoin point may be placed, as arc ahead of the ship in its own
+  // direction of travel. Tried in order, so the first reachable one is the
+  // least deviation that works -- and a large station simply pushes the choice
+  // further round rather than needing different logic.
+  ORBIT_REJOIN_ARCS: Object.freeze([
+    Math.PI / 4,
+    Math.PI / 3,
+    Math.PI / 2,
+    Math.PI * 2 / 3,
+    Math.PI * 5 / 6
+  ]),
+  // How close to the orbit radius, and how well aligned with the tangent, the
+  // ship has to be before avoidance is released and live orbit steering resumes.
+  // Loose enough that the hull does not have to be threaded back onto the circle
+  // exactly, tight enough that it is genuinely orbiting when it takes over.
+  ORBIT_REJOIN_RADIAL_TOLERANCE: 110,
+  ORBIT_REJOIN_HEADING_TOLERANCE: 0.7,
+  // Avoidance is re-planned on a cadence, never per tick.
+  ORBIT_AVOIDANCE_REPLAN_MS: 1000,
+  // ...immediately if the target has moved this far, because then the rejoin
+  // point is no longer on the circle it was placed on...
+  ORBIT_AVOIDANCE_TARGET_MOVE: 140,
+  // ...and after this long if no rejoin point could be found at all, so a ship
+  // boxed in for a moment retries at a bounded rate instead of running the
+  // candidate search every tick.
+  ORBIT_AVOIDANCE_RETRY_MS: 500,
+  // How often a ship with nothing in the way sweeps its path again. The geometry
+  // being swept never moves and the ship covers a small fraction of its horizon
+  // in this long, so sweeping every tick is repeated work; the detection margin
+  // above is what makes the delay free.
+  ORBIT_AVOIDANCE_SCAN_MS: 150,
+  // Halvings used to find how much clear room lies directly ahead of the hull.
+  // Six brings a 600px sweep down to under ten pixels of uncertainty, for six
+  // segment checks -- and only on the ticks where something is in the way at all.
+  ORBIT_BRAKING_PROBE_STEPS: 6,
+  // The crawl a hull that has ended up inside its own clearance envelope is
+  // allowed, so the route can steer it back out. Slow enough that it cannot
+  // cross the remaining margin into the obstacle, fast enough to be steerable.
+  ORBIT_PINCH_ESCAPE_SPEED: 45,
+  // Daylight the crawl above insists on keeping between the bare hull and the
+  // obstacle. Small: this is a contact margin, not a comfortable standoff.
+  ORBIT_PINCH_HULL_MARGIN: 10,
 
   // --- Component heat from movement --------------------------------------
   ENGINE_HEAT_BASE: 2,

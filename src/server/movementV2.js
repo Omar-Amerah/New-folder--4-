@@ -32,14 +32,27 @@ const {
   HOLD_RESUME_RATIO,
   LATERAL_DAMPING,
   MAX_MOVEMENT_DT,
+  ORBIT_AVOIDANCE_MARGIN,
+  ORBIT_AVOIDANCE_MAX_STEPS,
+  ORBIT_AVOIDANCE_MIN_STEPS,
+  ORBIT_AVOIDANCE_REACTION_TIME,
+  ORBIT_AVOIDANCE_REPLAN_MS,
+  ORBIT_AVOIDANCE_RETRY_MS,
+  ORBIT_AVOIDANCE_SCAN_MS,
+  ORBIT_AVOIDANCE_ROUTE_PAD,
+  ORBIT_AVOIDANCE_STEP_LENGTH,
+  ORBIT_AVOIDANCE_TARGET_MOVE,
+  ORBIT_BRAKING_PROBE_STEPS,
   ORBIT_CONTACT_PADDING,
   ORBIT_CORRECTION_BAND,
-  ORBIT_DETOUR_ARC,
-  ORBIT_DETOUR_REPLAN_MS,
-  ORBIT_DETOUR_TARGET_MOVE,
   ORBIT_LOOKAHEAD_DISTANCE,
+  ORBIT_PINCH_ESCAPE_SPEED,
+  ORBIT_PINCH_HULL_MARGIN,
   ORBIT_RADIAL_GAIN,
   ORBIT_RANGE_RATIO,
+  ORBIT_REJOIN_ARCS,
+  ORBIT_REJOIN_HEADING_TOLERANCE,
+  ORBIT_REJOIN_RADIAL_TOLERANCE,
   ORBIT_REVERSAL_HEADING_TOLERANCE,
   ORBIT_REVERSAL_SPEED,
   ORBIT_TURN_MARGIN,
@@ -722,57 +735,288 @@ function orbitStandoff(ship, target) {
   return Math.max(contact, reach * ORBIT_RANGE_RATIO);
 }
 
-// A point on the orbit circle, `arc` radians around from where the ship is now
-// in its own direction of travel. Used only as a detour anchor: unlike the aim
-// point this is a fixed place in the world, so a route can be planned to it and
-// then flown without being invalidated by the ship's own progress.
-function orbitCirclePoint(ship, target, radialX, radialY, standoff, direction, arc) {
-  const angle = Math.atan2(radialY, radialX) + arc * direction;
-  const centreX = Number(target.x) || 0;
-  const centreY = Number(target.y) || 0;
-  // Rebuilt through engagementGeometry's own measure so a station's surface
-  // offset is included, exactly as the radial error is.
-  const skin = fastHypot(centreX - (ship.x || 0), centreY - (ship.y || 0))
+// How far from the target centre the orbit circle sits. Rebuilt through
+// engagementGeometry's own measure so a station's surface offset is included,
+// exactly as the radial error is; for a ship the skin term is zero.
+function orbitCircleRadius(ship, target, standoff) {
+  const skin = fastHypot((Number(target.x) || 0) - (ship.x || 0), (Number(target.y) || 0) - (ship.y || 0))
     - engagementGeometry(ship, target).distance;
-  const radius = Math.max(1, skin + standoff);
-  return { x: centreX + Math.cos(angle) * radius, y: centreY + Math.sin(angle) * radius };
+  return Math.max(1, skin + standoff);
 }
 
-// Is the aim point reachable in a straight line, or is there a rock in the way?
-//
-// A blocked line gets a static A* detour to an anchor further round the circle,
-// re-planned only on a cadence. Running ordinary route planning against the aim
-// point itself would replan every time the ship moved a route-replan distance,
-// which for a point that moves with the ship is continuously.
-function orbitSteeringDestination(room, ship, runtime, target, aim, radialX, radialY, standoff, direction, now) {
-  const clearance = routeClearance(ship);
-  if (isSegmentClear(room, ship.x, ship.y, aim.x, aim.y, clearance)) {
-    runtime.orbitDetour = null;
-    return { destination: aim, detouring: false };
-  }
-
-  const detour = runtime.orbitDetour;
-  const targetX = Number(target.x) || 0;
-  const targetY = Number(target.y) || 0;
-  const stale = !detour
-    || detour.targetId !== String(target.id)
-    || now >= (Number(detour.replanAt) || 0)
-    || fastHypot(targetX - detour.targetX, targetY - detour.targetY) > ORBIT_DETOUR_TARGET_MOVE
-    || fastHypot(detour.x - (ship.x || 0), detour.y - (ship.y || 0)) <= waypointCaptureRadius(ship);
-  if (!stale) return { destination: { x: detour.x, y: detour.y }, detouring: true };
-
-  const anchor = orbitCirclePoint(ship, target, radialX, radialY, standoff, direction, ORBIT_DETOUR_ARC);
-  const clear = nearestClearPoint(room, anchor.x, anchor.y, clearance);
-  const placed = clear.clear ? { x: clear.x, y: clear.y } : anchor;
-  runtime.orbitDetour = {
-    targetId: String(target.id),
-    targetX,
-    targetY,
-    x: placed.x,
-    y: placed.y,
-    replanAt: now + ORBIT_DETOUR_REPLAN_MS
+// A point on the orbit circle, `arc` radians around from where the ship is now
+// in its own direction of travel.
+function orbitCirclePoint(ship, target, radialX, radialY, standoff, direction, arc) {
+  const angle = Math.atan2(radialY, radialX) + arc * direction;
+  const radius = orbitCircleRadius(ship, target, standoff);
+  return {
+    x: (Number(target.x) || 0) + Math.cos(angle) * radius,
+    y: (Number(target.y) || 0) + Math.sin(angle) * radius
   };
-  return { destination: placed, detouring: true };
+}
+
+// --- Orbit obstacle avoidance -----------------------------------------------
+//
+// Three states, and the middle one is a commitment:
+//
+//   direct  -- live tangent + radial steering, watching far enough ahead to
+//     |        still have somewhere to turn when something appears
+//   detour  -- routed round the obstacle to a fixed point on the circle, held
+//     |        until there is a clear run back to that point
+//   rejoin  -- clear run in hand, flying back onto the radius and the tangent
+//     |
+//   direct
+//
+// The commitment is the whole of the fix. The first version re-tested only the
+// short moving aim point and dropped its detour the moment that looked clear --
+// which happened as soon as the hull had turned a few degrees. Live steering
+// took over, pulled straight back toward the target, and drove the ship into
+// the side of the obstacle it was halfway around; the hull ground along the
+// rock for the whole lap while the collision resolver quietly pushed it out
+// again. Nothing in `detour` consults the aim point at all.
+
+// How far ahead the ship has to see.
+//
+// Braking distance plus a reaction allowance plus the navigation envelope is
+// what it takes to STOP -- and a horizon of exactly that length means the ship
+// only ever notices an obstacle at the moment it must begin an emergency stop.
+// That is what the first version did, and it is why every encounter ended with
+// the hull scraping the rock: it was always braking, never steering.
+//
+// The margin buys the distance to go around instead. An orbit is a closed path
+// through static geometry, so an obstacle sitting on the circle will be reached
+// sooner or later whatever happens; seeing it early costs nothing and turns a
+// panic stop into a course change.
+function orbitAvoidanceLookahead(ship, stats) {
+  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
+  const deceleration = Math.max(1, brakingAcceleration(stats));
+  const brakingDistance = speed * speed / (2 * deceleration);
+  const stoppingDistance = brakingDistance
+    + speed * ORBIT_AVOIDANCE_REACTION_TIME
+    + routeClearance(ship) * 2;
+  return Math.max(ORBIT_LOOKAHEAD_DISTANCE, stoppingDistance * ORBIT_AVOIDANCE_MARGIN);
+}
+
+// The path the ship is actually about to fly, as a short polyline.
+//
+// Sampled by stepping the same tangent-plus-correction field the steering uses,
+// recomputed at each projected point, so the samples follow the curve -- both
+// the circle itself and the spiral onto it. A single straight sweep along the
+// current tangent would miss obstacles on the inside of the turn and invent
+// ones on the outside, and either error costs a ship: the first a collision,
+// the second a detour around nothing.
+//
+// Writes into a caller-owned array; this runs per orbiting ship per tick.
+//
+// The number of chords follows the length rather than being fixed, so a long
+// horizon is not sampled so coarsely that the chords cut the corner off the arc
+// and miss what is sitting on it.
+function orbitPredictedPath(ship, target, standoff, direction, distance, out) {
+  const points = out;
+  points.length = 0;
+  const centreX = Number(target.x) || 0;
+  const centreY = Number(target.y) || 0;
+  const radius = orbitCircleRadius(ship, target, standoff);
+  const steps = clampNumber(
+    Math.ceil(distance / ORBIT_AVOIDANCE_STEP_LENGTH),
+    ORBIT_AVOIDANCE_MIN_STEPS,
+    ORBIT_AVOIDANCE_MAX_STEPS
+  );
+  const step = Math.max(1, distance / steps);
+  let x = ship.x || 0;
+  let y = ship.y || 0;
+  for (let index = 0; index < steps; index += 1) {
+    let dx = x - centreX;
+    let dy = y - centreY;
+    let length = fastHypot(dx, dy);
+    if (!(length > BEARING_MIN_DISTANCE)) {
+      dx = Math.cos(ship.angle || 0);
+      dy = Math.sin(ship.angle || 0);
+      length = 1;
+    }
+    const radialX = dx / length;
+    const radialY = dy / length;
+    const tangent = orbitTangent(radialX, radialY, direction);
+    const correction = clampNumber((length - radius) / ORBIT_CORRECTION_BAND, -1, 1);
+    let desiredX = tangent.x - radialX * correction * ORBIT_RADIAL_GAIN;
+    let desiredY = tangent.y - radialY * correction * ORBIT_RADIAL_GAIN;
+    const desiredLength = fastHypot(desiredX, desiredY);
+    if (desiredLength > 1e-6) {
+      desiredX /= desiredLength;
+      desiredY /= desiredLength;
+    } else {
+      desiredX = tangent.x;
+      desiredY = tangent.y;
+    }
+    x += desiredX * step;
+    y += desiredY * step;
+    points.push({ x, y });
+  }
+  return points;
+}
+
+// Walk the predicted path and report how far along it the ship may fly before
+// it stops being flyable. Infinity means the whole sweep is clear.
+//
+// Both asteroids and station collision pieces come out of isSegmentClear, which
+// is the shared navigation authority: nothing here approximates a station as a
+// circle or measures against its artwork.
+function orbitPathClearDistance(room, ship, path) {
+  const clearance = routeClearance(ship);
+  let travelled = 0;
+  let fromX = ship.x || 0;
+  let fromY = ship.y || 0;
+  for (const point of path) {
+    if (!isSegmentClear(room, fromX, fromY, point.x, point.y, clearance)) return travelled;
+    travelled += fastHypot(point.x - fromX, point.y - fromY);
+    fromX = point.x;
+    fromY = point.y;
+  }
+  return Infinity;
+}
+
+// The fastest this hull may travel and still be able to stop before the static
+// geometry directly in front of it.
+//
+// Measured along the ship's actual velocity, not its intended heading: momentum
+// is the thing that puts a hull into a rock its route went around. Infinity
+// means nothing is in the way within stopping distance.
+//
+// The free distance is found by halving rather than by marching, so a long
+// sweep costs a bounded handful of segment checks; each is exact geometry
+// against asteroids and station pieces via the shared navigation authority.
+function orbitBrakingCeiling(room, ship, stats) {
+  const speed = fastHypot(ship.vx || 0, ship.vy || 0);
+  if (!(speed > REST_SPEED)) return Infinity;
+  const clearance = routeClearance(ship);
+  const deceleration = Math.max(1, brakingAcceleration(stats));
+  const reach = speed * speed / (2 * deceleration) + speed * ORBIT_AVOIDANCE_REACTION_TIME;
+  if (!(reach > 1)) return Infinity;
+  const unitX = (ship.vx || 0) / speed;
+  const unitY = (ship.vy || 0) / speed;
+  const clearFor = (distance, margin = clearance) => isSegmentClear(
+    room,
+    ship.x,
+    ship.y,
+    (ship.x || 0) + unitX * distance,
+    (ship.y || 0) + unitY * distance,
+    margin
+  );
+  // The hull has drifted inside its own clearance envelope, so "distance until
+  // blocked" is zero by construction. Two very different situations produce
+  // that reading and they need opposite answers:
+  //
+  //   still moving  -- the ship is arriving at the obstacle. Brake, hard. An
+  //                    earlier version handed back a generous allowance here,
+  //                    which released the brakes at the exact moment the ship
+  //                    was a few pixels short of contact and drove it in.
+  //   at a crawl    -- the ship is parked alongside and needs to leave. A
+  //                    ceiling of zero is a trap: it cancels the very velocity
+  //                    that would carry it out, so the hull sits against the
+  //                    rock for the rest of the match. Allow a crawl and let
+  //                    the route steer it back into open space.
+  //
+  // The crawl is also what would otherwise eat the margin: the planning
+  // envelope is comfortably wider than the hull, so a ship that stopped at the
+  // edge of it still had room to creep most of the way to the rock before
+  // anything objected. So the crawl is offered only while the HULL itself --
+  // not the padded envelope -- has somewhere to go. Refused, the ship brakes to
+  // a standstill, the route turns its nose away, and the crawl is offered again
+  // the moment it is pointing somewhere that is actually open.
+  if (!clearFor(0)) {
+    if (speed > ORBIT_PINCH_ESCAPE_SPEED) return 0;
+    const crawlStop = ORBIT_PINCH_ESCAPE_SPEED * ORBIT_PINCH_ESCAPE_SPEED / (2 * deceleration);
+    const hullMargin = physicalCollisionRadius(ship) + ORBIT_PINCH_HULL_MARGIN;
+    return clearFor(crawlStop + ORBIT_PINCH_HULL_MARGIN, hullMargin)
+      ? ORBIT_PINCH_ESCAPE_SPEED
+      : 0;
+  }
+  if (clearFor(reach)) return Infinity;
+  let low = 0;
+  let high = reach;
+  for (let step = 0; step < ORBIT_BRAKING_PROBE_STEPS; step += 1) {
+    const middle = (low + high) / 2;
+    if (clearFor(middle)) low = middle;
+    else high = middle;
+  }
+  return Math.sqrt(2 * deceleration * Math.max(0, low));
+}
+
+// Where to come back onto the circle.
+//
+// Candidates are placed progressively further round in the ship's OWN direction
+// of travel -- avoidance never reverses a player's C/AC choice to make its own
+// life easier. Each has to be somewhere the hull could sit, and reachable at
+// full navigation clearance either directly or through the shared static route
+// search. The list is in ascending arc order and the first valid candidate
+// wins, so the choice is deterministic and is the least deviation that actually
+// works; a large station simply pushes it further round rather than needing a
+// different rule.
+function chooseOrbitRejoinPoint(room, ship, target, radialX, radialY, standoff, direction) {
+  const clearance = routeClearance(ship);
+  for (const arc of ORBIT_REJOIN_ARCS) {
+    const candidate = orbitCirclePoint(ship, target, radialX, radialY, standoff, direction, arc);
+    const clear = nearestClearPoint(room, candidate.x, candidate.y, clearance);
+    // It has to be usable roughly where it was asked for. A "nearest clear
+    // point" dragged far off the circle is not a rejoin point.
+    if (!clear.clear || fastHypot(clear.x - candidate.x, clear.y - candidate.y) > clearance) continue;
+    if (!isSegmentClear(room, ship.x, ship.y, clear.x, clear.y, clearance)) {
+      const search = searchPathWorld(room, ship.x, ship.y, clear.x, clear.y, clearance, {
+        minimumClearance: clearance,
+        preferredClearance: clearance + 24
+      });
+      if (!search.reachedGoal) continue;
+    }
+    return { x: clear.x, y: clear.y, arc };
+  }
+  return null;
+}
+
+function orbitAvoidanceStale(avoidance, target, direction, now) {
+  if (!avoidance) return true;
+  if (avoidance.targetId !== String(target.id)) return true;
+  if (avoidance.direction !== direction) return true;
+  if (now >= (Number(avoidance.replanAt) || 0)) return true;
+  return fastHypot(
+    (Number(target.x) || 0) - avoidance.targetX,
+    (Number(target.y) || 0) - avoidance.targetY
+  ) > ORBIT_AVOIDANCE_TARGET_MOVE;
+}
+
+// Commit to a manoeuvre. Failing to find anywhere to rejoin does NOT drop back
+// to live steering -- that is the state that flies into the obstacle. It keeps
+// whatever manoeuvre is already running and retries at a bounded rate.
+function planOrbitAvoidance(room, ship, runtime, target, radialX, radialY, standoff, direction, now) {
+  const rejoin = chooseOrbitRejoinPoint(room, ship, target, radialX, radialY, standoff, direction);
+  const existing = runtime.orbitAvoidance;
+  if (!rejoin) {
+    if (existing && existing.rejoin) {
+      existing.replanAt = now + ORBIT_AVOIDANCE_RETRY_MS;
+      return existing;
+    }
+    runtime.orbitAvoidance = {
+      phase: "detour",
+      targetId: String(target.id),
+      targetX: Number(target.x) || 0,
+      targetY: Number(target.y) || 0,
+      direction,
+      rejoin: null,
+      plannedAt: now,
+      replanAt: now + ORBIT_AVOIDANCE_RETRY_MS
+    };
+    return runtime.orbitAvoidance;
+  }
+  runtime.orbitAvoidance = {
+    phase: "detour",
+    targetId: String(target.id),
+    targetX: Number(target.x) || 0,
+    targetY: Number(target.y) || 0,
+    direction,
+    rejoin: { x: rejoin.x, y: rejoin.y },
+    plannedAt: now,
+    replanAt: now + ORBIT_AVOIDANCE_REPLAN_MS
+  };
+  return runtime.orbitAvoidance;
 }
 
 // One tick of orbit steering. Sets the aim point, the speed ceiling the radius
@@ -815,22 +1059,160 @@ function planOrbit(room, ship, runtime, target, stats, now) {
     desiredY = tangent.y;
   }
 
-  const aim = {
-    x: (ship.x || 0) + desiredX * ORBIT_LOOKAHEAD_DISTANCE,
-    y: (ship.y || 0) + desiredY * ORBIT_LOOKAHEAD_DISTANCE
-  };
-  const steering = orbitSteeringDestination(
-    room, ship, runtime, target, aim, radialX, radialY, standoff, direction, now
-  );
-  runtime.destination = steering.destination;
-  runtime.orbitDirect = !steering.detouring;
-  runtime.blocked = false;
-
   // A circle of this radius cannot be flown faster than the hull can turn
   // through it. Damage a gyroscope and the same ship orbits slower, which is
   // the behaviour a damaged ship should have -- not an ever-widening overshoot.
   const turnRate = maxTurnRate(stats);
   const turnLimited = turnRate > 0 ? turnRate * standoff * ORBIT_TURN_MARGIN : Infinity;
+  const clearance = routeClearance(ship);
+  let speedLimit = turnLimited;
+  let blockedForRejoin = false;
+
+  // --- Is a manoeuvre already running, and may it end? ---------------------
+  let avoidance = runtime.orbitAvoidance;
+  if (avoidance && (avoidance.targetId !== String(target.id) || avoidance.direction !== direction)) {
+    // A different target, or the player reversed the orbit. The rejoin point
+    // was chosen for the old one and means nothing now; re-detect below.
+    avoidance = null;
+    runtime.orbitAvoidance = null;
+  }
+
+  if (avoidance) {
+    const rejoin = avoidance.rejoin;
+    const rejoinClear = Boolean(rejoin)
+      && isSegmentClear(room, ship.x, ship.y, rejoin.x, rejoin.y, clearance);
+    if (avoidance.phase === "detour") {
+      // The ONE test that ends a detour: a clear run at full hull clearance to
+      // the point on the circle we committed to. That is what "the obstacle is
+      // behind us" actually means. The short aim segment ahead is deliberately
+      // not consulted -- it goes clear while the ship is still beside the rock.
+      if (rejoinClear) avoidance.phase = "rejoin";
+    } else if (!rejoinClear) {
+      // Something came between the hull and the rejoin point after all. Go back
+      // to routing rather than pressing on into it.
+      avoidance.phase = "detour";
+    }
+
+  }
+
+  // Rejoin flies on live orbit steering, not at the rejoin point.
+  //
+  // Steering AT the point would make it a destination, and a destination gets
+  // arrival braking: the ship crept up to the waypoint, stopped on it, and sat
+  // there -- if the heading it happened to stop on was not within tolerance of
+  // the tangent, the release test could never pass and the manoeuvre never
+  // ended. Flying the ordinary tangent-plus-correction field instead curves the
+  // hull back onto the circle under power, which is also what it should look
+  // like. The point has already done its job by proving the obstacle is behind
+  // the ship; the phase now only withholds the all-clear until the ship really
+  // is back on its orbit.
+  const rejoining = avoidance?.phase === "rejoin";
+
+  // --- Look ahead, and commit if something is in the way -------------------
+  //
+  // Detection sweeps the predicted path, which is a dozen segment checks, and
+  // once a manoeuvre is committed it also has to choose a rejoin point, which
+  // can run the path search several times. Neither belongs on every tick of
+  // every orbiting ship: the geometry being swept is static, and a ship moves a
+  // small fraction of the horizon between ticks. A committed manoeuvre is
+  // reconsidered on the replan cadence; a clear sweep is simply not repeated
+  // for a short while. The detection margin above is what pays for the delay.
+  // Rejoin is flying the live field again, so its path has to be swept every
+  // tick: a clear run to the rejoin point does not promise the whole curve back
+  // onto the circle is clear.
+  const dueToScan = rejoining
+    || (!avoidance
+      ? now >= (Number(runtime.orbitScanAt) || 0)
+      : orbitAvoidanceStale(avoidance, target, direction, now));
+  if (dueToScan) {
+    const scratch = runtime._orbitPathScratch || (runtime._orbitPathScratch = []);
+    const path = orbitPredictedPath(
+      ship,
+      target,
+      standoff,
+      direction,
+      orbitAvoidanceLookahead(ship, stats),
+      scratch
+    );
+    const pathBlocked = Number.isFinite(orbitPathClearDistance(room, ship, path));
+    if (pathBlocked && rejoining && avoidance.rejoin
+      && !orbitAvoidanceStale(avoidance, target, direction, now)) {
+      // The curve back onto the circle is obstructed after all. Go back to
+      // routing at the point already committed to rather than choosing a new
+      // one: re-planning here would run the candidate search every tick for as
+      // long as the ship hovered around the boundary.
+      avoidance.phase = "detour";
+    } else if (pathBlocked) {
+      // Something is in the way of the path the ship intends to fly, and there
+      // is no committed manoeuvre worth keeping. Commit to one.
+      avoidance = planOrbitAvoidance(
+        room, ship, runtime, target, radialX, radialY, standoff, direction, now
+      );
+      runtime.orbitScanAt = 0;
+    } else if (rejoining) {
+      // The way ahead is clear. Release the manoeuvre once the ship is actually
+      // back on its radius and pointing round the circle -- not merely past the
+      // obstacle -- so "avoiding" and "orbiting" never quietly overlap. Live
+      // steering is already turning the hull onto the tangent, so this settles
+      // within a second of the radius being recovered.
+      const onRadius = Math.abs(radialError) <= ORBIT_REJOIN_RADIAL_TOLERANCE;
+      const onTangent = Math.abs(angleDifference(ship.angle || 0, Math.atan2(tangent.y, tangent.x)))
+        <= ORBIT_REJOIN_HEADING_TOLERANCE;
+      if (onRadius && onTangent) {
+        runtime.orbitAvoidance = null;
+        avoidance = null;
+        runtime.orbitScanAt = now + ORBIT_AVOIDANCE_SCAN_MS;
+      }
+    } else if (avoidance) {
+      // Still detouring. A clear sweep from where the hull happens to be does
+      // not end a detour: only the clear run to the committed rejoin point does.
+      avoidance.replanAt = now + ORBIT_AVOIDANCE_REPLAN_MS;
+    } else {
+      runtime.orbitScanAt = now + ORBIT_AVOIDANCE_SCAN_MS;
+    }
+  }
+
+  // --- Never carry more speed than the room in front of the hull allows ----
+  //
+  // Evaluated every tick, in every phase, against the direction the ship is
+  // ACTUALLY travelling rather than the one it intends to. A route around the
+  // obstacle is only as good as the ship's ability to follow it, and a hull
+  // carrying its full orbit speed into a corner leaves the route on the outside
+  // of the turn -- which is how the first version ended up grinding along the
+  // rock it had correctly planned a way around. This is the guarantee that it
+  // can always stop before whatever is directly ahead.
+  speedLimit = Math.min(speedLimit, orbitBrakingCeiling(room, ship, stats));
+
+  // --- Steer ---------------------------------------------------------------
+  if (avoidance && avoidance.phase === "detour" && avoidance.rejoin) {
+    // A real place, routed to through the shared static planner. This is the
+    // committed part of the manoeuvre and it ignores the aim point entirely.
+    runtime.destination = { x: avoidance.rejoin.x, y: avoidance.rejoin.y };
+    runtime.orbitDirect = false;
+  } else if (avoidance && !avoidance.rejoin) {
+    // Committed, but with nowhere to rejoin yet. Hold position and keep
+    // shooting while the bounded retry looks again; driving on would be driving
+    // into the obstacle. A null destination is what stops the ship -- see
+    // planMovement -- so no speed ceiling is needed to express it.
+    runtime.destination = null;
+    runtime.orbitDirect = false;
+    runtime.blocked = true;
+    blockedForRejoin = true;
+  } else {
+    // Live orbit -- and rejoin, which flies the same field. A virtual aim point
+    // along the desired direction, regenerated from wherever the hull has got
+    // to and never reached.
+    runtime.destination = {
+      x: (ship.x || 0) + desiredX * ORBIT_LOOKAHEAD_DISTANCE,
+      y: (ship.y || 0) + desiredY * ORBIT_LOOKAHEAD_DISTANCE
+    };
+    runtime.orbitDirect = true;
+  }
+  if (!blockedForRejoin) runtime.blocked = false;
+  // The orbit controller is flying this ship, so its speed ceiling applies.
+  // Held separately from the ceiling itself because a legitimate ceiling of
+  // zero and "no orbit ceiling at all" are different instructions.
+  runtime.orbitSteering = true;
 
   // A reversal is a turnaround, not a sign flip. The desired direction above is
   // already the new tangent, so the hull is turning onto it; all this does is
@@ -844,17 +1226,19 @@ function planOrbit(room, ship, runtime, target, stats, now) {
     }
   }
   runtime.orbitSpeedLimit = runtime.orbitReversing
-    ? ORBIT_REVERSAL_SPEED
-    : turnLimited;
+    ? Math.min(speedLimit, ORBIT_REVERSAL_SPEED)
+    : speedLimit;
 }
 
 // Orbit steering is live only while the stance is actually flying a circle.
 // Everything else -- no target, Static, a Hold latch, a Charge contact -- must
 // leave it switched off, or a stale speed ceiling would throttle the next order.
 function clearOrbitSteering(runtime) {
+  runtime.orbitSteering = false;
   runtime.orbitSpeedLimit = 0;
   runtime.orbitDirect = false;
-  runtime.orbitDetour = null;
+  runtime.orbitScanAt = 0;
+  runtime.orbitAvoidance = null;
 }
 
 function refreshEngagement(room, ship, runtime, now, stats) {
@@ -1008,8 +1392,18 @@ function refreshEngagement(room, ship, runtime, now, stats) {
   else clearRoute(runtime);
 }
 
+// A route is planned to keep this much room around the hull.
+//
+// A ship actively dodging static geometry gets a wider envelope than one simply
+// crossing open space. The ordinary margin is enough for a route the ship can
+// follow accurately, but a detour is flown under momentum, at a hard-braked
+// crawl, round the outside of a corner -- and a route drawn along the very edge
+// of the ordinary envelope leaves a hull tracking it a few pixels wide of the
+// line in contact with the obstacle. Planning the detour wider is what turns
+// "went around it, touching" into "went around it".
 function routeClearance(ship) {
-  return navigationClearanceRadius(ship);
+  const base = navigationClearanceRadius(ship);
+  return ship?.movement?.orbitAvoidance ? base + ORBIT_AVOIDANCE_ROUTE_PAD : base;
 }
 
 function routeWaypointIndex(runtime) {
@@ -1535,10 +1929,13 @@ function planMovement(room, ship, runtime, stats, route) {
   // An orbit aim point is a bearing, not a destination: it is regenerated ahead
   // of the hull every tick and is never arrived at. Braking for it, or limiting
   // speed by the turn needed to hit it, would have the ship slow down for a
-  // point that is running away from it. The orbit's own turn-rate ceiling below
-  // is what governs how fast the circle may be flown. A detour anchor IS a real
-  // place, so while one is being flown the ordinary route limits stand.
-  const orbitSteering = Boolean(runtime.orbitDirect) && (Number(runtime.orbitSpeedLimit) || 0) > 0;
+  // point that is running away from it. The orbit's own ceiling below is what
+  // governs how fast the circle may be flown.
+  //
+  // A detour rejoin point IS a real place, and while one is being routed to the
+  // ordinary route limits stand with only the orbit ceiling added on top --
+  // which is exactly what `orbitDirect` distinguishes.
+  const aimingAtBearing = Boolean(runtime.orbitSteering) && Boolean(runtime.orbitDirect);
   const ramming = Boolean(runtime.ramming && !runtime.chargeEngaged);
   const effectiveMaxSpeed = Number(stats.maxSpeed) || 0;
   const paperMaxSpeed = Number(ship.stats?.maxSpeed);
@@ -1554,17 +1951,21 @@ function planMovement(room, ship, runtime, stats, route) {
     ? Math.sqrt(2 * brakingAcceleration(stats) * ARRIVE_DISTANCE)
     : Infinity;
   // What the orbit controller will allow this tick: the speed whose turn radius
-  // fits the circle being flown, or the brake during a direction reversal. Zero
-  // and below mean the ship is not orbiting and nothing is imposed.
-  const orbitSpeedLimit = Number(runtime.orbitSpeedLimit) || 0;
+  // fits the circle being flown, the emergency ceiling for the room left before
+  // an obstacle, or the brake during a direction reversal. `orbitSteering` is
+  // what says a ceiling applies at all, because a legitimate ceiling of zero
+  // and "this ship is not orbiting" are different instructions.
+  const orbitSpeedLimit = runtime.orbitSteering
+    ? Math.max(0, Number(runtime.orbitSpeedLimit) || 0)
+    : Infinity;
   const permitted = Math.min(
     ownMaxSpeed,
-    ramming || orbitSteering ? Infinity : safeArrivalSpeed,
-    ramming || orbitSteering ? Infinity : turnLimit,
+    ramming || aimingAtBearing ? Infinity : safeArrivalSpeed,
+    ramming || aimingAtBearing ? Infinity : turnLimit,
     route ? route.cornerLimit : Infinity,
     route ? route.orbitLimit : Infinity,
     blockedLimit,
-    orbitSpeedLimit > 0 ? orbitSpeedLimit : Infinity
+    orbitSpeedLimit
   );
   // Above a right angle of heading error the ship is asked to shed speed rather
   // than hold it, and the taper stops that becoming a cliff at exactly 90
@@ -1974,9 +2375,15 @@ function applyOrbitDirection(ship, orbitDirection) {
   // Reverse under power rather than by flipping the velocity. planOrbit brakes
   // the old tangential motion and turns onto the new tangent while it does.
   runtime.orbitReversing = true;
-  // Only the orbit steering is invalidated. The route cache belongs to the
-  // detour, which was drawn the old way round.
-  runtime.orbitDetour = null;
+  // Only the orbit steering is invalidated. A committed avoidance manoeuvre was
+  // planned to rejoin the circle going the other way, so its rejoin point is no
+  // longer on the path this ship will fly; planOrbit re-detects and re-commits
+  // in the new direction on the next tick. The attack command, the target and
+  // the ship's weapon state are all untouched.
+  runtime.orbitAvoidance = null;
+  // ...and the new direction is swept for immediately rather than at the next
+  // scheduled scan, because the path ahead is a different path now.
+  runtime.orbitScanAt = 0;
   runtime.orbitSpeedLimit = 0;
   return true;
 }

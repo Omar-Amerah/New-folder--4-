@@ -4,8 +4,18 @@ import {
   moduleRotationToRadians,
   normalizeRotation
 } from "../design/rotation.js";
-import { drawModule, drawFootprintComponent, drawStaticComponentBase, drawStaticWeaponMount } from "./componentArt.js";
-import { isRotatingWeaponPart } from "./weaponAim.js";
+import {
+  drawModule,
+  drawFootprintComponent,
+  drawStaticComponentBase,
+  drawStaticWeaponMount,
+  drawRotatingWeaponTop
+} from "./componentArt.js";
+
+import {
+  defaultWeaponRelativeAngle,
+  isRotatingWeaponPart
+} from "./weaponAim.js";
 
 export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim, includeWeaponTop = false, visualState }) {
   const def = PART_DEFS[part?.type] || PART_DEFS.frame;
@@ -14,10 +24,44 @@ export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim,
   ctx.save();
   ctx.translate(place.cx, place.cy);
   if (weapon) {
+    // Static footprint and circular/non-directional mount.
+    ctx.save();
     ctx.rotate(place.longAxisAngle);
-    drawStaticComponentBase({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim });
-    drawStaticWeaponMount({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor });
-    if (includeWeaponTop) drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, drawBase: false, visualState });
+
+    drawStaticComponentBase({
+      type: part.type,
+      unit,
+      tilesLong: place.tilesLong,
+      tilesCross: place.tilesCross,
+      color: bodyColor,
+      trim
+    });
+
+    drawStaticWeaponMount({
+      type: part.type,
+      unit,
+      tilesLong: place.tilesLong,
+      tilesCross: place.tilesCross,
+      color: bodyColor
+    });
+
+    ctx.restore();
+
+    // Directional turret top.
+    if (includeWeaponTop) {
+      ctx.save();
+      ctx.rotate(defaultWeaponRelativeAngle(part));
+
+      drawRotatingWeaponTop({
+        type: part.type,
+        unit,
+        tilesLong: place.tilesLong,
+        tilesCross: place.tilesCross,
+        color: bodyColor
+      });
+
+      ctx.restore();
+    }
   } else if (place.multi) {
     const stat = PART_STATS[part.type] || {};
     const artAngle = stat.sensorRole === "directed"

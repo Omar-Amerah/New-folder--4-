@@ -22,12 +22,14 @@ const {
   applyOrbitDirection,
   commandShips,
   orbitStandoff,
-  orbitTangent
+  orbitTangent,
+  physicalCollisionRadius
 } = require("./src/server/movement");
 const { ORBIT_DIRECTION, sanitizeCombatStyle, sanitizeOrbitDirection } = require("./src/server/validation");
 const { validateClientMessage } = require("./src/server/clientSchemas");
-const { ORBIT_TURN_MARGIN } = require("./src/server/movementTuning");
+const { ORBIT_REJOIN_RADIAL_TOLERANCE, ORBIT_TURN_MARGIN } = require("./src/server/movementTuning");
 const { heatAdjustedMovementStats } = require("./src/server/movementCapability");
+const { isSegmentStationClear } = require("./src/server/stationCollision");
 
 const DT = 1 / 30;
 const BASE = [
@@ -69,7 +71,7 @@ function makeShip(x, y, design, ownerId, angle = 0) {
   return ship;
 }
 
-function makeRoom(ships, asteroids = []) {
+function makeRoom(ships, asteroids = [], stations = []) {
   const room = {
     world: { width: 9000, height: 6000 },
     map: { asteroids, relays: [], revision: 1 },
@@ -78,8 +80,8 @@ function makeRoom(ships, asteroids = []) {
       ["p1", { id: "p1", team: "A", ships: ships.filter((ship) => ship.ownerId === "p1") }],
       ["p2", { id: "p2", team: "B", ships: ships.filter((ship) => ship.ownerId === "p2") }]
     ]),
-    stations: [],
-    stationsById: new Map(),
+    stations,
+    stationsById: new Map(stations.map((station) => [station.id, station])),
     drones: new Map(),
     bullets: [],
     effects: [],
@@ -87,6 +89,97 @@ function makeRoom(ships, asteroids = []) {
   };
   buildRoomSpatialIndex(room, ships, 0);
   return room;
+}
+
+// A bare obstacle station: one rotated collision box, built the same shape the
+// real station builder produces. Deliberately NOT axis-aligned, so a controller
+// that quietly treated stations as circles or as their bounding box would be
+// caught by the clearance assertions below.
+function makeObstacleStation(id, x, y, halfWidth, halfHeight, angle) {
+  const piece = {
+    x,
+    y,
+    halfWidth,
+    halfHeight,
+    angle,
+    cos: Math.cos(angle),
+    sin: Math.sin(angle),
+    radius: Math.hypot(halfWidth, halfHeight),
+    door: false
+  };
+  return {
+    id,
+    entityType: "station",
+    stationType: "relay",
+    team: "C",
+    alive: true,
+    state: "active",
+    x,
+    y,
+    angle,
+    radius: piece.radius,
+    collisionPieces: [piece]
+  };
+}
+
+// The gap between the ship's actual hull and an asteroid's actual surface.
+//
+// Measured from the physical collision radius, not the hull centre. The first
+// version of this file compared the centre against the asteroid radius alone,
+// which reported a comfortable margin for a ship whose hull was flat against
+// the rock -- and so passed while every lap ended in a scrape.
+function asteroidHullClearance(ship, asteroid) {
+  return fastDistance(ship.x, ship.y, asteroid.x, asteroid.y)
+    - (Number(asteroid.radius) || 0)
+    - physicalCollisionRadius(ship);
+}
+
+// Whether the hull, as a disc of its true collision radius, is clear of every
+// rotated station piece. Asked through the shared station geometry rather than
+// against the station's broad-phase radius, so an odd-shaped or rotated station
+// is tested as the shape it actually is.
+function stationHullClear(room, ship, margin = 0) {
+  return isSegmentStationClear(
+    room,
+    ship.x,
+    ship.y,
+    ship.x,
+    ship.y,
+    physicalCollisionRadius(ship) + margin
+  );
+}
+
+function fastDistance(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+// Watches a whole run and records the worst the hull ever got, so a single bad
+// tick anywhere in the pass fails the test rather than only the final frame.
+function clearanceWatcher(room, ship, asteroids) {
+  let worstAsteroid = Infinity;
+  let stationContacts = 0;
+  let collisionTicks = 0;
+  return {
+    sample() {
+      for (const asteroid of asteroids) {
+        worstAsteroid = Math.min(worstAsteroid, asteroidHullClearance(ship, asteroid));
+      }
+      if (!stationHullClear(room, ship)) stationContacts += 1;
+      // The map-collision safety net firing at all means the hull was inside
+      // static geometry and had to be pushed back out.
+      if ((Number(ship._staticCollisionCorrectionDistance) || 0) > 0) collisionTicks += 1;
+    },
+    get worstAsteroid() { return worstAsteroid; },
+    get stationContacts() { return stationContacts; },
+    get collisionTicks() { return collisionTicks; }
+  };
+}
+
+function orbitAttack(room, ship, target) {
+  return commandShips(room, room.players.get("p1"), target.x, target.y, {
+    shipIds: [ship.id],
+    targetId: target.id
+  });
 }
 
 function simulate(room, ships, seconds, startTick = 0, observe = null) {
@@ -405,50 +498,414 @@ function run() {
     }
   }
 
-  // A rock sitting on the orbit gets a detour, and the detour is planned on a
-  // cadence rather than every tick.
+  // --- Static obstacle avoidance ------------------------------------------
   //
-  // The aim point moves with the hull by design, so handing it to the ordinary
-  // route planner would rebuild the route continuously. The anchor is a fixed
-  // point on the circle for exactly that reason, and the ship must come out the
-  // far side still orbiting rather than grinding along the rock.
+  // Orbit flies a closed path through static geometry, so anything sitting on
+  // the circle will be reached sooner or later. What matters is that the ship
+  // sees it coming, commits to a way round, and comes back to the circle --
+  // rather than reacting late, abandoning the detour the moment the few metres
+  // directly ahead look clear, and grinding along the obstacle.
+  //
+  // Every clearance assertion below is against the ship's PHYSICAL collision
+  // radius. An earlier version of this file measured hull centre against
+  // asteroid radius alone and so reported a comfortable margin for a ship that
+  // was flat against the rock; it passed while every lap ended in a scrape.
+  // Real daylight, not "did not quite overlap". Clearance measured in tenths of
+  // a pixel is a ship grinding along the obstacle with the collision resolver
+  // holding it off, which is the behaviour this whole section exists to stop.
+  const AVOIDANCE_SAFETY_PAD = 5;
+
+  // An asteroid squarely on an established orbit: two sizes, both ways round.
+  // Both sizes are needed. The smaller rock is the ordinary case; the larger
+  // one is big enough that the ship is still committed to its way around when
+  // the next decision falls due, which is where an avoidance that reconsiders
+  // too eagerly or too late shows up as a scrape.
+  const ROUND_TRIP_ROCKS = [
+    { id: "rock", x: 2600, y: 2470, radius: 230 },
+    { id: "rock", x: 2600, y: 2500, radius: 340 }
+  ];
+  for (const rock of ROUND_TRIP_ROCKS) {
+    for (const direction of [ORBIT_DIRECTION.CLOCKWISE, ORBIT_DIRECTION.ANTICLOCKWISE]) {
+    const name = `${direction === ORBIT_DIRECTION.CLOCKWISE ? "clockwise" : "anticlockwise"}`
+      + ` past r${rock.radius}`;
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    ship.orbitDirection = direction;
+    ship.movement = undefined;
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    // Centred on the circle the ship will fly, so it cannot be dodged by a
+    // slightly different radius -- it has to be gone around.
+    const asteroids = [{ ...rock }];
+    const room = makeRoom([ship, target], asteroids);
+    orbitAttack(room, ship, target);
+
+    const watcher = clearanceWatcher(room, ship, asteroids);
+    const sweep = sweepTracker(ship, target);
+    let sawDetour = false;
+    let sawRejoin = false;
+    let plans = 0;
+    let lastPlannedAt = null;
+    // How near the intended radius the ship ever got once it had started
+    // avoiding. Sampling only the last tick would be a coin toss: a ship that
+    // laps a rock is somewhere in a manoeuvre a good part of the time, and
+    // being mid-detour when the clock stops says nothing about whether it
+    // rejoins.
+    let bestRadiusError = Infinity;
+    simulate(room, [ship], 25, 0, () => {
+      watcher.sample();
+      sweep.sample();
+      const avoidance = ship.movement.orbitAvoidance;
+      if (sawDetour) {
+        bestRadiusError = Math.min(
+          bestRadiusError,
+          Math.abs(Math.hypot(ship.x - target.x, ship.y - target.y) - orbitStandoff(ship, target))
+        );
+      }
+      if (!avoidance) return;
+      if (avoidance.phase === "detour") sawDetour = true;
+      if (avoidance.phase === "rejoin") sawRejoin = true;
+      if (avoidance.plannedAt !== lastPlannedAt) {
+        plans += 1;
+        lastPlannedAt = avoidance.plannedAt;
+      }
+    });
+
+    assert(watcher.worstAsteroid > AVOIDANCE_SAFETY_PAD,
+      `${name}: the whole hull must stay clear of the rock `
+      + `(closest approach ${watcher.worstAsteroid.toFixed(1)} px of hull clearance)`);
+    assert.strictEqual(watcher.collisionTicks, 0,
+      `${name}: the map-collision safety net must never have to push the hull out `
+      + `(${watcher.collisionTicks} ticks of correction)`);
+    assert(sawDetour, `${name}: the rock should have forced a committed detour`);
+    assert(sawRejoin, `${name}: ...and the ship should have rejoined the circle afterwards`);
+    // 25 seconds is 750 ticks. A per-tick replan would be hundreds.
+    assert(plans > 0 && plans < 40,
+      `${name}: avoidance must be planned on a cadence, not per tick (${plans} plans in 750 ticks)`);
+    assert(Math.sign(sweep.total) === direction && Math.abs(sweep.total) > 1.5,
+      `${name}: the ship must keep going round the target the way it was told `
+      + `(swept ${sweep.total.toFixed(2)} rad)`);
+    assert.strictEqual(ship.movement.holdEngaged, false,
+      `${name}: and it still never latches`);
+    // It came back to the circle after going round, rather than being left
+    // wide of it or cutting permanently inside.
+    assert(bestRadiusError < ORBIT_REJOIN_RADIAL_TOLERANCE,
+      `${name}: the ship should come back to its orbit radius after the obstacle `
+      + `(closest it got was ${bestRadiusError.toFixed(0)} px off)`);
+    assert.strictEqual(ship.movement.orbitSteering, true,
+      `${name}: and the orbit controller is still the thing flying it`);
+    }
+  }
+
+  // A station on the orbit. Routed around the real rotated collision piece --
+  // not a circle approximating it, and not its bounding box.
   {
     const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
     const target = makeShip(2600, 2000, UNARMED, "p2");
-    // On the circle the ship will be flying, not between it and the target.
+    // Long, thin and rotated off both axes, lying across the circle.
+    const station = makeObstacleStation("obstacle-station", 2600, 2465, 300, 90, 0.6);
+    const room = makeRoom([ship, target], [], [station]);
+    orbitAttack(room, ship, target);
+
+    // The fixture is only meaningful if the station really does sit on the path.
+    assert(!isSegmentStationClear(room, 2600, 2465, 2600, 2465, 0),
+      "the station piece must actually occupy the point it was placed at");
+
+    const watcher = clearanceWatcher(room, ship, []);
+    const sweep = sweepTracker(ship, target);
+    let sawDetour = false;
+    simulate(room, [ship], 25, 0, () => {
+      watcher.sample();
+      sweep.sample();
+      if (ship.movement.orbitAvoidance?.phase === "detour") sawDetour = true;
+    });
+
+    assert(sawDetour, "a station across the orbit should force a committed detour");
+    assert.strictEqual(watcher.stationContacts, 0,
+      `the hull must never overlap the rotated station footprint `
+      + `(${watcher.stationContacts} ticks in contact)`);
+    assert.strictEqual(watcher.collisionTicks, 0,
+      "no static-collision correction should be needed during a successful pass");
+    assert(Math.abs(sweep.total) > 1.5,
+      `the ship must still be orbiting afterwards (swept ${sweep.total.toFixed(2)} rad)`);
+  }
+
+  // An obstacle on the inbound spiral, before the ship has ever reached its
+  // radius. Avoidance has to work from the approach, not only from a settled
+  // circle.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    const asteroids = [{ id: "rock", x: 2330, y: 2160, radius: 150 }];
+    const room = makeRoom([ship, target], asteroids);
+    orbitAttack(room, ship, target);
+
+    const watcher = clearanceWatcher(room, ship, asteroids);
+    const sweep = sweepTracker(ship, target);
+    simulate(room, [ship], 25, 0, () => {
+      watcher.sample();
+      sweep.sample();
+    });
+
+    assert(watcher.worstAsteroid > AVOIDANCE_SAFETY_PAD,
+      `a rock on the inbound spiral must also be cleared `
+      + `(closest approach ${watcher.worstAsteroid.toFixed(1)})`);
+    assert.strictEqual(watcher.collisionTicks, 0, "and without collision correction");
+    const standoff = orbitStandoff(ship, target);
+    const finalDistance = Math.hypot(ship.x - target.x, ship.y - target.y);
+    assert(Math.abs(finalDistance - standoff) < standoff * 0.4,
+      "the ship should still reach its orbit radius afterwards");
+    assert(Math.abs(sweep.total) > 3,
+      `and get on with orbiting (swept ${sweep.total.toFixed(2)} rad)`);
+  }
+
+  // An obstacle too large for the nearest rejoin arc. The candidate list has to
+  // be walked until one is actually reachable, rather than committing to a
+  // point that is still behind or beside the obstacle.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    const asteroids = [{ id: "wall", x: 2560, y: 2560, radius: 430 }];
+    const room = makeRoom([ship, target], asteroids);
+    orbitAttack(room, ship, target);
+
+    const watcher = clearanceWatcher(room, ship, asteroids);
+    const sweep = sweepTracker(ship, target);
+    let widestArc = 0;
+    // The furthest the ship ever strayed from its target. Avoidance is supposed
+    // to be a course change; a ship that only notices the obstacle late has to
+    // make a much larger deviation to get around it, and ends up abandoning the
+    // engagement rather than orbiting it.
+    let furthest = 0;
+    simulate(room, [ship], 30, 0, () => {
+      watcher.sample();
+      sweep.sample();
+      furthest = Math.max(furthest, Math.hypot(ship.x - target.x, ship.y - target.y));
+      const rejoin = ship.movement.orbitAvoidance?.rejoin;
+      if (!rejoin) return;
+      // How far round the circle the committed rejoin point sits from the ship.
+      widestArc = Math.max(widestArc, Math.abs(angleDelta(
+        bearingFrom(target, rejoin),
+        bearingFrom(target, ship)
+      )));
+    });
+
+    assert(watcher.worstAsteroid > AVOIDANCE_SAFETY_PAD,
+      `a large obstacle must still be cleared by the whole hull `
+      + `(closest approach ${watcher.worstAsteroid.toFixed(1)})`);
+    assert.strictEqual(watcher.collisionTicks, 0, "and without collision correction");
+    assert(widestArc > Math.PI / 4 + 0.05,
+      `a large obstacle must push the rejoin point past the first candidate arc `
+      + `(widest committed arc was ${widestArc.toFixed(2)} rad)`);
+    // Going around must stay a manoeuvre, not a departure. A ship that leaves
+    // its weapon envelope to get past a rock has stopped fighting.
+    const standoff = orbitStandoff(ship, target);
+    assert(furthest < standoff * 1.9,
+      `avoidance must not throw the ship far outside its own orbit `
+      + `(reached ${furthest.toFixed(0)} px, orbit radius ${standoff.toFixed(0)})`);
+    // ...and it must keep LAPPING. This is the assertion that pays for the
+    // detection margin: seeing the obstacle early enough to steer round it is
+    // worth several times the angular progress of noticing it late and having
+    // to make one large deviation per lap. Safety is carried by the braking
+    // ceiling, not by this -- but a "safe" orbit that barely gets round the
+    // target is not doing its job either.
+    assert(Math.abs(sweep.total) > 5,
+      `the ship must keep orbiting past a large obstacle, not spend the fight `
+      + `negotiating it (swept only ${sweep.total.toFixed(2)} rad in 30s)`);
+  }
+
+  // A heavy hull carrying real momentum begins its manoeuvre while it still has
+  // room, rather than discovering the obstacle inside its own braking distance.
+  {
+    const heavy = [
+      ...BASE,
+      { x: 6, y: 6, type: "frame" },
+      { x: 9, y: 6, type: "frame" },
+      { x: 6, y: 9, type: "frame" },
+      { x: 9, y: 9, type: "frame" },
+      { x: 6, y: 7, type: "frame" },
+      { x: 9, y: 7, type: "frame" },
+      { x: 6, y: 8, type: "blaster", rotation: 0 }
+    ];
+    const ship = makeShip(2000, 2000, heavy, "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
     const asteroids = [{ id: "rock", x: 2600, y: 2470, radius: 230 }];
     const room = makeRoom([ship, target], asteroids);
-    commandShips(room, room.players.get("p1"), target.x, target.y, {
-      shipIds: [ship.id],
-      targetId: target.id
+    orbitAttack(room, ship, target);
+
+    const watcher = clearanceWatcher(room, ship, asteroids);
+    // The clearance the ship still had when it first committed, against the
+    // distance it would have taken to stop from the speed it was doing.
+    let clearanceAtCommit = null;
+    let stoppingDistanceAtCommit = null;
+    simulate(room, [ship], 25, 0, () => {
+      watcher.sample();
+      if (clearanceAtCommit === null && ship.movement.orbitAvoidance) {
+        clearanceAtCommit = asteroidHullClearance(ship, asteroids[0]);
+        const speed = Math.hypot(ship.vx, ship.vy);
+        const live = heatAdjustedMovementStats(ship, ship.stats || {});
+        // Same braking model the controller uses: five times drive acceleration.
+        const deceleration = Math.max(1, (Number(live.accel) || 1) * 5);
+        stoppingDistanceAtCommit = speed * speed / (2 * deceleration);
+      }
     });
 
-    let detourPlans = 0;
-    let lastAnchor = null;
+    assert(clearanceAtCommit !== null, "the heavy hull should have committed to a manoeuvre");
+    assert(clearanceAtCommit > stoppingDistanceAtCommit,
+      `a heavy ship must notice the obstacle while it can still steer around it, not `
+      + `only once it must stand on the brakes (had ${clearanceAtCommit.toFixed(0)} px, `
+      + `needed ${stoppingDistanceAtCommit.toFixed(0)} px just to stop)`);
+    assert(watcher.worstAsteroid > AVOIDANCE_SAFETY_PAD,
+      `...and it must not touch the rock (closest approach ${watcher.worstAsteroid.toFixed(1)})`);
+    assert.strictEqual(watcher.collisionTicks, 0, "nor need collision correction");
+  }
+
+  // A target that moves while a detour is running invalidates the rejoin point,
+  // because it was placed on a circle that has itself moved. The replan is
+  // bounded: the route is not rebuilt every tick.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    const asteroids = [{ id: "rock", x: 2600, y: 2470, radius: 230 }];
+    const room = makeRoom([ship, target], asteroids);
+    orbitAttack(room, ship, target);
+
+    // Run until a manoeuvre is committed.
+    let tick = 0;
+    while (tick < 900 && !ship.movement.orbitAvoidance) {
+      movementTestTick(room, [ship], DT, tick * DT * 1000);
+      tick += 1;
+    }
+    assert(ship.movement.orbitAvoidance, "the rock should have forced a manoeuvre");
+
+    const watcher = clearanceWatcher(room, ship, asteroids);
+    let plans = 0;
+    let lastPlannedAt = ship.movement.orbitAvoidance.plannedAt;
+    const observedTicks = 300;
+    for (let step = 0; step < observedTicks; step += 1) {
+      // Drag the target steadily, so the circle keeps moving under the ship.
+      target.x += 1.2;
+      target.y += 0.6;
+      buildRoomSpatialIndex(room, [ship, target], (tick + step) * DT * 1000);
+      movementTestTick(room, [ship], DT, (tick + step) * DT * 1000);
+      watcher.sample();
+      const avoidance = ship.movement.orbitAvoidance;
+      if (avoidance && avoidance.plannedAt !== lastPlannedAt) {
+        plans += 1;
+        lastPlannedAt = avoidance.plannedAt;
+      }
+    }
+
+    assert(plans < observedTicks / 4,
+      `a moving target must cause a bounded replan, not a rebuild every tick `
+      + `(${plans} replans in ${observedTicks} ticks)`);
+    assert(watcher.worstAsteroid > AVOIDANCE_SAFETY_PAD,
+      `and the hull must stay clear throughout (closest ${watcher.worstAsteroid.toFixed(1)})`);
+  }
+
+  // Reversing direction mid-detour. The manoeuvre was planned to rejoin the
+  // circle going one way and means nothing going the other, so it is rebuilt --
+  // and NOTHING else is.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    const asteroids = [{ id: "rock", x: 2600, y: 2470, radius: 230 }];
+    const room = makeRoom([ship, target], asteroids);
+    orbitAttack(room, ship, target);
+
+    let tick = 0;
+    while (tick < 900 && ship.movement.orbitAvoidance?.phase !== "detour") {
+      movementTestTick(room, [ship], DT, tick * DT * 1000);
+      tick += 1;
+    }
+    assert.strictEqual(ship.movement.orbitAvoidance?.phase, "detour",
+      "the ship should be mid-detour before the direction is toggled");
+
+    const before = {
+      commandId: ship.movement.command.id,
+      targetId: ship.movement.command.targetId,
+      focus: ship.focusTargetId,
+      combat: ship.combatTargetId,
+      rejoin: { ...ship.movement.orbitAvoidance.rejoin }
+    };
+
+    assert.strictEqual(applyOrbitDirection(ship, ORBIT_DIRECTION.ANTICLOCKWISE), true);
+    assert.strictEqual(ship.movement.command.id, before.commandId,
+      "a direction toggle mid-detour must not replace the attack command");
+    assert.strictEqual(ship.movement.command.targetId, before.targetId,
+      "...nor the target");
+    assert.strictEqual(ship.focusTargetId, before.focus, "...nor weapon focus");
+    assert.strictEqual(ship.combatTargetId, before.combat, "...nor target acquisition");
+    assert.strictEqual(ship.movement.orbitAvoidance, null,
+      "...but the manoeuvre planned for the old direction is discarded");
+
+    const watcher = clearanceWatcher(room, ship, asteroids);
     const sweep = sweepTracker(ship, target);
-    let worstClearance = Infinity;
-    simulate(room, [ship], 20, 0, () => {
+    tick = simulate(room, [ship], 25, tick, () => {
+      watcher.sample();
       sweep.sample();
-      const detour = ship.movement.orbitDetour;
-      const anchor = detour ? `${Math.round(detour.x)}:${Math.round(detour.y)}` : null;
-      if (anchor && anchor !== lastAnchor) detourPlans += 1;
-      lastAnchor = anchor;
-      worstClearance = Math.min(
-        worstClearance,
-        Math.hypot(ship.x - asteroids[0].x, ship.y - asteroids[0].y) - asteroids[0].radius
-      );
     });
 
-    assert(detourPlans > 0, "the rock on the circle should have forced at least one detour");
-    // 20 seconds is 600 ticks. A per-tick replan would be hundreds of anchors.
-    assert(detourPlans < 40,
-      `detours must be planned on a cadence, not per tick (${detourPlans} anchors in 600 ticks)`);
-    assert(worstClearance > 0,
-      `the hull must go round the rock, not through it (closest approach ${worstClearance.toFixed(0)})`);
-    assert(Math.abs(sweep.total) > 1.5,
-      `the ship must still be circling the target, not stuck against the obstacle `
-      + `(swept ${sweep.total.toFixed(2)} rad)`);
-    assert.strictEqual(ship.movement.holdEngaged, false, "and it still never latches");
+    assert(watcher.worstAsteroid > AVOIDANCE_SAFETY_PAD,
+      `the rebuilt manoeuvre must clear the rock too `
+      + `(closest ${watcher.worstAsteroid.toFixed(1)})`);
+    assert.strictEqual(watcher.collisionTicks, 0, "and need no collision correction");
+    assert(sweep.total < -0.8,
+      `the ship must end up orbiting the new way round (swept ${sweep.total.toFixed(2)} rad)`);
+    assert.strictEqual(ship.combatTargetId, before.combat,
+      "and it still has the target it started with");
+  }
+
+  // Once the obstacle is behind it, the ship lets go of the manoeuvre and the
+  // temporary route with it -- otherwise the wide detour clearance and the
+  // routed steering would quietly become permanent.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    // Placed so the ship meets it once on the way in and then has clear circle.
+    const asteroids = [{ id: "rock", x: 2330, y: 2160, radius: 150 }];
+    const room = makeRoom([ship, target], asteroids);
+    orbitAttack(room, ship, target);
+
+    let sawAvoidance = false;
+    simulate(room, [ship], 30, 0, () => {
+      if (ship.movement.orbitAvoidance) sawAvoidance = true;
+    });
+
+    assert(sawAvoidance, "the rock should have been avoided at some point");
+    assert.strictEqual(ship.movement.orbitAvoidance, null,
+      "the avoidance state must be released once the obstacle is behind the ship");
+    assert.strictEqual(ship.movement.orbitDirect, true,
+      "...and live orbit steering resumed");
+    assert.strictEqual(ship.movement.path.length, 0,
+      "...and the temporary route dropped");
+  }
+
+  // Open space is unchanged: no manoeuvre, no route, and no path search at all.
+  {
+    const ship = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
+    const target = makeShip(2600, 2000, UNARMED, "p2");
+    const room = makeRoom([ship, target]);
+    orbitAttack(room, ship, target);
+
+    const metrics = {};
+    const previousMetrics = global.__mfaMovePerf;
+    global.__mfaMovePerf = metrics;
+    let avoidanceTicks = 0;
+    let routedTicks = 0;
+    try {
+      simulate(room, [ship], 20, 0, () => {
+        if (ship.movement.orbitAvoidance) avoidanceTicks += 1;
+        if (ship.movement.path.length) routedTicks += 1;
+      });
+    } finally {
+      global.__mfaMovePerf = previousMetrics;
+    }
+
+    assert.strictEqual(avoidanceTicks, 0, "open space must never invoke avoidance");
+    assert.strictEqual(routedTicks, 0, "...nor produce a route");
+    assert.strictEqual(Number(metrics.pathPlanCount) || 0, 0,
+      `an unobstructed orbit must not run the path search at all `
+      + `(${metrics.pathPlanCount} searches)`);
+    assert.strictEqual(ship.movement.orbitDirect, true, "it steers at its own aim point");
   }
 
   // Weapons fire throughout, including while the ship is still closing on its
