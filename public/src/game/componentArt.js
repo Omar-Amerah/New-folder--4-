@@ -39,7 +39,16 @@ const STRUCTURAL_PARTS = new Set([
   "bevelFrame", "bevelArmor", "bevelCompositeArmor",
   "roundedFrame", "roundedArmor", "roundedCompositeArmor",
   "longWedgeFrame", "longWedgeArmor", "longWedgeCompositeArmor",
+  "halfAblativeArmorDiagonal", "wingAblativeArmor", "bevelAblativeArmor",
+  "roundedAblativeArmor", "longWedgeAblativeArmor",
   "lightFrame", "heavyFrame"
+]);
+
+// Ablative plating is its own material inside the structural family, so every
+// silhouette that has an ablative variant asks this instead of `composite`.
+const ABLATIVE_PARTS = new Set([
+  "ablativeArmor", "halfAblativeArmorDiagonal", "wingAblativeArmor",
+  "bevelAblativeArmor", "roundedAblativeArmor", "longWedgeAblativeArmor"
 ]);
 
 function parseColor(color) {
@@ -223,6 +232,101 @@ function drawArmorLaminate(size, color, composite, fine) {
     ctx.moveTo(-size * 0.02, size * 0.42); ctx.lineTo(size * 0.38, 0);
     ctx.stroke();
   }
+}
+
+// Ablative counterpart to the laminate: sacrificial spall plating. The same three
+// courses as the armour family, but each course is broken into staggered tiles on
+// a charred substrate whose seams glow through, with one tile already burned away
+// at the leading edge — it ablates instead of stopping a shell, and the art has to
+// say so at a glance. Callers clip to their own silhouette first, exactly as they
+// do for drawArmorLaminate, so a bevelled ablative plate reads as the same
+// material as a full one.
+function drawAblativeSpallPlating(size, color, fine) {
+  // Charred substrate: the tiles are bedded on it and its seams glow through.
+  ctx.fillStyle = "rgba(14,7,10,0.94)";
+  ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
+  ctx.strokeStyle = "rgba(255,146,64,0.55)";
+  ctx.lineWidth = Math.max(0.8, size * 0.03);
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.5, -size * 0.16); ctx.lineTo(size * 0.5, -size * 0.16);
+  ctx.moveTo(-size * 0.5, size * 0.16); ctx.lineTo(size * 0.5, size * 0.16);
+  ctx.moveTo(0, -size * 0.5); ctx.lineTo(0, size * 0.5);
+  ctx.stroke();
+
+  // Sacrificial heat-shield tiles: cut-corner plates, hottest at the leading
+  // edge where the top course has already charred through.
+  const tilePath = (cx, cy, w, h, cut) => {
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.5 + cut, cy - h * 0.5);
+    ctx.lineTo(cx + w * 0.5 - cut, cy - h * 0.5);
+    ctx.lineTo(cx + w * 0.5, cy - h * 0.5 + cut);
+    ctx.lineTo(cx + w * 0.5, cy + h * 0.5 - cut);
+    ctx.lineTo(cx + w * 0.5 - cut, cy + h * 0.5);
+    ctx.lineTo(cx - w * 0.5 + cut, cy + h * 0.5);
+    ctx.lineTo(cx - w * 0.5, cy + h * 0.5 - cut);
+    ctx.lineTo(cx - w * 0.5, cy - h * 0.5 + cut);
+    ctx.closePath();
+  };
+  const rowFills = [
+    mixColor(color, "#140609", 0.52),
+    mixColor(color, "#ffffff", 0.08),
+    mixColor(color, "#05070c", 0.28)
+  ];
+  const tileW = size * 0.42;
+  const tileH = size * 0.27;
+  const cut = size * 0.07;
+  for (let row = 0; row < 3; row += 1) {
+    const cy = -size * 0.31 + row * size * 0.31;
+    for (const cx of [-size * 0.23, size * 0.23]) {
+      ctx.fillStyle = rowFills[row];
+      ctx.strokeStyle = "rgba(3,6,12,0.6)";
+      ctx.lineWidth = fine;
+      tilePath(cx, cy, tileW, tileH, cut);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = row === 0 ? "rgba(255,168,96,0.6)" : "rgba(255,255,255,0.2)";
+      ctx.lineWidth = Math.max(0.7, size * 0.022);
+      ctx.beginPath();
+      ctx.moveTo(cx - tileW * 0.5 + cut, cy - tileH * 0.5);
+      ctx.lineTo(cx + tileW * 0.5 - cut, cy - tileH * 0.5);
+      ctx.stroke();
+    }
+  }
+
+  // One tile spalled away at the leading edge, exposing glowing substrate.
+  ctx.fillStyle = "rgba(255,132,52,0.5)";
+  ctx.beginPath();
+  ctx.moveTo(size * 0.06, -size * 0.44);
+  ctx.lineTo(size * 0.34, -size * 0.44);
+  ctx.lineTo(size * 0.28, -size * 0.29);
+  ctx.lineTo(size * 0.1, -size * 0.33);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// Fills an already-described silhouette with spall plating and re-inks its edge,
+// so cut-away ablative shapes (half, wing) show the same tiles as a full block
+// without the tile strokes bleeding past the outline.
+function drawClippedAblativeFace(size, color, fine, outline) {
+  ctx.save();
+  outline();
+  ctx.clip();
+  drawAblativeSpallPlating(size, color, fine);
+  ctx.restore();
+  outline();
+  ctx.strokeStyle = "rgba(3,6,12,0.72)";
+  ctx.lineWidth = Math.max(0.9, size * 0.08);
+  ctx.stroke();
+}
+
+// Glowing cut face for ablative silhouettes: the edge the plating is burning
+// back from, drawn just inside the outline so it lights the shape's own profile.
+function drawAblativeHotEdge(size, describe) {
+  ctx.strokeStyle = "rgba(255,168,96,0.6)";
+  ctx.lineWidth = Math.max(1, size * 0.06);
+  ctx.beginPath();
+  describe();
+  ctx.stroke();
 }
 
 // Frame counterpart to the laminate: dark internal bracing with one lit chord.
@@ -947,14 +1051,29 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     return true;
   }
 
-  if (type === "halfFrameDiagonal" || type === "halfArmorDiagonal" || type === "halfCompositeArmorDiagonal") {
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.5, -size * 0.5);
-    ctx.lineTo(size * 0.5, -size * 0.5);
-    ctx.lineTo(-size * 0.5, size * 0.5);
-    ctx.closePath();
+  if (type === "halfFrameDiagonal" || type === "halfArmorDiagonal" || type === "halfCompositeArmorDiagonal"
+    || type === "halfAblativeArmorDiagonal") {
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.5, -size * 0.5);
+      ctx.lineTo(size * 0.5, -size * 0.5);
+      ctx.lineTo(-size * 0.5, size * 0.5);
+      ctx.closePath();
+    };
+    outline();
     ctx.fill();
     ctx.stroke();
+    if (ABLATIVE_PARTS.has(type)) {
+      drawClippedAblativeFace(size, color, fine, outline);
+      // Hot cut face along the hypotenuse rather than the interior chevron the
+      // plated variants use: over spall tiles a bright interior stroke reads as
+      // a smear instead of a lit edge.
+      drawAblativeHotEdge(size, () => {
+        ctx.moveTo(size * 0.4, -size * 0.42);
+        ctx.lineTo(-size * 0.42, size * 0.4);
+      });
+      return true;
+    }
     ctx.strokeStyle = type === "halfFrameDiagonal" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
     ctx.lineWidth = line;
     ctx.beginPath();
@@ -965,14 +1084,27 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     return true;
   }
 
-  if (type === "wingFrame" || type === "wingArmor" || type === "wingCompositeArmor") {
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.5, -size * 0.5);
-    ctx.lineTo(size * 0.5, 0);
-    ctx.lineTo(-size * 0.5, size * 0.5);
-    ctx.closePath();
+  if (type === "wingFrame" || type === "wingArmor" || type === "wingCompositeArmor" || type === "wingAblativeArmor") {
+    const outline = () => {
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.5, -size * 0.5);
+      ctx.lineTo(size * 0.5, 0);
+      ctx.lineTo(-size * 0.5, size * 0.5);
+      ctx.closePath();
+    };
+    outline();
     ctx.fill();
     ctx.stroke();
+    if (ABLATIVE_PARTS.has(type)) {
+      drawClippedAblativeFace(size, color, fine, outline);
+      drawAblativeHotEdge(size, () => {
+        ctx.moveTo(-size * 0.44, -size * 0.4);
+        ctx.lineTo(size * 0.38, -size * 0.03);
+        ctx.moveTo(-size * 0.44, size * 0.4);
+        ctx.lineTo(size * 0.38, size * 0.03);
+      });
+      return true;
+    }
     ctx.strokeStyle = type === "wingFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
     ctx.lineWidth = line;
     ctx.beginPath();
@@ -984,81 +1116,17 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
   }
 
   if (type === "ablativeArmor") {
-    // Sacrificial spall plating: the same three-course plate stack as the rest
-    // of the armour family, but each course is broken into staggered tiles with
-    // a charred leading edge and glowing seams — it burns away instead of
-    // stopping a shell, and the art has to say so at a glance.
     ctx.save();
     roundRect(ctx, { x: -size * 0.47, y: -size * 0.47, width: size * 0.94, height: size * 0.94, radius: size * 0.05 });
     ctx.clip();
-
-    // Charred substrate: the tiles are bedded on it and its seams glow through.
-    ctx.fillStyle = "rgba(14,7,10,0.94)";
-    ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
-    ctx.strokeStyle = "rgba(255,146,64,0.55)";
-    ctx.lineWidth = Math.max(0.8, size * 0.03);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.5, -size * 0.16); ctx.lineTo(size * 0.5, -size * 0.16);
-    ctx.moveTo(-size * 0.5, size * 0.16); ctx.lineTo(size * 0.5, size * 0.16);
-    ctx.moveTo(0, -size * 0.5); ctx.lineTo(0, size * 0.5);
-    ctx.stroke();
-
-    // Sacrificial heat-shield tiles: cut-corner plates, hottest at the leading
-    // edge where the top course has already charred through.
-    const tilePath = (cx, cy, w, h, cut) => {
-      ctx.beginPath();
-      ctx.moveTo(cx - w * 0.5 + cut, cy - h * 0.5);
-      ctx.lineTo(cx + w * 0.5 - cut, cy - h * 0.5);
-      ctx.lineTo(cx + w * 0.5, cy - h * 0.5 + cut);
-      ctx.lineTo(cx + w * 0.5, cy + h * 0.5 - cut);
-      ctx.lineTo(cx + w * 0.5 - cut, cy + h * 0.5);
-      ctx.lineTo(cx - w * 0.5 + cut, cy + h * 0.5);
-      ctx.lineTo(cx - w * 0.5, cy + h * 0.5 - cut);
-      ctx.lineTo(cx - w * 0.5, cy - h * 0.5 + cut);
-      ctx.closePath();
-    };
-    const rowFills = [
-      mixColor(color, "#140609", 0.52),
-      mixColor(color, "#ffffff", 0.08),
-      mixColor(color, "#05070c", 0.28)
-    ];
-    const tileW = size * 0.42;
-    const tileH = size * 0.27;
-    const cut = size * 0.07;
-    for (let row = 0; row < 3; row += 1) {
-      const cy = -size * 0.31 + row * size * 0.31;
-      for (const cx of [-size * 0.23, size * 0.23]) {
-        ctx.fillStyle = rowFills[row];
-        ctx.strokeStyle = "rgba(3,6,12,0.6)";
-        ctx.lineWidth = fine;
-        tilePath(cx, cy, tileW, tileH, cut);
-        ctx.fill();
-        ctx.stroke();
-        ctx.strokeStyle = row === 0 ? "rgba(255,168,96,0.6)" : "rgba(255,255,255,0.2)";
-        ctx.lineWidth = Math.max(0.7, size * 0.022);
-        ctx.beginPath();
-        ctx.moveTo(cx - tileW * 0.5 + cut, cy - tileH * 0.5);
-        ctx.lineTo(cx + tileW * 0.5 - cut, cy - tileH * 0.5);
-        ctx.stroke();
-      }
-    }
-
-    // One tile spalled away at the leading edge, exposing glowing substrate.
-    ctx.fillStyle = "rgba(255,132,52,0.5)";
-    ctx.beginPath();
-    ctx.moveTo(size * 0.06, -size * 0.44);
-    ctx.lineTo(size * 0.34, -size * 0.44);
-    ctx.lineTo(size * 0.28, -size * 0.29);
-    ctx.lineTo(size * 0.1, -size * 0.33);
-    ctx.closePath();
-    ctx.fill();
+    drawAblativeSpallPlating(size, color, fine);
     ctx.restore();
 
     drawArmorRivets(size, color, [[-0.42, -0.16], [0.42, -0.16], [-0.42, 0.42], [0.42, 0.42]]);
     return true;
   }
 
-  if (type === "bevelFrame" || type === "bevelArmor" || type === "bevelCompositeArmor") {
+  if (type === "bevelFrame" || type === "bevelArmor" || type === "bevelCompositeArmor" || type === "bevelAblativeArmor") {
     // Cell block with the leading corner chamfered away. It carries the same
     // laminate/bracing as the full cube, clipped to the cut silhouette, plus a
     // lit chamfer face so the cut reads as machined rather than as a missing
@@ -1083,6 +1151,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     outline();
     ctx.clip();
     if (isFrame) drawFrameBracing(size, fine, 0.3);
+    else if (type === "bevelAblativeArmor") drawAblativeSpallPlating(size, color, fine);
     else drawArmorLaminate(size, color, type === "bevelCompositeArmor", fine);
     // Chamfer face: a bright inner bevel band hugging the cut edge.
     ctx.lineCap = "butt";
@@ -1109,7 +1178,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     return true;
   }
 
-  if (type === "roundedFrame" || type === "roundedArmor" || type === "roundedCompositeArmor") {
+  if (type === "roundedFrame" || type === "roundedArmor" || type === "roundedCompositeArmor" || type === "roundedAblativeArmor") {
     // Same block with a full quarter-round on the leading corner: a swept
     // shoulder that deflects fire instead of the barely visible fillet it used
     // to be.
@@ -1133,6 +1202,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     outline();
     ctx.clip();
     if (isFrame) drawFrameBracing(size, fine, 0.3);
+    else if (type === "roundedAblativeArmor") drawAblativeSpallPlating(size, color, fine);
     else drawArmorLaminate(size, color, type === "roundedCompositeArmor", fine);
     // Swept shoulder: a bright rim inside the arc with a darker shadow line
     // behind it, so the curve reads as a rolled surface.
@@ -1692,7 +1762,11 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     || type === "bevelCompositeArmor"
     || type === "roundedFrame"
     || type === "roundedArmor"
-    || type === "roundedCompositeArmor";
+    || type === "roundedCompositeArmor"
+    || type === "halfAblativeArmorDiagonal"
+    || type === "wingAblativeArmor"
+    || type === "bevelAblativeArmor"
+    || type === "roundedAblativeArmor";
   if (!keepsPartialShape && drawBase) {
     drawComponentCubeBase(size, bodyColor);
     // The base helper owns its canvas state; restore the component's intended
@@ -2893,12 +2967,14 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     return true;
   }
 
-  if (type === "longWedgeFrame" || type === "longWedgeArmor" || type === "longWedgeCompositeArmor") {
+  if (type === "longWedgeFrame" || type === "longWedgeArmor" || type === "longWedgeCompositeArmor"
+    || type === "longWedgeAblativeArmor") {
     // Two-cell prow: broad at the rear (-x), tapering to a blunt nose at +x.
     // Without this branch the wedges fell through to the generic structural
     // machine and rendered as a rectangle with a cross — nothing like a wedge.
     const isFrame = type === "longWedgeFrame";
     const composite = type === "longWedgeCompositeArmor";
+    const ablative = type === "longWedgeAblativeArmor";
     const outline = () => {
       ctx.beginPath();
       ctx.moveTo(-hl, -hc);
@@ -2948,6 +3024,59 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
       ctx.moveTo(-hl * 0.92, -hc * 0.72);
       ctx.lineTo(hl * 0.8, -hc * 0.1);
       ctx.stroke();
+    } else if (ablative) {
+      // Sacrificial tile courses laid along the length on the same charred
+      // substrate as the one-cell block, staggered row to row, with the nose
+      // tiles already burned back.
+      ctx.fillStyle = "rgba(14,7,10,0.94)";
+      ctx.fillRect(-hl, -hc, hl * 2, hc * 2);
+      ctx.strokeStyle = "rgba(255,146,64,0.55)";
+      ctx.lineWidth = Math.max(0.8, unit * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(-hl, 0);
+      ctx.lineTo(hl, 0);
+      ctx.stroke();
+
+      const columns = Math.max(4, tilesLong * 2);
+      const span = (hl * 2) / columns;
+      const tileW = span - unit * 0.06;
+      const tileH = hc - unit * 0.06;
+      const cut = Math.min(tileW, tileH) * 0.22;
+      const tileFills = [
+        mixColor(color, "#140609", 0.52),
+        mixColor(color, "#ffffff", 0.08),
+        mixColor(color, "#05070c", 0.28)
+      ];
+      ctx.lineWidth = fine;
+      for (let i = 0; i < columns; i += 1) {
+        const cx = -hl + span * (i + 0.5);
+        for (const row of [-1, 1]) {
+          const cy = row * hc * 0.5;
+          ctx.fillStyle = tileFills[(i + (row > 0 ? 1 : 0)) % tileFills.length];
+          ctx.strokeStyle = "rgba(3,6,12,0.6)";
+          ctx.beginPath();
+          ctx.moveTo(cx - tileW * 0.5 + cut, cy - tileH * 0.5);
+          ctx.lineTo(cx + tileW * 0.5 - cut, cy - tileH * 0.5);
+          ctx.lineTo(cx + tileW * 0.5, cy - tileH * 0.5 + cut);
+          ctx.lineTo(cx + tileW * 0.5, cy + tileH * 0.5 - cut);
+          ctx.lineTo(cx + tileW * 0.5 - cut, cy + tileH * 0.5);
+          ctx.lineTo(cx - tileW * 0.5 + cut, cy + tileH * 0.5);
+          ctx.lineTo(cx - tileW * 0.5, cy + tileH * 0.5 - cut);
+          ctx.lineTo(cx - tileW * 0.5, cy - tileH * 0.5 + cut);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+
+      ctx.fillStyle = "rgba(255,132,52,0.5)";
+      ctx.beginPath();
+      ctx.moveTo(hl * 0.6, -hc * 0.42);
+      ctx.lineTo(hl * 0.95, -hc * 0.1);
+      ctx.lineTo(hl * 0.95, hc * 0.1);
+      ctx.lineTo(hl * 0.6, hc * 0.42);
+      ctx.closePath();
+      ctx.fill();
     } else {
       // Laminate courses stacked along the length, so the wedge reads as the
       // same plate material as the rest of the armour family.
@@ -2981,7 +3110,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
 
     // Lit leading edges along both angled flanks: the signature of a prow.
     ctx.lineCap = "butt";
-    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : ablative ? "rgba(255,168,96,0.6)" : "rgba(255,240,214,0.62)";
     ctx.lineWidth = Math.max(1.3, unit * 0.09);
     ctx.beginPath();
     ctx.moveTo(-hl, -hc);

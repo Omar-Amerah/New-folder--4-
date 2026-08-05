@@ -14,10 +14,6 @@ export const PART_DEFS = {
   wingFrame: { name: "Wing Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
   wingArmor: { name: "Wing Armor", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
   wingCompositeArmor: { name: "Wing Composite Armor", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
-  // Scorched crimson, deliberately away from Armor's orange and Composite's tan:
-  // ablative plating is a different material with a different failure mode and
-  // must not read as "another armour block" in the palette.
-  ablativeArmor: { name: "Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
   bevelArmor: { name: "Bevel Armour", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
   bevelCompositeArmor: { name: "Bevel Composite Armour", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
   bevelFrame: { name: "Bevel Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
@@ -27,7 +23,18 @@ export const PART_DEFS = {
   longWedgeArmor: { name: "Long Wedge Armour", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
   longWedgeCompositeArmor: { name: "Long Wedge Composite Armour", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
   longWedgeFrame: { name: "Long Wedge Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
-  engine: { name: "Engine", color: "#54d7ff", glyph: "linear-gradient(180deg, #68efff, #225ed8 52%, #111827)" },
+  // Scorched crimson, deliberately away from Armor's orange and Composite's tan:
+  // ablative plating is a different material with a different failure mode and
+  // must not read as "another armour block" in the palette. The whole family sits
+  // last in the Structure palette so the crimson block does not split the orange
+  // armour / tan composite / steel frame columns above it.
+  ablativeArmor: { name: "Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  halfAblativeArmorDiagonal: { name: "Half Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  wingAblativeArmor: { name: "Wing Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  bevelAblativeArmor: { name: "Bevel Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  roundedAblativeArmor: { name: "Rounded Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  longWedgeAblativeArmor: { name: "Long Wedge Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  engine:{ name: "Engine", color: "#54d7ff", glyph: "linear-gradient(180deg, #68efff, #225ed8 52%, #111827)" },
   compactEngine: { name: "Compact Engine", color: "#38bdf8", glyph: "linear-gradient(180deg, #a5f3fc, #0ea5e9 52%, #082f49)" },
   reactor: { name: "Reactor", color: "#ffdc5e", glyph: "radial-gradient(circle, #fff7b3 0 20%, #f4c145 26% 55%, #6b4b12 60%)" },
   nuclearReactor: { name: "Nuclear Reactor", color: "#facc15", glyph: "radial-gradient(circle, #fffde7 0 12%, #fde047 14% 30%, #f97316 34% 48%, #7c2d12 54%)" },
@@ -113,7 +120,12 @@ const MARKERLESS_ROTATABLE_PARTS = new Set([
   "roundedFrame",
   "longWedgeArmor",
   "longWedgeCompositeArmor",
-  "longWedgeFrame"
+  "longWedgeFrame",
+  "halfAblativeArmorDiagonal",
+  "wingAblativeArmor",
+  "bevelAblativeArmor",
+  "roundedAblativeArmor",
+  "longWedgeAblativeArmor"
 ]);
 
 const FIXED_ORIENTATION_PARTS = new Set(["engine", "compactEngine", "maneuverThruster", "droneBay"]);

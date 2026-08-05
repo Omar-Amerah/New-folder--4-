@@ -36,7 +36,12 @@ function damageOnce(type, dmg) {
 }
 
 const newComponents = {
-  ablativeArmor: { cost: 14, mass: 8, hull: 285, armorFlatReduction: 0, turn: -0.03, shapeType: null, statScale: 1, footprint: { width: 1, height: 1 }, rotatable: false },
+  ablativeArmor: { cost: 13, mass: 8, hull: 380, armorFlatReduction: 0, turn: -0.03, shapeType: null, statScale: 1, footprint: { width: 1, height: 1 }, rotatable: false },
+  halfAblativeArmorDiagonal: { cost: 6.5, mass: 4, hull: 190, armorFlatReduction: 0, turn: -0.015, shapeType: 'halfDiagonal', statScale: 0.5, footprint: { width: 1, height: 1 }, rotatable: true },
+  wingAblativeArmor: { cost: 10.4, mass: 6.4, hull: 304, armorFlatReduction: 0, turn: -0.024, shapeType: 'wing', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  bevelAblativeArmor: { cost: 9.75, mass: 6, hull: 285, armorFlatReduction: 0, turn: -0.0225, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
+  roundedAblativeArmor: { cost: 10.4, mass: 6.4, hull: 304, armorFlatReduction: 0, turn: -0.024, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  longWedgeAblativeArmor: { cost: 19.5, mass: 12, hull: 570, armorFlatReduction: 0, turn: -0.045, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true },
   bevelArmor: { cost: 9, mass: 8.25, hull: 180, armorFlatReduction: 3.75, turn: -0.045, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
   bevelCompositeArmor: { cost: 11.7, mass: 4.5, hull: 142.5, armorFlatReduction: 2.625, turn: -0.015, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
   bevelFrame: { cost: 2.7, mass: 2.7, hull: 30, armorFlatReduction: 0, turn: 0, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
@@ -67,13 +72,37 @@ const newComponents = {
   }
 
   // --- Ablative flat-reduction regression ---
-  assert.strictEqual(PARTS.ablativeArmor.armorFlatReduction, 0, 'ablativeArmor receives exactly 0 flat reduction on the server');
+  const ablativeFamily = [
+    'ablativeArmor', 'halfAblativeArmorDiagonal', 'wingAblativeArmor',
+    'bevelAblativeArmor', 'roundedAblativeArmor', 'longWedgeAblativeArmor'
+  ];
+  for (const id of ablativeFamily) {
+    assert.strictEqual(PARTS[id].armorFlatReduction, 0, `${id} receives exactly 0 flat reduction on the server`);
+    assert.strictEqual(PARTS[id].category, 'Structure', `${id} stays in the Structure category`);
+  }
   const ablativeLoss = damageOnce('ablativeArmor', 20);
   const armorLoss = damageOnce('armor', 20);
   assert.ok(ablativeLoss > armorLoss, 'Ablative Plating loses more HP per hit than standard Armour because it has no flat reduction');
   close(ablativeLoss, 20, 'ablative takes full 20 damage');
   close(armorLoss, 15, 'standard armour reduces 20 damage to 15');
   assert.ok(PARTS.ablativeArmor.hp > PARTS.armor.hp, 'Ablative Plating has more raw hull than standard Armour');
+
+  // Every shaped ablative variant is the base block scaled by its statScale, the
+  // same rule the bevel/rounded/long-wedge armour families follow.
+  for (const id of ablativeFamily.filter((n) => n !== 'ablativeArmor')) {
+    const scale = PARTS[id].statScale;
+    close(PARTS[id].hp, PARTS.ablativeArmor.hp * scale, `${id} hull is the base block scaled by statScale`);
+    close(PARTS[id].cost, PARTS.ablativeArmor.cost * scale, `${id} cost is the base block scaled by statScale`);
+    close(PARTS[id].mass, PARTS.ablativeArmor.mass * scale, `${id} mass is the base block scaled by statScale`);
+  }
+
+  // The buff has to leave the identity intact: ablative must still lose to rapid
+  // low-damage fire and win against heavy single hits, per cell of hull.
+  const effective = (part, dmg) => part.hp * (dmg / Math.max(0.0001, dmg - part.armorFlatReduction));
+  assert.ok(effective(PARTS.ablativeArmor, 8) < effective(PARTS.armor, 8),
+    'Ablative Plating is still worse than Armour against rapid 8-damage autocannon fire');
+  assert.ok(effective(PARTS.ablativeArmor, 120) > effective(PARTS.armor, 120),
+    'Ablative Plating beats Armour against a 120-damage railgun hit');
 
   // --- Client catalogue ---
   global.document = {
@@ -138,7 +167,12 @@ const newComponents = {
     { x: 8, y: 7, type: 'longWedgeArmor', rotation: 0 },
     { x: 6, y: 7, type: 'ablativeArmor', rotation: 0 },
     { x: 7, y: 6, type: 'bevelArmor', rotation: 90 },
-    { x: 7, y: 8, type: 'roundedArmor', rotation: 180 }
+    { x: 7, y: 8, type: 'roundedArmor', rotation: 180 },
+    { x: 5, y: 7, type: 'longWedgeAblativeArmor', rotation: 180 },
+    { x: 6, y: 6, type: 'bevelAblativeArmor', rotation: 90 },
+    { x: 6, y: 8, type: 'roundedAblativeArmor', rotation: 180 },
+    { x: 5, y: 6, type: 'wingAblativeArmor', rotation: 270 },
+    { x: 5, y: 8, type: 'halfAblativeArmorDiagonal', rotation: 180 }
   ];
   const edges = buildExteriorHullEdges(design, { scale: 13, isLive: () => true });
   assert.ok(edges.length > 0, 'hull outline produces edges');
