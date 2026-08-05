@@ -10,7 +10,7 @@ const { getRoute } = require("./routeRegistry");
 const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
 const RATE_LIMITS = {
-  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
+  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setOrbitDirection", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
   management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "ready", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
 };
 function bucketForType(type) {
@@ -58,9 +58,9 @@ function handleMessage(client, message) {
   const { validateDesign, validateWiring } = require("./shipDesign");
   const { recordPurchaseStage } = require("./performanceTelemetry");
   const { computeStats } = require("./shipStats");
-  const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle, sanitizeMovementToggles } = require("./validation");
+  const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle, sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validation");
   const { buyShip, executePurchase } = require("./economy");
-  const { applyCombatStyle, applyMovementToggles, commandShips, stopShips, rotateShips } = require("./movement");
+  const { applyCombatStyle, applyMovementToggles, applyOrbitDirection, commandShips, stopShips, rotateShips } = require("./movement");
   const { requestSelfDestruct } = require("./combat");
   const { MAX_COMBAT_SELECTED_SHIP_IDS, selectOwnedLivingShips } = require("./selection");
   const { addBot } = require("./ships");
@@ -292,10 +292,16 @@ function handleMessage(client, message) {
       send(client, { type: "combatStyleResult", requestId, ok: false, code: selected.code || "invalid-selection", message: "Invalid ship selection for combat style." });
       return;
     }
+    // An Orbit selection may name the direction to start in. Omitted, each ship
+    // keeps the way round it already had, which is what makes switching to Hold
+    // and back restore the direction rather than reset it.
+    const requestedDirection = message.orbitDirection === undefined
+      ? undefined
+      : sanitizeOrbitDirection(message.orbitDirection);
     let updatedCount = 0;
     const updatedShipIds = [];
     for (const ship of selected.ships) {
-      applyCombatStyle(ship, combatStyle);
+      applyCombatStyle(ship, combatStyle, requestedDirection);
       updatedCount++;
       updatedShipIds.push(ship.id);
     }
@@ -304,8 +310,42 @@ function handleMessage(client, message) {
       return;
     }
     if (!selected.explicit) client.player.combatStyle = combatStyle;
+    if (!selected.explicit && requestedDirection !== undefined) client.player.orbitDirection = requestedDirection;
     broadcastSnapshot(client.room, performanceNow());
-    send(client, { type: "combatStyleResult", requestId, ok: true, combatStyle, updatedCount, updatedShipIds });
+    send(client, { type: "combatStyleResult", requestId, ok: true, combatStyle, orbitDirection: requestedDirection ?? null, updatedCount, updatedShipIds });
+    return;
+  }
+
+  // Direction only. This deliberately does not go through the combat-style
+  // handler: reissuing the stance would clear each ship's Hold facing and
+  // engagement latches, and a player flipping C to AC mid-fight has not asked
+  // for their ships to let go of anything.
+  if (message.type === "setOrbitDirection") {
+    const requestId = message.requestId || null;
+    if (client.room.phase !== "active") {
+      send(client, { type: "orbitDirectionResult", requestId, ok: false, code: "wrong-phase", message: "Orbit direction can only be changed during an active match." });
+      return;
+    }
+    const orbitDirection = sanitizeOrbitDirection(message.orbitDirection);
+    const scope = message.scope || null;
+    const selectedOptions = scope ? { scope } : { max: MAX_COMBAT_SELECTED_SHIP_IDS };
+    const selected = selectOwnedLivingShips(client.player, scope ? undefined : message.shipIds, selectedOptions);
+    if (!selected.ok) {
+      send(client, { type: "orbitDirectionResult", requestId, ok: false, code: selected.code || "invalid-selection", message: "Invalid ship selection for orbit direction." });
+      return;
+    }
+    const updatedShipIds = [];
+    for (const ship of selected.ships) {
+      applyOrbitDirection(ship, orbitDirection);
+      updatedShipIds.push(ship.id);
+    }
+    if (updatedShipIds.length === 0) {
+      send(client, { type: "orbitDirectionResult", requestId, ok: false, code: "no-authorized-ships", message: "No owned living ships matched the orbit direction request." });
+      return;
+    }
+    if (!selected.explicit) client.player.orbitDirection = orbitDirection;
+    broadcastSnapshot(client.room, performanceNow());
+    send(client, { type: "orbitDirectionResult", requestId, ok: true, orbitDirection, updatedCount: updatedShipIds.length, updatedShipIds });
     return;
   }
 

@@ -12,32 +12,60 @@ function sanitizeTeam(team, fallbackId) {
 }
 
 
-// The combat stances the movement controller implements: Charge, Hold, Static.
+// The combat stances the movement controller implements: Charge, Hold, Orbit,
+// Static.
 //
-// Orbit and Kite are withdrawn rather than deleted: the names still parse, so
-// saved blueprints, older clients and stored player preferences all keep
-// loading, but both resolve to Hold. That means a ship can never end up carrying
-// a stance nothing will fly, and either can be reinstated by removing it from
-// this set once the controller flies it.
+// Kite is withdrawn rather than deleted: the name still parses, so saved
+// blueprints, older clients and stored player preferences all keep loading, but
+// it resolves to Hold. That means a ship can never end up carrying a stance
+// nothing will fly, and it can be reinstated by removing it from this set once
+// the controller flies it.
 //
-// Clients are still free to send them; they simply get Hold back in the
+// Clients are still free to send it; they simply get Hold back in the
 // acknowledgement and in the snapshot, which is what tells the UI what actually
 // happened.
-const WITHDRAWN_COMBAT_STYLES = new Set(["orbit", "kite"]);
+const WITHDRAWN_COMBAT_STYLES = new Set(["kite"]);
 
 function sanitizeCombatStyle(style, fallback = "hold") {
   const clean = String(style || "").toLowerCase();
   if (WITHDRAWN_COMBAT_STYLES.has(clean)) return "hold";
-  if (clean === "charge" || clean === "hold" || clean === "static") return clean;
+  if (clean === "charge" || clean === "hold" || clean === "orbit" || clean === "static") return clean;
   // Compatibility for saved blueprints and older clients. The aggressive aliases
   // resolve to Charge, matching how the client's own normalizeCombatStyle maps
   // them, so a blueprint saved as "brawler" gets the stance it was named for.
   if (clean === "direct" || clean === "interceptor" || clean === "brawler") return "charge";
-  if (clean === "circle" || clean === "evasive") return "hold";
+  if (clean === "circle" || clean === "evasive") return "orbit";
   if (clean === "maintain" || clean === "sentry" || clean === "heavy") return "hold";
   const cleanFallback = String(fallback || "").toLowerCase();
   if (cleanFallback !== clean) return sanitizeCombatStyle(cleanFallback, "hold");
   return "hold";
+}
+
+// Which way round an orbiting ship goes. This is deliberately NOT a combat
+// style: "orbit-clockwise" and "orbit-anticlockwise" as separate stances would
+// have to be spelled out separately in every validation, snapshot, UI-highlight
+// and movement branch that mentions a stance, and every one of those is a place
+// the two could drift apart. It is one stance carrying a direction.
+//
+// Screen coordinates increase downward, so clockwise on screen is the positive
+// mathematical rotation. See orbitTangent in movementV2.js, which is the one
+// place the sign is turned into a heading.
+const ORBIT_DIRECTION = Object.freeze({
+  CLOCKWISE: 1,
+  ANTICLOCKWISE: -1
+});
+
+// Anything that is not explicitly anticlockwise orbits clockwise. There is no
+// third state and no null: a ship always has a direction to fall back on, which
+// is what lets the stance be re-selected later without the UI having to
+// remember one for it.
+function sanitizeOrbitDirection(value, fallback = ORBIT_DIRECTION.CLOCKWISE) {
+  const clean = Number(value);
+  if (clean === ORBIT_DIRECTION.ANTICLOCKWISE) return ORBIT_DIRECTION.ANTICLOCKWISE;
+  if (clean === ORBIT_DIRECTION.CLOCKWISE) return ORBIT_DIRECTION.CLOCKWISE;
+  return Number(fallback) === ORBIT_DIRECTION.ANTICLOCKWISE
+    ? ORBIT_DIRECTION.ANTICLOCKWISE
+    : ORBIT_DIRECTION.CLOCKWISE;
 }
 
 // Per-ship movement toggles.
@@ -98,9 +126,11 @@ function validateBuildShip(room, player, stats = null) {
 module.exports = {
   MOVEMENT_TOGGLE_DEFAULTS,
   MOVEMENT_TOGGLE_KEYS,
+  ORBIT_DIRECTION,
   sanitizeName,
   sanitizeTeam,
   sanitizeCombatStyle,
+  sanitizeOrbitDirection,
   sanitizeMovementToggles,
   sanitizeRoomCode,
   sanitizeRequestId,

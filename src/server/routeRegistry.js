@@ -11,6 +11,7 @@ const ROUTES = [
   { type: "deploy", handler: placeholderHandler, ...joined, phases: ["design","active"], admin: false, requestId: "optional", rateLimit: { bucket: "deploy", limit: 6, windowMs: 5000 }, mayTriggerStaticSnapshot: true, mayBroadcast: true },
   { type: "buyShip", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "required", rateLimit: { bucket: "buyShip", limit: 12, windowMs: 5000 }, mayTriggerStaticSnapshot: false, mayBroadcast: true },
   { type: "setCombatStyle", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: true },
+  { type: "setOrbitDirection", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: true },
   { type: "setMovementToggles", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: true },
   { type: "setDroneBayMode", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: true },
   { type: "setTelemetryFocus", handler: placeholderHandler, ...joined, phases: ["active"], admin: false, requestId: "optional", rateLimit: null, mayTriggerStaticSnapshot: false, mayBroadcast: false },

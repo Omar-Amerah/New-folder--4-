@@ -85,6 +85,29 @@ function createMovementRuntime() {
     // Stable Hold facing. This is a hull orientation, never a translation slot;
     // cooldown is intentionally not part of the cached decision.
     holdFacing: null,
+    // Range the guns asked to stop at, when that is closer than the hull-centre
+    // range gate would have stopped at. Zero means the gate's own answer stands.
+    holdCoverageRange: 0,
+    // --- Orbit ---
+    // Which way this ship is currently flying its circle. Mirrored from
+    // ship.orbitDirection, which is the authoritative, persistent copy: this one
+    // is what the steering reads, and what a reversal is measured against.
+    orbitDirection: 1,
+    // Shedding the old tangential speed after a direction toggle. A reversal is
+    // a physical turnaround, not a sign flip on the velocity.
+    orbitReversing: false,
+    // Ceiling the orbit controller put on this tick's speed -- the turn-rate
+    // limit for the radius being flown, or the reversal brake. Zero and below
+    // mean "no orbit limit"; it is recomputed every tick and never latched.
+    orbitSpeedLimit: 0,
+    // Steering straight at the orbit aim point, with no obstacle in the way.
+    // The aim point is a bearing rather than a place, so while this is set the
+    // ordinary arrival and route limits do not apply to it.
+    orbitDirect: false,
+    // A static-obstacle detour around something sitting on the direct line to
+    // the aim point. Anchored on the orbit circle and re-planned on a cadence,
+    // because the aim point itself moves every tick.
+    orbitDetour: null,
   };
 }
 
@@ -94,12 +117,24 @@ function ensureMovementRuntime(ship) {
   // shape rather than carrying a partially initialized object.
   if (!runtime || typeof runtime !== "object" || !Array.isArray(runtime.path)) {
     ship.movement = createMovementRuntime();
+    // The ship may already have been told which way it orbits -- it is carried
+    // on the hull, not here -- so the fresh runtime picks that up rather than
+    // publishing the default over it.
+    ship.movement.orbitDirection = Number(ship.orbitDirection) === -1 ? -1 : 1;
     return ship.movement;
   }
   if (!Object.prototype.hasOwnProperty.call(runtime, "arrivalRadius")) runtime.arrivalRadius = 16;
   if (!Object.prototype.hasOwnProperty.call(runtime, "route")) runtime.route = null;
   if (!Object.prototype.hasOwnProperty.call(runtime, "holdFacing")) runtime.holdFacing = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "holdCoverageRange")) runtime.holdCoverageRange = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "attackLane")) runtime.attackLane = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDirection")) {
+    runtime.orbitDirection = Number(ship.orbitDirection) === -1 ? -1 : 1;
+  }
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitReversing")) runtime.orbitReversing = false;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSpeedLimit")) runtime.orbitSpeedLimit = 0;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDirect")) runtime.orbitDirect = false;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDetour")) runtime.orbitDetour = null;
   return runtime;
 }
 
@@ -139,6 +174,14 @@ function setMovementCommand(ship, command) {
   runtime.firingSolution = null;
   runtime.engageApproach = null;
   runtime.holdFacing = null;
+  runtime.holdCoverageRange = 0;
+  // Orbit STEERING is retired with the order; the orbit DIRECTION is not. Which
+  // way round a ship goes is a standing property of the ship, and re-targeting
+  // must not silently put it back to clockwise.
+  runtime.orbitReversing = false;
+  runtime.orbitSpeedLimit = 0;
+  runtime.orbitDirect = false;
+  runtime.orbitDetour = null;
   // A new order always retires the previous order's approach lane. The command
   // that issued this one hands out a new one if it planned any.
   runtime.attackLane = null;

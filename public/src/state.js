@@ -92,6 +92,11 @@ export const state = {
   wiring: initialDesign.wiring,
   dataLinks: initialDesign.dataLinks || [],
   combatStyle: initialDesign.combatStyle,
+  // Which way round the Orbit button offers next when the current selection has
+  // no single answer of its own -- nothing orbiting yet, or a mixed selection.
+  // Ships carry their own direction authoritatively; this is only the UI's
+  // opening bid. 1 is clockwise, -1 anticlockwise.
+  orbitDirectionPreference: 1,
   designNormalizationIssues: Array.isArray(initialDesign.normalizationIssues) ? initialDesign.normalizationIssues : [],
   designNeedsAttention: Boolean(initialDesign.needsAttention),
   savedDesigns: loadSavedDesigns(),

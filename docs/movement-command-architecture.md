@@ -18,7 +18,8 @@ This document records the authoritative movement contract after the Section 6 re
 | `x`, `y`, `vx`, `vy`, `angle` | Server movement owns authoritative pose. Spawn initializes them; movement, map/station collision and separation mutate them; snapshots expose pose/velocity/angle to clients for interpolation. |
 | `targetX`, `targetY`, `arrived`, `isManualMove`, `commandMode` | Server command and movement own destination state. Commands and rally-spawn movement set targets, `commandMode` and clear stale arrival; arrival/braking and combat-style movement update them. |
 | `combatStyle`, `focusTargetId`, `combatTargetId`, `repairTargetId` | Server command/combat own intent. Commands set focus/repair targets; combat may set `combatTargetId`; movement clears dead target/orbit state. |
-| `movement.style` | Movement-only memory for Orbit direction, Hold position and Kite side; reset when the relevant target, command or style changes. |
+| `orbitDirection` | Ship-owned and persistent: `1` clockwise, `-1` anticlockwise. Survives stance changes, so re-selecting Orbit resumes the way round the ship was already going. `movement.orbitDirection` mirrors it for the steering to read; the hull's copy is authoritative. |
+| `movement.holdFacing`, `movement.holdCoverageRange`, `movement.orbitReversing`, `movement.orbitSpeedLimit`, `movement.orbitDetour` | Movement-only stance memory. Reset when the relevant target, command or stance changes — but a direction-only change resets the orbit steering and nothing else. |
 | `rallyPoint` | Player-owned authoritative rally target. It is validated and adjusted server-side; new purchased ships spawn-to-rally without commanding existing ships. |
 | `validEngineIndices`, `blockedEngineIndices`, component Power state | Component-health/heat/power derived state consumed by movement stats. Destroyed, blocked, overheated or underpowered propulsion contributes reduced or zero movement. |
 | `hullAngleWeapons` | Movement/combat-facing cache for hull-rotation candidate ranking; derived from immutable spawned design and not client-authored. |
@@ -57,6 +58,27 @@ Shield regeneration is a separate combat-system stage, not part of movement inte
 ## Combat-style movement scope
 
 Movement uses the spawned design's current effective ship-level weapon range (`blaster`, `missile`, `railgun`, `beam`) as an engagement-distance rule. Charge, Hold, Orbit, Kite and Static consume the same authoritative target but produce distinct movement intents. A ship with no operational conventional weapon stops safely, except an armed demolition-only Charge ship, which continues closing for contact.
+
+## Orbit
+
+Orbit is a travelling stance and shares none of Hold's geometry. It branches in `refreshEngagement` before any of the Hold range gate, standoff search or `holdEngaged` latch, because all of those are about arriving somewhere and stopping, and an orbiting ship never arrives.
+
+Each tick, per ship:
+
+1. The radial unit vector from the target to the hull, and the tangent for that ship's own direction. Screen y increases downward, so clockwise is the positive rotation — `orbitTangent` is the single place that sign becomes a heading.
+2. A radial correction proportional to the error between the current range and the orbit radius, clamped and tapered over `ORBIT_CORRECTION_BAND`. Combining it with the tangent gives one desired direction: mostly tangent on the radius, part inward outside it, part outward inside it.
+3. A virtual aim point `ORBIT_LOOKAHEAD_DISTANCE` along that direction. It is regenerated from wherever the hull has got to and is never reached, which is what makes the approach a continuous spiral rather than a sequence of go-there-and-stop hops. Because it is a bearing and not a place, arrival braking and the goal-turn speed limit are deliberately not applied to it.
+4. A speed ceiling of `turnRate × radius × ORBIT_TURN_MARGIN`. A circle cannot be flown faster than the hull can turn through it, so an agile ship orbits quickly, a sluggish or gyro-damaged one orbits slowly instead of overshooting the circle forever.
+
+The orbit radius comes from `mainBatteryOrbitRange` in `combat.js`, not from `getMaxEffectiveWeaponRange`. It is the main battery's reach charged the full mount offset of its worst member, so it holds at any hull heading — which matters because an orbiting hull's heading changes continuously. Secondaries much shorter than the longest gun get no vote, by the same rule Hold uses. A contact floor keeps a short-ranged brawler orbiting around its target rather than through it.
+
+Steering is direct while the line to the aim point is clear. When a static obstacle blocks it, the ship routes to a detour anchor placed further round the circle and re-planned only on a cadence; feeding the moving aim point to A\* would invalidate the route as fast as it could be built. The orbit itself is never represented as a circular A\* path.
+
+Hull facing follows the flight path, because the aim point is the destination and the ordinary steering points the nose at it. Hold's stationary weapon-facing decision is not applied — that one picks an orientation for a ship that has stopped. Weapons track and fire independently throughout, including while the ship is still closing on its radius, which is what makes the C/AC choice tactical for a broadside hull: it decides which side of the ship faces inward.
+
+Nothing above is fleet-level. Every ship orbits from the angular position it already had, so the spacing a group arrives with is preserved without a formation controller being involved, and no two ships share a waypoint.
+
+Reversing direction is a manoeuvre. `applyOrbitDirection` sets `orbitReversing`; the desired direction is already the new tangent, so the hull turns onto it while the speed ceiling drops to `ORBIT_REVERSAL_SPEED` and braking sheds the old tangential momentum. It completes when that momentum is gone or the hull has come round far enough. Velocity is never flipped, and the reversal costs the ship nothing else — see `setOrbitDirection` in `docs/protocol-messages.md`.
 
 ## Rally and bot movement
 

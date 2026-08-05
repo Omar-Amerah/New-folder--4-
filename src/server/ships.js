@@ -1,7 +1,7 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
 const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
-const { sanitizeMovementToggles } = require("./validation");
+const { sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validation");
 const { performanceNow, seededRandom, rngRange, hashString, compareIdStrings } = require("./utils");
 const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
@@ -86,6 +86,10 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     angle: spawn.angle,
     combatStyle: options.combatStyle || "hold",
     combatStyleRaw: options.combatStyleRaw || options.combatStyle || "hold",
+    // Which way round this hull orbits, whether or not it is orbiting yet. It
+    // is carried like the stance rather than derived from it, so selecting Orbit
+    // later already has a direction to use.
+    orbitDirection: sanitizeOrbitDirection(options.orbitDirection, player?.orbitDirection),
     // A new hull inherits its owner' standing movement instructions, the same
     // way it inherits its combat stance.
     movementToggles: sanitizeMovementToggles(options.movementToggles || player?.movementToggles),
@@ -320,9 +324,9 @@ function updateBots(room, now) {
     const nearestEnemy = enemies[0];
 
     if (nearestEnemy && distanceToFleet(ships, nearestEnemy) < 760) {
-      // Bots used to rotate through Charge/Orbit/Kite here. Those stances are
-      // withdrawn while Hold is the only one the controller flies, and assigning
-      // them would leave a bot carrying a stance nothing implements.
+      // Bots used to rotate through Charge/Orbit/Kite here. They stay on Hold:
+      // Kite is still withdrawn, and picking between the flying stances is a
+      // tactical decision this loop has no basis for making.
       for (const ship of ships) {
         if (!ship.combatStyle) ship.combatStyle = "hold";
       }

@@ -31,6 +31,7 @@
   const SHIP_STATE_FIELDS = Object.freeze([
     "ownerId", "team", "designRevision", "componentAliveRevision",
     "componentDamageRevision", "chpVisual", "proximityChargeRevision", "combatStyle",
+    "orbitDirection",
     "movementToggles", "hp", "maxHp", "shield", "maxShield", "radius", "cost",
     "focusTargetId", "combatTargetId", "weaponAngles", "commandState",
     "emergencyReserveUntil", "alive", "commandAuraActive", "commandAuraReceived",

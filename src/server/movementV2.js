@@ -27,10 +27,22 @@ const {
   DESTINATION_ARRIVE_SPEED,
   FINAL_FACING_TOLERANCE,
   FULL_THRUST_HEADING_ERROR,
+  HOLD_COVERAGE_STANDOFF_STEP,
   HOLD_RANGE_RATIO,
   HOLD_RESUME_RATIO,
   LATERAL_DAMPING,
   MAX_MOVEMENT_DT,
+  ORBIT_CONTACT_PADDING,
+  ORBIT_CORRECTION_BAND,
+  ORBIT_DETOUR_ARC,
+  ORBIT_DETOUR_REPLAN_MS,
+  ORBIT_DETOUR_TARGET_MOVE,
+  ORBIT_LOOKAHEAD_DISTANCE,
+  ORBIT_RADIAL_GAIN,
+  ORBIT_RANGE_RATIO,
+  ORBIT_REVERSAL_HEADING_TOLERANCE,
+  ORBIT_REVERSAL_SPEED,
+  ORBIT_TURN_MARGIN,
   REPAIR_STANDOFF_PAD,
   REST_SPEED,
   TRAVEL_DAMPING,
@@ -39,8 +51,10 @@ const {
 const { getMaxEffectiveWeaponRange, shipHasArmedProximityCharge } = require("./componentData");
 const {
   MOVEMENT_TOGGLE_DEFAULTS,
+  ORBIT_DIRECTION,
   sanitizeCombatStyle,
-  sanitizeMovementToggles
+  sanitizeMovementToggles,
+  sanitizeOrbitDirection
 } = require("./validation");
 const {
   applyEngineHeat,
@@ -111,6 +125,15 @@ const HOLD_FACING_IMPROVEMENT_RATIO = 0.12;
 // is depth, so even the outermost ship in a very wide fleet still closes on the
 // target rather than sliding along beside it.
 const LANE_LATERAL_LIMIT = 0.9;
+
+// combat.js requires movement, so movement cannot require it at load time. The
+// resolution is memoised rather than repeated per call: these are per-ship,
+// per-tick paths, and a require() on each one is string work for a cache hit.
+let combatModule = null;
+function combat() {
+  if (!combatModule) combatModule = require("./combat");
+  return combatModule;
+}
 
 function normalizeHullAngle(angle) {
   let normalized = Number(angle) % (Math.PI * 2);
@@ -439,6 +462,7 @@ function engagementRanges(ship, target, type) {
   const contact = hull + REPAIR_STANDOFF_PAD;
   const enter = Math.max(contact, reach * HOLD_RANGE_RATIO);
   return {
+    contact,
     enter,
     resume: Math.max(contact, reach * HOLD_RESUME_RATIO)
   };
@@ -447,6 +471,27 @@ function engagementRanges(ship, target, type) {
 function canEngageFromHere(room, ship, target, type, distance, enter) {
   if (distance > enter) return false;
   return type !== "attack" || currentFiringLineClear(room, ship, target);
+}
+
+// How much further the hull has to come before the guns -- not the hull centre
+// -- are in range of the target.
+//
+// The range gate above is centre-to-centre against the longest weapon envelope,
+// but a gun fires from its own mount. On a long hull the mounts on the far side
+// of the target sit most of a hundred pixels behind the centre, so a ship that
+// stops the moment its centre is inside the envelope leaves those guns short and
+// fights with half its battery. Nothing in the hold logic noticed, because
+// nothing in it ever asked a gun anything.
+//
+// Measured at the heading the ship intends to hold, since rotating the hull is
+// what moves the mounts. Zero means every gun of the main battery reaches from
+// where it is standing.
+function holdCoverageShortfall(room, ship, runtime, target, now) {
+  if (combatStance(ship) !== "hold") return 0;
+  const heading = holdWeaponFacingHeading(room, ship, runtime, target);
+  const coverage = combat().evaluateHoldWeaponCoverage(room, ship, target, heading, now);
+  const shortfall = Number(coverage?.shortfall) || 0;
+  return shortfall > 0 ? shortfall : 0;
 }
 
 function firingPoint(target, bearing, radius) {
@@ -626,7 +671,193 @@ function attackLaneDestination(room, ship, runtime, target, type, standoff) {
   return { x: clear.x, y: clear.y };
 }
 
-function refreshEngagement(room, ship, runtime, now) {
+// --- Orbit ------------------------------------------------------------------
+//
+// Orbit is a travelling stance and shares nothing with Hold. It never latches,
+// never stops, and is never given a position by anything above it: each ship
+// orbits from the angular position it already has, which is what preserves
+// whatever spacing the group already had without a formation controller ever
+// being involved.
+//
+// The controller is a tangent plus a radial correction, turned into a virtual
+// aim point a fixed distance ahead. That point is recomputed from the hull's
+// own position every tick and is never reached, so the ship flies a continuous
+// spiral onto the radius instead of a sequence of go-there-and-stop hops.
+
+// The direction of travel at a point on the circle, given the outward radial
+// unit vector from the target to the ship.
+//
+// Screen y increases DOWNWARD, so this is not the textbook rotation matrix and
+// the check that it is right is geometric, not algebraic: on the right-hand
+// side of the target the outward radial is (+1, 0), and clockwise there must
+// send the ship down the screen, so the tangent must be (0, +1) -- which is
+// (-radialY, radialX). Anticlockwise is its negation.
+function orbitTangent(radialX, radialY, direction) {
+  if (direction === ORBIT_DIRECTION.CLOCKWISE) return { x: -radialY, y: radialX };
+  return { x: radialY, y: -radialX };
+}
+
+// The ship owns its direction; the runtime copy is a mirror the steering reads.
+// Taking the ship's as authoritative here is what makes a hull that was given a
+// direction before it had a movement runtime -- a fresh spawn, a reconnect --
+// fly the direction it was actually given rather than the runtime's default.
+function orbitDirectionOf(ship, runtime) {
+  const direction = sanitizeOrbitDirection(ship.orbitDirection, runtime.orbitDirection);
+  runtime.orbitDirection = direction;
+  return direction;
+}
+
+// The standoff Orbit flies at, measured the same way engagementGeometry measures
+// distance -- to the hull for a ship, to the surface for a station.
+//
+// It is the main battery's own reach with a margin taken off, not the longest
+// envelope on the hull: a ship circling at the outer edge of its best gun drops
+// every other gun out of the fight. The contact floor below it is the only thing
+// that may raise it, and it exists so a short-ranged brawler orbits around its
+// target rather than through it.
+function orbitStandoff(ship, target) {
+  const battery = Number(combat().mainBatteryOrbitRange(ship)) || 0;
+  const reach = battery > 0 ? battery : getMaxEffectiveWeaponRange(ship);
+  const contact = engagementGeometry(ship, target).contact + ORBIT_CONTACT_PADDING;
+  return Math.max(contact, reach * ORBIT_RANGE_RATIO);
+}
+
+// A point on the orbit circle, `arc` radians around from where the ship is now
+// in its own direction of travel. Used only as a detour anchor: unlike the aim
+// point this is a fixed place in the world, so a route can be planned to it and
+// then flown without being invalidated by the ship's own progress.
+function orbitCirclePoint(ship, target, radialX, radialY, standoff, direction, arc) {
+  const angle = Math.atan2(radialY, radialX) + arc * direction;
+  const centreX = Number(target.x) || 0;
+  const centreY = Number(target.y) || 0;
+  // Rebuilt through engagementGeometry's own measure so a station's surface
+  // offset is included, exactly as the radial error is.
+  const skin = fastHypot(centreX - (ship.x || 0), centreY - (ship.y || 0))
+    - engagementGeometry(ship, target).distance;
+  const radius = Math.max(1, skin + standoff);
+  return { x: centreX + Math.cos(angle) * radius, y: centreY + Math.sin(angle) * radius };
+}
+
+// Is the aim point reachable in a straight line, or is there a rock in the way?
+//
+// A blocked line gets a static A* detour to an anchor further round the circle,
+// re-planned only on a cadence. Running ordinary route planning against the aim
+// point itself would replan every time the ship moved a route-replan distance,
+// which for a point that moves with the ship is continuously.
+function orbitSteeringDestination(room, ship, runtime, target, aim, radialX, radialY, standoff, direction, now) {
+  const clearance = routeClearance(ship);
+  if (isSegmentClear(room, ship.x, ship.y, aim.x, aim.y, clearance)) {
+    runtime.orbitDetour = null;
+    return { destination: aim, detouring: false };
+  }
+
+  const detour = runtime.orbitDetour;
+  const targetX = Number(target.x) || 0;
+  const targetY = Number(target.y) || 0;
+  const stale = !detour
+    || detour.targetId !== String(target.id)
+    || now >= (Number(detour.replanAt) || 0)
+    || fastHypot(targetX - detour.targetX, targetY - detour.targetY) > ORBIT_DETOUR_TARGET_MOVE
+    || fastHypot(detour.x - (ship.x || 0), detour.y - (ship.y || 0)) <= waypointCaptureRadius(ship);
+  if (!stale) return { destination: { x: detour.x, y: detour.y }, detouring: true };
+
+  const anchor = orbitCirclePoint(ship, target, radialX, radialY, standoff, direction, ORBIT_DETOUR_ARC);
+  const clear = nearestClearPoint(room, anchor.x, anchor.y, clearance);
+  const placed = clear.clear ? { x: clear.x, y: clear.y } : anchor;
+  runtime.orbitDetour = {
+    targetId: String(target.id),
+    targetX,
+    targetY,
+    x: placed.x,
+    y: placed.y,
+    replanAt: now + ORBIT_DETOUR_REPLAN_MS
+  };
+  return { destination: placed, detouring: true };
+}
+
+// One tick of orbit steering. Sets the aim point, the speed ceiling the radius
+// and the hull's turn rate allow, and whether a reversal is still in progress.
+// It deliberately touches no engagement latch: Orbit has none to touch.
+function planOrbit(room, ship, runtime, target, stats, now) {
+  const centreX = Number(target.x) || 0;
+  const centreY = Number(target.y) || 0;
+  let dx = (ship.x || 0) - centreX;
+  let dy = (ship.y || 0) - centreY;
+  let centreDistance = fastHypot(dx, dy);
+  if (!(centreDistance > BEARING_MIN_DISTANCE)) {
+    // Sitting on the target's own position: there is no radial to work from, so
+    // pick one off the hull's nose and let the correction push it out.
+    dx = Math.cos(ship.angle || 0);
+    dy = Math.sin(ship.angle || 0);
+    centreDistance = 1;
+  }
+  const radialX = dx / centreDistance;
+  const radialY = dy / centreDistance;
+
+  const direction = orbitDirectionOf(ship, runtime);
+  const tangent = orbitTangent(radialX, radialY, direction);
+  const standoff = orbitStandoff(ship, target);
+  // Measured the way the stance was specified: to the hull for a ship, to the
+  // surface for a station. For a ship this is just centreDistance.
+  const radialError = engagementGeometry(ship, target).distance - standoff;
+  const correction = clampNumber(radialError / ORBIT_CORRECTION_BAND, -1, 1);
+
+  // Too far out, the radial term points inward; too close, outward; on the
+  // radius it vanishes and the ship simply travels round.
+  let desiredX = tangent.x - radialX * correction * ORBIT_RADIAL_GAIN;
+  let desiredY = tangent.y - radialY * correction * ORBIT_RADIAL_GAIN;
+  const length = fastHypot(desiredX, desiredY);
+  if (length > 1e-6) {
+    desiredX /= length;
+    desiredY /= length;
+  } else {
+    desiredX = tangent.x;
+    desiredY = tangent.y;
+  }
+
+  const aim = {
+    x: (ship.x || 0) + desiredX * ORBIT_LOOKAHEAD_DISTANCE,
+    y: (ship.y || 0) + desiredY * ORBIT_LOOKAHEAD_DISTANCE
+  };
+  const steering = orbitSteeringDestination(
+    room, ship, runtime, target, aim, radialX, radialY, standoff, direction, now
+  );
+  runtime.destination = steering.destination;
+  runtime.orbitDirect = !steering.detouring;
+  runtime.blocked = false;
+
+  // A circle of this radius cannot be flown faster than the hull can turn
+  // through it. Damage a gyroscope and the same ship orbits slower, which is
+  // the behaviour a damaged ship should have -- not an ever-widening overshoot.
+  const turnRate = maxTurnRate(stats);
+  const turnLimited = turnRate > 0 ? turnRate * standoff * ORBIT_TURN_MARGIN : Infinity;
+
+  // A reversal is a turnaround, not a sign flip. The desired direction above is
+  // already the new tangent, so the hull is turning onto it; all this does is
+  // take the throttle off until the momentum from the old one has gone.
+  const tangentialSpeed = (ship.vx || 0) * tangent.x + (ship.vy || 0) * tangent.y;
+  if (runtime.orbitReversing) {
+    const headingError = Math.abs(angleDifference(ship.angle || 0, Math.atan2(desiredY, desiredX)));
+    if (tangentialSpeed >= -ORBIT_REVERSAL_SPEED
+      || headingError <= ORBIT_REVERSAL_HEADING_TOLERANCE) {
+      runtime.orbitReversing = false;
+    }
+  }
+  runtime.orbitSpeedLimit = runtime.orbitReversing
+    ? ORBIT_REVERSAL_SPEED
+    : turnLimited;
+}
+
+// Orbit steering is live only while the stance is actually flying a circle.
+// Everything else -- no target, Static, a Hold latch, a Charge contact -- must
+// leave it switched off, or a stale speed ceiling would throttle the next order.
+function clearOrbitSteering(runtime) {
+  runtime.orbitSpeedLimit = 0;
+  runtime.orbitDirect = false;
+  runtime.orbitDetour = null;
+}
+
+function refreshEngagement(room, ship, runtime, now, stats) {
   const command = runtime.command;
   const engagement = engagementTarget(room, ship, runtime);
   if (!engagement) {
@@ -637,8 +868,10 @@ function refreshEngagement(room, ship, runtime, now) {
     }
     runtime.holdEngaged = false;
     runtime.chargeEngaged = false;
+    runtime.holdCoverageRange = 0;
     runtime.blocked = false;
     runtime.attackLane = null;
+    clearOrbitSteering(runtime);
     clearRoute(runtime);
     return;
   }
@@ -657,19 +890,39 @@ function refreshEngagement(room, ship, runtime, now) {
   if (type !== "repair" && (combatStance(ship) === "static" || (!explicit && !toggles.autoEngage))) {
     runtime.holdEngaged = true;
     runtime.chargeEngaged = false;
+    runtime.holdCoverageRange = 0;
     runtime.blocked = false;
     runtime.attackLane = null;
+    clearOrbitSteering(runtime);
     clearRoute(runtime);
     return;
   }
 
+  // Orbit branches before any of the Hold geometry below. Everything the Hold
+  // path does -- the range gate, the standoff, the firing-position search, the
+  // holdEngaged latch -- is about arriving somewhere and stopping, and an
+  // orbiting ship never arrives anywhere. It attacks from the first tick and
+  // spirals onto its radius while it does.
+  if (type === "attack" && combatStance(ship) === "orbit") {
+    runtime.holdEngaged = false;
+    runtime.chargeEngaged = false;
+    runtime.ramming = false;
+    runtime.holdCoverageRange = 0;
+    runtime.attackLane = null;
+    runtime.arrivalRadius = ARRIVE_DISTANCE;
+    planOrbit(room, ship, runtime, target, stats, now);
+    return;
+  }
+  clearOrbitSteering(runtime);
+
   const geometry = engagementGeometry(ship, target);
   const distance = geometry.distance;
   const ranges = engagementRanges(ship, target, type);
-  const { enter, resume } = ranges;
+  const { contact, enter, resume } = ranges;
 
   if (type === "attack" && combatStance(ship) === "charge") {
     runtime.holdEngaged = false;
+    runtime.holdCoverageRange = 0;
     // Charge never stops at a clump position. It is a contact-seeking stance
     // and the Hold standoff geometry has nothing to say to it.
     runtime.attackLane = null;
@@ -709,17 +962,38 @@ function refreshEngagement(room, ship, runtime, now) {
       return;
     }
     runtime.holdEngaged = false;
+    runtime.holdCoverageRange = 0;
   } else if (canEngageFromHere(room, ship, target, type, distance, enter)) {
     // The first position it can fire from is the position it stops at. No ship
-    // moves anywhere tidier before it starts shooting.
-    runtime.holdEngaged = true;
-    runtime.blocked = false;
-    runtime.attackLane = null;
-    clearRoute(runtime);
-    return;
+    // moves anywhere tidier before it starts shooting -- but "can fire from" is
+    // a question about the guns, and the gate that got us here only measured the
+    // hull centre. Ask the battery before latching.
+    const shortfall = type === "attack" ? holdCoverageShortfall(room, ship, runtime, target, now) : 0;
+    const wanted = Math.max(
+      contact,
+      Math.floor((distance - shortfall) / HOLD_COVERAGE_STANDOFF_STEP) * HOLD_COVERAGE_STANDOFF_STEP
+    );
+    if (shortfall <= 0 || distance <= wanted) {
+      // Either the whole main battery reaches, or the hull is already as close
+      // as it is allowed to get and closing further would not buy the gun that
+      // is still short anything.
+      runtime.holdEngaged = true;
+      runtime.holdCoverageRange = 0;
+      runtime.blocked = false;
+      runtime.attackLane = null;
+      clearRoute(runtime);
+      return;
+    }
+    // Keep closing, to the range the guns asked for rather than the one the
+    // centre-to-centre gate would have settled for.
+    runtime.holdCoverageRange = wanted;
+  } else {
+    runtime.holdCoverageRange = 0;
   }
 
-  const standoff = Math.max(0, enter - ARRIVE_DISTANCE);
+  const coverageRange = Number(runtime.holdCoverageRange) || 0;
+  const engageRange = coverageRange > 0 ? Math.min(enter, coverageRange) : enter;
+  const standoff = Math.max(0, engageRange - ARRIVE_DISTANCE);
   // Out of range: close along this ship's own lane, so the fleet advances
   // abreast instead of queueing up behind whoever reaches the target first.
   const lane = attackLaneDestination(room, ship, runtime, target, type, standoff);
@@ -728,7 +1002,7 @@ function refreshEngagement(room, ship, runtime, now) {
     runtime.blocked = false;
     return;
   }
-  const destination = reachableFiringPosition(room, ship, target, runtime, standoff, enter, now);
+  const destination = reachableFiringPosition(room, ship, target, runtime, standoff, engageRange, now);
   runtime.blocked = !destination;
   if (destination) runtime.destination = destination;
   else clearRoute(runtime);
@@ -1105,7 +1379,7 @@ function holdWeaponFacingHeading(room, ship, runtime, target) {
       (Number(target.y) || 0) - (Number(previous.targetY) || 0)
     )
     : Infinity;
-  const { getHoldWeaponFacingSignature, chooseHoldWeaponFacing } = require("./combat");
+  const { getHoldWeaponFacingSignature, chooseHoldWeaponFacing } = combat();
   const signature = getHoldWeaponFacingSignature(ship);
   const due = !previous
     || previous.targetId !== targetId
@@ -1258,6 +1532,13 @@ function planMovement(room, ship, runtime, stats, route) {
   const safeArrivalSpeed = Math.sqrt(2 * brakingAcceleration(stats) * remainingToEnd);
   const turnRate = maxTurnRate(stats);
   const turnLimit = turnRate > 0 ? turnRate * Math.max(route ? route.remaining : goalDistance, arrivalRadius) : Infinity;
+  // An orbit aim point is a bearing, not a destination: it is regenerated ahead
+  // of the hull every tick and is never arrived at. Braking for it, or limiting
+  // speed by the turn needed to hit it, would have the ship slow down for a
+  // point that is running away from it. The orbit's own turn-rate ceiling below
+  // is what governs how fast the circle may be flown. A detour anchor IS a real
+  // place, so while one is being flown the ordinary route limits stand.
+  const orbitSteering = Boolean(runtime.orbitDirect) && (Number(runtime.orbitSpeedLimit) || 0) > 0;
   const ramming = Boolean(runtime.ramming && !runtime.chargeEngaged);
   const effectiveMaxSpeed = Number(stats.maxSpeed) || 0;
   const paperMaxSpeed = Number(ship.stats?.maxSpeed);
@@ -1272,13 +1553,18 @@ function planMovement(room, ship, runtime, stats, route) {
   const blockedLimit = route?.mustBrake
     ? Math.sqrt(2 * brakingAcceleration(stats) * ARRIVE_DISTANCE)
     : Infinity;
+  // What the orbit controller will allow this tick: the speed whose turn radius
+  // fits the circle being flown, or the brake during a direction reversal. Zero
+  // and below mean the ship is not orbiting and nothing is imposed.
+  const orbitSpeedLimit = Number(runtime.orbitSpeedLimit) || 0;
   const permitted = Math.min(
     ownMaxSpeed,
-    ramming ? Infinity : safeArrivalSpeed,
-    ramming ? Infinity : turnLimit,
+    ramming || orbitSteering ? Infinity : safeArrivalSpeed,
+    ramming || orbitSteering ? Infinity : turnLimit,
     route ? route.cornerLimit : Infinity,
     route ? route.orbitLimit : Infinity,
-    blockedLimit
+    blockedLimit,
+    orbitSpeedLimit > 0 ? orbitSpeedLimit : Infinity
   );
   // Above a right angle of heading error the ship is asked to shed speed rather
   // than hold it, and the taper stops that becoming a cliff at exactly 90
@@ -1356,17 +1642,19 @@ function updateShipMovement(room, ship, dt, now) {
 
   const authority = movementAuthority(room, ship, runtime);
   if (authority === "engage") {
-    refreshEngagement(room, ship, runtime, ship._simNow);
+    refreshEngagement(room, ship, runtime, ship._simNow, stats);
   } else if (authority === "stop") {
     runtime.holdEngaged = false;
     runtime.chargeEngaged = false;
     runtime.blocked = false;
     runtime.arrivalRadius = ARRIVE_DISTANCE;
+    clearOrbitSteering(runtime);
     clearRoute(runtime);
   } else if (authority === "position") {
     runtime.holdEngaged = false;
     runtime.chargeEngaged = false;
     runtime.blocked = false;
+    clearOrbitSteering(runtime);
   }
 
   // Charge runs straight at its target -- but only while there is a straight
@@ -1385,10 +1673,16 @@ function updateShipMovement(room, ship, dt, now) {
         runtime.destination.y,
         routeClearance(ship)
       ));
-  const routed = runtime.destination && !directCharge
+  // Orbit steers at its aim point directly for the same reason Charge does, and
+  // one more besides: the aim point moves with the hull every tick, so handing
+  // it to the route planner would invalidate and rebuild the route continuously
+  // for a leg that was already known to be clear. planOrbit has done that check.
+  const directOrbit = Boolean(runtime.orbitDirect) && Boolean(runtime.destination);
+  const direct = directCharge || directOrbit;
+  const routed = runtime.destination && !direct
     ? resolveRoute(room, ship, runtime, ship._simNow)
     : false;
-  if (directCharge && runtime.path?.length) {
+  if (direct && runtime.path?.length) {
     runtime.path = [];
     runtime.waypointIndex = 0;
     runtime.route = null;
@@ -1471,7 +1765,9 @@ function issueAttack(room, ship, commandId, targetId, now, lane = null) {
   }
   // A ship that can already shoot stops here and does it. This is the first
   // thing the order does, before anything about where it might have gone.
-  if (target && combatStance(ship) !== "charge") {
+  // Orbit is excluded with Charge: neither has a position to latch, and Orbit in
+  // particular must never acquire holdEngaged, which is what would park it.
+  if (target && combatStance(ship) !== "charge" && combatStance(ship) !== "orbit") {
     const distance = engagementGeometry(ship, target).distance;
     if (distance <= engagementRanges(ship, target, "attack").enter
       && currentFiringLineClear(room, ship, target)) {
@@ -1633,14 +1929,56 @@ function rotateShips(room, player, options) {
   return { ok: true, code: "rotate", commanded: selected.ships.length };
 }
 
-function applyCombatStyle(ship, combatStyle) {
+function applyCombatStyle(ship, combatStyle, orbitDirection) {
   ship.combatStyle = combatStyle;
   ship.combatStyleRaw = combatStyle;
   const runtime = ensureMovementRuntime(ship);
   runtime.holdFacing = null;
+  runtime.holdCoverageRange = 0;
   runtime.holdEngaged = false;
   runtime.chargeEngaged = false;
   runtime.ramming = false;
+  clearOrbitSteering(runtime);
+  runtime.orbitReversing = false;
+  // The direction survives the stance. Switching to Hold and back to Orbit
+  // restores the way round this ship was already going; an explicit direction on
+  // the message is what changes it. A ship that has never orbited gets
+  // clockwise, so selecting Orbit always has an answer.
+  ship.orbitDirection = orbitDirection === undefined
+    ? sanitizeOrbitDirection(ship.orbitDirection)
+    : sanitizeOrbitDirection(orbitDirection, ship.orbitDirection);
+  runtime.orbitDirection = ship.orbitDirection;
+}
+
+// Change which way round a ship orbits, and NOTHING else.
+//
+// This is deliberately not applyCombatStyle with a different argument. That one
+// retires the Hold facing decision, drops the Hold and Charge latches and clears
+// the ramming state, all of which are correct when the stance itself changes and
+// all of which are wrong here: the ship is already fighting this target, and a
+// direction toggle must not cost it its target, its firing solution, its weapon
+// tracking or its place in the fight. The only things that stop being true are
+// the way round and the steering that was following it.
+function applyOrbitDirection(ship, orbitDirection) {
+  const runtime = ensureMovementRuntime(ship);
+  const next = sanitizeOrbitDirection(orbitDirection, ship.orbitDirection);
+  if (sanitizeOrbitDirection(ship.orbitDirection) === next) {
+    // Still worth writing through: a ship whose stored direction was absent or
+    // malformed has just been given the canonical one.
+    ship.orbitDirection = next;
+    runtime.orbitDirection = next;
+    return false;
+  }
+  ship.orbitDirection = next;
+  runtime.orbitDirection = next;
+  // Reverse under power rather than by flipping the velocity. planOrbit brakes
+  // the old tangential motion and turns onto the new tangent while it does.
+  runtime.orbitReversing = true;
+  // Only the orbit steering is invalidated. The route cache belongs to the
+  // detour, which was drawn the old way round.
+  runtime.orbitDetour = null;
+  runtime.orbitSpeedLimit = 0;
+  return true;
 }
 
 function applyMovementToggles(ship, toggles) {
@@ -1654,6 +1992,7 @@ module.exports = {
   alignmentThrottle,
   applyCombatStyle,
   applyMovementToggles,
+  applyOrbitDirection,
   applyPropulsion,
   commandShips,
   commandShipsToDestination,
@@ -1662,6 +2001,8 @@ module.exports = {
   maxFriendlyCorrectionPerTick,
   navigationClearanceRadius,
   nearestClearPoint: require("./movementNavigation").nearestClearPoint,
+  orbitStandoff,
+  orbitTangent,
   physicalCollisionRadius,
   planFormation,
   planMovement,

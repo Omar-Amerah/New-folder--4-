@@ -18,7 +18,7 @@ const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { BALANCE_REVISION } = require("./balanceConfig");
 const { reportInvalidShieldState } = require("./runtimeShield");
-const { sanitizeCombatStyle, sanitizeMovementToggles } = require("./validation");
+const { sanitizeCombatStyle, sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validation");
 const { usesStationInfrastructure } = require("./rooms");
 const { filterSnapshotForPlayer } = require("./visibilitySnapshots");
 const { effectiveSensorProfile, effectiveSensorRange } = require("./sensorCapability");
@@ -323,6 +323,9 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       angle: roundAngle(ship.angle),
       turnActivity: Math.max(-1, Math.min(1, Number.isFinite(ship.turnActivity) ? ship.turnActivity : 0)),
       combatStyle: sanitizeCombatStyle(ship.combatStyle),
+      // Sent whatever the stance is, so the Orbit button can show the direction
+      // a ship would resume on without the client having to remember one.
+      orbitDirection: sanitizeOrbitDirection(ship.orbitDirection),
       movementToggles: sanitizeMovementToggles(ship.movementToggles),
       targetX: round(ship.targetX),
       targetY: round(ship.targetY),

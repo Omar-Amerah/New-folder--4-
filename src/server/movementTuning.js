@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 // Single home for every movement tunable, so the handling of the game can be
 // changed from one file.
@@ -145,9 +145,71 @@ module.exports = Object.freeze({
   // Resume only after the target has opened beyond the usable range. The gap is
   // deliberate hysteresis, not a preferred combat distance.
   HOLD_RESUME_RATIO: 1.05,
+  // Granularity of the weapon-aware correction to that threshold. The gate above
+  // is measured from the hull centre, which carries no guns; the correction is
+  // measured from the mounts and so shifts by a pixel or two every tick as the
+  // ship closes. Quantising it downward keeps the resulting firing point stable
+  // enough not to invalidate the route cache on every tick, and always errs
+  // toward closing slightly further than strictly needed.
+  HOLD_COVERAGE_STANDOFF_STEP: 8,
   // A ship with nothing that reaches still has to stop somewhere short of
   // wearing its target as a hat.
   REPAIR_STANDOFF_PAD: 30,
+
+  // --- Orbit --------------------------------------------------------------
+  // Orbit is a travelling stance, not a standing one: it never latches, never
+  // stops, and never shares a position with another ship. Every constant here
+  // shapes one ship's own circle around its own target.
+  //
+  // How much of the main battery's reach the orbit radius spends. The rest is
+  // margin: a ship holding station exactly on its maximum range drops out of it
+  // every time the target drifts outward, and an orbit is in constant lateral
+  // motion, so it needs more slack than a stationary Hold does.
+  ORBIT_RANGE_RATIO: 0.85,
+  // Daylight between the two hulls when the guns want a radius so short that
+  // the orbit would otherwise be flown through the target.
+  ORBIT_CONTACT_PADDING: 48,
+  // Radial error at which the steering asks for a full sideways correction.
+  // Inside the band the correction tapers, which is what turns "get to the
+  // radius" into a spiral rather than a series of turns toward and away.
+  //
+  // A settled orbit sits slightly outside its radius, because a hull travelling
+  // at its turn-limited speed cannot curve tighter than it is already curving.
+  // Narrowing this band pulls the settled radius back in; past roughly this
+  // value it stops helping, since what is left is the turn limit rather than a
+  // weak correction.
+  ORBIT_CORRECTION_BAND: 120,
+  // How hard a full correction pulls against the tangent. At 1 the desired
+  // direction at maximum error is 45 degrees off the tangent -- closing briskly
+  // while still going round, rather than driving straight at the target and
+  // having to turn the whole way out again on arrival.
+  ORBIT_RADIAL_GAIN: 1,
+  // The virtual waypoint is this far ahead along the desired direction. It is a
+  // steering aim point, never a destination the ship is trying to reach: it is
+  // recomputed every tick from wherever the hull has got to, so the ship chases
+  // a point that keeps moving away around the circle.
+  ORBIT_LOOKAHEAD_DISTANCE: 180,
+  // Fraction of the turn rate the orbit is allowed to consume. A circle flown
+  // at exactly the turn-rate limit has no authority left for the radial
+  // correction, gusts of separation, or a target that moves.
+  ORBIT_TURN_MARGIN: 0.75,
+  // Tangential speed at or below which a direction reversal is complete and the
+  // ship may accelerate the new way round.
+  ORBIT_REVERSAL_SPEED: 24,
+  // ...or the heading error to the new tangent that also ends it, for a hull
+  // agile enough to have come round before it finished shedding the old speed.
+  ORBIT_REVERSAL_HEADING_TOLERANCE: 0.35,
+  // How far round the circle a detour anchor is placed when an obstacle blocks
+  // the direct line to the aim point, in radians of orbit arc. Far enough that
+  // the route goes past the obstacle rather than into the near edge of it.
+  ORBIT_DETOUR_ARC: Math.PI / 3,
+  // Detours are re-planned on a cadence rather than per tick. The aim point
+  // moves every tick by design, and feeding that to A* would invalidate the
+  // route as fast as it could be built.
+  ORBIT_DETOUR_REPLAN_MS: 750,
+  // ...and immediately if the target has moved this far since the anchor was
+  // placed, because then the anchor is no longer on the circle it was on.
+  ORBIT_DETOUR_TARGET_MOVE: 120,
 
   // --- Component heat from movement --------------------------------------
   ENGINE_HEAT_BASE: 2,

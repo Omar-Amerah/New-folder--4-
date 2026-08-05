@@ -14,8 +14,10 @@ const HeatRules = require("./public/src/shared/heatRules");
 const {
   chooseHoldWeaponFacing,
   isTargetInWeaponArc,
-  updateShipWeapons
+  updateShipWeapons,
+  weaponModuleWorldPosition
 } = require("./src/server/combat");
+const { getEffectiveWeaponStats } = require("./src/server/componentData");
 const { commandShips, updateShipMovement } = require("./src/server/movement");
 
 const DT = 1 / 30;
@@ -307,6 +309,72 @@ function run() {
       "combat facing must not translate a ship off its formation slot");
     assert.deepStrictEqual({ ...ship.movement.command.destination }, slot,
       "...nor change where the order sent it");
+  }
+
+  // Hold stops where the GUNS reach, not where the hull centre reaches.
+  //
+  // A broadside hull holds side-on to its target, which puts the beam-mounted
+  // battery along the line of fire: the near guns end up most of a hundred
+  // pixels closer to the target than the hull centre, and the far ones the same
+  // distance further away. Stopping the moment the CENTRE was inside the weapon
+  // envelope therefore left the far guns outside their own range, and nothing
+  // afterwards told the ship to close the rest of the way -- a four-gun ship
+  // fought with two guns, and which two depended on the hull angle.
+  {
+    const broadside = [
+      { x: 7, y: 7, type: "core" },
+      { x: 7, y: 8, type: "engine" },
+      { x: 8, y: 8, type: "engine" },
+      // Reactors are 1x2, so each covers its own cell and the one to its right.
+      { x: 5, y: 7, type: "reactor" },
+      { x: 4, y: 7, type: "frame" },
+      { x: 2, y: 7, type: "reactor" },
+      { x: 1, y: 7, type: "frame" },
+      { x: 8, y: 7, type: "reactor" },
+      { x: 10, y: 7, type: "frame" },
+      { x: 11, y: 7, type: "reactor" },
+      { x: 13, y: 7, type: "frame" },
+      { x: 1, y: 6, type: "blaster", rotation: 90 },
+      { x: 1, y: 8, type: "blaster", rotation: 90 },
+      { x: 13, y: 6, type: "blaster", rotation: 90 },
+      { x: 13, y: 8, type: "blaster", rotation: 90 }
+    ];
+    const weaponIndexes = broadside
+      .map((module, index) => (module.type === "blaster" ? index : -1))
+      .filter((index) => index >= 0);
+    const ship = makeShip(2000, 2000, broadside, "p1");
+    const target = makeShip(3400, 2000, UNARMED, "p2");
+    const room = makeRoom(ship, target);
+
+    // The mounts have to be spread far enough along the hull for the centre and
+    // the guns to disagree, or the test proves nothing.
+    const spread = weaponIndexes.map((index) => {
+      const origin = weaponModuleWorldPosition(ship, ship.design[index], Math.PI / 2);
+      return origin.x - ship.x;
+    });
+    assert(Math.max(...spread) - Math.min(...spread) > 150,
+      "the battery must straddle the hull centre for this to be a broadside at all");
+
+    commandShips(room, room.players.get("p1"), target.x, target.y, {
+      shipIds: [ship.id],
+      targetId: target.id
+    });
+    simulate(room, [ship], 40);
+    assert(ship.movement.holdEngaged, "the ship should settle into Hold on its target");
+    assert(Math.abs(Math.abs(angleDelta(ship.angle, 0)) - Math.PI / 2) < 0.3,
+      "the side-mounted battery should hold the hull side-on, laying the mounts "
+      + "along the line of fire -- otherwise this case is not testing the bug");
+
+    const heading = ship.angle;
+    for (const index of weaponIndexes) {
+      const module = ship.design[index];
+      const origin = weaponModuleWorldPosition(ship, module, heading);
+      const range = getEffectiveWeaponStats(ship, index).range;
+      const distance = Math.hypot(target.x - origin.x, target.y - origin.y);
+      assert(distance <= range,
+        `every gun must reach from its own mount, not just the hull centre `
+        + `(weapon ${index} at ${distance.toFixed(1)} of ${range})`);
+    }
   }
 
   console.log("verify-movement-hold-facing: OK");

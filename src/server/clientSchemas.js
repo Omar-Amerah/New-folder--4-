@@ -1,12 +1,15 @@
 const { sanitizeRoomCode } = require('./validation');
 const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
 const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
-const TYPES = ['ping','join','ready','deploy','buyShip','setCombatStyle','setMovementToggles','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','setColor','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
+const TYPES = ['ping','join','ready','deploy','buyShip','setCombatStyle','setOrbitDirection','setMovementToggles','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','setColor','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 // The four live stances plus the legacy names sanitizeCombatStyle() still maps
 // onto them. Deliberately permissive: an unrecognised style rejects the entire
 // deploy/buyShip message, so a blueprint saved under an old stance name would
 // fail to deploy rather than come in under its replacement.
 const COMBAT = new Set(['charge','hold','orbit','kite','static','sentry','circle','maintain','direct','interceptor','evasive','brawler','heavy']);
+// Orbit direction is a sign, not a stance. Only the two values exist on the
+// wire; sanitizeOrbitDirection owns what an absent or malformed one becomes.
+const orbitDirection=(v)=>v===1||v===-1;
 const RESYNC = new Set(['client-request','sequence-gap','epoch-change','static-revision','reconnect','heartbeat-timeout','malformed-snapshot']);
 // Taken from validation rather than restated, so the wire schema and the
 // sanitizer can never disagree about which toggles exist.
@@ -24,6 +27,10 @@ const int=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
 const num=(v,min=-1e6,max=1e6)=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;
 const id=(v)=>typeof v==='string'&&v.length>=1&&v.length<=64;
 function validShipIds(v){ return Array.isArray(v)&&v.length<=MAX_SHIP_IDS&&v.every(id); }
+// Messages that may name every ship the player owns rather than a click
+// selection, and so are checked against MAX_COMBAT_SHIP_IDS by their own case
+// below instead of the generic bound.
+const SELECTION_WIDE_TYPES=new Set(['setCombatStyle','setOrbitDirection']);
 function validCombatShipIds(v){ return Array.isArray(v)&&v.length<=MAX_COMBAT_SHIP_IDS&&v.every(id); }
 function validDesign(v){ return Array.isArray(v)&&v.length>0&&v.length<=MAX_DESIGN&&v.every((e)=>isPlainObject(e)&&str(e.part||e.type||e.id||'x',128)); }
 // Wiring v2 separates canonical physical sections (which own tier) from
@@ -49,7 +56,11 @@ function validateSpecific(m){
     case 'deploy': { const miss=checkRequired(m,['design']); if(miss)return miss; if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
     case 'buyShip': { const miss=checkRequired(m,['requestId','design']); if(miss)return miss; if(!reqId(m.requestId))return fail('invalid-request','Invalid request id'); if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.count!==undefined&&!int(m.count,1,5))return fail('invalid-request','Invalid purchase quantity'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
     case 'setMovementToggles': { const miss=checkRequired(m,['toggles']); if(miss)return miss; if(!m.toggles||typeof m.toggles!=='object'||Array.isArray(m.toggles))return fail('invalid-toggles','Invalid movement toggles'); for(const k of Object.keys(m.toggles)){ if(!MOVEMENT_TOGGLES.has(k))return fail('invalid-toggles','Unknown movement toggle'); if(typeof m.toggles[k]!=='boolean')return fail('invalid-toggles','Movement toggles must be booleans'); } if(m.requestId!==undefined&&!reqId(m.requestId))return fail('invalid-request','Invalid request id'); const hasScope=Object.prototype.hasOwnProperty.call(m,'scope'); const hasShipIds=Object.prototype.hasOwnProperty.call(m,'shipIds'); if(hasScope&&hasShipIds)return fail('invalid-selection','Cannot specify both scope and shipIds for movement toggles'); if(hasScope&&m.scope!=='all-owned')return fail('invalid-selection','Invalid movement toggle scope'); if(hasShipIds&&!validCombatShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(!hasScope&&!hasShipIds)return fail('invalid-selection','Missing movement toggle target'); return null; }
-    case 'setCombatStyle': { const miss=checkRequired(m,['combatStyle']); if(miss)return miss; if(!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); if(m.requestId!==undefined&&!reqId(m.requestId))return fail('invalid-request','Invalid request id'); const hasScope=Object.prototype.hasOwnProperty.call(m,'scope'); const hasShipIds=Object.prototype.hasOwnProperty.call(m,'shipIds'); if(hasScope&&hasShipIds)return fail('invalid-selection','Cannot specify both scope and shipIds for combat style'); if(hasScope&&m.scope!=='all-owned')return fail('invalid-selection','Invalid combat style scope'); if(hasShipIds&&!validCombatShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(!hasScope&&!hasShipIds)return fail('invalid-selection','Missing combat style target'); return null; }
+    case 'setCombatStyle': { const miss=checkRequired(m,['combatStyle']); if(miss)return miss; if(!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); if(m.orbitDirection!==undefined&&!orbitDirection(m.orbitDirection))return fail('invalid-orbit-direction','Invalid orbit direction'); if(m.requestId!==undefined&&!reqId(m.requestId))return fail('invalid-request','Invalid request id'); const hasScope=Object.prototype.hasOwnProperty.call(m,'scope'); const hasShipIds=Object.prototype.hasOwnProperty.call(m,'shipIds'); if(hasScope&&hasShipIds)return fail('invalid-selection','Cannot specify both scope and shipIds for combat style'); if(hasScope&&m.scope!=='all-owned')return fail('invalid-selection','Invalid combat style scope'); if(hasShipIds&&!validCombatShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(!hasScope&&!hasShipIds)return fail('invalid-selection','Missing combat style target'); return null; }
+    // A direction-only change. It is its own message rather than a second
+    // meaning for setCombatStyle so that both ends can see, from the type alone,
+    // that the ship's target and attack order are not being reissued.
+    case 'setOrbitDirection': { const miss=checkRequired(m,['orbitDirection']); if(miss)return miss; if(!orbitDirection(m.orbitDirection))return fail('invalid-orbit-direction','Invalid orbit direction'); if(m.requestId!==undefined&&!reqId(m.requestId))return fail('invalid-request','Invalid request id'); const hasScope=Object.prototype.hasOwnProperty.call(m,'scope'); const hasShipIds=Object.prototype.hasOwnProperty.call(m,'shipIds'); if(hasScope&&hasShipIds)return fail('invalid-selection','Cannot specify both scope and shipIds for orbit direction'); if(hasScope&&m.scope!=='all-owned')return fail('invalid-selection','Invalid orbit direction scope'); if(hasShipIds&&!validCombatShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(!hasScope&&!hasShipIds)return fail('invalid-selection','Missing orbit direction target'); return null; }
     case 'setDroneBayMode': { const miss=checkRequired(m,['shipId','componentId','mode']); if(miss)return miss; return id(m.shipId)&&id(m.componentId)&&['deployed','recalled'].includes(m.mode)?null:fail('invalid-drone-command','Invalid Drone Bay command'); }
     case 'setTelemetryFocus': { const miss=checkRequired(m,['shipId']); if(miss)return miss; return m.shipId===null||id(m.shipId)?null:fail('invalid-selection','Invalid telemetry focus'); }
     case 'setRallyPoint': { const miss=checkRequired(m,['x','y']); if(miss)return miss; return num(m.x)&&num(m.y)?null:fail('invalid-rally','Invalid rally point'); }
@@ -74,7 +85,7 @@ function validateClientMessage(message){
   if(!SCHEMAS[message.type])return fail('unknown-type','Unsupported message type');
   if(message.requestId!==undefined&&!reqId(message.requestId))return fail('invalid-request','Invalid request id');
   if(message.room!==undefined&&message.room!==''&&(typeof message.room!=='string'||!sanitizeRoomCode(message.room)))return fail('invalid-room','Invalid room code');
-  if(message.shipIds!==undefined&&message.type!=='setCombatStyle'&&!validShipIds(message.shipIds))return fail('invalid-selection','Invalid ship selection');
+  if(message.shipIds!==undefined&&!SELECTION_WIDE_TYPES.has(message.type)&&!validShipIds(message.shipIds))return fail('invalid-selection','Invalid ship selection');
   if(message.design!==undefined&&!validDesign(message.design))return fail('invalid-design','Invalid design payload');
   if(message.wiring!==undefined){
     if(message.type!=='deploy'&&message.type!=='buyShip')return fail('invalid-payload','Wiring is only accepted on blueprint messages');
@@ -85,7 +96,7 @@ function validateClientMessage(message){
   // checks above.
   const generic=message.wiring===undefined?{...message}:{...message,wiring:0};
   if(message.design!==undefined)generic.design=0;
-  if(message.type==='setCombatStyle'&&message.shipIds!==undefined)generic.shipIds=0;
+  if(SELECTION_WIDE_TYPES.has(message.type)&&message.shipIds!==undefined)generic.shipIds=0;
   if(!finiteNumbers(generic)||tooLongStrings(generic))return fail('invalid-payload','Message fields exceed protocol limits');
   const specific=validateSpecific(message); if(specific)return specific;
   return {ok:true,schema:SCHEMAS[message.type]};

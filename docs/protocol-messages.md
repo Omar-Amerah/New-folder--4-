@@ -10,6 +10,7 @@
 | `deploy` | Yes | `active` blueprint save and validation; legacy design-phase clients are treated as ready | `shipDesign`, `validation` | error/notice, room notice, static snapshot |
 | `buyShip` | Yes | `active`; purchase validation | `economy.validateBuyShip`, `economy.buyShip` | `purchaseResult`, notice, snapshot |
 | `setCombatStyle` | Yes | `active` | player ships | snapshot when changed |
+| `setOrbitDirection` | Yes | `active` | player ships | snapshot when changed |
 | `setRallyPoint` | Yes | `active` | player rally state | snapshot |
 | `resetRallyPoint` | Yes | `active` | player rally state | snapshot |
 | `command` | Yes | `active` | `movement.commandShips` | no direct response |
@@ -107,7 +108,17 @@ State messages may include `componentHeat` full tuples as `[heat, state, ratio, 
 ## Section 9A protocol compatibility and schemas
 Protocol version 4 makes compatibility negotiation explicit. `join` must include `protocolVersion`, `minProtocolVersion`, `maxProtocolVersion`, `frontendBuildSha` and `capabilities`; the server requires `messagepack` and accepts only compatible range 4..4. Stable error codes include `incompatible-protocol`, `missing-capability`, `invalid-payload`, `invalid-type`, `unknown-type`, `invalid-request`, `invalid-room`, `invalid-design`, `invalid-ship-ids`, `join-required`, `stale-attachment`, `bad-message`, `message-too-large` and `protocol-error`.
 
-The accepted client-message registry is `src/server/clientSchemas.js`: ping, join, deploy, buyShip, setCombatStyle, setRallyPoint, resetRallyPoint, command, destruct, setTeam, addBot, setRules, setName, startDesign, kick, restart, returnToLobby, restartLobby, closeLobby and leaveLobby. Unknown fields are ignored only after generic bounds validation; domain handlers remain authoritative for permission and phase checks.
+The accepted client-message registry is `src/server/clientSchemas.js`: ping, join, deploy, buyShip, setCombatStyle, setOrbitDirection, setRallyPoint, resetRallyPoint, command, destruct, setTeam, addBot, setRules, setName, startDesign, kick, restart, returnToLobby, restartLobby, closeLobby and leaveLobby. Unknown fields are ignored only after generic bounds validation; domain handlers remain authoritative for permission and phase checks.
+
+### setOrbitDirection
+
+Orbit is one combat style carrying a direction, not two styles. `combatStyle` is `"orbit"`; the direction rides beside it as `orbitDirection`, `1` for clockwise or `-1` for anticlockwise, and every ship carries one whether or not it is currently orbiting. `sanitizeOrbitDirection` resolves anything else to clockwise, so a ship is never left without a direction to resume on.
+
+`setOrbitDirection` exists as its own message rather than as a second meaning for `setCombatStyle` because the two do different amounts of damage. `setCombatStyle` re-applies the stance, which clears each ship's Hold facing decision and its engagement latches — correct when the stance changes, wrong when only the direction does. `setOrbitDirection` changes `orbitDirection` and the orbit steering that was following it, and nothing else: the target, the attack command, weapon target acquisition and the ship's place in the fight all survive. It takes the same `shipIds`/`scope: "all-owned"` selection contract as `setCombatStyle` and answers with `orbitDirectionResult`.
+
+`setCombatStyle` accepts an optional `orbitDirection` for the case where the player is choosing the stance and the direction at once. Omitted — which is what the Orbit button sends — each ship keeps the direction it already had, so switching a ship to Hold and back to Orbit resumes the way round it was going.
+
+Snapshots carry `orbitDirection` on every ship alongside `combatStyle`, so the client's Orbit button reflects authoritative state rather than a local guess.
 
 ### requestFullState
 

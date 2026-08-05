@@ -16,6 +16,7 @@ import { pruneSelection } from "./game/selection.js";
 import { updateTeamHud, updateFleetHud, updateEconomyHud, updateRelayHud, updateSelectionHud, updateObjectiveHud, updateHeatHud, updateLatencyHud } from "./ui/hudUi.js";
 import {
   onCombatStyleResult,
+  onOrbitDirectionResult,
   updateShipGroupUi,
   updateRallyUi,
   updateSelectionCommandUi,
@@ -478,6 +479,11 @@ function requestFullState(reason) {
 
   if (message.type === "combatStyleResult") {
     onCombatStyleResult(message);
+    return;
+  }
+
+  if (message.type === "orbitDirectionResult") {
+    onOrbitDirectionResult(message);
     return;
   }
 

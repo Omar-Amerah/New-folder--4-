@@ -5,7 +5,7 @@ const STYLE_LABELS = { charge: "Charge", hold: "Hold", orbit: "Orbit", kite: "Ki
 export const STYLE_DESCRIPTIONS = {
   charge: "Pursue continuously and close aggressively until contact distance.",
   hold: "Approach weapon range, then fire from an established position without retreating.",
-  orbit: "Circle the current target at a stable radius and direction.",
+  orbit: "Attack immediately and circle the target at weapon range, firing throughout. Click again to reverse the direction.",
   kite: "Retreat when threatened, stop at safe range, and approach only from beyond weapon range.",
   static: "Never reposition for combat. Holds its ground, turning to face and fire on anything in range."
 };

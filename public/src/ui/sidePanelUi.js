@@ -39,6 +39,37 @@ const GROUP_COMBAT_STYLES = [
   ...SELECTED_COMBAT_STYLES
 ];
 
+// Orbit is one stance carrying a direction, not two stances. The button below
+// therefore has three states -- unselected, selected clockwise, selected
+// anticlockwise -- and clicking it while it is already selected flips the
+// direction instead of reissuing the stance.
+const ORBIT_CLOCKWISE = 1;
+const ORBIT_ANTICLOCKWISE = -1;
+const ORBIT_LABELS = { [ORBIT_CLOCKWISE]: "Orbit C", [ORBIT_ANTICLOCKWISE]: "Orbit AC" };
+const ORBIT_TITLES = {
+  [ORBIT_CLOCKWISE]: "Orbit Clockwise",
+  [ORBIT_ANTICLOCKWISE]: "Orbit Anticlockwise"
+};
+// A selection whose ships disagree. Clicking sends them all the UI's current
+// preference; once they agree, the next click toggles them together.
+const ORBIT_MIXED_LABEL = "Orbit —";
+const ORBIT_MIXED_TITLE = "Orbit — selected ships are going opposite ways. Click to set them all one way.";
+
+function normalizeOrbitDirection(value) {
+  return Number(value) === ORBIT_ANTICLOCKWISE ? ORBIT_ANTICLOCKWISE : ORBIT_CLOCKWISE;
+}
+
+// The direction the whole selection shares, or null when they disagree.
+function commonOrbitDirection(ships) {
+  if (!ships.length) return null;
+  const first = normalizeOrbitDirection(ships[0].orbitDirection);
+  return ships.every((ship) => normalizeOrbitDirection(ship.orbitDirection) === first) ? first : null;
+}
+
+function orbitPreference() {
+  return normalizeOrbitDirection(state.orbitDirectionPreference);
+}
+
 let combatStyleRequestCounter = 0;
 function makeCombatStyleRequestId() {
   const base = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${++combatStyleRequestCounter}`;
@@ -122,7 +153,17 @@ export function handleSelectedCombatStyleClick(event) {
   const button = event.target?.closest?.("[data-combat-style]");
   if (!button || !dom.combatStyleControls?.contains?.(button)) return;
   event.preventDefault();
-  setSelectedCombatStyle(button.dataset.combatStyle);
+  const style = button.dataset.combatStyle;
+  // Clicking Orbit when it is already the selection's stance is a direction
+  // change, not a stance change: it must not reissue the attack order.
+  if (style === "orbit" && commonCombatStyle(selectedLiveShips()) === "orbit") {
+    const current = commonOrbitDirection(selectedLiveShips());
+    // Agreed: toggle them together. Mixed: bring them all onto the preference
+    // first, so the next click has something to toggle.
+    setSelectedOrbitDirection(current === null ? orbitPreference() : -current);
+    return;
+  }
+  setSelectedCombatStyle(style);
 }
 
 export function handleMovementToggleChange(event) {
@@ -313,14 +354,29 @@ function renderSelectionControls() {
     dom.selectionPanelCount.textContent = `${count} ship${count === 1 ? "" : "s"}`;
   }
   const activeStyle = commonCombatStyle(selectedShips);
+  const orbiting = activeStyle === "orbit";
+  const orbitDirection = orbiting ? commonOrbitDirection(selectedShips) : null;
   const buttons = dom.combatStyleControls ? Array.from(dom.combatStyleControls.children || []) : [];
   for (const button of buttons) {
     const style = button.dataset?.combatStyle;
     button.disabled = state.phase !== "active" || count === 0;
     button.classList.toggle("active", Boolean(style && activeStyle === style));
     const def = SELECTED_COMBAT_STYLES.find((item) => item.id === style);
-    if (def && button.textContent !== def.label) button.textContent = def.label;
-    if (def) { button.title = def.description; button.setAttribute("aria-description", def.description); }
+    if (!def) continue;
+    // Orbit alone reports more than its own name: while it is selected the
+    // button is also the direction readout, which is the only place the player
+    // can see which way round the selection is going.
+    const label = style === "orbit" && orbiting
+      ? (orbitDirection === null ? ORBIT_MIXED_LABEL : ORBIT_LABELS[orbitDirection])
+      : def.label;
+    const description = style === "orbit" && orbiting
+      ? (orbitDirection === null
+        ? ORBIT_MIXED_TITLE
+        : `${ORBIT_TITLES[orbitDirection]} — click to reverse`)
+      : def.description;
+    if (button.textContent !== label) button.textContent = label;
+    button.title = description;
+    button.setAttribute("aria-description", description);
   }
   renderMovementToggles(selectedShips);
   renderSelectedSummary(selectedShips);
@@ -491,6 +547,47 @@ function setSelectedCombatStyle(style) {
   renderSelectionControls();
 }
 
+// Change which way round the selection orbits, leaving everything else alone.
+//
+// This sends setOrbitDirection rather than setCombatStyle with a direction on
+// it, and the difference is the point: the server's style handler resets each
+// ship's engagement state, and a player flipping C to AC in the middle of a
+// fight has not asked their ships to drop the target they are shooting at.
+function setSelectedOrbitDirection(direction) {
+  const orbitDirection = normalizeOrbitDirection(direction);
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN || state.phase !== "active") {
+    notify.warning("Style commands are only available during an active match.");
+    return;
+  }
+  pruneSelection();
+  const ownShips = ownLiveShips();
+  const shipIds = ownShips.filter((ship) => state.selectedShipIds.has(ship.id)).map((ship) => ship.id);
+  if (shipIds.length === 0) {
+    notify.warning("Select ships before changing orbit direction.");
+    renderSelectionControls();
+    return;
+  }
+  const requestId = makeCombatStyleRequestId();
+  const useScopeAll = shipIds.length === ownShips.length || shipIds.length > MAX_COMBAT_STYLE_EXPLICIT_IDS;
+  const payload = { type: "setOrbitDirection", requestId, orbitDirection };
+  if (useScopeAll) payload.scope = "all-owned";
+  else payload.shipIds = shipIds;
+  const sent = send(payload);
+  if (!sent) {
+    notify.warning("Unable to send orbit direction — connection is offline.", { key: `orbit-send:${requestId}` });
+    recordNetworkEvent("notice", { message: "Orbit direction failed to send (offline)", requestId, orbitDirection });
+    return;
+  }
+  // What the button offers next time the selection has no answer of its own.
+  state.orbitDirectionPreference = orbitDirection;
+  // Optimistic, so the button reads the new direction on the click rather than a
+  // snapshot later. The next snapshot is authoritative either way.
+  for (const ship of ownShips) {
+    if (useScopeAll || shipIds.includes(ship.id)) ship.orbitDirection = orbitDirection;
+  }
+  renderSelectionControls();
+}
+
 function setGroupCombatStyle(groupId, style) {
   if (!ASSIGNABLE_GROUP_IDS.includes(groupId)) return;
   ensureShipGroupSettings();
@@ -607,6 +704,16 @@ export function onCombatStyleResult(message) {
     recordNetworkEvent("error", { code: message.code || "style-failed", message: message.message || "Style change failed", requestId: message.requestId });
     renderSelectionControls();
   }
+}
+
+// A direction change has no pending-reconciliation state to settle: the button
+// already shows the new direction optimistically and the next snapshot confirms
+// it. Only a rejection needs saying out loud.
+export function onOrbitDirectionResult(message) {
+  if (message.ok) return;
+  notify.error(message.message || "Orbit direction change failed.", { key: `orbit-failed:${message.requestId || "unknown"}` });
+  recordNetworkEvent("error", { code: message.code || "orbit-direction-failed", message: message.message || "Orbit direction change failed", requestId: message.requestId });
+  renderSelectionControls();
 }
 
 function combatStyleLabel(style) {
