@@ -1,7 +1,7 @@
 "use strict";
 // End-to-end live turret tracking over the REAL server + WebSocket protocol.
 //
-// Unlike verify-turret-render.js (which injects synthetic snapshots and angles
+// Unlike tests/verify-turret-render.js (which injects synthetic snapshots and angles
 // directly into the client), this test never assigns ship.weaponAngles. It:
 //   1. starts the real current server.js;
 //   2. joins a real Chromium client (the shooter) and a real Node WebSocket
@@ -18,7 +18,7 @@
 //   7. asserts real projectiles leave along the rendered barrel;
 //   8. verifies frontend/backend build + protocol identification end to end.
 //
-// Run after `npm run build`: node verify-live-turrets.js
+// Run after `npm run build`: node tests/verify-live-turrets.js
 
 const { spawn } = require("child_process");
 const http = require("http");
@@ -27,7 +27,7 @@ const path = require("path");
 const assert = require("assert");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
-const { createGeneratedPowerWiring, validateWiring, analyzeShipPower } = require("./src/server/shipDesign");
+const { createGeneratedPowerWiring, validateWiring, analyzeShipPower } = require("../src/server/shipDesign");
 const { launchChromium, uniquePort, uniqueRoom, defaultArtifactDir, waitForBrowserReady, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
 
 const PORT = Number(process.env.TEST_PORT || uniquePort());
@@ -37,7 +37,7 @@ const SHOT_DIR = process.env.SHOT_DIR || defaultArtifactDir("live-turrets");
 
 for (const required of ["public/vendor/pixi.min.js", "public/vendor/msgpack.min.js", "public/build-sha.js"]) {
   if (!fs.existsSync(required)) {
-    console.error(`${required} is missing — run \`npm run build\` before verify-live-turrets.js`);
+    console.error(`${required} is missing — run \`npm run build\` before tests/verify-live-turrets.js`);
     process.exit(1);
   }
 }
@@ -242,7 +242,7 @@ async function pinCameraOnShip(page, shipId) {
 
 async function main() {
   const server = spawn("node", ["server.js"], {
-    cwd: __dirname,
+    cwd: path.dirname(__dirname),
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -253,7 +253,7 @@ async function main() {
   let browser;
   let page;
   const enemy = new NetClient("enemy");
-  const report = { script: "verify-live-turrets.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], snapshots: [] };
+  const report = { script: "tests/verify-live-turrets.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], snapshots: [] };
 
   try {
     await waitForServer();

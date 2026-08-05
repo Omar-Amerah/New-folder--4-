@@ -3,22 +3,22 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const { performance } = require("node:perf_hooks");
-const { PARTS } = require("./src/server/components");
-const { effectiveSensorProfile } = require("./src/server/sensorCapability");
-const { createRoom } = require("./src/server/rooms");
+const { PARTS } = require("../src/server/components");
+const { effectiveSensorProfile } = require("../src/server/sensorCapability");
+const { createRoom } = require("../src/server/rooms");
 const {
   ensureTeamVisibility,
   invalidateVisibility,
   canTeamSeeEntity,
   canTeamTargetEntity,
   isPointVisibleToTeam
-} = require("./src/server/visibility");
-const { getTeamVisibleProjectiles } = require("./src/server/projectileReplication");
+} = require("../src/server/visibility");
+const { getTeamVisibleProjectiles } = require("../src/server/projectileReplication");
 const {
   filterSnapshotForPlayer,
   auditSnapshotForInformationLeaks
-} = require("./src/server/visibilitySnapshots");
-const { RoomSpatialIndex } = require("./src/server/spatialIndex");
+} = require("../src/server/visibilitySnapshots");
+const { RoomSpatialIndex } = require("../src/server/spatialIndex");
 
 const QUICK = process.argv.includes("--quick") || !process.argv.includes("--full");
 const REPEATS = QUICK ? 1 : 2;

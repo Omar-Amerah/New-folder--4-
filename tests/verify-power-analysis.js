@@ -1,10 +1,10 @@
 "use strict";
 
 const assert = require("assert");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
-const { analyzeShipPower } = require("./src/server/shipDesign");
-const { spawnShip } = require("./src/server/ships");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
+const { analyzeShipPower } = require("../src/server/shipDesign");
+const { spawnShip } = require("../src/server/ships");
 
 const moduleAt = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) {

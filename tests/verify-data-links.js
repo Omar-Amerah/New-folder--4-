@@ -1,6 +1,6 @@
 // Focused tests for explicit direct Data-support links.
 const assert = require("assert");
-const DataRules = require("./public/src/shared/dataSupportRules");
+const DataRules = require("../public/src/shared/dataSupportRules");
 
 const PARTS = {
   fireControl: { weapon: false, fireRateBonus: 0.2 },

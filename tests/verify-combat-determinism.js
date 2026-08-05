@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
-const { seededRandom } = require("./src/server/utils");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { areAllies, areEnemies, findTarget, pickWeaponFireTarget, findPointDefenseTarget, damageShip, destroyShip } = require("./src/server/combat");
-const { updateBullets } = require("./src/server/projectiles");
+const { seededRandom } = require("../src/server/utils");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { areAllies, areEnemies, findTarget, pickWeaponFireTarget, findPointDefenseTarget, damageShip, destroyShip } = require("../src/server/combat");
+const { updateBullets } = require("../src/server/projectiles");
 
 function makeShip(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "core" }, { x: 7, y: 6, type: "frame" }]) {
   const ship = { id, ownerId, design, x, y, vx: 0, vy: 0, angle: 0, alive: true, shield: 0, radius: 28 };

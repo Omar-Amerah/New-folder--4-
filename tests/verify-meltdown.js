@@ -1,9 +1,9 @@
 "use strict";
 const assert = require("assert");
-const { computeStats } = require("./src/server/shipStats");
-const health = require("./src/server/componentHealth");
-const heat = require("./src/server/heat");
-const HeatRules = require("./public/src/shared/heatRules");
+const { computeStats } = require("../src/server/shipStats");
+const health = require("../src/server/componentHealth");
+const heat = require("../src/server/heat");
+const HeatRules = require("../public/src/shared/heatRules");
 function shipFor(design){ const ship={ id:"m", ownerId:"a", design, x:0,y:0,angle:0,alive:true, shield:0, radius:30 }; ship.stats={...computeStats(design)}; ship.maxShield=ship.stats.maxShield||0; health.initComponentState(ship); heat.initShipHeat(ship); return ship; }
 function overheat(ship,i){ ship.componentHeat[i]=ship.componentThermals[i].capacity*1.1; ship.componentHeatState[i]=HeatRules.STATE.OVERHEATED; }
 function tick(room, ship, dt=0.25, now=1000){ heat.updateShipHeat(ship, dt, room, now); }

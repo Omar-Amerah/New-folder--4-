@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, repairShipComponents } = require("./src/server/componentHealth");
-const { initShipHeat, updateShipHeat, STATE } = require("./src/server/heat");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, repairShipComponents } = require("../src/server/componentHealth");
+const { initShipHeat, updateShipHeat, STATE } = require("../src/server/heat");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
 
 function wiringFor(design, paths) {
   let wiring = WiringRules.emptyWiring();
@@ -24,18 +24,18 @@ assert(Number.isFinite(base.stats.efficiency), "static underpower efficiency rem
 const poweredDesign = [{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:8,y:7,type:"auxGenerator"},{x:7,y:6,type:"blaster"}];
 let weighted=shipFor(poweredDesign, wiringFor(poweredDesign, [[1, 3, [{x:6,y:7},{x:7,y:7},{x:7,y:6}]], [2, 3, [{x:8,y:7},{x:7,y:7},{x:7,y:6}]]]));
 const reactorIndex=1;
-require("./src/server/componentPower").rebuildShipWiringState(weighted, "test");
+require("../src/server/componentPower").rebuildShipWiringState(weighted, "test");
 const network = weighted.runtimeWiring.powerNetworks[0];
 const nominalGeneration = network.availableGenerationMw;
 for (const state of [STATE.WARM, STATE.HOT, STATE.CRITICAL]) {
   weighted.componentHeatState[reactorIndex] = state;
-  require("./src/server/componentPower").reallocateShipPower(weighted, "test");
+  require("../src/server/componentPower").reallocateShipPower(weighted, "test");
   assert.strictEqual(network.availableGenerationMw, nominalGeneration, "reactor generation remains nominal below OVERHEATED");
 }
 // Destroyed generator removal and repaired restoration.
 const beforeGen=weighted.stats.powerGeneration;
 weighted.componentHp[reactorIndex]=0;
-require("./src/server/componentHealth").recalcEffectiveStats(weighted);
+require("../src/server/componentHealth").recalcEffectiveStats(weighted);
 tick(weighted);
 assert(weighted.stats.powerGeneration < beforeGen, "destroyed reactor is removed from nominal generation");
 assert(Number.isFinite(weighted.runtimeWiring.powerNetworks[0].availableGenerationMw), "available power remains finite after destruction");
@@ -46,7 +46,7 @@ assert(weighted.stats.powerGeneration >= beforeGen - 1e-9, "repaired reactor res
 console.log("power verification passed");
 
 // Heat setup snapshots source thermal tiers so the first unchanged thermal tick does not reallocate Power.
-const powerModule = require("./src/server/componentPower");
+const powerModule = require("../src/server/componentPower");
 const originalReallocate = powerModule.reallocateShipPower;
 let reallocations = 0;
 powerModule.reallocateShipPower = function countedReallocate(ship, reason) { reallocations += 1; return originalReallocate(ship, reason); };
@@ -63,7 +63,7 @@ powerModule.reallocateShipPower = originalReallocate;
 
 // OVERHEATED source shutdown changes allocation only; wiring topology is stable.
 let reactorShutdown = shipFor(poweredDesign, wiringFor(poweredDesign, [[1, 3, [{x:6,y:7},{x:7,y:7},{x:7,y:6}]], [2, 3, [{x:8,y:7},{x:7,y:7},{x:7,y:6}]]]));
-require("./src/server/componentPower").rebuildShipWiringState(reactorShutdown, "test");
+require("../src/server/componentPower").rebuildShipWiringState(reactorShutdown, "test");
 // The shared solver treats every source physically crossed by the network's
 // cables as a contributor, so the core cell wired between the reactor/aux trunks
 // and the blaster joins the network generation. Each solve returns a fresh
@@ -77,7 +77,7 @@ const wiringRevisionBeforeHeat = reactorShutdown.wiringRevision;
 const topologySignatureBeforeHeat = JSON.stringify(reactorShutdown.runtimeWiring.power);
 for (const state of [STATE.WARM, STATE.HOT, STATE.CRITICAL]) {
   reactorShutdown.componentHeatState[1] = state;
-  require("./src/server/componentPower").reallocateShipPower(reactorShutdown, "test");
+  require("../src/server/componentPower").reallocateShipPower(reactorShutdown, "test");
   assert.strictEqual(shutdownGen(), reactorMw + auxMw + coreMw, "WARM/HOT/CRITICAL source generation is nominal");
 }
 reactorShutdown.componentHeat[1] = reactorShutdown.componentThermals[1].capacity * 1.24;
@@ -104,35 +104,35 @@ assert.strictEqual(reactorShutdown.wiringRevision, wiringRevisionBeforeHeat, "He
 powerModule.reallocateShipPower = originalReallocate;
 
 let noOtherSource = shipFor([{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:7,y:6,type:"shield"}], wiringFor([{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:7,y:6,type:"shield"}], [[1, 2, [{x:6,y:7},{x:7,y:7},{x:7,y:6}]]]));
-require("./src/server/componentPower").rebuildShipWiringState(noOtherSource, "test");
+require("../src/server/componentPower").rebuildShipWiringState(noOtherSource, "test");
 // The trunk crosses the core cell, so the core is a live source alongside the
 // reactor; an all-overheated network overheats every crossed source.
 noOtherSource.componentHeatState[0] = STATE.OVERHEATED;
 noOtherSource.componentHeatState[1] = STATE.OVERHEATED;
-require("./src/server/componentPower").reallocateShipPower(noOtherSource, "test");
+require("../src/server/componentPower").reallocateShipPower(noOtherSource, "test");
 assert.strictEqual(noOtherSource.runtimeWiring.powerNetworks[0].availableGenerationMw, 0, "all-overheated source network has zero generation");
 assert.strictEqual(noOtherSource.componentPower.byComponentIndex[2].operationalMultiplier, 0, "connected consumer receives multiplier 0 with no live generation");
 
 assert.strictEqual(noOtherSource.componentPower.byComponentIndex[2].state, "unpowered", "connected zero-generation consumer is unpowered, not disconnected");
 assert.strictEqual(noOtherSource.powerStatus, "unpowered", "ship summary prioritizes zero-generation as unpowered");
 let disconnected = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shield"}], WiringRules.emptyWiring());
-require("./src/server/componentPower").rebuildShipWiringState(disconnected, "test");
+require("../src/server/componentPower").rebuildShipWiringState(disconnected, "test");
 assert.strictEqual(disconnected.componentPower.byComponentIndex[1].state, "disconnected", "consumer with no live Power network is disconnected");
 
 // Phase 4: destroyed reactors cooling through physical thresholds do not churn Power allocation.
 let destroyedCooling = shipFor([{x:7,y:7,type:"core"},{x:6,y:7,type:"reactor"},{x:7,y:6,type:"engine"}]);
-require("./src/server/componentPower").rebuildShipWiringState(destroyedCooling, "test");
+require("../src/server/componentPower").rebuildShipWiringState(destroyedCooling, "test");
 destroyedCooling.componentHeat[1] = destroyedCooling.componentThermals[1].capacity * 1.2;
 destroyedCooling.componentHeatState[1] = STATE.OVERHEATED;
 destroyedCooling.componentHp[1] = 0;
-require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedCooling);
-require("./src/server/heat").refreshHeatSourceSignatures(destroyedCooling);
+require("../src/server/heat").recalculateEffectiveThermalCapacities(destroyedCooling);
+require("../src/server/heat").refreshHeatSourceSignatures(destroyedCooling);
 let destroyedReallocations = 0;
 powerModule.reallocateShipPower = function countedDestroyed(ship, reason) { destroyedReallocations += 1; return originalReallocate(ship, reason); };
 for (let i = 0; i < 12; i += 1) { destroyedCooling.componentHeat[1] *= 0.86; destroyedCooling.hasActiveHeat = true; tick(destroyedCooling); }
 assert.strictEqual(destroyedReallocations, 0, "destroyed reactor cooling across thresholds causes no Power reallocations");
 destroyedCooling.componentHp[1] = destroyedCooling.componentMaxHp[1];
-require("./src/server/heat").recalculateEffectiveThermalCapacities(destroyedCooling);
-const repairedGeneration = require("./src/server/componentPower").effectiveLiveSourceGeneration(destroyedCooling, 1);
+require("../src/server/heat").recalculateEffectiveThermalCapacities(destroyedCooling);
+const repairedGeneration = require("../src/server/componentPower").effectiveLiveSourceGeneration(destroyedCooling, 1);
 assert.strictEqual(repairedGeneration, destroyedCooling.componentHeatState[1] === STATE.OVERHEATED ? 0 : PARTS.reactor.powerGeneration, "repairing reactor restores availability according to retained Heat state");
 powerModule.reallocateShipPower = originalReallocate;

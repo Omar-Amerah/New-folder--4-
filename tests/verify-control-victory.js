@@ -1,9 +1,9 @@
 "use strict";
 
 const assert = require("assert");
-const { ECONOMY } = require("./src/server/config");
-const { updateEconomy } = require("./src/server/economy");
-const { updateCapturePoints, updateControlVictory } = require("./src/server/objectives");
+const { ECONOMY } = require("../src/server/config");
+const { updateEconomy } = require("../src/server/economy");
+const { updateCapturePoints, updateControlVictory } = require("../src/server/objectives");
 
 function makePlayer(id, team) {
   return {

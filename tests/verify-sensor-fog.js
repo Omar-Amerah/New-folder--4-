@@ -1,6 +1,6 @@
 const assert = require("assert");
 const fs = require("fs");
-const { createRoom, sanitizeRoomRules, setRoomRules, usesSensorVisibility } = require("./src/server/rooms");
+const { createRoom, sanitizeRoomRules, setRoomRules, usesSensorVisibility } = require("../src/server/rooms");
 const {
   computeTeamVisibility,
   canTeamTargetEntity,
@@ -11,20 +11,20 @@ const {
   usesSensorVisibility: usesVis,
   DETECTION_LINGER_MS,
   REMEMBERED_CONTACT_MS
-} = require("./src/server/visibility");
+} = require("../src/server/visibility");
 const {
   effectiveSensorProfile,
   effectiveSensorRange,
   stackedSensorRangeBonus,
   getHullBaseSensorRange,
   designSensorProfile
-} = require("./src/server/sensorCapability");
-const { computeStats } = require("./src/server/shipStats");
-const { PARTS } = require("./src/server/components");
-const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
-const { dropHiddenTargetLocksForShips } = require("./src/server/targetLocks");
-const { createMovementRuntime, setMovementCommand } = require("./src/server/movementRuntime");
-const RotationRules = require("./public/src/shared/rotationRules");
+} = require("../src/server/sensorCapability");
+const { computeStats } = require("../src/server/shipStats");
+const { PARTS } = require("../src/server/components");
+const { filterSnapshotForPlayer } = require("../src/server/visibilitySnapshots");
+const { dropHiddenTargetLocksForShips } = require("../src/server/targetLocks");
+const { createMovementRuntime, setMovementCommand } = require("../src/server/movementRuntime");
+const RotationRules = require("../public/src/shared/rotationRules");
 
 function testRoomDefaults() {
   const room = createRoom("test");

@@ -1,7 +1,7 @@
 // Authoritative regression and integration tests for the optional station
 // infrastructure mode. Classic behaviour must remain untouched.
 
-const { createRoom, sanitizeRoomRules, usesStationInfrastructure } = require("./src/server/rooms");
+const { createRoom, sanitizeRoomRules, usesStationInfrastructure } = require("../src/server/rooms");
 const {
   homeStationTemplate,
   relayStationTemplate,
@@ -15,28 +15,28 @@ const {
   enqueueBotProduction,
   queuedShipCount,
   resolveStationCollision
-} = require("./src/server/stations");
-const { buildSharedSnapshot } = require("./src/server/snapshots");
-const { computeStats } = require("./src/server/shipStats");
-const { DEFAULT_ROOM_RULES, INFRASTRUCTURE } = require("./src/server/config");
-const { getShipComponentIndexes } = require("./src/server/componentIndexes");
-const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./src/server/stationTemplates");
-const { updateStationWeapons, stationModuleWorldPosition, damageStation } = require("./src/server/stationCombat");
-const { PARTS } = require("./src/server/components");
-const { areEnemies } = require("./src/server/combat");
-const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
-const { resolveMapCollision } = require("./src/server/movement");
-const { STATIC_COLLISION_MAX_TICK_CORRECTION } = require("./src/server/movementTuning");
-const { updateEconomy } = require("./src/server/economy");
-const { spawnShip } = require("./src/server/ships");
-const { tickRoom } = require("./src/server/simulation");
-const { stopShips } = require("./src/server/movement");
-const { updateControlVictory } = require("./src/server/objectives");
+} = require("../src/server/stations");
+const { buildSharedSnapshot } = require("../src/server/snapshots");
+const { computeStats } = require("../src/server/shipStats");
+const { DEFAULT_ROOM_RULES, INFRASTRUCTURE } = require("../src/server/config");
+const { getShipComponentIndexes } = require("../src/server/componentIndexes");
+const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("../src/server/stationTemplates");
+const { updateStationWeapons, stationModuleWorldPosition, damageStation } = require("../src/server/stationCombat");
+const { PARTS } = require("../src/server/components");
+const { areEnemies } = require("../src/server/combat");
+const { filterSnapshotForPlayer } = require("../src/server/visibilitySnapshots");
+const { resolveMapCollision } = require("../src/server/movement");
+const { STATIC_COLLISION_MAX_TICK_CORRECTION } = require("../src/server/movementTuning");
+const { updateEconomy } = require("../src/server/economy");
+const { spawnShip } = require("../src/server/ships");
+const { tickRoom } = require("../src/server/simulation");
+const { stopShips } = require("../src/server/movement");
+const { updateControlVictory } = require("../src/server/objectives");
 const {
   segmentStationHullHit,
   computeStationShieldCollisionRadius
-} = require("./src/server/stationCollision");
-const { shieldCollisionRadius, addBullet, updateBullets } = require("./src/server/projectiles");
+} = require("../src/server/stationCollision");
+const { shieldCollisionRadius, addBullet, updateBullets } = require("../src/server/projectiles");
 
 function assert(condition, message) {
   if (!condition) {
@@ -612,7 +612,7 @@ function runObjectiveHudChecks() {
   assert(control.neutral === control.total - 1, "the remaining relays stay neutral");
   const red = room.players.get("p2");
   updateEconomy(room, 1);
-  const expectedMoney = Number(require("./src/server/config").ECONOMY.captureBonus) + 25;
+  const expectedMoney = Number(require("../src/server/config").ECONOMY.captureBonus) + 25;
   assert(
     red.income === 25 && red.money === expectedMoney,
     `a captured station relay adds exactly $5/s to base income after its one-time capture reward (income ${red.income}, money ${red.money})`

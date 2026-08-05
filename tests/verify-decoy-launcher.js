@@ -2,15 +2,15 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { PARTS } = require("./src/server/components");
-const { addBullet, updateBullets } = require("./src/server/projectiles");
+const { PARTS } = require("../src/server/components");
+const { addBullet, updateBullets } = require("../src/server/projectiles");
 const {
   initializeDecoyLaunchers,
   updateDecoyLaunchers,
   buildDecoySnapshots,
   buildLauncherSnapshots,
   _test
-} = require("./src/server/decoys");
+} = require("../src/server/decoys");
 
 function fixture(random = () => 0, launcherCount = 1) {
   const design = Array.from({ length: launcherCount }, (_, index) => ({

@@ -33,9 +33,12 @@ export function roundRect(context, { x, y, width, height, radius }) {
 }
 
 const STRUCTURAL_PARTS = new Set([
-  "frame", "armor", "compositeArmor",
+  "frame", "armor", "compositeArmor", "ablativeArmor",
   "halfFrameDiagonal", "halfArmorDiagonal", "halfCompositeArmorDiagonal",
   "wingFrame", "wingArmor", "wingCompositeArmor",
+  "bevelFrame", "bevelArmor", "bevelCompositeArmor",
+  "roundedFrame", "roundedArmor", "roundedCompositeArmor",
+  "longWedgeFrame", "longWedgeArmor", "longWedgeCompositeArmor",
   "lightFrame", "heavyFrame"
 ]);
 
@@ -220,7 +223,7 @@ function componentArtType(type) {
 // weapon types fall back to a generic barrel top so they still visibly track.
 const WEAPON_ART_TYPES = new Set([
   "blaster", "autocannon", "pointDefense", "flakCannon", "missile",
-  "railgun", "swarmMissile", "torpedo", "beamEmitter", "repairBeam",
+  "railgun", "swarmMissile", "torpedo", "beamEmitter", "thermalInductionLance", "repairBeam",
   "aegisProjector", "interceptorPod"
 ]);
 
@@ -851,6 +854,81 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     return true;
   }
 
+  if (type === "ablativeArmor") {
+    // Full panel base with a darker edge.
+    roundRect(ctx, { x: -size * 0.47, y: -size * 0.47, width: size * 0.94, height: size * 0.94, radius: size * 0.08 });
+    ctx.fill();
+    ctx.stroke();
+    // Overlapping sacrificial plates: slightly offset horizontal bands.
+    const bandCount = 3;
+    const bandH = size * 0.28;
+    for (let i = 0; i < bandCount; i += 1) {
+      const y = -size * 0.34 + i * size * 0.32;
+      const inset = (i % 2 === 0) ? size * 0.04 : -size * 0.04;
+      const fill = i % 2 === 0 ? mixColor(color, "#ffffff", 0.12) : mixColor(color, "#05070c", 0.18);
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = "rgba(3,6,12,0.5)";
+      ctx.lineWidth = fine;
+      roundRect(ctx, { x: -size * 0.38 + inset, y, width: size * 0.76, height: bandH, radius: size * 0.04 });
+      ctx.fill();
+      ctx.stroke();
+      // Small rivet on every other plate.
+      if (i % 2 === 0) {
+        ctx.fillStyle = mixColor(color, "#ffffff", 0.5);
+        ctx.beginPath();
+        ctx.arc(-size * 0.2, y + bandH * 0.5, size * 0.04, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Panel seam highlight.
+    ctx.strokeStyle = "rgba(255,244,220,0.35)";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.25, -size * 0.4);
+    ctx.lineTo(-size * 0.25, size * 0.4);
+    ctx.stroke();
+    return true;
+  }
+
+  if (type === "bevelFrame" || type === "bevelArmor" || type === "bevelCompositeArmor") {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.46, -size * 0.46);
+    ctx.lineTo(size * 0.12, -size * 0.46);
+    ctx.lineTo(size * 0.46, -size * 0.12);
+    ctx.lineTo(size * 0.46, size * 0.46);
+    ctx.lineTo(-size * 0.46, size * 0.46);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = type === "bevelFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
+    ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.3, -size * 0.3);
+    ctx.lineTo(size * 0.1, -size * 0.3);
+    ctx.lineTo(-size * 0.3, size * 0.1);
+    ctx.stroke();
+    return true;
+  }
+
+  if (type === "roundedFrame" || type === "roundedArmor" || type === "roundedCompositeArmor") {
+    const r = size * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.46, -size * 0.46);
+    ctx.lineTo(size * 0.46 - r, -size * 0.46);
+    ctx.arcTo(size * 0.46, -size * 0.46, size * 0.46, -size * 0.46 + r, r);
+    ctx.lineTo(size * 0.46, size * 0.46);
+    ctx.lineTo(-size * 0.46, size * 0.46);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = type === "roundedFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
+    ctx.lineWidth = line;
+    ctx.beginPath();
+    ctx.arc(size * 0.46 - r, -size * 0.46 + r, r * 0.6, -Math.PI / 2, 0);
+    ctx.stroke();
+    return true;
+  }
+
   if (type === "armor" || type === "compositeArmor") {
     // Full-cube plating: three overlapping armour bands with a lit top bevel
     // and corner rivets. Composite adds diagonal laminate weave in amber.
@@ -904,6 +982,21 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     ctx.beginPath();
     ctx.moveTo(-size * 0.02, -size * 0.13); ctx.lineTo(size * 0.34, -size * 0.13);
     ctx.moveTo(-size * 0.02, size * 0.13); ctx.lineTo(size * 0.34, size * 0.13);
+    ctx.stroke();
+    return true;
+  }
+
+  if (type === "compactEngine") {
+    drawRecessedPanel(size, 0.88, 0.86, 0.08);
+    // Single recessed exhaust bell and a compact power spine.
+    drawComponentPort(size, -0.38, 0, 0.16, "#b8f8ff", 0.45);
+    ctx.fillStyle = "#72ddf7";
+    roundRect(ctx, { x: -size * 0.12, y: -size * 0.22, width: size * 0.5, height: size * 0.44, radius: size * 0.08 });
+    ctx.fill();
+    ctx.strokeStyle = "rgba(225,248,255,0.55)";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.02, 0); ctx.lineTo(size * 0.3, 0);
     ctx.stroke();
     return true;
   }
@@ -1179,6 +1272,37 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
     }
     return true;
   }
+  if (type === "closedCycleCooler") {
+    // Enclosed compressor housing with a sealed coolant loop, paired pipes and a
+    // central impeller. Distinct from the heat sink's passive fin stack and the
+    // radiator's exposed fan.
+    drawRecessedPanel(size, 0.8, 0.8, 0.12);
+    ctx.strokeStyle = "#67e8f9"; ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.28, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#22d3ee";
+    ctx.lineWidth = Math.max(1, size * 0.07);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.28, Math.PI * 0.1, Math.PI * 1.9);
+    ctx.stroke();
+    ctx.fillStyle = "#06b6d4";
+    ctx.beginPath();
+    for (let i = 0; i < 4; i += 1) {
+      const a = (i * Math.PI) / 2;
+      ctx.moveTo(Math.cos(a) * size * 0.08, Math.sin(a) * size * 0.08);
+      ctx.lineTo(Math.cos(a) * size * 0.24, Math.sin(a) * size * 0.24);
+    }
+    ctx.stroke();
+    drawComponentPort(size, 0, 0, 0.09, "#cffafe", 0.5);
+    ctx.strokeStyle = "#0891b2";
+    ctx.lineWidth = Math.max(0.7, size * 0.04);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.36, -size * 0.22); ctx.lineTo(-size * 0.18, -size * 0.22);
+    ctx.moveTo(size * 0.36, size * 0.22); ctx.lineTo(size * 0.18, size * 0.22);
+    ctx.stroke();
+    return true;
+  }
   if (type === "heatPipe") {
     // Cell-wide thermal manifold: insulated edge couplings joined by a broad
     // serpentine coolant route, with no separate icon plate.
@@ -1278,7 +1402,13 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     || type === "halfCompositeArmorDiagonal"
     || type === "wingFrame"
     || type === "wingArmor"
-    || type === "wingCompositeArmor";
+    || type === "wingCompositeArmor"
+    || type === "bevelFrame"
+    || type === "bevelArmor"
+    || type === "bevelCompositeArmor"
+    || type === "roundedFrame"
+    || type === "roundedArmor"
+    || type === "roundedCompositeArmor";
   if (!keepsPartialShape && drawBase) {
     drawComponentCubeBase(size, bodyColor);
     // The base helper owns its canvas state; restore the component's intended
@@ -1564,6 +1694,23 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
     for (let i = 0; i < 4; i += 1) {
       ctx.fillRect(-size * 0.28 + i * size * 0.16, -size * 0.26, size * 0.08, size * 0.52);
     }
+  } else if (type === "closedCycleCooler") {
+    roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#22d3ee";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#06b6d4";
+    ctx.beginPath();
+    for (let i = 0; i < 4; i += 1) {
+      const a = (i * Math.PI) / 2;
+      ctx.moveTo(Math.cos(a) * size * 0.08, Math.sin(a) * size * 0.08);
+      ctx.lineTo(Math.cos(a) * size * 0.22, Math.sin(a) * size * 0.22);
+    }
+    ctx.stroke();
   } else if (type === "signalAmplifier") {
     roundRect(ctx, { x: -size * 0.42, y: -size * 0.42, width: size * 0.84, height: size * 0.84, radius: size * 0.12 });
     ctx.fill();
@@ -2494,7 +2641,7 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
   // Multi-cell modules use one continuous, footprint-filling cube base. This is
   // especially important for weapons: their barrels and launchers sit on top of
   // occupied blocks instead of visually floating through empty blueprint cells.
-  if (drawBase && !type.startsWith("wing") && !type.startsWith("half")) {
+  if (drawBase && !type.startsWith("wing") && !type.startsWith("half") && !type.startsWith("longWedge")) {
     drawStaticComponentBase({ type, unit, tilesLong, tilesCross, color, trim });
     ctx.fillStyle = bodyFill;
   }
@@ -2582,6 +2729,34 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
     for (let c = 0; c < cols; c += 1) {
       const cx = -hl + unit * 0.24 + (hl * 2 - unit * 0.48) * (c / (cols - 1 || 1));
       ctx.fillRect(cx - unit * 0.06, -hc * 0.5, unit * 0.12, hc);
+    }
+  } else if (type.startsWith("longWedge")) {
+    // Two-cell tapered wedge: broad at -x (rear), pointed at +x (nose).
+    ctx.beginPath();
+    ctx.moveTo(-hl, -hc);
+    ctx.lineTo(hl, 0);
+    ctx.lineTo(-hl, hc);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    const isFrame = type === "longWedgeFrame";
+    ctx.strokeStyle = isFrame ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
+    ctx.lineWidth = Math.max(1, unit * 0.08);
+    if (isFrame) {
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.55, -hc * 0.5);
+      ctx.lineTo(hl * 0.2, 0);
+      ctx.lineTo(-hl * 0.55, hc * 0.5);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.6, -hc * 0.35);
+      ctx.lineTo(hl * 0.35, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-hl * 0.6, hc * 0.35);
+      ctx.lineTo(hl * 0.35, 0);
+      ctx.stroke();
     }
   } else if (structural) {
     // Armour/frame/wings: one plate covering the whole footprint with seams.

@@ -5,12 +5,12 @@ const assert = require("assert");
   globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
   globalThis.window = globalThis;
 
-  const { PARTS } = require("./src/server/components");
-  const { computeStats } = require("./src/server/shipStats");
-  const { initComponentState } = require("./src/server/componentHealth");
-  const { updateShipWeapons } = require("./src/server/combat");
-  const { reallocateShipPower } = require("./src/server/componentPower");
-  const WiringRules = require("./public/src/shared/wiringRules");
+  const { PARTS } = require("../src/server/components");
+  const { computeStats } = require("../src/server/shipStats");
+  const { initComponentState } = require("../src/server/componentHealth");
+  const { updateShipWeapons } = require("../src/server/combat");
+  const { reallocateShipPower } = require("../src/server/componentPower");
+  const WiringRules = require("../public/src/shared/wiringRules");
 
   function makeTestShip(design, wiring = null, ownerId = "p1") {
     let shipWiring = wiring;
@@ -80,7 +80,7 @@ const assert = require("assert");
 
   // Test 1: getCandidatePriorityIndex correctly prioritizes torpedo over ordinary missile
   {
-    const { getCandidatePriorityIndex } = require("./src/server/combat");
+    const { getCandidatePriorityIndex } = require("../src/server/combat");
     const priorityList = ["torpedo", "missile", "projectile", "ship"];
     
     const torpedoCandidate = { type: "projectile", entity: { type: "missile", subtype: "torpedo" } };
@@ -97,7 +97,7 @@ const assert = require("assert");
 
   // Test 2: Torpedo subtype is correctly matched in priority list with swarmMissile
   {
-    const { getCandidatePriorityIndex } = require("./src/server/combat");
+    const { getCandidatePriorityIndex } = require("../src/server/combat");
     const priorityList = ["torpedo", "missile", "swarmMissile", "projectile", "ship"];
     
     const torpedoCandidate = { type: "projectile", entity: { type: "missile", subtype: "torpedo" } };
@@ -114,7 +114,7 @@ const assert = require("assert");
 
   // Test 3: Point Defense respects subtype when no subtype-specific priority exists
   {
-    const { getCandidatePriorityIndex } = require("./src/server/combat");
+    const { getCandidatePriorityIndex } = require("../src/server/combat");
     const priorityList = ["torpedo", "missile", "projectile", "ship"];
     
     const missileNoSubtype = { type: "projectile", entity: { type: "missile" } };

@@ -29,7 +29,7 @@ for (const topic of [
 // Architecture facts remain authoritative shared analysis data, but no longer
 // occupy a permanent centre-workspace comparison.
 assert(!index.includes('id="architectureComparison"'), "architecture comparison is removed from the centre workspace");
-const architectureLabels = require("./public/src/shared/wiringClarityRules.js").ARCHITECTURE_NOTES.map((note) => note.label).join(" | ");
+const architectureLabels = require("../public/src/shared/wiringClarityRules.js").ARCHITECTURE_NOTES.map((note) => note.label).join(" | ");
 for (const family of ["Central bus", "Distributed grids", "Ring bus", "Hybrid"]) {
   assert(architectureLabels.includes(family), `architecture comparison covers ${family}`);
 }
@@ -53,7 +53,7 @@ assert(index.includes("data-wiring-tier") && !index.includes("Change Tier"), "ti
 const damagePanel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
 // Compact Power tab: balance rows plus a prioritised protection issue list and
 // authoritative cable Heat (protection/Switchgear detail surfaces through issues,
-// not dedicated rows — see verify-combat-power-tab.js).
+// not dedicated rows — see tests/verify-combat-power-tab.js).
 for (const label of [
   "Generation",
   "Requested",

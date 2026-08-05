@@ -33,7 +33,7 @@ assert(js.includes("Locked after lobby"), "Locked rules status text is present")
 assert(!js.includes('state.myTeam'), "Removed undefined state.myTeam usage");
 
 (async () => {
-  const formatting = await import("./public/src/shared/formatting.js");
+  const formatting = await import("../public/src/shared/formatting.js");
   assert.strictEqual(formatting.formatMoney(1000), "$1,000", "formatMoney formats with comma");
   assert.strictEqual(formatting.formatMoney(12), "$12", "formatMoney formats small integers");
   assert.strictEqual(formatting.formatMoney(1000.6), "$1,001", "formatMoney rounds to integer");

@@ -4,12 +4,12 @@
 // Tests blueprint normalization, template reuse, no shared mutable state,
 // snapshot correctness, retry behavior, rollback correctness, and robustness under load
 
-const { getOrCreateTemplate, invalidatePlayerTemplates, clearTemplateCache } = require("./src/server/shipTemplates");
-const { executePurchase, validateBuyShip } = require("./src/server/economy");
-const { createShipBlueprintSnapshot, validateDesign, validateWiring } = require("./src/server/shipDesign");
-const { computeStats } = require("./src/server/shipStats");
-const { recordPurchaseStage, performanceSnapshot } = require("./src/server/performanceTelemetry");
-const { PARTS } = require("./src/server/components");
+const { getOrCreateTemplate, invalidatePlayerTemplates, clearTemplateCache } = require("../src/server/shipTemplates");
+const { executePurchase, validateBuyShip } = require("../src/server/economy");
+const { createShipBlueprintSnapshot, validateDesign, validateWiring } = require("../src/server/shipDesign");
+const { computeStats } = require("../src/server/shipStats");
+const { recordPurchaseStage, performanceSnapshot } = require("../src/server/performanceTelemetry");
+const { PARTS } = require("../src/server/components");
 
 // Test helpers
 function createTestRoom() {
@@ -281,7 +281,7 @@ try {
   const room = createTestRoom();
   const player = createTestPlayer("p7", "Player 7");
   room.players.set(player.id, player);
-  const occupiedSpawn = require("./src/server/spawnPlanner").getPlannedSpawn(room, player.id);
+  const occupiedSpawn = require("../src/server/spawnPlanner").getPlannedSpawn(room, player.id);
   const launchBlocker = {
     id: "rollback-blocker",
     ownerId: "other",

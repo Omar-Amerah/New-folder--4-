@@ -1,6 +1,6 @@
 const assert = require('assert');
-const { SCHEMAS } = require('./src/server/clientSchemas');
-const { ROUTES, routesByType } = require('./src/server/routeRegistry');
+const { SCHEMAS } = require('../src/server/clientSchemas');
+const { ROUTES, routesByType } = require('../src/server/routeRegistry');
 const types = Object.keys(SCHEMAS).sort();
 assert.deepStrictEqual(ROUTES.map(r=>r.type).sort(), types);
 assert.strictEqual(new Set(ROUTES.map(r=>r.type)).size, ROUTES.length);

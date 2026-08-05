@@ -4,7 +4,7 @@
 // fall back to the default ship + default wiring), and wiring copies staying
 // independent across save/duplicate/export/import.
 import assert from "node:assert/strict";
-await import("./public/src/shared/featureFlags.js");
+await import("../public/src/shared/featureFlags.js");
 
 function makeTestElement() {
   return {
@@ -49,20 +49,20 @@ globalThis.window.addEventListener = () => {};
 globalThis.window.removeEventListener = () => {};
 globalThis.WebSocket = { OPEN: 1 };
 globalThis.MessagePack = { encode: (message) => message, decode: (message) => message };
-globalThis.EngineExhaustRules = (await import("./public/src/shared/engineExhaust.js")).default || (await import("./public/src/shared/engineExhaust.js"));
-globalThis.HeatRules = (await import("./public/src/shared/heatRules.js")).default || (await import("./public/src/shared/heatRules.js"));
-await import("./public/src/shared/wiringRules.js"); // attaches globalThis.WiringRules
+globalThis.EngineExhaustRules = (await import("../public/src/shared/engineExhaust.js")).default || (await import("../public/src/shared/engineExhaust.js"));
+globalThis.HeatRules = (await import("../public/src/shared/heatRules.js")).default || (await import("../public/src/shared/heatRules.js"));
+await import("../public/src/shared/wiringRules.js"); // attaches globalThis.WiringRules
 // Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable rules.
-await import("./public/src/shared/powerPolicyRules.js");
-await import("./public/src/shared/powerAllocationRules.js");
-await import("./public/src/shared/powerDemandRules.js");
-await import("./public/src/shared/powerFlowRules.js");
-await import("./public/src/shared/wiringInfrastructureRules.js");
-await import("./public/src/shared/powerCableThermalRules.js");
-const storageMod = await import("./public/src/design/blueprintStorage.js");
-const { computeStats } = await import("./public/src/design/componentStats.js");
-const { PART_STATS } = await import("./public/src/design/parts.js");
-const constants = await import("./public/src/constants.js");
+await import("../public/src/shared/powerPolicyRules.js");
+await import("../public/src/shared/powerAllocationRules.js");
+await import("../public/src/shared/powerDemandRules.js");
+await import("../public/src/shared/powerFlowRules.js");
+await import("../public/src/shared/wiringInfrastructureRules.js");
+await import("../public/src/shared/powerCableThermalRules.js");
+const storageMod = await import("../public/src/design/blueprintStorage.js");
+const { computeStats } = await import("../public/src/design/componentStats.js");
+const { PART_STATS } = await import("../public/src/design/parts.js");
+const constants = await import("../public/src/constants.js");
 const {
   BLUEPRINT_STORAGE_VERSION, MAX_LOADOUTS, MAX_SAVED_DESIGNS, defaultDesign, defaultWiring, normalizeWiring, designEnvelope,
   loadDesign, loadLoadouts, loadSavedDesigns, loadoutsEnvelope, migrateDesignStorage, migrateLoadoutsStorage,
@@ -71,7 +71,7 @@ const {
 } = storageMod;
 const { LOCAL_DESIGN_KEY, LOCAL_LOADOUTS_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_NAME_KEY, LOCAL_TEAM_KEY, LOCAL_SERVER_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY } = constants;
 
-const prefsMod = await import("./public/src/localPreferences.js");
+const prefsMod = await import("../public/src/localPreferences.js");
 const { DEFAULT_PREFERENCES, LOCAL_PREFERENCES_KEY, loadPreferences, persistPreferences, validatePreferences } = prefsMod;
 
 class MemoryStorage {
@@ -136,7 +136,7 @@ const expectedLegacyModules = normalizeDesign(legacyArray, { allowEmpty: true })
 
 // ---- Migration preserves specialised component settings + wiring + style ----
 {
-  globalThis.DroneBayRules = globalThis.DroneBayRules || (await import("./public/src/shared/droneBayRules.js")).default || (await import("./public/src/shared/droneBayRules.js"));
+  globalThis.DroneBayRules = globalThis.DroneBayRules || (await import("../public/src/shared/droneBayRules.js")).default || (await import("../public/src/shared/droneBayRules.js"));
   const configuredLegacy = [
     { x: 7, y: 7, type: "core" },
     { x: 7, y: 8, type: "engine" },
@@ -311,8 +311,8 @@ assert.equal(importBlueprints({ designs: Array.from({ length: 30 }, (_, i) => ({
 
 
 // ---- Repaired current-design save ordering regressions ----
-const savedBlueprintUi = await import("./public/src/ui/savedBlueprintsUi.js");
-const stateMod = await import("./public/src/state.js");
+const savedBlueprintUi = await import("../public/src/ui/savedBlueprintsUi.js");
+const stateMod = await import("../public/src/state.js");
 const { saveCurrentDesign, setSavedBlueprintPersistenceForTests } = savedBlueprintUi;
 const { state } = stateMod;
 

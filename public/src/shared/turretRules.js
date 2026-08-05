@@ -51,6 +51,7 @@
     torpedo: 0.72,
     swarmMissile: 0.52,
     beamEmitter: 0.66,
+    thermalInductionLance: 0.66,
     repairBeam: 0.66,
     pointDefense: 0.62,
     pointDefenseLaser: 0.62,

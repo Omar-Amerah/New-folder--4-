@@ -6,7 +6,7 @@
 // window.__mfaTurretDebugInfo, and diffs before/after screenshots so the checks
 // prove rendered behaviour rather than source shape.
 //
-// Run: node verify-turret-render.js   (starts its own server on PORT 5599)
+// Run: node tests/verify-turret-render.js   (starts its own server on PORT 5599)
 
 const { spawn } = require("child_process");
 const http = require("http");
@@ -151,7 +151,7 @@ const EPS = 0.02;
 
 async function main() {
   const server = spawn("node", ["server.js"], {
-    cwd: __dirname,
+    cwd: path.dirname(__dirname),
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"]
   });

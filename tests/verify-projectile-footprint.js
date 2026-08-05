@@ -7,12 +7,12 @@
 // projectile and beam collision paths share the same geometry helper.
 
 const assert = require("assert");
-const { getShipComponentCellWorldCoords, COMPONENT_CELL_COLLISION_RADIUS } = require("./src/server/componentGeometry");
-const { getOccupiedCells } = require("./src/server/footprint");
-const { PARTS } = require("./src/server/components");
-const { segmentCircleHit, updateBullets, addBullet, SHIELD_HIT_MIN } = require("./src/server/projectiles");
-const { findBeamRayIntersections } = require("./src/server/combat");
-const { initComponentState } = require("./src/server/componentHealth");
+const { getShipComponentCellWorldCoords, COMPONENT_CELL_COLLISION_RADIUS } = require("../src/server/componentGeometry");
+const { getOccupiedCells } = require("../src/server/footprint");
+const { PARTS } = require("../src/server/components");
+const { segmentCircleHit, updateBullets, addBullet, SHIELD_HIT_MIN } = require("../src/server/projectiles");
+const { findBeamRayIntersections } = require("../src/server/combat");
+const { initComponentState } = require("../src/server/componentHealth");
 
 function createRoom() {
   return {

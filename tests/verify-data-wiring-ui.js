@@ -3,16 +3,16 @@
 const assert = require("assert");
 
 // Load dependencies
-const DataSupportRules = require("./public/src/shared/dataSupportRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const HeatRules = require("./public/src/shared/heatRules");
-const { PARTS } = require("./src/server/components");
+const DataSupportRules = require("../public/src/shared/dataSupportRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const HeatRules = require("../public/src/shared/heatRules");
+const { PARTS } = require("../src/server/components");
 
 globalThis.DataSupportRules = DataSupportRules;
 globalThis.WiringRules = WiringRules;
 globalThis.HeatRules = HeatRules;
 
-const { analyzeDesignDataSupport, getCachedDesignDataSupport, getCachedDataVulnerabilities } = require("./public/src/design/dataSupportAnalysis");
+const { analyzeDesignDataSupport, getCachedDesignDataSupport, getCachedDataVulnerabilities } = require("../public/src/design/dataSupportAnalysis");
 globalThis.DesignDataSupportAnalysis = { analyzeDesignDataSupport, getCachedDesignDataSupport, getCachedDataVulnerabilities };
 
 const mod = (type, x, y, rotation = 0) => ({ type, x, y, rotation });

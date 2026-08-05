@@ -10,7 +10,7 @@
 const assert = require("assert");
 const { spawn } = require("child_process");
 const { encode, decode } = require("@msgpack/msgpack");
-const { DEFAULT_DESIGN } = require("./src/server/config");
+const { DEFAULT_DESIGN } = require("../src/server/config");
 
 const PORT = Number(process.env.TEST_PORT || 5698);
 const URL = `ws://127.0.0.1:${PORT}/socket`;
@@ -49,7 +49,7 @@ function connect() {
 
 (async () => {
   const server = spawn(process.execPath, ["server.js"], {
-    cwd: __dirname,
+    cwd: require("path").dirname(__dirname),
     env: { ...process.env, PORT: String(PORT), RECONNECT_GRACE_MS: String(GRACE_MS) },
     stdio: ["ignore", "pipe", "pipe"]
   });

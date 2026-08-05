@@ -7,7 +7,7 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const { validateComponentBalance } = require("./src/server/componentSchema");
+const { validateComponentBalance } = require("../src/server/componentSchema");
 
 // Minimal-but-complete balance skeleton so only the weapon field under test drives
 // the burn-through-specific validation result.

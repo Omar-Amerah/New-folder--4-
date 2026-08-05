@@ -1,6 +1,6 @@
 const assert = require('assert');
-const { readFrame, writeFrame } = require('./src/server/websocketServer');
-const { MAX_MESSAGE_BYTES } = require('./src/server/config');
+const { readFrame, writeFrame } = require('../src/server/websocketServer');
+const { MAX_MESSAGE_BYTES } = require('../src/server/config');
 function masked(payload, opcode=2, extra={}) {
   const data = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || '');
   let len = data.length, head;

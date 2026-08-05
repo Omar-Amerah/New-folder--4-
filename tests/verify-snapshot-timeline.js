@@ -14,15 +14,15 @@
 // 680 px/s, twice a second.
 
 const assert = require("assert");
-const { tickRoom } = require("./src/server/simulation");
-const { TICK_HZ, SNAPSHOT_HZ } = require("./src/server/config");
-const { snapshotRoom } = require("./src/server/snapshots");
-const { computeStats } = require("./src/server/shipStats");
-const { commandShips } = require("./src/server/movement");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
+const { tickRoom } = require("../src/server/simulation");
+const { TICK_HZ, SNAPSHOT_HZ } = require("../src/server/config");
+const { snapshotRoom } = require("../src/server/snapshots");
+const { computeStats } = require("../src/server/shipStats");
+const { commandShips } = require("../src/server/movement");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 
 const DESIGN = [
   { x: 7, y: 7, type: "core" },

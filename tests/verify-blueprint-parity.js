@@ -1,13 +1,13 @@
 "use strict";
 const assert = require("assert");
-const serverStats = require("./src/server/shipStats");
-const serverFootprint = require("./src/server/footprint");
-const { validateDesign, isConnected, normalizeShipDesignSnapshot, migrateLegacy11DesignSnapshot, createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { DEFAULT_DESIGN, DEFAULT_WIRING, ECONOMY } = require("./src/server/config");
-const EngineExhaust = require("./public/src/shared/engineExhaust.js");
-const HeatRules = require("./public/src/shared/heatRules.js");
-const WiringRules = require("./public/src/shared/wiringRules.js");
-const { PARTS } = require("./src/server/components");
+const serverStats = require("../src/server/shipStats");
+const serverFootprint = require("../src/server/footprint");
+const { validateDesign, isConnected, normalizeShipDesignSnapshot, migrateLegacy11DesignSnapshot, createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { DEFAULT_DESIGN, DEFAULT_WIRING, ECONOMY } = require("../src/server/config");
+const EngineExhaust = require("../public/src/shared/engineExhaust.js");
+const HeatRules = require("../public/src/shared/heatRules.js");
+const WiringRules = require("../public/src/shared/wiringRules.js");
+const { PARTS } = require("../src/server/components");
 
 const TOLERANCE = 1e-9;
 const FIELD_TOLERANCE = { accel: 1, turnRate: 0.01, turnRateLeft: 0.01, turnRateRight: 0.01, maxSpeed: 0.01, effectiveThrust: 1, engineEfficiency: 1e-6 };
@@ -26,26 +26,26 @@ const corpus = {
 (async () => {
   global.document = { createElement: () => ({ getContext: () => ({ clearRect(){}, fillRect(){}, beginPath(){}, arc(){}, fill(){}, stroke(){}, moveTo(){}, lineTo(){}, closePath(){}, save(){}, restore(){}, translate(){}, rotate(){}, fillText(){}, measureText(){ return { width: 0 }; } }), toDataURL: () => "data:image/png;base64," }), getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], body: { classList: { add(){}, remove(){} } } };
   global.window = { devicePixelRatio: 1 };
-  await import("./public/src/shared/engineExhaust.js");
-  const parts = await import("./public/src/design/parts.js");
-  parts.applyServerParts(require("./src/server/components").PARTS);
-  const clientStats = await import("./public/src/design/componentStats.js");
-  const storage = await import("./public/src/design/blueprintStorage.js");
-  const client = await import("./public/src/design/rotation.js");
+  await import("../public/src/shared/engineExhaust.js");
+  const parts = await import("../public/src/design/parts.js");
+  parts.applyServerParts(require("../src/server/components").PARTS);
+  const clientStats = await import("../public/src/design/componentStats.js");
+  const storage = await import("../public/src/design/blueprintStorage.js");
+  const client = await import("../public/src/design/rotation.js");
   globalThis.EngineExhaustRules = EngineExhaust;
   globalThis.HeatRules = HeatRules;
   // Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable
   // authorities, which register themselves as browser globals when required.
-  globalThis.DataSupportRules = require("./public/src/shared/dataSupportRules.js");
-  globalThis.PowerPolicyRules = require("./public/src/shared/powerPolicyRules.js");
-  globalThis.PowerAllocationRules = require("./public/src/shared/powerAllocationRules.js");
-  globalThis.PowerDemandRules = require("./public/src/shared/powerDemandRules.js");
-  globalThis.PowerFlowRules = require("./public/src/shared/powerFlowRules.js");
-  globalThis.WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
-  globalThis.PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules.js");
-  const thermal = await import("./public/src/design/thermalAnalysis.js");
-  const clientValidation = await import("./public/src/design/blueprintValidation.js");
-  const clientFootprint = await import("./public/src/design/footprint.js");
+  globalThis.DataSupportRules = require("../public/src/shared/dataSupportRules.js");
+  globalThis.PowerPolicyRules = require("../public/src/shared/powerPolicyRules.js");
+  globalThis.PowerAllocationRules = require("../public/src/shared/powerAllocationRules.js");
+  globalThis.PowerDemandRules = require("../public/src/shared/powerDemandRules.js");
+  globalThis.PowerFlowRules = require("../public/src/shared/powerFlowRules.js");
+  globalThis.WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
+  globalThis.PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules.js");
+  const thermal = await import("../public/src/design/thermalAnalysis.js");
+  const clientValidation = await import("../public/src/design/blueprintValidation.js");
+  const clientFootprint = await import("../public/src/design/footprint.js");
 
   const normalize = (design) => design.map((part) => ({ x: part.x, y: part.y, type: part.type, rotation: part.rotation || 0 }));
   assert.deepStrictEqual(normalize(storage.defaultDesign()), normalize(DEFAULT_DESIGN), "server and client stock defaults match after normalization");

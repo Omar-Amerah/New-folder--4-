@@ -4,10 +4,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { uniqueRoom, waitForBrowserReady } from './verify-pixi-browser-support.js';
 const require = createRequire(import.meta.url);
-const { validateClientMessage } = require('./src/server/clientSchemas.js');
-const { validateDesign, createGeneratedPowerWiring } = require('./src/server/shipDesign.js');
-const { computeStats } = require('./src/server/shipStats.js');
-const { PARTS } = require('./src/server/components.js');
+const { validateClientMessage } = require('../src/server/clientSchemas.js');
+const { validateDesign, createGeneratedPowerWiring } = require('../src/server/shipDesign.js');
+const { computeStats } = require('../src/server/shipStats.js');
+const { PARTS } = require('../src/server/components.js');
 export const CANONICAL_ACTIVE_MATCH_DESIGN = Object.freeze([
   {x:7,y:7,type:'core',rotation:0},{x:7,y:8,type:'frame',rotation:0},
   {x:6,y:8,type:'engine',rotation:0},{x:8,y:8,type:'engine',rotation:0},

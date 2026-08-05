@@ -16,11 +16,11 @@ function request(port, pathname) {
 }
 
 (async () => {
-  const build = spawnSync(process.execPath, ["netlify-build.js"], { cwd: __dirname, encoding: "utf8" });
+  const build = spawnSync(process.execPath, ["netlify-build.js"], { cwd: path.dirname(__dirname), encoding: "utf8" });
   assert.strictEqual(build.status, 0, build.stdout + build.stderr);
-  assert.ok(!fs.existsSync(path.join(__dirname, "public", "client.js")), "obsolete public/client.js must not exist after build");
+  assert.ok(!fs.existsSync(path.join(path.dirname(__dirname), "public", "client.js")), "obsolete public/client.js must not exist after build");
   const port = 5731 + Math.floor(Math.random() * 1000);
-  const server = spawn(process.execPath, ["server.js"], { cwd: __dirname, env: { ...process.env, PORT: String(port) }, stdio: ["ignore", "pipe", "pipe"] });
+  const server = spawn(process.execPath, ["server.js"], { cwd: path.dirname(__dirname), env: { ...process.env, PORT: String(port) }, stdio: ["ignore", "pipe", "pipe"] });
   let log = "";
   server.stdout.on("data", (d) => { log += d; });
   server.stderr.on("data", (d) => { log += d; });

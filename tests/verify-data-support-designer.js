@@ -2,13 +2,13 @@
 const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
-globalThis.DataSupportRules = require("./public/src/shared/dataSupportRules.js");
-globalThis.WiringRules = require("./public/src/shared/wiringRules.js");
-globalThis.HeatRules = require("./public/src/shared/heatRules.js");
+globalThis.DataSupportRules = require("../public/src/shared/dataSupportRules.js");
+globalThis.WiringRules = require("../public/src/shared/wiringRules.js");
+globalThis.HeatRules = require("../public/src/shared/heatRules.js");
 globalThis.WIRING_ENABLED = true;
 vm.runInThisContext(fs.readFileSync("public/src/design/dataSupportAnalysis.js", "utf8").replace(/export /g, "").replace(/^import \{ WIRING_ENABLED \} from "\.\.\/featureFlags\.js";\n/m, ""), { filename: "public/src/design/dataSupportAnalysis.js" });
 const A = globalThis.DesignDataSupportAnalysis;
-const { PARTS: PART_STATS } = require("./src/server/components.js");
+const { PARTS: PART_STATS } = require("../src/server/components.js");
 const close = (a,b,m) => assert(Math.abs(a-b) < 1e-9, `${m}: ${a} !== ${b}`);
 const m = (type,x,y) => ({ type,x,y,rotation:0 });
 const path = (w, kind, cells, d) => globalThis.WiringRules.addPath(w, kind, cells, d, PART_STATS);

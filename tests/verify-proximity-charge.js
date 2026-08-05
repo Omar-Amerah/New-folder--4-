@@ -7,10 +7,10 @@ const {
   detonateProximityCharge,
   armedProximityChargeRanges,
   proximityChargeDestroyedShip
-} = require("./src/server/combat");
-const { initComponentState, initProximityChargeState, onComponentDestroyed } = require("./src/server/componentHealth");
-const { PARTS } = require("./src/server/components");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+} = require("../src/server/combat");
+const { initComponentState, initProximityChargeState, onComponentDestroyed } = require("../src/server/componentHealth");
+const { PARTS } = require("../src/server/components");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 
 function makePlayers() {
   return new Map([

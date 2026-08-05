@@ -1,7 +1,7 @@
 "use strict";
 const assert = require("assert");
 (async () => {
-  const m = await import("./public/src/snapshotMerge.js");
+  const m = await import("../public/src/snapshotMerge.js");
   const oldPlayers = [{ id: "p1", design: [1], stats: { cost: 1 }, name: "A" }];
   assert.deepStrictEqual(m.mergeStaticPlayerFields(oldPlayers, [{ id: "p1", name: "B" }])[0].design, [1]);
   const hp = [10, 20, 30];

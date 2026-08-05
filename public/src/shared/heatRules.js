@@ -30,7 +30,8 @@
     heatPipeToComponent: 2.0,
     heatPipeToHeatPipe: 2.5,
     heatPipeToHeatSink: 2.25,
-    heatPipeToRadiator: 2.5
+    heatPipeToRadiator: 2.5,
+    heatPipeToClosedCycleCooler: 2.25
   });
   // Soft cap on shared-edge count so a large multi-cell component does not get
   // an unreasonable multiplier from many shared edges.
@@ -48,12 +49,18 @@
     // Heat sinks are dedicated thermal-mass buffers (large capacity for their
     // cost). Normal system components hold less heat than before so hotspots form
     // and must be conducted away through frames to sinks/radiators.
-    const capacity = type === "heatSink" ? 340 : type === "radiator" ? 115 : type === "heatPipe" ? 35
+    const capacity = Number.isFinite(part?.heatCapacity) ? part.heatCapacity
+      : type === "heatSink" ? 340 : type === "radiator" ? 115 : type === "heatPipe" ? 35
       : type === "armor" ? 125 : type === "compositeArmor" ? 140 : 85;
-    const cooling = type === "radiator" ? 14 : type === "heatSink" ? 1.5 : type === "heatPipe" ? 0
+    const cooling = Number.isFinite(part?.heatCooling) ? part.heatCooling
+      : type === "radiator" ? 14 : type === "heatSink" ? 1.5 : type === "heatPipe" ? 0
       : type === "armor" ? 0.7 : type === "compositeArmor" ? 0.6 : 1.25;
-    const conductivity = CONDUCTIVITY[type] ?? (type.includes("Frame") || type === "frame" ? CONDUCTIVITY.frame : CONDUCTIVITY.system);
-    return { capacity, cooling, conductivity, retention: type === "armor" ? 0.9 : type === "compositeArmor" ? 0.82 : 1 };
+    const passiveCooling = Number.isFinite(part?.heatPassiveCooling) ? part.heatPassiveCooling : 0;
+    const conductivity = Number.isFinite(part?.heatConductivity) ? part.heatConductivity
+      : (CONDUCTIVITY[type] ?? (type.includes("Frame") || type === "frame" ? CONDUCTIVITY.frame : CONDUCTIVITY.system));
+    const retention = Number.isFinite(part?.heatRetention) ? part.heatRetention
+      : type === "armor" ? 0.9 : type === "compositeArmor" ? 0.82 : 1;
+    return { capacity, cooling, passiveCooling, conductivity, retention };
   }
 
   function activityHeat(type, part) {
@@ -146,6 +153,7 @@
       const other = aIsPipe ? typeB : typeA;
       if (String(other || "") === "heatSink") return HEAT_PIPE_TRANSFER.heatPipeToHeatSink;
       if (String(other || "") === "radiator") return HEAT_PIPE_TRANSFER.heatPipeToRadiator;
+      if (String(other || "") === "closedCycleCooler") return HEAT_PIPE_TRANSFER.heatPipeToClosedCycleCooler;
       if (/frame/i.test(String(other || ""))) return HEAT_PIPE_TRANSFER.frameToHeatPipe;
       return HEAT_PIPE_TRANSFER.heatPipeToComponent;
     }

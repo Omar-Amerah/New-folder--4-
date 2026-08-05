@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
-const { createRoom } = require("./src/server/rooms");
-const { addBot, updateBots, chooseBotDesign } = require("./src/server/ships");
-const { DEFAULT_DESIGN } = require("./src/server/config");
-const { computeStats } = require("./src/server/shipStats");
-const { buyShip } = require("./src/server/economy");
+const { createRoom } = require("../src/server/rooms");
+const { addBot, updateBots, chooseBotDesign } = require("../src/server/ships");
+const { DEFAULT_DESIGN } = require("../src/server/config");
+const { computeStats } = require("../src/server/shipStats");
+const { buyShip } = require("../src/server/economy");
 function human(id, team) { const design = DEFAULT_DESIGN.map(p => ({...p})); return { id, name:id, team, ready:true, design, stats:computeStats(design), ships:[], money:1000, spent:0, earned:1000, deployedFleetCost:0, destroyedEnemyCost:0, lostFleetCost:0, shipCap:8, maxMoney:10000, connected:true, client:{}, purchaseRequests:new Map() }; }
 function setup(seed=12345) { const room=createRoom("BOT"); room.phase="active"; room.mapSeed=seed; room.players.clear(); room.ships.clear(); room.effects.length=0; room.points=[]; const h=human("h","blue"); room.players.set(h.id,h); addBot(room,h); const bot=[...room.players.values()].find(p=>p.isBot); bot.ready=true; bot.money=1000; bot.client={}; bot.shipCap=5; return {room,h,bot}; }
 {

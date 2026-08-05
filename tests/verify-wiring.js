@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 const assert = require("assert");
-const W = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
-const { DEFAULT_WIRING } = require("./src/server/config");
+const W = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
+const { DEFAULT_WIRING } = require("../src/server/config");
 const ship = [
   { x: 5, y: 5, type: "reactor" }, { x: 6, y: 5, type: "frame" }, { x: 7, y: 5, type: "armor" }, { x: 8, y: 5, type: "shield" },
   { x: 5, y: 6, type: "fireControl" }, { x: 6, y: 6, type: "beamEmitter" }, { x: 7, y: 6, type: "frame" }, { x: 8, y: 6, type: "railgun" },

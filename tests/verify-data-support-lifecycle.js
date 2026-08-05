@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 "use strict";
 const assert = require("assert");
-const { PARTS } = require("./src/server/components");
-const W = require("./public/src/shared/wiringRules");
-const D = require("./public/src/shared/dataSupportRules");
-const HeatRules = require("./public/src/shared/heatRules");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, repairShipComponents, detonateComponent } = require("./src/server/componentHealth");
-const { initShipHeat, updateShipHeat, addComponentHeat, STATE } = require("./src/server/heat");
-const { rebuildShipWiringState, applyShipPowerAllocation } = require("./src/server/componentPower");
-const Data = require("./src/server/componentData");
-const { updateShipWeapons } = require("./src/server/combat");
+const { PARTS } = require("../src/server/components");
+const W = require("../public/src/shared/wiringRules");
+const D = require("../public/src/shared/dataSupportRules");
+const HeatRules = require("../public/src/shared/heatRules");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, repairShipComponents, detonateComponent } = require("../src/server/componentHealth");
+const { initShipHeat, updateShipHeat, addComponentHeat, STATE } = require("../src/server/heat");
+const { rebuildShipWiringState, applyShipPowerAllocation } = require("../src/server/componentPower");
+const Data = require("../src/server/componentData");
+const { updateShipWeapons } = require("../src/server/combat");
 const close = (a,b,m,e=1e-7)=>assert(Math.abs(a-b)<e, `${m}: ${a} !== ${b}`);
 const mod=(type,x,y,rotation=0)=>({type,x,y,rotation});
 const budget=(type)=>D.nominalSupportBudget(type, PARTS);

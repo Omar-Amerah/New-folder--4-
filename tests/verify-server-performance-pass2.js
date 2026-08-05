@@ -2,7 +2,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { RoomSpatialIndex, buildRoomSpatialIndex, clearRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { RoomSpatialIndex, buildRoomSpatialIndex, clearRoomSpatialIndex } = require("../src/server/spatialIndex");
 const {
   addBullet,
   ensureProjectileLookup,
@@ -10,21 +10,21 @@ const {
   removeProjectilesByOwner,
   resetProjectileRuntime,
   updateBullets
-} = require("./src/server/projectiles");
-const { getShipCollisionGeometry } = require("./src/server/componentGeometry");
-const { markShipRepairCacheDirty } = require("./src/server/repairCache");
-const Relationships = require("./src/server/relationships");
-const { findPointDefenseTarget } = require("./src/server/combat");
+} = require("../src/server/projectiles");
+const { getShipCollisionGeometry } = require("../src/server/componentGeometry");
+const { markShipRepairCacheDirty } = require("../src/server/repairCache");
+const Relationships = require("../src/server/relationships");
+const { findPointDefenseTarget } = require("../src/server/combat");
 const {
   CONFIG: DRONE_CONFIG,
   bayWorldPose,
   _test: { spawnDrone, resolveDroneSeparation }
-} = require("./src/server/drones");
-const { createRoom } = require("./src/server/rooms");
-const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
-const { configureOutbound } = require("./src/server/outbound");
-const { decodeBinary } = require("./src/server/wsCodec");
-const { BALANCE } = require("./src/server/balanceConfig");
+} = require("../src/server/drones");
+const { createRoom } = require("../src/server/rooms");
+const { broadcastSnapshot } = require("../src/server/snapshotDelivery");
+const { configureOutbound } = require("../src/server/outbound");
+const { decodeBinary } = require("../src/server/wsCodec");
+const { BALANCE } = require("../src/server/balanceConfig");
 
 function player(id, team) {
   return { id, name: id, team, ships: [], design: [], wiring: { power: { sections: [], connections: [] }, data: { sections: [], connections: [] } }, connected: true, money: 0, bank: 0, earned: 0, maxMoney: 1000, kills: 0, losses: 0, captures: 0 };

@@ -9,13 +9,13 @@
 // object keys) must return the previous result.
 
 const assert = require("assert");
-const { ECONOMY, DEFAULT_DESIGN } = require("./src/server/config");
-const { createRoom } = require("./src/server/rooms");
-const { computeStats } = require("./src/server/shipStats");
-const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
-const { executePurchase, activeFleetCount } = require("./src/server/economy");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
+const { ECONOMY, DEFAULT_DESIGN } = require("../src/server/config");
+const { createRoom } = require("../src/server/rooms");
+const { computeStats } = require("../src/server/shipStats");
+const { createShipBlueprintSnapshot } = require("../src/server/shipDesign");
+const { executePurchase, activeFleetCount } = require("../src/server/economy");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
 
 // A purchasable design with a real, wireable reactor->shield power run so we can
 // vary a cable section tier.
@@ -176,7 +176,7 @@ function reverseKeys(value) {
   const startCount = activeFleetCount(p1);
   assert.strictEqual(startCount, 2, "two ships already active");
   const spawnIndexes = [];
-  const { spawnShip } = require("./src/server/ships");
+  const { spawnShip } = require("../src/server/ships");
   // Spy on spawnShip via a wrapper is intrusive; instead assert positions are
   // deterministic and distinct for a 3-ship purchase.
   const result = executePurchase(room, p1, payload(p1, "multi", { count: 3 }), 1010);

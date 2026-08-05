@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { handleMessage } = require('./src/server/messageRouter');
+const { handleMessage } = require('../src/server/messageRouter');
 const sent=[]; const socket={destroyed:false, write(){return true;}, once(){}, off(){}, destroy(){this.destroyed=true;}};
 const client={id:'t', socket, isClosed:false, snapshotBaseline:{}};
 handleMessage(client, { type:'bogus' });

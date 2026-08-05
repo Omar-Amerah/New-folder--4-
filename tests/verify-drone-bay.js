@@ -2,10 +2,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { PARTS } = require("./src/server/components");
-const { validateDesign, normalizeShipDesignSnapshot } = require("./src/server/shipDesign");
-const DroneBayRules = require("./public/src/shared/droneBayRules");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { PARTS } = require("../src/server/components");
+const { validateDesign, normalizeShipDesignSnapshot } = require("../src/server/shipDesign");
+const DroneBayRules = require("../public/src/shared/droneBayRules");
 
 const baseDesign = (droneType = "fighter") => [
   { x: 7, y: 7, type: "core", rotation: 0 },

@@ -9,21 +9,21 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const WiringRules = require("./public/src/shared/wiringRules");
-const WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
-const PowerProtectionRules = require("./public/src/shared/powerProtectionRules");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules");
-const PowerPolicyRules = require("./public/src/shared/powerPolicyRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { validateComponentBalance, validateWiringInfrastructure, validatePowerProtection } = require("./src/server/componentSchema");
-const { validateDesign } = require("./src/server/shipDesign");
-const componentPower = require("./src/server/componentPower");
-const { updateShipPowerProtection } = require("./src/server/powerProtection");
-const { snapshotRoom } = require("./src/server/snapshots");
-const fixtures = require("./test-fixtures/powerInfrastructureReferenceShips");
-const harness = require("./test-fixtures/dataSupportRuntimeHarness");
-const report = require("./tools/report-power-infrastructure-balance");
+const WiringRules = require("../public/src/shared/wiringRules");
+const WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
+const PowerProtectionRules = require("../public/src/shared/powerProtectionRules");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules");
+const PowerPolicyRules = require("../public/src/shared/powerPolicyRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { validateComponentBalance, validateWiringInfrastructure, validatePowerProtection } = require("../src/server/componentSchema");
+const { validateDesign } = require("../src/server/shipDesign");
+const componentPower = require("../src/server/componentPower");
+const { updateShipPowerProtection } = require("../src/server/powerProtection");
+const { snapshotRoom } = require("../src/server/snapshots");
+const fixtures = require("./fixtures/powerInfrastructureReferenceShips");
+const harness = require("./fixtures/dataSupportRuntimeHarness");
+const report = require("../tools/report-power-infrastructure-balance");
 
 let passed = 0;
 function check(name, fn) { fn(); passed += 1; console.log(`  ok  ${name}`); }
@@ -283,7 +283,7 @@ check("43/44/45. trips, retries and batched damage each cause exactly one rebuil
     assert.strictEqual(fixtureRow.counters.demandChange.powerSolves, 1, `${fixtureRow.key} demand change is one solve`);
   }
   // Simultaneous trip/retry batching is covered against the hybrid ship in
-  // verify-power-infrastructure-resilience.js and Section 7G's verifier.
+  // tests/verify-power-infrastructure-resilience.js and Section 7G's verifier.
 });
 check("47/48/49. topology removal prunes stale state; replacement clears; nothing persisted", () => {
   const fixture = allShips.find((f) => f.key === "cheapBus");
@@ -317,8 +317,8 @@ check("53/54. no touch/mobile behaviour and no Section 8 mechanics in 7H additio
   const files = [
     "test-fixtures/powerInfrastructureReferenceShips.js",
     "tools/report-power-infrastructure-balance.js",
-    "verify-power-infrastructure-balance.js",
-    "verify-power-infrastructure-resilience.js"
+    "tests/verify-power-infrastructure-balance.js",
+    "tests/verify-power-infrastructure-resilience.js"
   ];
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8").toLowerCase();

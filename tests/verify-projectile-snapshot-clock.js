@@ -6,7 +6,7 @@
 // exercised at both sides of a newly spawned bolt's timestamp.
 
 const assert = require("node:assert/strict");
-const { snapshotRoom } = require("./src/server/snapshots");
+const { snapshotRoom } = require("../src/server/snapshots");
 
 function makeRoom() {
   const player = {
@@ -86,7 +86,7 @@ function makeBolt(id, x, y, vx, vy) {
 }
 
 async function run() {
-  const { projectBallisticProjectile } = await import("./public/src/game/projectileTimeline.js");
+  const { projectBallisticProjectile } = await import("../public/src/game/projectileTimeline.js");
   const { room, player, client } = makeRoom();
   const bolt = makeBolt("bolt-1", 420, 800, 760, 0);
   room.bullets.push(bolt);

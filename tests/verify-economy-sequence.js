@@ -1,9 +1,9 @@
 "use strict";
 const assert = require("assert");
-const { createRoom } = require("./src/server/rooms");
-const { DEFAULT_DESIGN } = require("./src/server/config");
-const { computeStats } = require("./src/server/shipStats");
-const { executePurchase, updateEconomy, finalizeMatchRewards } = require("./src/server/economy");
+const { createRoom } = require("../src/server/rooms");
+const { DEFAULT_DESIGN } = require("../src/server/config");
+const { computeStats } = require("../src/server/shipStats");
+const { executePurchase, updateEconomy, finalizeMatchRewards } = require("../src/server/economy");
 const seed = 424242; const history=[];
 function p(id,team){const design=DEFAULT_DESIGN.map(x=>({...x}));return{id,name:id,team,ready:true,design,stats:computeStats(design),ships:[],money:1000,earned:1000,spent:0,deployedFleetCost:0,destroyedEnemyCost:0,lostFleetCost:0,shipCap:3,maxMoney:10000,connected:true,client:{},purchaseRequests:new Map()};}
 function inv(room,pl){assert(Number.isFinite(pl.money),`finite money after ${history}`);assert(pl.money>=0,`nonnegative money after ${history}`);assert(pl.purchaseRequests.size<=64,"bounded request cache");for(const s of pl.ships) assert(room.ships.get(s.id)===s,"no orphan ships");}

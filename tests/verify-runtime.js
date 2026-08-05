@@ -24,7 +24,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  const snapshotMerge = await import("./public/src/snapshotMerge.js");
+  const snapshotMerge = await import("../public/src/snapshotMerge.js");
   const server = spawn(process.execPath, ["server.js"], {
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"]

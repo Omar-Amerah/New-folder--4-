@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = __dirname;
+const ROOT = path.dirname(__dirname);
 
 global.document = {
   getElementById: () => null,
@@ -13,7 +13,7 @@ global.document = {
 global.window = { devicePixelRatio: 1 };
 
 (async () => {
-  const ledger = await import("./public/src/ledger/ledgerContent.js");
+  const ledger = await import("../public/src/ledger/ledgerContent.js");
 
   const errors = [];
   let passed = 0;
@@ -76,7 +76,7 @@ global.window = { devicePixelRatio: 1 };
   ok("manual articles present");
 
   // --- 6. Component articles are generated from PART_STATS ---
-  const { PART_STATS } = await import("./public/src/design/parts.js");
+  const { PART_STATS } = await import("../public/src/design/parts.js");
   const componentArticleIds = articles.filter((a) => a.isComponent).map((a) => a.id);
   assert.ok(componentArticleIds.length > 0, "No component articles generated");
   for (const partId of Object.keys(PART_STATS)) {

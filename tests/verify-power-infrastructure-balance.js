@@ -8,13 +8,13 @@
 // trade-offs and the provisional overload-protection timings.
 
 const assert = require("assert");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { PARTS } = require("./src/server/components");
-const componentPower = require("./src/server/componentPower");
-const { updateShipPowerProtection } = require("./src/server/powerProtection");
-const fixtures = require("./test-fixtures/powerInfrastructureReferenceShips");
-const harness = require("./test-fixtures/dataSupportRuntimeHarness");
-const report = require("./tools/report-power-infrastructure-balance");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { PARTS } = require("../src/server/components");
+const componentPower = require("../src/server/componentPower");
+const { updateShipPowerProtection } = require("../src/server/powerProtection");
+const fixtures = require("./fixtures/powerInfrastructureReferenceShips");
+const harness = require("./fixtures/dataSupportRuntimeHarness");
+const report = require("../tools/report-power-infrastructure-balance");
 
 let passed = 0;
 function check(name, fn) { fn(); passed += 1; console.log(`  ok  ${name}`); }

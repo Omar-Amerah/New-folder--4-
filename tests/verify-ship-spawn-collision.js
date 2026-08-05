@@ -7,17 +7,17 @@ const {
   createSpawnReservations,
   releaseSpawnReservations,
   authoritativePhysicalRadius
-} = require("./src/server/spawnPlanner");
+} = require("../src/server/spawnPlanner");
 const {
   commandShipsToDestination,
   updateShipSeparation,
   resolveFleetMapCollisions
-} = require("./src/server/movement");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { beginMovementContactStep, buildMovementContactPairs } = require("./src/server/movementContactPairs");
-const { findShipHullOverlap, computeDesignCollisionRadius } = require("./src/server/componentGeometry");
-const { executePurchase } = require("./src/server/economy");
-const { computeStats } = require("./src/server/shipStats");
+} = require("../src/server/movement");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { beginMovementContactStep, buildMovementContactPairs } = require("../src/server/movementContactPairs");
+const { findShipHullOverlap, computeDesignCollisionRadius } = require("../src/server/componentGeometry");
+const { executePurchase } = require("../src/server/economy");
+const { computeStats } = require("../src/server/shipStats");
 
 function room(overrides = {}) {
   return {
@@ -104,7 +104,7 @@ function flightAssist(ship, decision, accel, dt, timeConstant = 0.12) {
 
 test("A occupied spawn centre", () => {
   const fixture = purchaseFixture();
-  const preferred = require("./src/server/spawnPlanner").getPlannedSpawn(fixture.r, fixture.player.id);
+  const preferred = require("../src/server/spawnPlanner").getPlannedSpawn(fixture.r, fixture.player.id);
   const blocker = ship("existing", preferred.x, preferred.y, 70);
   const blockerTwo = ship("existing-2", preferred.x + 20, preferred.y, 44);
   fixture.r.ships.set(blocker.id, blocker);
@@ -244,7 +244,7 @@ test("G exact-coordinate deterministic recovery", () => {
   updateShipSeparation(r, [a, b], 0.05, 100);
   assert([a.x, a.y, b.x, b.y, a.vx, b.vx].every(Number.isFinite));
   assert(a.x !== b.x || a.y !== b.y);
-  const { maxFriendlyCorrectionPerTick } = require("./src/server/movement");
+  const { maxFriendlyCorrectionPerTick } = require("../src/server/movement");
   assert(Math.hypot(a.x - beforeA.x, a.y - beforeA.y) <= maxFriendlyCorrectionPerTick(a) + 1e-6);
   assert(Math.hypot(b.x - beforeB.x, b.y - beforeB.y) <= maxFriendlyCorrectionPerTick(b) + 1e-6);
 });

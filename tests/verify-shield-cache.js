@@ -1,16 +1,16 @@
 "use strict";
 
 const assert = require("assert");
-const { effectiveShieldStats } = require("./src/server/componentPower");
-const { updateRuntimeShield } = require("./src/server/runtimeShield");
-const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { rebuildShipWiringState } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
-const HeatRules = require("./public/src/shared/heatRules");
+const { effectiveShieldStats } = require("../src/server/componentPower");
+const { updateRuntimeShield } = require("../src/server/runtimeShield");
+const { resetRoomTelemetry, getRoomTelemetry } = require("../src/server/roomTelemetry");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { rebuildShipWiringState } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
+const HeatRules = require("../public/src/shared/heatRules");
 
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 

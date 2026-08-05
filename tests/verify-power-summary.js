@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const panel = fs.readFileSync(path.join(__dirname, 'public/src/ui/shipDamagePanelUi.js'), 'utf8');
+const panel = fs.readFileSync(path.join(path.dirname(__dirname), 'public/src/ui/shipDamagePanelUi.js'), 'utf8');
 
 let count = 0;
 function check(name, fn) { fn(); count += 1; console.log('  ok ' + count + '. ' + name); }

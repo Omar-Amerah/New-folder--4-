@@ -12,7 +12,7 @@ const { launchChromium, startServer, waitForServer, uniquePort } = require("./ve
 const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;
 const { server } = startServer(port);
-const artifactDir = path.join(__dirname, "test-artifacts", "wiring-inspect-focus");
+const artifactDir = path.join(path.dirname(__dirname), "test-artifacts", "wiring-inspect-focus");
 fs.mkdirSync(artifactDir, { recursive: true });
 
 async function buildFixture(page) {
@@ -203,7 +203,7 @@ async function runMode(page, browserName, mode) {
       await runMode(page, browserName, "data");
       await context.close();
     }
-    console.log(`Wiring SVG focus regression passed in ${browsers.map(([name]) => name).join(" and ")}; screenshots: ${path.relative(__dirname, artifactDir)}`);
+    console.log(`Wiring SVG focus regression passed in ${browsers.map(([name]) => name).join(" and ")}; screenshots: ${path.relative(path.dirname(__dirname), artifactDir)}`);
   } finally {
     await Promise.all(browsers.map(([, browser]) => browser.close().catch(() => {})));
     server.kill();

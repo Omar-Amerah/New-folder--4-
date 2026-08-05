@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = __dirname;
+const ROOT = path.dirname(__dirname);
 const CLIENT_ROOT = path.join(ROOT, "public", "src");
 const SERVER_ROOT = path.join(ROOT, "src", "server");
 const ALLOWED_CLIENT_ESCAPES = new Set([path.join(ROOT, "component-balance.json")]);

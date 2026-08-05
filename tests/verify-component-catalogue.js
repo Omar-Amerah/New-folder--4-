@@ -1,6 +1,6 @@
 const assert = require('assert');
-require('./public/src/shared/featureFlags.js');
-const HeatRules = require('./public/src/shared/heatRules');
+require('../public/src/shared/featureFlags.js');
+const HeatRules = require('../public/src/shared/heatRules');
 
 global.document = {
   getElementById: () => null,
@@ -9,8 +9,8 @@ global.document = {
 global.window = { devicePixelRatio: 1 };
 
 (async () => {
-  const parts = await import('./public/src/design/parts.js');
-  const { PART_CATEGORIES } = await import('./public/src/constants.js');
+  const parts = await import('../public/src/design/parts.js');
+  const { PART_CATEGORIES } = await import('../public/src/constants.js');
   const before = parts.PART_STATS.core.cost;
   for (const type of ['signalAmplifier', 'stabilizerNode']) {
     assert.strictEqual(parts.PART_STATS[type].category, 'Support', `${type} belongs to Support`);

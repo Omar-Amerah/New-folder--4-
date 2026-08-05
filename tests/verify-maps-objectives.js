@@ -1,10 +1,10 @@
 "use strict";
 
 const assert = require("assert");
-const { WORLD_SIZES, ASTEROID_DENSITY, ECONOMY, MAP_CLEARANCES } = require("./src/server/config");
-const { generateMap, chooseWorldSize } = require("./src/server/rooms");
-const { validateGeneratedMap } = require("./src/server/mapValidation");
-const { updateCapturePoints, updateControlVictory, getTeamWithFullControl, getPlayerWithFullControl } = require("./src/server/objectives");
+const { WORLD_SIZES, ASTEROID_DENSITY, ECONOMY, MAP_CLEARANCES } = require("../src/server/config");
+const { generateMap, chooseWorldSize } = require("../src/server/rooms");
+const { validateGeneratedMap } = require("../src/server/mapValidation");
+const { updateCapturePoints, updateControlVictory, getTeamWithFullControl, getPlayerWithFullControl } = require("../src/server/objectives");
 
 function assertMap(seed, world, mode, density) {
   const input = { seed, world: world.label, mode, density };

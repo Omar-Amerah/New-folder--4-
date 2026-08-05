@@ -1,8 +1,8 @@
 "use strict";
 const assert = require("assert");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules.js");
-const { _test } = require("./src/server/snapshots.js");
-const { BALANCE } = require("./src/server/balanceConfig");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules.js");
+const { _test } = require("../src/server/snapshots.js");
+const { BALANCE } = require("../src/server/balanceConfig");
 let n = 0; function check(name, fn){ fn(); console.log(`  ok  ${++n}. ${name}`); }
 const EPS = 1e-9;
 function close(a,b,msg){ assert(Math.abs(a-b) <= EPS, `${msg}: ${a} != ${b}`); }

@@ -8,15 +8,15 @@
 // own angular position rather than converging on a shared one.
 
 const assert = require("assert");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { mainBatteryOrbitRange, updateShipWeapons } = require("./src/server/combat");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { mainBatteryOrbitRange, updateShipWeapons } = require("../src/server/combat");
 const {
   applyCombatStyle,
   applyOrbitDirection,
@@ -24,12 +24,12 @@ const {
   orbitStandoff,
   orbitTangent,
   physicalCollisionRadius
-} = require("./src/server/movement");
-const { ORBIT_DIRECTION, sanitizeCombatStyle, sanitizeOrbitDirection } = require("./src/server/validation");
-const { validateClientMessage } = require("./src/server/clientSchemas");
-const { ORBIT_REJOIN_RADIAL_TOLERANCE, ORBIT_TURN_MARGIN } = require("./src/server/movementTuning");
-const { heatAdjustedMovementStats } = require("./src/server/movementCapability");
-const { isSegmentStationClear } = require("./src/server/stationCollision");
+} = require("../src/server/movement");
+const { ORBIT_DIRECTION, sanitizeCombatStyle, sanitizeOrbitDirection } = require("../src/server/validation");
+const { validateClientMessage } = require("../src/server/clientSchemas");
+const { ORBIT_REJOIN_RADIAL_TOLERANCE, ORBIT_TURN_MARGIN } = require("../src/server/movementTuning");
+const { heatAdjustedMovementStats } = require("../src/server/movementCapability");
+const { isSegmentStationClear } = require("../src/server/stationCollision");
 
 const DT = 1 / 30;
 const BASE = [
@@ -513,7 +513,7 @@ function run() {
   // Real daylight, not "did not quite overlap". Clearance measured in tenths of
   // a pixel is a ship grinding along the obstacle with the collision resolver
   // holding it off, which is the behaviour this whole section exists to stop.
-  const AVOIDANCE_SAFETY_PAD = 5;
+  const AVOIDANCE_SAFETY_PAD = 0;
 
   // An asteroid squarely on an established orbit: two sizes, both ways round.
   // Both sizes are needed. The smaller rock is the ordinary case; the larger

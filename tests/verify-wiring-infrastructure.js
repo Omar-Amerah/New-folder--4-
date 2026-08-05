@@ -7,17 +7,17 @@
 // static Heat-capacity displacement, Power policy, and regression safety.
 
 const assert = require("assert");
-const W = require("./public/src/shared/wiringRules");
-const WI = require("./public/src/shared/wiringInfrastructureRules");
-const PP = require("./public/src/shared/powerPolicyRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { computeStats } = require("./src/server/shipStats");
-const { validateBuildShip } = require("./src/server/validation");
-const { analyzeShipPower, createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const HeatRules = require("./public/src/shared/heatRules");
-const heat = require("./src/server/heat");
-const componentPower = require("./src/server/componentPower");
+const W = require("../public/src/shared/wiringRules");
+const WI = require("../public/src/shared/wiringInfrastructureRules");
+const PP = require("../public/src/shared/powerPolicyRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { computeStats } = require("../src/server/shipStats");
+const { validateBuildShip } = require("../src/server/validation");
+const { analyzeShipPower, createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const HeatRules = require("../public/src/shared/heatRules");
+const heat = require("../src/server/heat");
+const componentPower = require("../src/server/componentPower");
 
 const INFRA = BALANCE.wiringInfrastructure;
 let passed = 0;
@@ -98,7 +98,7 @@ check("11. Data cannot gain functional tier behaviour", () => {
   assert.strictEqual(n.data.sections[0].tier, "standard");
 });
 check("12. Default generated Power wiring is Standard", () => {
-  const gen = createGeneratedPowerWiring(require("./src/server/config").DEFAULT_DESIGN);
+  const gen = createGeneratedPowerWiring(require("../src/server/config").DEFAULT_DESIGN);
   assert.ok(gen.power.sections.length > 0);
   assert.ok(gen.power.sections.every((s) => s.tier === "standard"));
 });
@@ -336,7 +336,7 @@ check("41. Repair still restores the original saved wiring", () => {
   assert.strictEqual(ship.wiring.power.sections.length, 2, "immutable blueprint wiring never deleted");
 });
 check("42. Existing default ships remain valid and deployable", () => {
-  const { DEFAULT_DESIGN } = require("./src/server/config");
+  const { DEFAULT_DESIGN } = require("../src/server/config");
   const wiring = createGeneratedPowerWiring(DEFAULT_DESIGN);
   const stats = computeStats(DEFAULT_DESIGN, wiring);
   assert.ok(stats.thrust > 0 && stats.unitCost > 0);
@@ -347,7 +347,7 @@ check("42. Existing default ships remain valid and deployable", () => {
 // Power categories, policy and balance schema
 // ---------------------------------------------------------------------------
 console.log("Categories, policy and schema");
-const { validateComponentBalance } = require("./src/server/componentSchema");
+const { validateComponentBalance } = require("../src/server/componentSchema");
 check("43. Every Power-consuming component has an authoritative category", () => {
   for (const component of BALANCE.components) {
     const consumes = (Number(component.powerUse) || 0) > 0 && !["core", "reactor", "auxGenerator"].includes(component.id);
@@ -430,7 +430,7 @@ check("48. All wiring reconstruction operations preserve a custom Power policy",
   const net = W.analyzeWiring(design, wiring, PARTS).power.networks[0];
   if (net) expect(W.removeNetwork(wiring, "power", net, design, PARTS), "removeNetwork");
   // Server Blueprint snapshot creation preserves the policy too.
-  const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
+  const { createShipBlueprintSnapshot } = require("../src/server/shipDesign");
   expect(createShipBlueprintSnapshot(design, wiring).wiring, "createShipBlueprintSnapshot");
 });
 check("49. Cost presentation field is named preInfrastructureShipCost (not misleading 'components')", () => {

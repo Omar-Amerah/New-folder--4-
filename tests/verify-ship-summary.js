@@ -9,18 +9,18 @@
 // browser globals.
 
 const assert = require("assert");
-require('./public/src/shared/featureFlags.js');
-const HeatRules = require("./public/src/shared/heatRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const DataRules = require("./public/src/shared/dataSupportRules");
-const EngineExhaust = require("./public/src/shared/engineExhaust");
-const PowerPolicyRules = require("./public/src/shared/powerPolicyRules");
-const PowerAllocationRules = require("./public/src/shared/powerAllocationRules");
-const PowerDemandRules = require("./public/src/shared/powerDemandRules");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const WiringInfra = require("./public/src/shared/wiringInfrastructureRules");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules");
-const TurretRules = require("./public/src/shared/turretRules");
+require('../public/src/shared/featureFlags.js');
+const HeatRules = require("../public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const DataRules = require("../public/src/shared/dataSupportRules");
+const EngineExhaust = require("../public/src/shared/engineExhaust");
+const PowerPolicyRules = require("../public/src/shared/powerPolicyRules");
+const PowerAllocationRules = require("../public/src/shared/powerAllocationRules");
+const PowerDemandRules = require("../public/src/shared/powerDemandRules");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const WiringInfra = require("../public/src/shared/wiringInfrastructureRules");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules");
+const TurretRules = require("../public/src/shared/turretRules");
 
 globalThis.HeatRules = HeatRules;
 globalThis.WiringRules = WiringRules;
@@ -42,8 +42,8 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
 const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
 
 (async () => {
-  const { computeStats } = await import("./public/src/design/componentStats.js");
-  const Model = await import("./public/src/design/shipSummaryModel.js");
+  const { computeStats } = await import("../public/src/design/componentStats.js");
+  const Model = await import("../public/src/design/shipSummaryModel.js");
   const { buildShipSummaryModel, resolvePowerSummary, turnText, turnAsymmetry, degreesPerSecond } = Model;
 
   // Representative designs spanning every branch the summary must handle.

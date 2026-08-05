@@ -8,11 +8,11 @@
 // keep results deterministic. Nothing here touches runtime or Blueprint UI.
 
 const assert = require("assert");
-const W = require("./public/src/shared/wiringRules");
-const PA = require("./public/src/shared/powerAllocationRules");
-const PF = require("./public/src/shared/powerFlowRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
+const W = require("../public/src/shared/wiringRules");
+const PA = require("../public/src/shared/powerAllocationRules");
+const PF = require("../public/src/shared/powerFlowRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
 
 const INFRA = BALANCE.wiringInfrastructure;
 let passed = 0;

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 const assert = require('node:assert/strict');
-const { validateDesign } = require('./src/server/shipDesign.js');
+const { validateDesign } = require('../src/server/shipDesign.js');
 
 (async () => {
   globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
   globalThis.window = globalThis;
-  globalThis.EngineExhaustRules = (await import('./public/src/shared/engineExhaust.js')).default || (await import('./public/src/shared/engineExhaust.js'));
-  await import('./public/src/shared/wiringRules.js');
-  const { validateBlueprint } = await import('./public/src/design/blueprintValidation.js');
-  const { normalizeDesignDetailed, defaultDesign } = await import('./public/src/design/blueprintStorage.js');
-  const { computeStats } = await import('./public/src/design/componentStats.js');
+  globalThis.EngineExhaustRules = (await import('../public/src/shared/engineExhaust.js')).default || (await import('../public/src/shared/engineExhaust.js'));
+  await import('../public/src/shared/wiringRules.js');
+  const { validateBlueprint } = await import('../public/src/design/blueprintValidation.js');
+  const { normalizeDesignDetailed, defaultDesign } = await import('../public/src/design/blueprintStorage.js');
+  const { computeStats } = await import('../public/src/design/componentStats.js');
   const valid = defaultDesign();
   const noEngine = valid.filter(p => p.type !== 'engine');
   const fixtures = [

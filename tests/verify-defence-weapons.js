@@ -2,9 +2,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { PARTS } = require("./src/server/components");
-const { updateBullets } = require("./src/server/projectiles");
-const { collectStableThreats } = require("./src/server/decoys")._test;
+const { PARTS } = require("../src/server/components");
+const { updateBullets } = require("../src/server/projectiles");
+const { collectStableThreats } = require("../src/server/decoys")._test;
 
 // Static regression checks on the authoritative balance values that the
 // defensive-weapon fixes depend on.

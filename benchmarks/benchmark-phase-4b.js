@@ -8,7 +8,7 @@ const {
   RoomSpatialIndex,
   shipBroadPhaseRadius,
   droneBroadPhaseRadius
-} = require("./src/server/spatialIndex");
+} = require("../src/server/spatialIndex");
 
 const ARTIFACT = path.join("test-artifacts", "performance", "benchmark-phase-4b.json");
 

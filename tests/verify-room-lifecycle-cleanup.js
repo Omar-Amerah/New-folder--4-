@@ -7,13 +7,13 @@ const {
   closedRoomCodes,
   createRoom,
   deleteRoomIfCurrent
-} = require("./src/server/rooms");
+} = require("../src/server/rooms");
 const {
   joinRoom,
   leaveLobby,
   closeLobby,
   returnToLobbyPhase
-} = require("./src/server/players");
+} = require("../src/server/players");
 
 function makeSocket() {
   return {

@@ -7,7 +7,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const SRC = path.join(__dirname, "public", "src");
+const SRC = path.join(path.dirname(__dirname), "public", "src");
 const failures = [];
 function fail(msg) { failures.push(msg); }
 
@@ -52,7 +52,7 @@ const forbidden = [
 
 for (const file of listJsFiles(SRC)) {
   const text = fs.readFileSync(file, "utf8");
-  const rel = path.relative(__dirname, file);
+  const rel = path.relative(path.dirname(__dirname), file);
   for (const { re, msg } of forbidden) {
     if (re.test(text)) fail(`${rel}: ${msg}`);
   }
@@ -77,8 +77,8 @@ if (!/WebGL/.test(ctrl)) {
 
 // 6. The production frontend path must be native ES modules, not the deleted
 // regex-concatenated classic bundle.
-const build = fs.readFileSync(path.join(__dirname, "netlify-build.js"), "utf8");
-const index = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+const build = fs.readFileSync(path.join(path.dirname(__dirname), "netlify-build.js"), "utf8");
+const index = fs.readFileSync(path.join(path.dirname(__dirname), "public", "index.html"), "utf8");
 if (/game\/renderer\.js/.test(build)) fail("netlify-build.js must not reference game/renderer.js");
 if (/client\.js|bundledCode|Strip imports/.test(build)) fail("netlify-build.js must not generate a regex-stripped client.js bundle");
 if (!/type=["']module["'][^>]+\/src\/main\.js/.test(index)) fail("index.html must load the Pixi app through /src/main.js as an ES module");

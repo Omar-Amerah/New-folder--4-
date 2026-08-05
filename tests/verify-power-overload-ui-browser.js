@@ -16,7 +16,7 @@ assert(index.includes("powerProtectionRules.js"), "browser loads shared Power-pr
 const damagePanel = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
 // The dedicated Power tab surfaces protection through the prioritised issue list
 // (compact design) rather than dedicated protection/Switchgear inspection rows.
-// Each protection condition still reads as clear text; verify-combat-power-tab.js
+// Each protection condition still reads as clear text; tests/verify-combat-power-tab.js
 // covers the compact tab structure in full.
 assert(/trippedSwitchgearCount[\s\S]*?temporarily offline/.test(damagePanel), "tripped Switchgear routes surface as a protection issue");
 assert(/nextRetrySeconds[\s\S]*?Automatic recovery in/.test(damagePanel), "automatic retry timing surfaces in the tripped-route issue detail");

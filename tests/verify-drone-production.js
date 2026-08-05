@@ -2,8 +2,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { PARTS } = require("./src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { PARTS } = require("../src/server/components");
 const {
   CONFIG,
   initializeDroneBays,
@@ -11,7 +11,7 @@ const {
   bayWorldPose,
   updateDroneBays,
   _test: { advanceBayProduction }
-} = require("./src/server/drones");
+} = require("../src/server/drones");
 
 function makeRoomAndShip(type = "fighter") {
   const ship = {

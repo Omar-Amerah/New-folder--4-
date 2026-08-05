@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
 const { encode, decode } = require("@msgpack/msgpack");
-const { snapshotRoom } = require("./src/server/snapshots");
-const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("./src/server/snapshotEntityDelta");
+const { snapshotRoom } = require("../src/server/snapshots");
+const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("../src/server/snapshotEntityDelta");
 (async () => {
-  const m = await import("./public/src/snapshotMerge.js");
+  const m = await import("../public/src/snapshotMerge.js");
   const full = {
     type:"state", room:"R", stateEpoch:1, snapshotSeq:1, snapshotKind:"full", snapshotFormatVersion:2, staticRevision:1,
     players:[{id:"p",design:[{type:"core"}],stats:{kills:0},name:"Pilot",team:"blue",colour:"#39f",captures:7}],

@@ -6,9 +6,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
-const droneBalance = require("./component-balance.json").drones;
+const droneBalance = require("../component-balance.json").drones;
 
-const artifactDir = path.join(__dirname, "test-artifacts", "drone-bay");
+const artifactDir = path.join(require("path").dirname(__dirname), "test-artifacts", "drone-bay");
 fs.mkdirSync(artifactDir, { recursive: true });
 const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;

@@ -6,10 +6,10 @@ if (typeof globalThis.document === "undefined") {
 }
 if (typeof globalThis.window === "undefined") globalThis.window = globalThis;
 
-const { buildExteriorHullEdges } = await import("./public/src/game/shipHullOutline.js");
-const { PART_STATS } = await import("./public/src/design/parts.js");
-const { getOccupiedCells } = await import("./public/src/design/footprint.js");
-const { moduleLocalPosition, GRID_CENTER } = await import("./public/src/game/shipGeometry.js");
+const { buildExteriorHullEdges } = await import("../public/src/game/shipHullOutline.js");
+const { PART_STATS } = await import("../public/src/design/parts.js");
+const { getOccupiedCells } = await import("../public/src/design/footprint.js");
+const { moduleLocalPosition, GRID_CENTER } = await import("../public/src/game/shipGeometry.js");
 
 const SCALE = 10;
 const m = (x, y, type = "frame", rotation = 0) => ({ x, y, type, rotation });

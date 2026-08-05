@@ -12,27 +12,27 @@
 //   pursue               go after a target that opens the range again
 
 const assert = require("assert");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { computeStats } = require("./src/server/shipStats");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { computeStats } = require("../src/server/shipStats");
 const {
   applyMovementToggles,
   commandShips,
   updateShipMovement,
   updateShipSeparation
-} = require("./src/server/movement");
+} = require("../src/server/movement");
 const {
   MOVEMENT_TOGGLE_DEFAULTS,
   MOVEMENT_TOGGLE_KEYS,
   sanitizeMovementToggles
-} = require("./src/server/validation");
-const { validateClientMessage } = require("./src/server/clientSchemas");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower, effectiveShieldStats } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { getMaxEffectiveWeaponRange } = require("./src/server/componentData");
+} = require("../src/server/validation");
+const { validateClientMessage } = require("../src/server/clientSchemas");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower, effectiveShieldStats } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { getMaxEffectiveWeaponRange } = require("../src/server/componentData");
 
 const DT = 1 / 30;
 
@@ -184,7 +184,7 @@ function run() {
   {
     // Driven through the real router rather than by calling the setter, so the
     // wire name, the selection rules and the acknowledgement are all covered.
-    const { handleMessage } = require("./src/server/messageRouter");
+    const { handleMessage } = require("../src/server/messageRouter");
     const mine = makeShip(1000, 2000);
     const other = makeShip(1400, 2000);
     // The static half of a snapshot serializes the player's own design, so the

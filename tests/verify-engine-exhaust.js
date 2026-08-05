@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
-const EngineExhaust = require("./public/src/shared/engineExhaust.js");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, updateEngineExhaustState } = require("./src/server/componentHealth");
-const { heatAdjustedMovementStats } = require("./src/server/movementCapability");
+const EngineExhaust = require("../public/src/shared/engineExhaust.js");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, updateEngineExhaustState } = require("../src/server/componentHealth");
+const { heatAdjustedMovementStats } = require("../src/server/movementCapability");
 
 const recessed = [{x:7,y:7,type:"engine"},{x:6,y:7,type:"frame"},{x:8,y:7,type:"frame"}];
 let analysis = EngineExhaust.analyze(recessed, PARTS);
@@ -59,11 +59,11 @@ assert.strictEqual(
 );
 
 // Thermal maneuver ticks consume the cached structural exhaust analysis only.
-const movement = require("./src/server/movement");
+const movement = require("../src/server/movement");
 const turnDesign = [{x:7,y:7,type:"core"},{x:7,y:6,type:"maneuverThruster"}];
 const turnShip = { id:"turn", design:turnDesign, stats:{...computeStats(turnDesign)}, x:0,y:0,vx:0,vy:0,angle:0,targetX:0,targetY:0,alive:true,shield:0,combatStyle:"hold" };
 initComponentState(turnShip);
-require("./src/server/heat").initShipHeat(turnShip);
+require("../src/server/heat").initShipHeat(turnShip);
 const exhaustRevision = turnShip.engineExhaustRevision;
 turnShip.targetAngle = Math.PI / 2;
 for (let i = 0; i < 5; i += 1) movement.updateShipMovement({ ships:new Map(), players:new Map(), world:{width:1000,height:1000}, effects:[] }, turnShip, 0.05);

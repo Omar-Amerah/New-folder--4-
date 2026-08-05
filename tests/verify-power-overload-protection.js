@@ -8,19 +8,19 @@
 // state retention, performance counters and order independence.
 
 const assert = require("assert");
-const PowerProtectionRules = require("./public/src/shared/powerProtectionRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { validatePowerProtection } = require("./src/server/componentSchema");
-const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
-const componentPower = require("./src/server/componentPower");
+const PowerProtectionRules = require("../public/src/shared/powerProtectionRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { validatePowerProtection } = require("../src/server/componentSchema");
+const { createShipBlueprintSnapshot } = require("../src/server/shipDesign");
+const componentPower = require("../src/server/componentPower");
 const { initializeComponentPower, reallocateShipPower, rebuildShipWiringState, powerProtectionConfig, __setPowerProtectionConfigForTests } = componentPower;
 const {
   updateShipPowerProtection,
   refreshShipPowerProtectionDiagnostics,
   resetShipPowerProtection,
   buildPowerProtectionSnapshot
-} = require("./src/server/powerProtection");
+} = require("../src/server/powerProtection");
 
 let passed = 0;
 function check(name, fn) { fn(); passed += 1; console.log(`  ok  ${name}`); }

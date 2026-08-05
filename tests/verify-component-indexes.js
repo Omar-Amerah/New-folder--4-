@@ -1,8 +1,8 @@
 "use strict";
 const assert = require("assert");
-const { buildSharedSnapshot } = require("./src/server/snapshots");
-const { spawnShip } = require("./src/server/ships");
-const { computeStats } = require("./src/server/shipStats");
+const { buildSharedSnapshot } = require("../src/server/snapshots");
+const { spawnShip } = require("../src/server/ships");
+const { computeStats } = require("../src/server/shipStats");
 
 const design = [
   {x:3,y:3,type:"core"}, {x:2,y:3,type:"blaster"}, {x:4,y:3,type:"armor"},
@@ -14,7 +14,7 @@ function makeRoom() {
   return { code:"IDX", world:{width:4160,height:2560}, mapSeed:77, rules:{gameMode:"teams"}, map:{asteroids:[], relays:[]}, players:new Map([[player.id, player]]), ships:new Map(), bullets:[], effects:[], points:[], phase:"active", winner:null, controlVictory:{}, clients:new Set(), nextEntityId:1 };
 }
 (async () => {
-  const merge = await import("./public/src/snapshotMerge.js");
+  const merge = await import("../public/src/snapshotMerge.js");
   const room = makeRoom();
   const player = room.players.get("p1");
   const ship = spawnShip(room, player, 0, 0, { design, stats: player.stats });

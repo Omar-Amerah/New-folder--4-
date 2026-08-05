@@ -12,21 +12,21 @@
 //     the hull through 180 degrees
 
 const assert = require("assert");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { computeStats } = require("./src/server/shipStats");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { computeStats } = require("../src/server/shipStats");
 const {
   commandShips,
   rotateShips,
   stopShips,
   updateShipMovement,
   updateShipSeparation
-} = require("./src/server/movement");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { heatAdjustedMovementStats } = require("./src/server/movementCapability");
-const { REST_SPEED } = require("./src/server/movementTuning");
+} = require("../src/server/movement");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { heatAdjustedMovementStats } = require("../src/server/movementCapability");
+const { REST_SPEED } = require("../src/server/movementTuning");
 
 const DT = 1 / 30;
 const DESIGN = [

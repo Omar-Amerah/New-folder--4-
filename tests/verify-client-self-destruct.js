@@ -9,8 +9,8 @@ const fakeElement = () => ({ hidden:false, style:{}, classList:{add(){},remove()
 globalThis.document = { getElementById:()=>null, querySelector:()=>null, querySelectorAll:()=>[], createElement:fakeElement, activeElement:null, addEventListener(){}, removeEventListener(){}, visibilityState:"visible" };
 globalThis.window = { addEventListener(){}, removeEventListener(){}, devicePixelRatio:1 };
 
-const { state } = await import("./public/src/state.js");
-const { destructSelectedShips } = await import("./public/src/game/commands.js");
+const { state } = await import("../public/src/state.js");
+const { destructSelectedShips } = await import("../public/src/game/commands.js");
 const ships = [
   { id:"own-a", ownerId:"p1", alive:true },
   { id:"own-b", ownerId:"p1", alive:true },

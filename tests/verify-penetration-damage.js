@@ -8,9 +8,9 @@
 // structure wrongly absorbed extra penetration.
 
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const { PARTS } = require("./src/server/components");
-const { initComponentState, applyHullDamage } = require("./src/server/componentHealth");
+const HeatRules = require("../public/src/shared/heatRules");
+const { PARTS } = require("../src/server/components");
+const { initComponentState, applyHullDamage } = require("../src/server/componentHealth");
 
 const NORMAL = HeatRules.STATE.NORMAL;
 const HOT = HeatRules.STATE.HOT;         // mult 1.15

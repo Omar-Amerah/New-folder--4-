@@ -9,7 +9,7 @@ const {
   startServer,
   waitForServer,
   uniquePort
-} = require("./verify-pixi-browser-support");
+} = require("../verify-pixi-browser-support");
 
 (async () => {
   const port = uniquePort();
@@ -131,7 +131,7 @@ const {
     for (const [type, size] of Object.entries(result.multiCellIcons)) {
       assert.ok(size.width > 0 && size.height > 0, `${type} should bake a non-empty multi-cell icon`);
     }
-    const outputDir = path.join(__dirname, "test-artifacts", "component-artwork");
+    const outputDir = path.join(path.dirname(__dirname), "test-artifacts", "component-artwork");
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(
       path.join(outputDir, "footprint-machinery.png"),

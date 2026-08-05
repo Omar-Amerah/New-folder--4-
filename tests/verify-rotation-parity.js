@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 "use strict";
 const assert = require("assert/strict");
-const shared = require("./public/src/shared/rotationRules.js");
-const server = require("./src/server/shipDesign.js");
-const { PARTS } = require("./src/server/components.js");
+const shared = require("../public/src/shared/rotationRules.js");
+const server = require("../src/server/shipDesign.js");
+const { PARTS } = require("../src/server/components.js");
 
 (async () => {
-  const client = await import("./public/src/design/rotation.js");
+  const client = await import("../public/src/design/rotation.js");
   const columns = [6, 7, 8];
   const allowedSets = [undefined, [0, 90, 180, 270], [90, 270], [0, 180], [90], [270]];
   const values = [0, 90, 180, 270, -90, 450, undefined, null, "90", "invalid"];

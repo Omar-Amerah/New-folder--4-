@@ -1,12 +1,12 @@
 "use strict";
 
 const assert = require("assert");
-const { seededRandom } = require("./src/server/utils");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat } = require("./src/server/heat");
-const { updateShipWeapons, updateShipSupport, findTarget, pickWeaponFireTarget, findPointDefenseTarget, damageShip, destroyShip, requestSelfDestruct, updateSelfDestructingShips, weaponModuleWorldPosition, weaponMuzzleWorldPosition, weaponMuzzleDistance, moduleRotationToRadians, isTargetInWeaponArc, buildShipTurretDiagnostics } = require("./src/server/combat");
-const { updateBullets } = require("./src/server/projectiles");
+const { seededRandom } = require("../src/server/utils");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat } = require("../src/server/heat");
+const { updateShipWeapons, updateShipSupport, findTarget, pickWeaponFireTarget, findPointDefenseTarget, damageShip, destroyShip, requestSelfDestruct, updateSelfDestructingShips, weaponModuleWorldPosition, weaponMuzzleWorldPosition, weaponMuzzleDistance, moduleRotationToRadians, isTargetInWeaponArc, buildShipTurretDiagnostics } = require("../src/server/combat");
+const { updateBullets } = require("../src/server/projectiles");
 
 function ship(id, ownerId, x, y, design) {
   const s = { id, ownerId, x, y, vx: 0, vy: 0, angle: 0, alive: true, removed: false, shield: 0, radius: 30, focusTargetId: null, combatTargetId: null, repairTargetId: null, cost: 100, effects: [] };

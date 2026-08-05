@@ -284,6 +284,7 @@ function onComponentDestroyed(room, ship, index, now) {
     thermalCapacity: true,
     exposure: true,
     thermalRoutes: heat.isThermalRouteType(module.type),
+    activeCoolers: module.type === "closedCycleCooler",
     wiringTopology: true,
     wiringComponentIndex: index
   });
@@ -312,6 +313,7 @@ function flushComponentLifecycleRefresh(ship) {
   if (flags.thermalCapacity) heat.recalculateEffectiveThermalCapacities(ship);
   if (flags.exposure) heat.rebuildRuntimeExposure(ship);
   if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);
+  if (flags.activeCoolers) heat.rebuildThermalNetworks(ship);
   if (flags.wiringTopology) {
     const componentPower = require("./componentPower");
     const candidates = flags.wiringComponentIndices instanceof Set ? [...flags.wiringComponentIndices] : [];
@@ -485,7 +487,7 @@ function repairShipComponents(room, ship, amount, now, emitterShip) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       const heat = require("./heat");
       requestComponentLifecycleRefresh(ship, { thermalCapacity: true,
-        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), wiringTopology: true, wiringComponentIndex: idx });
+        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), activeCoolers: ship.design[idx].type === "closedCycleCooler", wiringTopology: true, wiringComponentIndex: idx });
     }
   }
   endComponentLifecycleBatch(ship);

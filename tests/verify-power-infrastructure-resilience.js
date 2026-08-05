@@ -8,11 +8,11 @@
 // fixture. All state changes go through the production lifecycle.
 
 const assert = require("assert");
-const componentPower = require("./src/server/componentPower");
-const { updateShipPowerProtection } = require("./src/server/powerProtection");
-const fixtures = require("./test-fixtures/powerInfrastructureReferenceShips");
-const harness = require("./test-fixtures/dataSupportRuntimeHarness");
-const report = require("./tools/report-power-infrastructure-balance");
+const componentPower = require("../src/server/componentPower");
+const { updateShipPowerProtection } = require("../src/server/powerProtection");
+const fixtures = require("./fixtures/powerInfrastructureReferenceShips");
+const harness = require("./fixtures/dataSupportRuntimeHarness");
+const report = require("../tools/report-power-infrastructure-balance");
 
 let passed = 0;
 function check(name, fn) { fn(); passed += 1; console.log(`  ok  ${name}`); }

@@ -6,8 +6,8 @@
 // select a fully-repaired ship, and respect command range and alive state.
 
 const assert = require("assert");
-const { _test, CONFIG } = require("./src/server/drones");
-const { initComponentState } = require("./src/server/componentHealth");
+const { _test, CONFIG } = require("../src/server/drones");
+const { initComponentState } = require("../src/server/componentHealth");
 const { chooseTarget } = _test;
 
 const REPAIR = CONFIG.types.repair;

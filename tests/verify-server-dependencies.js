@@ -3,6 +3,6 @@ for (const file of ['src/server/messages.js','src/server/outbound.js','src/serve
   const src=fs.readFileSync(file,'utf8');
   assert(!/require\(["']\.\/messages["']\)/.test(src) || file.endsWith('messages.js'), `${file} imports messages facade`);
 }
-const { createGameServer } = require('./server');
+const { createGameServer } = require('../server');
 const g=createGameServer({port:0}); assert(g.diagnostics().stopped);
 console.log('server dependency boundaries ok');

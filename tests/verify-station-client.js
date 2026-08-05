@@ -35,7 +35,7 @@ globalThis.document = globalThis.document || {
   visibilityState: 'visible'
 };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {} };
-await import('./public/src/shared/featureFlags.js');
+await import('../public/src/shared/featureFlags.js');
 
 // --- Lobby control -----------------------------------------------------------
 const html = fs.readFileSync('public/index.html', 'utf8');
@@ -56,13 +56,13 @@ assert(lobbyJs.includes('infrastructureMode'), 'Lobby rules payload carries infr
 assert(lobbyJs.includes('<dt>Infrastructure</dt>'), 'Read-only rules show the infrastructure mode');
 assert(mainJs.includes('dom.infrastructureModeSelect?.addEventListener'), 'Infrastructure selector pushes rule updates');
 
-const { dom } = await import('./public/src/ui/dom.js');
+const { dom } = await import('../public/src/ui/dom.js');
 assert(dom.infrastructureModeSelect, 'Infrastructure selector is registered in the DOM map');
 assert(dom.stationPanel && dom.stationPanelBody && dom.stationPanelKind, 'Station panel elements are registered');
 
 // --- Snapshot merge ----------------------------------------------------------
-const { mergeCachedStationFields, mergeSnapshotTransaction } = await import('./public/src/snapshotMerge.js');
-const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = await import('./src/server/snapshotEntityDelta.js');
+const { mergeCachedStationFields, mergeSnapshotTransaction } = await import('../public/src/snapshotMerge.js');
+const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = await import('../src/server/snapshotEntityDelta.js');
 
 const previousStations = [{
   id: 'st1',
@@ -138,8 +138,8 @@ assert(classicBaseline.ok, 'classic entity-delta baseline merge succeeds');
 assert.deepEqual(classicBaseline.snapshot.stations, [], 'classic snapshots stay free of station entities');
 
 // --- Selection ---------------------------------------------------------------
-const { state } = await import('./public/src/state.js');
-const selection = await import('./public/src/game/selection.js');
+const { state } = await import('../public/src/state.js');
+const selection = await import('../public/src/game/selection.js');
 
 function resetState() {
   state.myId = 'p1';
@@ -169,7 +169,7 @@ function resetState() {
 
 assert.equal(state.rules.infrastructureMode !== undefined, true, 'client rules default carries an infrastructure mode');
 
-const { commandTargetAt } = await import('./public/src/game/commands.js');
+const { commandTargetAt } = await import('../public/src/game/commands.js');
 resetState();
 state.snapshot.stations[1] = {
   ...state.snapshot.stations[1],
@@ -222,7 +222,7 @@ selection.resetSelectionForEpoch();
 assert.equal(state.selectedStationId, null, 'an epoch reset clears the inspected station');
 
 // --- Inspection panel --------------------------------------------------------
-const { renderStationPanel, panelStation, ownHomeStation } = await import('./public/src/ui/stationPanelUi.js');
+const { renderStationPanel, panelStation, ownHomeStation } = await import('../public/src/ui/stationPanelUi.js');
 
 resetState();
 renderStationPanel();
@@ -271,7 +271,7 @@ const {
   stationHangarLocalForTest,
   stationHangarCoverLocalForTest,
   stationShellOutlineForTest
-} = await import('./public/src/game/pixi/pixiStations.js');
+} = await import('../public/src/game/pixi/pixiStations.js');
 
 resetState();
 const [home, relay] = state.snapshot.stations;
@@ -345,7 +345,7 @@ assert(outline.filter((point) => Math.abs(point.x - 28) < 0.001).length >= 6, 't
 // The hangar build bar. Builds are sub-second for a light hull, so this is
 // checked by driving the drawing directly rather than trying to photograph it.
 {
-  const { drawProductionBar } = await import('./public/src/game/pixi/pixiStations.js');
+  const { drawProductionBar } = await import('../public/src/game/pixi/pixiStations.js');
   const record = () => {
     const calls = [];
     const gfx = {};

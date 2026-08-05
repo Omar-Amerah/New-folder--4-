@@ -3,10 +3,10 @@
 
 const assert = require("node:assert/strict");
 const { performance } = require("node:perf_hooks");
-const { RoomSpatialIndex } = require("./src/server/spatialIndex");
-const { filterSnapshotForPlayer } = require("./src/server/visibilitySnapshots");
-const { ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibility");
-const { homeStationTemplate, relayStationTemplate } = require("./src/server/stations");
+const { RoomSpatialIndex } = require("../src/server/spatialIndex");
+const { filterSnapshotForPlayer } = require("../src/server/visibilitySnapshots");
+const { ensureTeamVisibility, invalidateVisibility } = require("../src/server/visibility");
+const { homeStationTemplate, relayStationTemplate } = require("../src/server/stations");
 
 function percentile(values, ratio) {
   const ordered = [...values].sort((a, b) => a - b);

@@ -2,16 +2,16 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { encodeMessage, decodeBinary } = require("./src/server/wsCodec");
-const { validateClientMessage } = require("./src/server/clientSchemas");
-const { getRoute } = require("./src/server/routeRegistry");
-const { snapshotRoom } = require("./src/server/snapshots");
+const { encodeMessage, decodeBinary } = require("../src/server/wsCodec");
+const { validateClientMessage } = require("../src/server/clientSchemas");
+const { getRoute } = require("../src/server/routeRegistry");
+const { snapshotRoom } = require("../src/server/snapshots");
 const {
   CONFIG,
   buildDroneSnapshots,
   buildBaySnapshots,
   setDroneBayMode
-} = require("./src/server/drones");
+} = require("../src/server/drones");
 
 const ship = {
   id: "carrier", ownerId: "owner", alive: true, x: 20, y: 30, angle: 0,

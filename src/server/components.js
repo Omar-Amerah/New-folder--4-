@@ -73,7 +73,17 @@ function makeWeapon(type, stats) {
     burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined,
     chargeRampSeconds: stats.chargeRampSeconds !== undefined ? Number(stats.chargeRampSeconds) : undefined,
     maxChargeDamageBonus: stats.maxChargeDamageBonus !== undefined ? Number(stats.maxChargeDamageBonus) : undefined,
-    impactHeatPerDamage: stats.impactHeatPerDamage !== undefined ? Number(stats.impactHeatPerDamage) : undefined
+    impactHeatPerDamage: stats.impactHeatPerDamage !== undefined ? Number(stats.impactHeatPerDamage) : undefined,
+    inductionHeatBasePerSecond: stats.inductionHeatBasePerSecond !== undefined ? Number(stats.inductionHeatBasePerSecond) : undefined,
+    inductionHeatMaxPerSecond: stats.inductionHeatMaxPerSecond !== undefined ? Number(stats.inductionHeatMaxPerSecond) : undefined,
+    inductionRampSeconds: stats.inductionRampSeconds !== undefined ? Number(stats.inductionRampSeconds) : undefined,
+    inductionShieldMultiplier: stats.inductionShieldMultiplier !== undefined ? Number(stats.inductionShieldMultiplier) : undefined,
+    inductionDirectFraction: stats.inductionDirectFraction !== undefined ? Number(stats.inductionDirectFraction) : undefined,
+    inductionAdjacentFraction: stats.inductionAdjacentFraction !== undefined ? Number(stats.inductionAdjacentFraction) : undefined,
+    inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
+    inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
+    inductionSelfHeatMaxMultiplier: stats.inductionSelfHeatMaxMultiplier !== undefined ? Number(stats.inductionSelfHeatMaxMultiplier) : undefined,
+    beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined
   };
 }
 
@@ -146,6 +156,8 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
+    shapeType: typeof component.shapeType === "string" ? component.shapeType : null,
+    statScale: toNumber(component.statScale, 1),
     ecmStrength: toNumber(component.ecmStrength, 0),
     aura: normalizeAura(component.aura),
     frontDamageReduction: toNumber(component.frontDamageReduction, 0),
@@ -158,6 +170,11 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     // value by the interval, making it approximately sustained DPS absorbed per
     // weapon stream.
     armorFlatReduction: toNumber(component.armorFlatReduction, 0),
+    heatCapacity: component.heatCapacity !== undefined ? toNumber(component.heatCapacity, 0) : undefined,
+    heatCooling: component.heatCooling !== undefined ? toNumber(component.heatCooling, 0) : undefined,
+    heatPassiveCooling: component.heatPassiveCooling !== undefined ? toNumber(component.heatPassiveCooling, 0) : undefined,
+    heatConductivity: component.heatConductivity !== undefined ? toNumber(component.heatConductivity, 0) : undefined,
+    heatRetention: component.heatRetention !== undefined ? toNumber(component.heatRetention, 0) : undefined,
     decoyConfig: component.decoy && typeof component.decoy === "object"
       ? Object.freeze({ ...component.decoy })
       : null,
@@ -210,7 +227,12 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
 
 const PARTS = buildPartsFromBalance(COMPONENT_BALANCE);
 
+function isInductionBeam(weapon) {
+  return weapon && typeof weapon === "object" && Number.isFinite(weapon.inductionHeatBasePerSecond) && Number.isFinite(weapon.inductionHeatMaxPerSecond);
+}
+
 module.exports = {
   COMPONENT_BALANCE,
-  PARTS
+  PARTS,
+  isInductionBeam
 };

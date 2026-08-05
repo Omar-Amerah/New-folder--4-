@@ -27,20 +27,20 @@ globalThis.document = globalThis.document || {
 };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {} };
 globalThis.localStorage = globalThis.localStorage || { getItem() { return null; }, setItem() {}, removeItem() {} };
-const { createRoom, sanitizeRoomRules } = require("./src/server/rooms");
-const { createStationsForRoom, updateStations } = require("./src/server/stations");
+const { createRoom, sanitizeRoomRules } = require("../src/server/rooms");
+const { createStationsForRoom, updateStations } = require("../src/server/stations");
 const {
   damageStation,
   transferRelayControl,
   updateStationWeapons
-} = require("./src/server/stationCombat");
-const { snapshotRoom } = require("./src/server/snapshots");
+} = require("../src/server/stationCombat");
+const { snapshotRoom } = require("../src/server/snapshots");
 const {
   buildEntityDeltaSnapshot,
   buildStateFromSnapshot
-} = require("./src/server/snapshotEntityDelta");
-const { INFRASTRUCTURE } = require("./src/server/config");
-const { effectiveSensorRange } = require("./src/server/sensorCapability");
+} = require("../src/server/snapshotEntityDelta");
+const { INFRASTRUCTURE } = require("../src/server/config");
+const { effectiveSensorRange } = require("../src/server/sensorCapability");
 
 function player(id, team, removed = false) {
   return {
@@ -135,7 +135,7 @@ function run() {
   assert.strictEqual(room.winner, null, "relay transfer does not finalize match victory");
   assert.strictEqual(room.phase, "active", "relay transfer does not end the match");
   assert.strictEqual(room.players.get("red-1").captures, redCapturesBefore + 1, "relay transfer awards one capture");
-  assert.strictEqual(room.players.get("red-1").money, Number(require("./src/server/config").ECONOMY.captureBonus) || 0, "relay transfer awards the configured capture reward");
+  assert.strictEqual(room.players.get("red-1").money, Number(require("../src/server/config").ECONOMY.captureBonus) || 0, "relay transfer awards the configured capture reward");
 
   const staleAimState = new Array(relay.design.length).fill("stale-target");
   relay.weaponAimTargetIds = staleAimState.slice();
@@ -225,7 +225,7 @@ function run() {
   assert.strictEqual(homeRoom.winner.team, "red", "home-station destruction awards victory to the opposing team");
   assert.strictEqual(homeRoom.winner.reason, "home-base-destroyed", "home destruction uses the existing victory reason");
 
-  return import("./public/src/game/pixi/pixiStations.js").then(({ stationStateLabel, stationColor }) => {
+  return import("../public/src/game/pixi/pixiStations.js").then(({ stationStateLabel, stationColor }) => {
     assert.strictEqual(stationStateLabel({ stationType: "relay", state: "recovering" }), "RECOVERING", "client displays RECOVERING");
     assert.strictEqual(stationColor({ stationType: "relay", state: "recovering", team: "red", ownerId: "red-1" }, new Map()), "#ff5f7e", "client changes relay colour immediately");
     console.log("  relay transfer, recovery, recapture, snapshots and home destruction checks passed");

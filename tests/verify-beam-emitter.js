@@ -8,10 +8,10 @@ const {
   beamContactCharge,
   updateShipWeapons,
   isComponentAlive
-} = require("./src/server/combat");
-const { PARTS } = require("./src/server/components");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat } = require("./src/server/heat");
+} = require("../src/server/combat");
+const { PARTS } = require("../src/server/components");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat } = require("../src/server/heat");
 
 function createMockRoom() {
   return {

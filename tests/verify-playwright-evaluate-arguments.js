@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const files = process.argv.slice(2);
-if (!files.length) throw new Error('usage: node verify-playwright-evaluate-arguments.js <files...>');
+if (!files.length) throw new Error('usage: node tests/verify-playwright-evaluate-arguments.js <files...>');
 function findCalls(source) {
   const bad=[]; let i=0;
   while ((i=source.indexOf('.evaluate(', i)) !== -1) {

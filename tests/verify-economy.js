@@ -1,11 +1,11 @@
 "use strict";
 
 const assert = require("assert");
-const { ECONOMY, DEFAULT_DESIGN } = require("./src/server/config");
-const { createRoom } = require("./src/server/rooms");
-const { computeStats } = require("./src/server/shipStats");
-const { executePurchase, updateEconomy, activeFleetCount, PURCHASE_IDEMPOTENCY_TTL_MS } = require("./src/server/economy");
-const { snapshotRoom } = require("./src/server/snapshots");
+const { ECONOMY, DEFAULT_DESIGN } = require("../src/server/config");
+const { createRoom } = require("../src/server/rooms");
+const { computeStats } = require("../src/server/shipStats");
+const { executePurchase, updateEconomy, activeFleetCount, PURCHASE_IDEMPOTENCY_TTL_MS } = require("../src/server/economy");
+const { snapshotRoom } = require("../src/server/snapshots");
 
 function makePlayer(id, team = "blue") {
   const design = DEFAULT_DESIGN.map((part) => ({ ...part }));

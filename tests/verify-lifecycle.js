@@ -1,9 +1,9 @@
 "use strict";
 
 const assert = require("assert");
-const { rooms } = require("./src/server/rooms");
-const { joinRoom, findReservedNameOwner, maybeStartMatch, returnToLobbyPhase } = require("./src/server/players");
-const { damageStation } = require("./src/server/stationCombat");
+const { rooms } = require("../src/server/rooms");
+const { joinRoom, findReservedNameOwner, maybeStartMatch, returnToLobbyPhase } = require("../src/server/players");
+const { damageStation } = require("../src/server/stationCombat");
 
 function makeSocket() { return { destroyed: false, write() {}, destroy() { this.destroyed = true; } }; }
 function makeClient(id) { return { id, socket: makeSocket(), room: null, player: null, isClosed: false }; }

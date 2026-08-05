@@ -1,11 +1,11 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const wiringRules = require("./public/src/shared/wiringRules.js");
-const dataSupportRules = require("./public/src/shared/dataSupportRules.js");
-const engineExhaustRules = require("./public/src/shared/engineExhaust.js");
-const heatRules = require("./public/src/shared/heatRules.js");
-const turretRules = require("./public/src/shared/turretRules.js");
+const wiringRules = require("../public/src/shared/wiringRules.js");
+const dataSupportRules = require("../public/src/shared/dataSupportRules.js");
+const engineExhaustRules = require("../public/src/shared/engineExhaust.js");
+const heatRules = require("../public/src/shared/heatRules.js");
+const turretRules = require("../public/src/shared/turretRules.js");
 
 globalThis.WiringRules = wiringRules;
 globalThis.DataSupportRules = dataSupportRules;
@@ -13,12 +13,12 @@ globalThis.EngineExhaustRules = engineExhaustRules;
 globalThis.HeatRules = heatRules;
 globalThis.TurretRules = turretRules;
 // Section 7D-3: Blueprint thermal prediction uses the shared Power/Cable rules.
-globalThis.PowerPolicyRules = require("./public/src/shared/powerPolicyRules.js");
-globalThis.PowerAllocationRules = require("./public/src/shared/powerAllocationRules.js");
-globalThis.PowerDemandRules = require("./public/src/shared/powerDemandRules.js");
-globalThis.PowerFlowRules = require("./public/src/shared/powerFlowRules.js");
-globalThis.WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
-globalThis.PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules.js");
+globalThis.PowerPolicyRules = require("../public/src/shared/powerPolicyRules.js");
+globalThis.PowerAllocationRules = require("../public/src/shared/powerAllocationRules.js");
+globalThis.PowerDemandRules = require("../public/src/shared/powerDemandRules.js");
+globalThis.PowerFlowRules = require("../public/src/shared/powerFlowRules.js");
+globalThis.WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
+globalThis.PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules.js");
 
 class FakeElement {
   constructor(tag = "div", id = "") { this.tagName = tag.toUpperCase(); this.id = id; this.children = []; this.parentNode = null; this.listeners = new Map(); this.style = {}; this.dataset = {}; this.hidden = false; this.disabled = false; this.value = ""; this.attributes = {}; this.className = ""; this.type = ""; this.title = ""; this._textContent = ""; this._innerHTML = ""; }
@@ -90,7 +90,7 @@ function clickWiringPort(wiringOverlayHost, index, mode) {
 
 (async () => {
   const [{ state }, storage, designer, history, wiringUi, paletteUi, { PART_STATS }] = await Promise.all([
-    import("./public/src/state.js"), import("./public/src/design/blueprintStorage.js"), import("./public/src/ui/designerUi.js"), import("./public/src/design/blueprintEditHistory.js"), import("./public/src/ui/wiringUi.js"), import("./public/src/ui/partPaletteUi.js"), import("./public/src/design/parts.js")
+    import("../public/src/state.js"), import("../public/src/design/blueprintStorage.js"), import("../public/src/ui/designerUi.js"), import("../public/src/design/blueprintEditHistory.js"), import("../public/src/ui/wiringUi.js"), import("../public/src/ui/partPaletteUi.js"), import("../public/src/design/parts.js")
   ]);
   paletteUi.setPartPaletteSelectionPresentationRefresh(designer.refreshBlueprintSelectionPresentation);
   designer.setBlueprintEditHistoryUiHooksForTests({ persistDesign: () => {}, refresh: () => { designer.renderBuildGrid(); designer.renderLocalStats(); designer.refreshBlueprintUndoControl(); } });

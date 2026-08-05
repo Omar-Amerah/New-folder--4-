@@ -1,5 +1,5 @@
 const assert = require('assert');
-require('./public/src/shared/featureFlags.js');
+require('../public/src/shared/featureFlags.js');
 
 function makeCtx() {
   return {
@@ -52,9 +52,9 @@ let madeTextures = 0; let destroyedTextures = 0;
 const PIXI = { Container, Graphics, Sprite, Text: class extends Container {}, Texture: { from: () => ({ id: ++madeTextures, destroy: () => { destroyedTextures += 1; } }) } };
 
 (async () => {
-  const { state } = await import('./public/src/state.js');
-  const { updatePixiWorld, destroyPixiWorld } = await import('./public/src/game/pixi/pixiWorld.js');
-  const { pixiTextureDiagnostics, flushAllPixiTextureCaches } = await import('./public/src/game/pixi/pixiBake.js');
+  const { state } = await import('../public/src/state.js');
+  const { updatePixiWorld, destroyPixiWorld } = await import('../public/src/game/pixi/pixiWorld.js');
+  const { pixiTextureDiagnostics, flushAllPixiTextureCaches } = await import('../public/src/game/pixi/pixiBake.js');
 
   const mapLayer = new PIXI.Container();
   const env = { PIXI, bakeScale: 1, layers: { grid: new PIXI.Graphics(), map: mapLayer, relays: new PIXI.Container(), effects: new PIXI.Container(), overlay: new PIXI.Graphics(), bullets: new PIXI.Container(), ships: new PIXI.Container(), command: new PIXI.Graphics(), enemyBullets: new PIXI.Container(), friendlyBullets: new PIXI.Container(), effectText: new PIXI.Container(), engineSmoke: new PIXI.Graphics() } };

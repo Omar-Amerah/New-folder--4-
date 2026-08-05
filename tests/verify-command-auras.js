@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { PARTS } = require("./src/server/components");
+const { PARTS } = require("../src/server/components");
 const {
   getCommandAuraRange,
   commandAuraSelfAllowed,
@@ -7,8 +7,8 @@ const {
   getCommandAuraMultiplier,
   collectAuraSources,
   isAuraComponentOperational
-} = require("./src/server/commandAuras");
-const HeatRules = require("./public/src/shared/heatRules");
+} = require("../src/server/commandAuras");
+const HeatRules = require("../public/src/shared/heatRules");
 
 const range = getCommandAuraRange();
 assert.strictEqual(typeof range, "number", "command aura range must be a number");
@@ -108,8 +108,8 @@ assert.strictEqual(sources[0].multipliers.weaponAccuracyMultiplier, 1.08, "aura 
 // ---------------------------------------------------------------------------
 // Task 1: Operational effectiveness scaling
 // ---------------------------------------------------------------------------
-const { auraComponentEffectiveness, scaleAuraMultiplier } = require("./src/server/commandAuras");
-const { BALANCE } = require("./src/server/balanceConfig");
+const { auraComponentEffectiveness, scaleAuraMultiplier } = require("../src/server/commandAuras");
+const { BALANCE } = require("../src/server/balanceConfig");
 
 {
   const s = makeShip("eff1", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);

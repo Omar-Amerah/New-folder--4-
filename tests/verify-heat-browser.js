@@ -7,8 +7,8 @@ const path = require("path");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort, uniqueRoom, waitForBrowserReady, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
-const { createGeneratedPowerWiring, validateWiring, analyzeShipPower } = require("./src/server/shipDesign");
-const { PARTS } = require("./src/server/components");
+const { createGeneratedPowerWiring, validateWiring, analyzeShipPower } = require("../src/server/shipDesign");
+const { PARTS } = require("../src/server/components");
 
 const PORT = Number(process.env.TEST_PORT || uniquePort());
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -193,9 +193,9 @@ async function until(fn, what, timeoutMs = 15000) {
   let browser;
   let page;
   let myId;
-  const { mergeSnapshotTransaction } = await import("./public/src/snapshotMerge.js");
+  const { mergeSnapshotTransaction } = await import("../public/src/snapshotMerge.js");
   const bot = new Client(mergeSnapshotTransaction);
-  const diagnostics = { script: "verify-heat-browser.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], commandFramesSent: 0, phases: [], snapshots: [] };
+  const diagnostics = { script: "tests/verify-heat-browser.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], commandFramesSent: 0, phases: [], snapshots: [] };
   try {
     await waitForServer(BASE);
     browser = await launchChromium(chromium);
@@ -270,7 +270,7 @@ async function until(fn, what, timeoutMs = 15000) {
     // Deterministically centre the production camera on the target ship before
     // computing its on-screen position. The camera follow is smoothed (~260ms
     // half-life) and a freshly spawned ship can otherwise still be off-canvas
-    // when we click; verify-live-turrets.js centres the camera the same way.
+    // when we click; tests/verify-live-turrets.js centres the camera the same way.
     await page.evaluate((id) => {
       const s = window.__mfaState?.snapshot?.ships?.find((sh) => sh.id === id);
       if (s && window.__mfaState?.camera) {

@@ -4,7 +4,7 @@ const assert = require("assert");
 const { mkdirSync } = require("fs");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
-const referenceFixtures = require("./test-fixtures/dataSupportReferenceShips");
+const referenceFixtures = require("./fixtures/dataSupportReferenceShips");
 const port = uniquePort(); const base = `http://127.0.0.1:${port}`; const { server } = startServer(port); let browser;
 
 async function svgLineScreenPoint(locator, fraction = 0.5) {

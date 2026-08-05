@@ -9,14 +9,14 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const { performance } = require("perf_hooks");
-const { RoomSpatialIndex, buildRoomSpatialIndex, shipBroadPhaseRadius } = require("./src/server/spatialIndex");
-const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
+const { RoomSpatialIndex, buildRoomSpatialIndex, shipBroadPhaseRadius } = require("../src/server/spatialIndex");
+const { resetRoomTelemetry, getRoomTelemetry } = require("../src/server/roomTelemetry");
 const {
   updateCommandAuras,
   invalidateCommandAuraMovement,
   invalidateCommandAuraSource
-} = require("./src/server/commandAuras");
-const { getCommandAuraRange } = require("./src/server/commandAuraRules");
+} = require("../src/server/commandAuras");
+const { getCommandAuraRange } = require("../src/server/commandAuraRules");
 
 const RANGE = getCommandAuraRange();
 const AURA_COMPONENTS = [
@@ -479,11 +479,11 @@ function main() {
     },
     results
   };
-  const artifactPath = path.join(__dirname, "test-artifacts", "performance", "benchmark-phase-6d.json");
+  const artifactPath = path.join(path.dirname(__dirname), "test-artifacts", "performance", "benchmark-phase-6d.json");
   fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
   fs.writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(`Completed in ${fixed(performance.now() - startedAt)}ms`);
-  console.log(`Artifact: ${path.relative(__dirname, artifactPath)}`);
+  console.log(`Artifact: ${path.relative(path.dirname(__dirname), artifactPath)}`);
   console.log(JSON.stringify(report, null, 2));
   if (assertPerformance && report.performanceAssertions.failures.length) {
     process.exitCode = 1;

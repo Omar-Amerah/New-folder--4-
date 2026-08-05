@@ -1,9 +1,9 @@
 "use strict";
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const { initShipHeat, updateShipHeat, addComponentHeat, rebuildThermalNetworks, buildHeatDebug, isThermalRouteType } = require("./src/server/heat");
-const { repairShipComponents } = require("./src/server/componentHealth");
-const { PARTS } = require("./src/server/components");
+const HeatRules = require("../public/src/shared/heatRules");
+const { initShipHeat, updateShipHeat, addComponentHeat, rebuildThermalNetworks, buildHeatDebug, isThermalRouteType } = require("../src/server/heat");
+const { repairShipComponents } = require("../src/server/componentHealth");
+const { PARTS } = require("../src/server/components");
 
 function shipFor(design) {
   const hp = design.map(m => PARTS[m.type]?.hp || 40);

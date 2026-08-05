@@ -1,9 +1,9 @@
 "use strict";
 const assert = require("assert");
-const { planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, invalidateSpawnPlan } = require("./src/server/spawnPlanner");
-const { isInSafeZone } = require("./src/server/combat");
-const { validateGeneratedMap } = require("./src/server/mapValidation");
-const { WORLD_SIZES } = require("./src/server/config");
+const { planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, invalidateSpawnPlan } = require("../src/server/spawnPlanner");
+const { isInSafeZone } = require("../src/server/combat");
+const { validateGeneratedMap } = require("../src/server/mapValidation");
+const { WORLD_SIZES } = require("../src/server/config");
 
 function room(players, mode = "solo", extra = {}) {
   const world = extra.world || WORLD_SIZES[4];

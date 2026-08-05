@@ -4,7 +4,7 @@
 // instead of idling when the primary is out of reach. The assigned target is
 // never changed by this helper (retention/switch-back is handled at ship level).
 const assert = require("assert");
-const { pickWeaponFireTarget } = require("./src/server/combat");
+const { pickWeaponFireTarget } = require("../src/server/combat");
 
 // Minimal room: two teams, no asteroids (so line-of-sight is always clear).
 const room = {

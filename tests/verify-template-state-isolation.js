@@ -1,15 +1,15 @@
 "use strict";
 
 const assert = require("assert");
-global.WiringRules = require("./public/src/shared/wiringRules");
-global.PowerFlowRules = require("./public/src/shared/powerFlowRules");
-global.ShieldRules = require("./public/src/shared/shieldRules");
-global.HeatRules = require("./public/src/shared/heatRules");
+global.WiringRules = require("../public/src/shared/wiringRules");
+global.PowerFlowRules = require("../public/src/shared/powerFlowRules");
+global.ShieldRules = require("../public/src/shared/shieldRules");
+global.HeatRules = require("../public/src/shared/heatRules");
 
-const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
-const { spawnShip } = require("./src/server/ships");
-const { computeStats } = require("./src/server/shipStats");
-const { PARTS } = require("./src/server/components");
+const { createImmutableShipTemplate } = require("../src/server/shipTemplates");
+const { spawnShip } = require("../src/server/ships");
+const { computeStats } = require("../src/server/shipStats");
+const { PARTS } = require("../src/server/components");
 
 const design = [
   { type: "core", x: 0, y: 0, rotation: 0 },

@@ -13,20 +13,20 @@
 //   * a new Move replaces the old path
 
 const assert = require("assert");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { computeStats } = require("./src/server/shipStats");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { computeStats } = require("../src/server/shipStats");
 const {
   commandShips,
   stopShips,
   updateShipMovement,
   updateShipSeparation
-} = require("./src/server/movement");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { ARRIVE_DISTANCE } = require("./src/server/movementTuning");
+} = require("../src/server/movement");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { ARRIVE_DISTANCE } = require("../src/server/movementTuning");
 
 const DT = 1 / 30;
 
@@ -70,7 +70,7 @@ function orderedDestination(ship) {
 
 function makeShip(design, x, y, angle = 0) {
   const stats = computeStats(design);
-  const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
+  const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
   const ship = {
     id: `s${++shipSeq}`,
     ownerId: "p1",

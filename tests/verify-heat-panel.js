@@ -11,7 +11,7 @@ const fs = require("fs");
 const vm = require("vm");
 
 if (!fs.existsSync("public/client.js")) {
-  console.error("public/client.js is missing — run `npm run build` before verify-heat-panel.js");
+  console.error("public/client.js is missing — run `npm run build` before tests/verify-heat-panel.js");
   process.exit(1);
 }
 

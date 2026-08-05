@@ -7,8 +7,8 @@
 // most one further component INSIDE the single nearest ship.
 
 const assert = require("assert");
-const { damageBeamTargets } = require("./src/server/combat");
-const { initComponentState } = require("./src/server/componentHealth");
+const { damageBeamTargets } = require("../src/server/combat");
+const { initComponentState } = require("../src/server/componentHealth");
 
 function createRoom() {
   return {

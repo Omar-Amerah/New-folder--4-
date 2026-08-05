@@ -5,9 +5,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { performance } = require("node:perf_hooks");
-const { CONFIG, updateDroneBays } = require("./src/server/drones");
-const { updateBullets } = require("./src/server/projectiles");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { CONFIG, updateDroneBays } = require("../src/server/drones");
+const { updateBullets } = require("../src/server/projectiles");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 
 const DT = 1 / 30;
 const TICK_BUDGET_MS = 1000 / 30;

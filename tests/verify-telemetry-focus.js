@@ -1,13 +1,13 @@
 "use strict";
 
 const assert = require("assert");
-const { performanceNow } = require("./src/server/utils");
+const { performanceNow } = require("../src/server/utils");
 const {
   isTelemetryFocusEligible,
   revalidateTelemetryFocusForClient,
   revalidateTelemetryFocusForRoom
-} = require("./src/server/relationships");
-const { _test: { telemetryFocusForPayload } } = require("./src/server/snapshotDelivery");
+} = require("../src/server/relationships");
+const { _test: { telemetryFocusForPayload } } = require("../src/server/snapshotDelivery");
 
 function makeRoom(mode = "teams") {
   const players = new Map();

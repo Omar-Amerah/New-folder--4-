@@ -113,9 +113,9 @@ async function until(read, label, timeoutMs = 15000) {
 }
 
 (async () => {
-  const snapshotMerge = await import("./public/src/snapshotMerge.js");
+  const snapshotMerge = await import("../public/src/snapshotMerge.js");
   const server = spawn(process.execPath, ["server.js"], {
-    cwd: __dirname,
+    cwd: require("path").dirname(__dirname),
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"]
   });

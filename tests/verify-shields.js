@@ -1,18 +1,18 @@
 "use strict";
 const assert = require("assert");
 if (typeof globalThis.document === "undefined") globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
-const WiringRules = require("./public/src/shared/wiringRules");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const ShieldRules = require("./public/src/shared/shieldRules");
-const HeatRules = require("./public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const ShieldRules = require("../public/src/shared/shieldRules");
+const HeatRules = require("../public/src/shared/heatRules");
 globalThis.WiringRules = WiringRules; globalThis.PowerFlowRules = PowerFlowRules; globalThis.ShieldRules = ShieldRules; globalThis.HeatRules = HeatRules;
-const { PARTS } = require("./src/server/components");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
-const { computeStats } = require("./src/server/shipStats");
-const { rebuildShipWiringState, updateShipPowerDemand, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
-const { updateRuntimeShield, SHIELD_RESTART_DELAY_MS } = require("./src/server/runtimeShield");
-const { tickRoom } = require("./src/server/simulation");
+const { PARTS } = require("../src/server/components");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat, distributeComponentHeatByWeight } = require("../src/server/heat");
+const { computeStats } = require("../src/server/shipStats");
+const { rebuildShipWiringState, updateShipPowerDemand, effectiveShieldStats, effectiveShieldCapacityContributions } = require("../src/server/componentPower");
+const { updateRuntimeShield, SHIELD_RESTART_DELAY_MS } = require("../src/server/runtimeShield");
+const { tickRoom } = require("../src/server/simulation");
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) { let wiring = WiringRules.emptyWiring(); for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS); return wiring; }
 function shipFor(design, paths = []) { const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true }; initComponentState(ship); initShipHeat(ship); rebuildShipWiringState(ship, "test"); return ship; }
@@ -119,7 +119,7 @@ assert(runtime.shield > beforeProductionTick, "simulation.tickRoom heals damaged
 console.log("Shield rules verification passed.");
 
 async function verifyBlueprintRuntimeShieldParity() {
-  const { computeStats: computeBlueprintStats } = await import("./public/src/design/componentStats.js");
+  const { computeStats: computeBlueprintStats } = await import("../public/src/design/componentStats.js");
   const weakBoth = shipFor([at("auxGenerator",0,0), at("shield",1,0), at("shield",2,0)], [[0,1,[{x:0,y:0},{x:1,y:0},{x:2,y:0}]]]);
   let bp = computeBlueprintStats(weakBoth.design, { wiring: weakBoth.wiring });
   close(bp.maxShield, Math.round(effectiveShieldStats(weakBoth).capacity), "wired blueprint preview matches runtime partial power capacity");

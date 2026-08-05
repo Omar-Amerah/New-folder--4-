@@ -1,17 +1,17 @@
 "use strict";
 
 const assert = require("assert");
-const { createRoom, resetMatch, prepareArenaForCurrentPlayers } = require("./src/server/rooms");
-const { computeStats } = require("./src/server/shipStats");
-const { spawnShip, getLiveShips } = require("./src/server/ships");
-const { updateEconomy } = require("./src/server/economy");
-const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("./src/server/movement");
-const { setMovementCommand } = require("./src/server/movementRuntime");
-const { updateShipSupport, updateShipWeapons, updateDestroyedShips } = require("./src/server/combat");
-const { updateBullets } = require("./src/server/projectiles");
-const { updateCapturePoints, updateControlVictory } = require("./src/server/objectives");
-const { updateShipHeat } = require("./src/server/heat");
-const { performanceNow, seededRandom, rngRange } = require("./src/server/utils");
+const { createRoom, resetMatch, prepareArenaForCurrentPlayers } = require("../src/server/rooms");
+const { computeStats } = require("../src/server/shipStats");
+const { spawnShip, getLiveShips } = require("../src/server/ships");
+const { updateEconomy } = require("../src/server/economy");
+const { updateShipMovement, updateShipSeparation, resolveFleetMapCollisions } = require("../src/server/movement");
+const { setMovementCommand } = require("../src/server/movementRuntime");
+const { updateShipSupport, updateShipWeapons, updateDestroyedShips } = require("../src/server/combat");
+const { updateBullets } = require("../src/server/projectiles");
+const { updateCapturePoints, updateControlVictory } = require("../src/server/objectives");
+const { updateShipHeat } = require("../src/server/heat");
+const { performanceNow, seededRandom, rngRange } = require("../src/server/utils");
 
 const SEED = 20260714;
 const rng = seededRandom(SEED);

@@ -8,20 +8,20 @@ const {
   MAP_CLEARANCES,
   MAP_REFERENCE_AREA,
   resolveMapClearances
-} = require("./src/server/config");
+} = require("../src/server/config");
 const {
   generateMap,
   chooseWorldSize,
   generateSafeZones,
   buildStructuredFallbackMap
-} = require("./src/server/rooms");
-const { planSpawnRegions } = require("./src/server/spawnPlanner");
-const { validateGeneratedMap } = require("./src/server/mapValidation");
+} = require("../src/server/rooms");
+const { planSpawnRegions } = require("../src/server/spawnPlanner");
+const { validateGeneratedMap } = require("../src/server/mapValidation");
 const {
   evaluateMapFairness,
   validateRelaySpawnGeometry,
   compactFairnessMetrics
-} = require("./src/server/mapFairness");
+} = require("../src/server/mapFairness");
 
 const EXPECTED_WORLD_SIZES = [
   { maxPlayers: 0, width: 4000, height: 2500, label: "Testing" },

@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { ROUTES } = require('./src/server/routeRegistry');
+const { ROUTES } = require('../src/server/routeRegistry');
 const phases = new Set(['any','lobby','design','active','ended']);
 for (const r of ROUTES) {
   assert(r.phases.every(p=>phases.has(p)), r.type);

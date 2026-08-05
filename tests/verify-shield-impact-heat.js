@@ -1,15 +1,15 @@
 "use strict";
 
 const assert = require("assert");
-const WiringRules = require("./public/src/shared/wiringRules");
-const ShieldRules = require("./public/src/shared/shieldRules");
-const HeatRules = require("./public/src/shared/heatRules");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, flushComponentLifecycleRefresh } = require("./src/server/componentHealth");
-const { initShipHeat, updateShipHeat, distributeComponentHeatByWeight } = require("./src/server/heat");
-const { rebuildShipWiringState, getComponentPowerMultiplier, getShieldCapacityPowerMultiplier, effectiveShieldStats, effectiveShieldCapacityContributions } = require("./src/server/componentPower");
-const { damageShip, SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE } = require("./src/server/combat");
+const WiringRules = require("../public/src/shared/wiringRules");
+const ShieldRules = require("../public/src/shared/shieldRules");
+const HeatRules = require("../public/src/shared/heatRules");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, flushComponentLifecycleRefresh } = require("../src/server/componentHealth");
+const { initShipHeat, updateShipHeat, distributeComponentHeatByWeight } = require("../src/server/heat");
+const { rebuildShipWiringState, getComponentPowerMultiplier, getShieldCapacityPowerMultiplier, effectiveShieldStats, effectiveShieldCapacityContributions } = require("../src/server/componentPower");
+const { damageShip, SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE } = require("../src/server/combat");
 
 const EPS = 1e-9;
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });

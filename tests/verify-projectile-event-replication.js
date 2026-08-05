@@ -16,7 +16,7 @@ const {
   clientSupportsProjectileEvents,
   getLogSize,
   getProjectileReplicationDiagnostics
-} = require("./src/server/projectileReplication");
+} = require("../src/server/projectileReplication");
 
 let failed = false;
 function test(name, fn) {

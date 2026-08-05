@@ -2,12 +2,12 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const wiringRules = require("./public/src/shared/wiringRules.js");
-const heatRules = require("./public/src/shared/heatRules.js");
-const engineExhaustRules = require("./public/src/shared/engineExhaust.js");
-const dataSupportRules = require("./public/src/shared/dataSupportRules.js");
-const turretRules = require("./public/src/shared/turretRules.js");
-const mfaFeatureFlags = require("./public/src/shared/featureFlags.js");
+const wiringRules = require("../public/src/shared/wiringRules.js");
+const heatRules = require("../public/src/shared/heatRules.js");
+const engineExhaustRules = require("../public/src/shared/engineExhaust.js");
+const dataSupportRules = require("../public/src/shared/dataSupportRules.js");
+const turretRules = require("../public/src/shared/turretRules.js");
+const mfaFeatureFlags = require("../public/src/shared/featureFlags.js");
 
 globalThis.MfaFeatureFlags = mfaFeatureFlags;
 globalThis.WiringRules = wiringRules;
@@ -54,12 +54,12 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
 
 (async () => {
   const [{ state }, storage, componentStats, history, savedUi, purchaseUi] = await Promise.all([
-    import("./public/src/state.js"),
-    import("./public/src/design/blueprintStorage.js"),
-    import("./public/src/design/componentStats.js"),
-    import("./public/src/design/blueprintEditHistory.js"),
-    import("./public/src/ui/savedBlueprintsUi.js"),
-    import("./public/src/ui/purchaseUi.js")
+    import("../public/src/state.js"),
+    import("../public/src/design/blueprintStorage.js"),
+    import("../public/src/design/componentStats.js"),
+    import("../public/src/design/blueprintEditHistory.js"),
+    import("../public/src/ui/savedBlueprintsUi.js"),
+    import("../public/src/ui/purchaseUi.js")
   ]);
 
   const saveButton = elements.get("saveDesignButton");

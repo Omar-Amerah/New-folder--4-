@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 
-const { createRoom } = require("./src/server/rooms");
-const { advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/server/simulation");
-const { getRoomTelemetry } = require("./src/server/roomTelemetry");
+const { createRoom } = require("../src/server/rooms");
+const { advanceRoomAuthoritative, FIXED_STEP_MS } = require("../src/server/simulation");
+const { getRoomTelemetry } = require("../src/server/roomTelemetry");
 
 function activeRoom(code) {
   const room = createRoom(code, { seed: 1 });

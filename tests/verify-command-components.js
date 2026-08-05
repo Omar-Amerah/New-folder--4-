@@ -2,21 +2,21 @@
 // aura display, formationResponseMultiplier removal, aura multiplier gameplay
 // integration, and saved-blueprint migration.
 //
-// Run: node verify-command-components.js
+// Run: node tests/verify-command-components.js
 
 const assert = require("assert");
 
 // --- Server-side imports ---
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
 const {
   getCommandAuraRange,
   commandAuraSelfAllowed,
   getCommandAuraMultiplier,
   collectAuraSources,
   isAuraComponentOperational
-} = require("./src/server/commandAuras");
-const HeatRules = require("./public/src/shared/heatRules");
+} = require("../src/server/commandAuras");
+const HeatRules = require("../public/src/shared/heatRules");
 
 // --- Component IDs ---
 const COMMAND_IDS = [
@@ -134,15 +134,15 @@ test("component-balance.json has no formationResponseMultiplier", () => {
 });
 
 test("commandAuras.js AURA_STAT_KEYS has no formationResponseMultiplier", () => {
-  const { AURA_STAT_KEYS } = require("./src/server/commandAuras");
+  const { AURA_STAT_KEYS } = require("../src/server/commandAuras");
   // AURA_STAT_KEYS is a Set in commandAuras.js
   assert(!AURA_STAT_KEYS.has("formationResponseMultiplier"), "AURA_STAT_KEYS should not contain formationResponseMultiplier");
 });
 
 test("componentSchema.js AURA_STAT_KEYS has no formationResponseMultiplier", () => {
   // Re-require to get the array
-  delete require.cache[require.resolve("./src/server/componentSchema.js")];
-  const schema = require("./src/server/componentSchema.js");
+  delete require.cache[require.resolve("../src/server/componentSchema.js")];
+  const schema = require("../src/server/componentSchema.js");
   // Check if AURA_STAT_KEYS is exported or accessible
   const raw = require("fs").readFileSync("./src/server/componentSchema.js", "utf8");
   assert(!raw.includes("formationResponseMultiplier"), "componentSchema.js source should not contain formationResponseMultiplier");
@@ -189,7 +189,7 @@ function makeRoom(ships, phase = "active") {
   };
 }
 
-const { updateCommandAuras } = require("./src/server/commandAuras");
+const { updateCommandAuras } = require("../src/server/commandAuras");
 
 test("sensorRangeMultiplier is applied to weapon acquisition range", () => {
   const combatSrc = require("fs").readFileSync("./src/server/combat.js", "utf8");
@@ -367,7 +367,7 @@ console.log("\n--- Saved blueprint migration ---");
 test("migrateCommandFootprints relocates edge command component to valid position", () => {
   // Simulate: a fireControlCommandCentre at (14, 7) with old 1x1 footprint.
   // New 2x2 footprint would go out of bounds at x=15. Migration should shift it.
-  const { getOccupiedCells } = require("./public/src/design/footprint.js");
+  const { getOccupiedCells } = require("../public/src/design/footprint.js");
   // We can't directly call the ES module function, but we can verify the logic
   // by checking that a 2x2 at (13, 7) fits but at (14, 7) doesn't.
   const fp = { width: 2, height: 2 };
@@ -380,7 +380,7 @@ test("migrateCommandFootprints relocates edge command component to valid positio
 });
 
 test("2x1 relay rotation swaps footprint correctly", () => {
-  const { getOccupiedCells } = require("./public/src/design/footprint.js");
+  const { getOccupiedCells } = require("../public/src/design/footprint.js");
   const fp = { width: 2, height: 1 };
   const cells0 = getOccupiedCells(5, 5, fp, 0);
   const cells90 = getOccupiedCells(5, 5, fp, 90);
@@ -398,7 +398,7 @@ test("2x1 relay rotation swaps footprint correctly", () => {
 console.log("\n--- Server-side rotation validation ---");
 
 test("server isRotatablePart returns false for 2x2 command centres", () => {
-  const { normalizePartRotation } = require("./src/server/shipDesign");
+  const { normalizePartRotation } = require("../src/server/shipDesign");
   // If isRotatablePart returns false, normalizePartRotation returns 0
   // regardless of input rotation.
   for (const id of COMMAND_IDS) {
@@ -411,7 +411,7 @@ test("server isRotatablePart returns false for 2x2 command centres", () => {
 });
 
 test("server isRotatablePart returns true for 2x1 relays and backupCore", () => {
-  const { normalizePartRotation } = require("./src/server/shipDesign");
+  const { normalizePartRotation } = require("../src/server/shipDesign");
   for (const id of COMMAND_IDS) {
     const fp = PARTS[id].footprint;
     if (fp.width !== fp.height) {

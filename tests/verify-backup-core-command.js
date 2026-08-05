@@ -5,16 +5,16 @@ const assert = require("assert");
   globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
   globalThis.window = globalThis;
 
-  const { PARTS } = require("./src/server/components");
-  const { computeStats } = require("./src/server/shipStats");
-  const { validateDesign } = require("./src/server/shipDesign");
-  const { validateBlueprint } = await import("./public/src/design/blueprintValidation.js");
-  const { initComponentState, applyHullDamage } = require("./src/server/componentHealth");
-  const { evaluateShipCommandState, destroyShip, targetCoreAimWorldPosition } = require("./src/server/combat");
-  const { reallocateShipPower } = require("./src/server/componentPower");
-  const { buildSharedSnapshot, snapshotRoom } = require("./src/server/snapshots");
+  const { PARTS } = require("../src/server/components");
+  const { computeStats } = require("../src/server/shipStats");
+  const { validateDesign } = require("../src/server/shipDesign");
+  const { validateBlueprint } = await import("../public/src/design/blueprintValidation.js");
+  const { initComponentState, applyHullDamage } = require("../src/server/componentHealth");
+  const { evaluateShipCommandState, destroyShip, targetCoreAimWorldPosition } = require("../src/server/combat");
+  const { reallocateShipPower } = require("../src/server/componentPower");
+  const { buildSharedSnapshot, snapshotRoom } = require("../src/server/snapshots");
 
-  const WiringRules = require("./public/src/shared/wiringRules");
+  const WiringRules = require("../public/src/shared/wiringRules");
   function makeTestShip(design, wiring = null) {
     let shipWiring = wiring;
     if (!shipWiring) {
@@ -170,7 +170,7 @@ const assert = require("assert");
     const ship = makeTestShip(design);
     const room = makeRoom([ship]);
 
-    const { getEffectiveWeaponStatsInternal } = require("./src/server/componentData");
+    const { getEffectiveWeaponStatsInternal } = require("../src/server/componentData");
     const baseProfile = getEffectiveWeaponStatsInternal(ship, 3);
     const baseAccuracy = baseProfile.accuracy;
 

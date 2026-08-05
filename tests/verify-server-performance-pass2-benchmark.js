@@ -9,10 +9,10 @@ const {
   RoomSpatialIndex,
   shipBroadPhaseRadius,
   droneBroadPhaseRadius
-} = require("./src/server/spatialIndex");
-const { createRoom } = require("./src/server/rooms");
-const { broadcastSnapshot } = require("./src/server/snapshotDelivery");
-const { configureOutbound } = require("./src/server/outbound");
+} = require("../src/server/spatialIndex");
+const { createRoom } = require("../src/server/rooms");
+const { broadcastSnapshot } = require("../src/server/snapshotDelivery");
+const { configureOutbound } = require("../src/server/outbound");
 
 const BEFORE_PATH = path.join("test-artifacts", "performance", "server-spatial-performance-before-second-pass.json");
 const AFTER_PATH = path.join("test-artifacts", "performance", "server-spatial-performance.json");

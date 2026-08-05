@@ -7,23 +7,23 @@ let testShipCounter = 0;
   globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
   globalThis.window = globalThis;
 
-  const { PARTS } = require("./src/server/components");
-  const { computeStats } = require("./src/server/shipStats");
-  const { validateDesign } = require("./src/server/shipDesign");
-  const { initComponentState } = require("./src/server/componentHealth");
-  const { reallocateShipPower } = require("./src/server/componentPower");
-  const { findPointDefenseTarget } = require("./src/server/combat");
-  const TargetingEligibility = require("./src/server/targetingEligibility");
-  const TargetingCadence = require("./src/server/targetingCadence");
-  const TargetingTelemetry = require("./src/server/targetingTelemetry");
-  const RoomTelemetry = require("./src/server/roomTelemetry");
-  const PointDefenceThreats = require("./src/server/pointDefenceThreats");
-  const WiringRules = require("./public/src/shared/wiringRules");
-  const { updateShipWeapons } = require("./src/server/combat");
-  const { updateStationWeapons } = require("./src/server/stationCombat");
-  const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-  const { getShipComponentIndexes } = require("./src/server/componentIndexes");
-  const { getEffectiveWeaponStatsCached, getEffectiveWeaponStatsInternal, ensureEffectiveWeaponProfileCache } = require("./src/server/componentData");
+  const { PARTS } = require("../src/server/components");
+  const { computeStats } = require("../src/server/shipStats");
+  const { validateDesign } = require("../src/server/shipDesign");
+  const { initComponentState } = require("../src/server/componentHealth");
+  const { reallocateShipPower } = require("../src/server/componentPower");
+  const { findPointDefenseTarget } = require("../src/server/combat");
+  const TargetingEligibility = require("../src/server/targetingEligibility");
+  const TargetingCadence = require("../src/server/targetingCadence");
+  const TargetingTelemetry = require("../src/server/targetingTelemetry");
+  const RoomTelemetry = require("../src/server/roomTelemetry");
+  const PointDefenceThreats = require("../src/server/pointDefenceThreats");
+  const WiringRules = require("../public/src/shared/wiringRules");
+  const { updateShipWeapons } = require("../src/server/combat");
+  const { updateStationWeapons } = require("../src/server/stationCombat");
+  const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+  const { getShipComponentIndexes } = require("../src/server/componentIndexes");
+  const { getEffectiveWeaponStatsCached, getEffectiveWeaponStatsInternal, ensureEffectiveWeaponProfileCache } = require("../src/server/componentData");
 
   function makeTestShip(design, wiring = null, ownerId = "p1") {
     let shipWiring = wiring;
@@ -220,7 +220,7 @@ let testShipCounter = 0;
   // 8. Effective weapon profile cache is revision-based and invalidated on component destruction.
   {
     const ship = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "blaster" }, { x: 7, y: 8, type: "engine" }]);
-    const ComponentData = require("./src/server/componentData");
+    const ComponentData = require("../src/server/componentData");
     const cache1 = ComponentData.ensureEffectiveWeaponProfileCache(ship);
     assert.ok(cache1.revision >= 1, "Profile cache has a revision");
     assert.ok(cache1.signature, "Profile cache has a signature");
@@ -288,13 +288,13 @@ let testShipCounter = 0;
   {
     const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
     const room = makeRoom([pdShip]);
-    const PointDefenceThreats = require("./src/server/pointDefenceThreats");
+    const PointDefenceThreats = require("../src/server/pointDefenceThreats");
     PointDefenceThreats.ensurePointDefenceThreatSet(room, pdShip, "p1", 0);
     pdShip._targetAcquisitionSchedule = { "ordinaryShip:0_start": 0 };
     pdShip._weaponTargetState = [{ id: "x" }];
     pdShip.effectiveWeaponProfileCache = { revision: 1 };
 
-    require("./src/server/rooms").bumpStateEpoch(room, "test");
+    require("../src/server/rooms").bumpStateEpoch(room, "test");
 
     assert.strictEqual(pdShip._pdThreatSet, null, "PD threat set cleared after state epoch");
     assert.strictEqual(pdShip._targetAcquisitionSchedule, null, "Target acquisition schedule cleared");

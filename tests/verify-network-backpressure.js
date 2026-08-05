@@ -1,8 +1,8 @@
 "use strict";
 const assert = require("assert");
 const EventEmitter = require("events");
-const messages = require("./src/server/messages");
-const { performanceSnapshot } = require("./src/server/performanceTelemetry");
+const messages = require("../src/server/messages");
+const { performanceSnapshot } = require("../src/server/performanceTelemetry");
 class Transport extends EventEmitter { constructor(pattern){ super(); this.pattern=pattern; this.writes=[]; this.destroyed=false; } write(buf){ this.writes.push(buf); return this.pattern.length ? this.pattern.shift() : true; } destroy(){ this.destroyed=true; this.emit('close'); } }
 function client(pattern){ return { id:'test', socket:new Transport(pattern), isClosed:false }; }
 const slow=client([true,false]);

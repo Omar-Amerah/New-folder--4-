@@ -1,12 +1,12 @@
 "use strict";
 
 const assert = require("assert");
-const WiringRules = require("./public/src/shared/wiringRules");
-const ShieldRules = require("./public/src/shared/shieldRules");
-const { PARTS } = require("./src/server/components");
-const { initComponentState } = require("./src/server/componentHealth");
-const { computeStats } = require("./src/server/shipStats");
-const { initializeComponentPower, getComponentPowerMultiplier, effectiveShieldStats } = require("./src/server/componentPower");
+const WiringRules = require("../public/src/shared/wiringRules");
+const ShieldRules = require("../public/src/shared/shieldRules");
+const { PARTS } = require("../src/server/components");
+const { initComponentState } = require("../src/server/componentHealth");
+const { computeStats } = require("../src/server/shipStats");
+const { initializeComponentPower, getComponentPowerMultiplier, effectiveShieldStats } = require("../src/server/componentPower");
 
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wiringFor(design, paths) {

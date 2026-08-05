@@ -114,13 +114,18 @@ export function footprintCorners(place, halfW, halfH) {
   return [pt(-halfW, -halfH), pt(halfW, -halfH), pt(halfW, halfH), pt(-halfW, halfH), pt];
 }
 
-// Ship-local exhaust nozzle placements for every engine in a design.
+function isMainEngineType(type) {
+  const stat = PART_STATS[type] || {};
+  return (stat.thrust || 0) > 0 && type !== "maneuverThruster";
+}
+
+// Ship-local exhaust nozzle placements for every main engine in a design.
 export function shipEngineNozzles(design, scale = 13) {
   const nozzles = [];
   if (!Array.isArray(design)) return nozzles;
   for (let i = 0; i < design.length; i += 1) {
     const part = design[i];
-    if (part.type !== "engine") continue;
+    if (!isMainEngineType(part.type)) continue;
     const place = footprintLocalPlacement(part, scale);
     const angle = moduleRotationToRadians(normalizeRotation(part.rotation));
     const c = Math.cos(angle), s = Math.sin(angle);

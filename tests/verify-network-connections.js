@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { negotiate } = require('./src/server/protocol');
+const { negotiate } = require('../src/server/protocol');
 assert.strictEqual(negotiate({protocolVersion:6,minProtocolVersion:6,maxProtocolVersion:6,capabilities:['messagepack','entityDeltaSnapshotsV1']}).ok, true);
 assert.strictEqual(negotiate({protocolVersion:4,minProtocolVersion:4,maxProtocolVersion:4,capabilities:['messagepack']}).code, 'incompatible-protocol');
 assert.strictEqual(negotiate({protocolVersion:6,minProtocolVersion:6,maxProtocolVersion:6,capabilities:['messagepack']}).code, 'missing-capability');

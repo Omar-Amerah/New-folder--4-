@@ -1,24 +1,24 @@
 "use strict";
 
 const assert = require("assert");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { PARTS } = require("./src/server/components");
-const HeatRules = require("./public/src/shared/heatRules");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { PARTS } = require("../src/server/components");
+const HeatRules = require("../public/src/shared/heatRules");
 const {
   chooseHoldWeaponFacing,
   isTargetInWeaponArc,
   updateShipWeapons,
   weaponModuleWorldPosition
-} = require("./src/server/combat");
-const { getEffectiveWeaponStats } = require("./src/server/componentData");
-const { commandShips, updateShipMovement } = require("./src/server/movement");
+} = require("../src/server/combat");
+const { getEffectiveWeaponStats } = require("../src/server/componentData");
+const { commandShips, updateShipMovement } = require("../src/server/movement");
 
 const DT = 1 / 30;
 const BASE = [

@@ -7,16 +7,16 @@
 // results, client/server parity, and save/load compatibility.
 
 const assert = require("assert");
-const W = require("./public/src/shared/wiringRules");
-const WI = require("./public/src/shared/wiringInfrastructureRules");
-const WE = require("./public/src/shared/wiringEditRules");
-const PP = require("./public/src/shared/powerPolicyRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { computeStats } = require("./src/server/shipStats");
-const { validateWiring } = require("./src/server/shipDesign");
-const HeatRules = require("./public/src/shared/heatRules");
-const heat = require("./src/server/heat");
+const W = require("../public/src/shared/wiringRules");
+const WI = require("../public/src/shared/wiringInfrastructureRules");
+const WE = require("../public/src/shared/wiringEditRules");
+const PP = require("../public/src/shared/powerPolicyRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { computeStats } = require("../src/server/shipStats");
+const { validateWiring } = require("../src/server/shipDesign");
+const HeatRules = require("../public/src/shared/heatRules");
+const heat = require("../src/server/heat");
 
 const INFRA = BALANCE.wiringInfrastructure;
 let passed = 0;

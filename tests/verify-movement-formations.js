@@ -13,22 +13,22 @@
 // nothing rebuilds any of it while the order runs.
 
 const assert = require("node:assert/strict");
-const { movementTestTick } = require("./tools/movementTestTick");
+const { movementTestTick } = require("../tools/movementTestTick");
 const {
   FORMATION_TYPES,
   commandShips,
   physicalCollisionRadius,
   planFormation,
   sanitizeFormationType
-} = require("./src/server/movement");
-const { getMaxEffectiveWeaponRange } = require("./src/server/componentData");
-const { FORMATION_VISUAL_GAP, HOLD_RANGE_RATIO } = require("./src/server/movementTuning");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
+} = require("../src/server/movement");
+const { getMaxEffectiveWeaponRange } = require("../src/server/componentData");
+const { FORMATION_VISUAL_GAP, HOLD_RANGE_RATIO } = require("../src/server/movementTuning");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
 
 const DT = 1 / 30;
 const BASE = [

@@ -1,15 +1,15 @@
 "use strict";
 
 const assert = require("assert");
-const { resetRoomTelemetry, getRoomTelemetry, telemetryDiagnostics, setCounter } = require("./src/server/roomTelemetry");
-const { updateShipSeparation } = require("./src/server/movement");
-const { updateBullets } = require("./src/server/projectiles");
-const { computeStats } = require("./src/server/shipStats");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { resetRoomTelemetry, getRoomTelemetry, telemetryDiagnostics, setCounter } = require("../src/server/roomTelemetry");
+const { updateShipSeparation } = require("../src/server/movement");
+const { updateBullets } = require("../src/server/projectiles");
+const { computeStats } = require("../src/server/shipStats");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 
 const DT = 1 / 30;
 
@@ -152,7 +152,7 @@ function run() {
   }
 
   // --- Deterministic benchmark matrix ---------------------------------------
-  const { performanceNow } = require("./src/server/utils");
+  const { performanceNow } = require("../src/server/utils");
   function measure(label, setup) {
     const room = makeRoom();
     setup(room);

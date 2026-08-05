@@ -1,11 +1,11 @@
 "use strict";
 const assert = require("assert");
 function close(actual, expected, label) { assert(Math.abs(actual - expected) < 1e-9, `${label}: ${actual} !== ${expected}`); }
-const { snapshotRoom, buildSharedSnapshot } = require("./src/server/snapshots");
-const { ensureEffectiveWeaponProfileCache } = require("./src/server/componentData");
+const { snapshotRoom, buildSharedSnapshot } = require("../src/server/snapshots");
+const { ensureEffectiveWeaponProfileCache } = require("../src/server/componentData");
 
 (async () => {
-  const { mergeCachedShipFields } = await import("./public/src/snapshotMerge.js");
+  const { mergeCachedShipFields } = await import("../public/src/snapshotMerge.js");
   const design = [{ type: "core" }, { type: "engine" }];
   const componentPowerEntries = [
     { state: "source", networkId: 0, operationalMultiplier: 1, requestedMw: 0, allocatedMw: 0 },

@@ -2,14 +2,14 @@
 "use strict";
 
 const assert = require("assert");
-const W = require("./public/src/shared/wiringRules");
-const WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch } = require("./src/server/componentHealth");
-const { rebuildShipWiringState } = require("./src/server/componentPower");
-const Data = require("./src/server/componentData");
+const W = require("../public/src/shared/wiringRules");
+const WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, beginComponentLifecycleBatch, requestComponentLifecycleRefresh, endComponentLifecycleBatch } = require("../src/server/componentHealth");
+const { rebuildShipWiringState } = require("../src/server/componentPower");
+const Data = require("../src/server/componentData");
 
 function mod(type, x, y) { return { type, x, y, rotation: 0 }; }
 function section(x1, y1, x2, y2, tier = "heavy") { const id = W.sectionIdFromCells({ x: x1, y: y1 }, { x: x2, y: y2 }); const [a, b] = id.split(":").map((p) => p.split(",").map(Number)); return { id, x1: a[0], y1: a[1], x2: b[0], y2: b[1], tier }; }

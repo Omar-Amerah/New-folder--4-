@@ -2,7 +2,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { _test } = require("./src/server/drones");
+const { _test } = require("../src/server/drones");
 
 const room = {
   world: { width: 500, height: 400 },

@@ -1,6 +1,6 @@
 const assert = require('assert');
 (async () => {
-  const { shipStructuralRevisionKey } = await import('./public/src/game/pixi/pixiStructuralKey.js');
+  const { shipStructuralRevisionKey } = await import('../public/src/game/pixi/pixiStructuralKey.js');
   const design=[{type:'laser',x:0,y:0,rotation:0},{type:'engine',x:-1,y:0,rotation:90}];
   const base=shipStructuralRevisionKey({design,trimColor:'#f00',qualityGeneration:1,artVersion:2});
   assert.strictEqual(base, shipStructuralRevisionKey({design:design.map(p=>({...p})),trimColor:'#f00',qualityGeneration:1,artVersion:2}));

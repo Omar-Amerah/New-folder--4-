@@ -1,8 +1,8 @@
 "use strict";
 
 const assert = require("assert");
-const { rooms } = require("./src/server/rooms");
-const { joinRoom } = require("./src/server/players");
+const { rooms } = require("../src/server/rooms");
+const { joinRoom } = require("../src/server/players");
 
 function makeSocket() {
   return {

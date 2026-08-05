@@ -2,7 +2,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { createGameServer } = require("./server");
+const { createGameServer } = require("../server");
 
 (async () => {
   const server = createGameServer({ port: 0, host: "127.0.0.1" });

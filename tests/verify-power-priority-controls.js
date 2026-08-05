@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import wiringRules from "./public/src/shared/wiringRules.js";
-import powerPolicyRules from "./public/src/shared/powerPolicyRules.js";
-import powerAllocationRules from "./public/src/shared/powerAllocationRules.js";
-import powerFlowRules from "./public/src/shared/powerFlowRules.js";
-import wiringInfrastructureRules from "./public/src/shared/wiringInfrastructureRules.js";
-import dataSupportRules from "./public/src/shared/dataSupportRules.js";
-import engineExhaustRules from "./public/src/shared/engineExhaust.js";
-import heatRules from "./public/src/shared/heatRules.js";
+import wiringRules from "../public/src/shared/wiringRules.js";
+import powerPolicyRules from "../public/src/shared/powerPolicyRules.js";
+import powerAllocationRules from "../public/src/shared/powerAllocationRules.js";
+import powerFlowRules from "../public/src/shared/powerFlowRules.js";
+import wiringInfrastructureRules from "../public/src/shared/wiringInfrastructureRules.js";
+import dataSupportRules from "../public/src/shared/dataSupportRules.js";
+import engineExhaustRules from "../public/src/shared/engineExhaust.js";
+import heatRules from "../public/src/shared/heatRules.js";
 
 // Section 7C-4 — Blueprint Designer Power Priority controls, the authoritative
 // policy update path, Undo/persistence integration, solver-backed diagnostics,
@@ -28,7 +28,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
 // ---------------------------------------------------------------------------
 // Part 1 — component catalogue category audit (server catalogue is authoritative)
 // ---------------------------------------------------------------------------
-const { PARTS } = await import("./src/server/components.js").then((m) => m.default || m).catch(() => require("./src/server/components.js"));
+const { PARTS } = await import("../src/server/components.js").then((m) => m.default || m).catch(() => require("../src/server/components.js"));
 const AUTH = ["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"];
 console.log("Catalogue category audit");
 check("Every live Power consumer has one valid authoritative category", () => {
@@ -78,11 +78,11 @@ globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 globalThis.performance ??= { now: () => Date.now() };
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
-const { state } = await import("./public/src/state.js");
-const { defaultDesign, defaultWiring, normalizeWiring } = await import("./public/src/design/blueprintStorage.js");
-const history = await import("./public/src/design/blueprintEditHistory.js");
-const designer = await import("./public/src/ui/designerUi.js");
-const wiringUi = await import("./public/src/ui/wiringUi.js");
+const { state } = await import("../public/src/state.js");
+const { defaultDesign, defaultWiring, normalizeWiring } = await import("../public/src/design/blueprintStorage.js");
+const history = await import("../public/src/design/blueprintEditHistory.js");
+const designer = await import("../public/src/ui/designerUi.js");
+const wiringUi = await import("../public/src/ui/wiringUi.js");
 const { canonicalBlueprintEditSnapshot, clearBlueprintEditHistory, blueprintEditHistorySize } = history;
 const { applyPowerPolicyChange, undoBlueprintEdit, setBlueprintEditHistoryUiHooksForTests } = designer;
 const { refreshWiringPresentation, refreshPowerPriorityControls } = wiringUi;

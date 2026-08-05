@@ -1,9 +1,9 @@
 "use strict";
 
 const assert = require("assert");
-const Rules = require("./public/src/shared/dataSupportRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
+const Rules = require("../public/src/shared/dataSupportRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
 
 const moduleAt = (type, x = 0, y = 0) => ({ type, x, y, rotation: 0 });
 const network = (sources, weapons, id = "data-a", sections = ["0,0:1,0"]) => ({ id, label: "Data Network A", sourceIndices: sources, weaponIndices: weapons, sectionIds: sections });

@@ -21,18 +21,18 @@
 
 const assert = require("assert");
 
-const HeatRules = require("./public/src/shared/heatRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const DataRules = require("./public/src/shared/dataSupportRules");
-const EngineExhaust = require("./public/src/shared/engineExhaust");
-const PowerPolicyRules = require("./public/src/shared/powerPolicyRules");
-const PowerAllocationRules = require("./public/src/shared/powerAllocationRules");
-const PowerDemandRules = require("./public/src/shared/powerDemandRules");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const WiringInfra = require("./public/src/shared/wiringInfrastructureRules");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules");
-const TurretRules = require("./public/src/shared/turretRules");
-const PowerDiagnostics = require("./public/src/shared/powerDiagnostics");
+const HeatRules = require("../public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const DataRules = require("../public/src/shared/dataSupportRules");
+const EngineExhaust = require("../public/src/shared/engineExhaust");
+const PowerPolicyRules = require("../public/src/shared/powerPolicyRules");
+const PowerAllocationRules = require("../public/src/shared/powerAllocationRules");
+const PowerDemandRules = require("../public/src/shared/powerDemandRules");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const WiringInfra = require("../public/src/shared/wiringInfrastructureRules");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules");
+const TurretRules = require("../public/src/shared/turretRules");
+const PowerDiagnostics = require("../public/src/shared/powerDiagnostics");
 
 globalThis.HeatRules = HeatRules;
 globalThis.WiringRules = WiringRules;
@@ -58,11 +58,11 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
 const mwText = (value) => `${(Math.round(Number(value) * 10) / 10).toFixed(1)} MW`;
 
 (async () => {
-  const { computeStats } = await import("./public/src/design/componentStats.js");
-  const { PART_STATS, PART_DEFS } = await import("./public/src/design/parts.js");
-  const { WIRING_INFRASTRUCTURE } = await import("./public/src/constants.js");
-  const { solveBlueprintPower } = await import("./public/src/design/powerAllocationAnalysis.js");
-  const { buildShipSummaryModel, resolvePowerSummary } = await import("./public/src/design/shipSummaryModel.js");
+  const { computeStats } = await import("../public/src/design/componentStats.js");
+  const { PART_STATS, PART_DEFS } = await import("../public/src/design/parts.js");
+  const { WIRING_INFRASTRUCTURE } = await import("../public/src/constants.js");
+  const { solveBlueprintPower } = await import("../public/src/design/powerAllocationAnalysis.js");
+  const { buildShipSummaryModel, resolvePowerSummary } = await import("../public/src/design/shipSummaryModel.js");
 
   /** Draw one Heavy trunk through the listed cells (no bottleneck of its own). */
   function trunk(wiring, design, cells) {

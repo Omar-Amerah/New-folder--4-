@@ -1,8 +1,8 @@
 "use strict";
 const assert = require("assert");
-const { computeStats } = require("./src/server/shipStats");
-const health = require("./src/server/componentHealth");
-const heat = require("./src/server/heat");
+const { computeStats } = require("../src/server/shipStats");
+const health = require("../src/server/componentHealth");
+const heat = require("../src/server/heat");
 function shipFor(design){ const ship={ id:"c", design, x:0,y:0,angle:0,alive:true, shield:0 }; ship.stats={...computeStats(design)}; ship.maxShield=ship.stats.maxShield||0; health.initComponentState(ship); heat.initShipHeat(ship); ship.weaponCooldowns=design.map(()=>0); return ship; }
 const design=[{x:7,y:7,type:"core"},{x:6,y:7,type:"frame"},{x:5,y:7,type:"heatPipe"},{x:4,y:7,type:"radiator"},{x:8,y:7,type:"heatSink"},{x:7,y:6,type:"reactor"},{x:7,y:8,type:"engine"},{x:6,y:8,type:"blaster"}];
 const ship=shipFor(design);

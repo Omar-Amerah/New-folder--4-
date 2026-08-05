@@ -2,7 +2,7 @@ const assert = require('assert');
 global.document = { getElementById: () => ({ getContext: () => ({}) }), querySelector: () => null, createElement: () => ({ getContext: () => ({ setTransform(){}}) }) };
 global.window = {};
 (async () => {
-  const bake = await import('./public/src/game/pixi/pixiBake.js');
+  const bake = await import('../public/src/game/pixi/pixiBake.js');
   let destroyed=0, made=0; const cache=bake.createPixiTextureCache('test');
   const factory=()=>({id:++made,destroy(){destroyed+=1;}});
   const a=cache.acquire('design:red:r0:q0',factory); const b=cache.acquire('design:red:r0:q0',factory); assert.strictEqual(made,1);

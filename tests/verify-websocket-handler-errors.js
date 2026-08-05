@@ -1,8 +1,8 @@
 const assert = require('assert');
-const { encodeMessage } = require('./src/server/wsCodec');
-const transport = require('./src/server/websocketServer');
+const { encodeMessage } = require('../src/server/wsCodec');
+const transport = require('../src/server/websocketServer');
 function masked(payload) { const data=Buffer.isBuffer(payload)?payload:Buffer.from(payload||''); let head; if(data.length<126) head=Buffer.from([0x82,0x80|data.length]); else { head=Buffer.alloc(4); head[0]=0x82; head[1]=0x80|126; head.writeUInt16BE(data.length,2); } const mask=Buffer.from([1,2,3,4]); const out=Buffer.alloc(data.length); for(let i=0;i<data.length;i++) out[i]=data[i]^mask[i%4]; return Buffer.concat([head,mask,out]); }
-function fakeClient(){ const written=[]; return { id:'c-test', parser:new (require('./src/server/wsFrameParser').WebSocketFrameParser)(), state:'open', isClosed:false, room:{code:'ERR'}, socket:{ write(){}, end(){} }, heartbeat:{ lastInboundAt:0,lastPongAt:0 }, written }; }
+function fakeClient(){ const written=[]; return { id:'c-test', parser:new (require('../src/server/wsFrameParser').WebSocketFrameParser)(), state:'open', isClosed:false, room:{code:'ERR'}, socket:{ write(){}, end(){} }, heartbeat:{ lastInboundAt:0,lastPongAt:0 }, written }; }
 const sent=[];
 transport.configureTransport({ send:(c,m)=>sent.push(m), handleMessage:()=>{ throw new Error('controlled join failure'); } });
 const c=fakeClient();

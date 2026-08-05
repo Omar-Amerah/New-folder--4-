@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { createRoom } = require("./src/server/rooms");
+const { createRoom } = require("../src/server/rooms");
 const {
   computeTeamVisibility,
   ensureTeamVisibility,
@@ -11,14 +11,14 @@ const {
   isPointVisibleToTeam,
   DETECTION_LINGER_MS,
   REMEMBERED_CONTACT_MS
-} = require("./src/server/visibility");
+} = require("../src/server/visibility");
 const {
   filterSnapshotForPlayer,
   auditSnapshotForInformationLeaks
-} = require("./src/server/visibilitySnapshots");
-const { clearVisibilityForRoom } = require("./src/server/visibility");
-const { RoomSpatialIndex } = require("./src/server/spatialIndex");
-const { reconcileVisibilityRuntime } = require("./src/server/visibilityRuntime");
+} = require("../src/server/visibilitySnapshots");
+const { clearVisibilityForRoom } = require("../src/server/visibility");
+const { RoomSpatialIndex } = require("../src/server/spatialIndex");
+const { reconcileVisibilityRuntime } = require("../src/server/visibilityRuntime");
 const {
   initializeClient,
   recordProjectileSpawn,
@@ -29,7 +29,7 @@ const {
   getClientProjectileState,
   resetProjectileReplication,
   getTeamVisibleProjectiles
-} = require("./src/server/projectileReplication");
+} = require("../src/server/projectileReplication");
 
 function addPlayer(room, id, team) {
   const player = { id, team, name: id, connected: true };

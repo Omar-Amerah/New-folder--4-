@@ -2,8 +2,8 @@
 
 const assert = require("assert");
 const http = require("http");
-const { createGameServer } = require("./server");
-const { createRoom, rooms } = require("./src/server/rooms");
+const { createGameServer } = require("../server");
+const { createRoom, rooms } = require("../src/server/rooms");
 
 (async () => {
   const game = createGameServer({ port: 0, host: "127.0.0.1" });

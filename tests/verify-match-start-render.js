@@ -184,7 +184,7 @@ async function runDensity(browser, density) {
   return { density, room, frontendBuild, backendBuild, stats, diagnostics, consoleLines: consoleLines.slice(-20), failedRequests };
 }
 async function main() {
-  const server = spawn("node", ["server.js"], { cwd: __dirname, env: { ...process.env, PORT: String(PORT) }, stdio: ["ignore", "pipe", "pipe"] });
+  const server = spawn("node", ["server.js"], { cwd: path.dirname(__dirname), env: { ...process.env, PORT: String(PORT) }, stdio: ["ignore", "pipe", "pipe"] });
   let serverLog = ""; server.stdout.on("data", (d) => { serverLog += d; }); server.stderr.on("data", (d) => { serverLog += d; });
   let browser;
   try {

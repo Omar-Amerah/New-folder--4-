@@ -18,26 +18,26 @@ const {
   buildRelayStationDesign,
   buildRelayStationGeometry,
   inCorridorVoid
-} = require("./src/server/stationTemplates");
-const { PARTS } = require("./src/server/components");
-const { computeDesignCollisionRadius, computeDesignFootprintRadius } = require("./src/server/componentGeometry");
-const { computeStationShieldCollisionRadius, segmentStationHullHit, isSegmentStationClear, stationAttackPoint } = require("./src/server/stationCollision");
-const { stationBroadPhaseRadius } = require("./src/server/spatialIndex");
-const { createRoom } = require("./src/server/rooms");
+} = require("../src/server/stationTemplates");
+const { PARTS } = require("../src/server/components");
+const { computeDesignCollisionRadius, computeDesignFootprintRadius } = require("../src/server/componentGeometry");
+const { computeStationShieldCollisionRadius, segmentStationHullHit, isSegmentStationClear, stationAttackPoint } = require("../src/server/stationCollision");
+const { stationBroadPhaseRadius } = require("../src/server/spatialIndex");
+const { createRoom } = require("../src/server/rooms");
 const {
   createStationsForRoom,
   destroyStationsForRoom,
   enqueueStationProduction,
   resolveStationCollision
-} = require("./src/server/stations");
-const { pickWeaponFireTarget, targetCoreAimWorldPosition } = require("./src/server/combat");
-const { buildSharedSnapshot } = require("./src/server/snapshots");
-const { computeStats } = require("./src/server/shipStats");
-const { canonicalBlueprintSignature, getOrCreateTemplate } = require("./src/server/shipTemplates");
-const { planSpawnRegions } = require("./src/server/spawnPlanner");
-const { tickRoom } = require("./src/server/simulation");
-const { stopShips } = require("./src/server/movement");
-const { spawnShip } = require("./src/server/ships");
+} = require("../src/server/stations");
+const { pickWeaponFireTarget, targetCoreAimWorldPosition } = require("../src/server/combat");
+const { buildSharedSnapshot } = require("../src/server/snapshots");
+const { computeStats } = require("../src/server/shipStats");
+const { canonicalBlueprintSignature, getOrCreateTemplate } = require("../src/server/shipTemplates");
+const { planSpawnRegions } = require("../src/server/spawnPlanner");
+const { tickRoom } = require("../src/server/simulation");
+const { stopShips } = require("../src/server/movement");
+const { spawnShip } = require("../src/server/ships");
 
 function section(label) {
   console.log(`  ${label}`);

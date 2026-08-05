@@ -8,16 +8,16 @@
 // thrust that carries it further from where it was sent, and it still settles.
 
 const assert = require("node:assert/strict");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { alignmentThrottle, commandShips } = require("./src/server/movement");
-const { ARRIVE_DISTANCE, FULL_THRUST_HEADING_ERROR } = require("./src/server/movementTuning");
-const { angleDifference } = require("./src/server/utils");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { alignmentThrottle, commandShips } = require("../src/server/movement");
+const { ARRIVE_DISTANCE, FULL_THRUST_HEADING_ERROR } = require("../src/server/movementTuning");
+const { angleDifference } = require("../src/server/utils");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
 
 const DT = 1 / 30;
 const BASE = [

@@ -6,16 +6,16 @@
 // changes. Non-browser: shared UMD modules register the browser globals.
 
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const DataRules = require("./public/src/shared/dataSupportRules");
-const EngineExhaust = require("./public/src/shared/engineExhaust");
-const PowerPolicyRules = require("./public/src/shared/powerPolicyRules");
-const PowerAllocationRules = require("./public/src/shared/powerAllocationRules");
-const PowerDemandRules = require("./public/src/shared/powerDemandRules");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const WiringInfra = require("./public/src/shared/wiringInfrastructureRules");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules");
+const HeatRules = require("../public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const DataRules = require("../public/src/shared/dataSupportRules");
+const EngineExhaust = require("../public/src/shared/engineExhaust");
+const PowerPolicyRules = require("../public/src/shared/powerPolicyRules");
+const PowerAllocationRules = require("../public/src/shared/powerAllocationRules");
+const PowerDemandRules = require("../public/src/shared/powerDemandRules");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const WiringInfra = require("../public/src/shared/wiringInfrastructureRules");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules");
 
 globalThis.HeatRules = HeatRules;
 globalThis.WiringRules = WiringRules;
@@ -37,10 +37,10 @@ const close = (a, b, msg, eps = 1e-6) => assert(Math.abs(a - b) <= eps, `${msg}:
 const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
 
 (async () => {
-  const TA = await import("./public/src/design/thermalAnalysis.js");
+  const TA = await import("../public/src/design/thermalAnalysis.js");
   const { analyzeDesignHeat, buildThermalModel, buildThermalLoad, simulateThermalLoad, summariseThermalResult } = TA;
-  const { PART_STATS } = await import("./public/src/design/parts.js");
-  const { WIRING_INFRASTRUCTURE, POWER_DEMAND } = await import("./public/src/constants.js");
+  const { PART_STATS } = await import("../public/src/design/parts.js");
+  const { WIRING_INFRASTRUCTURE, POWER_DEMAND } = await import("../public/src/constants.js");
   const INFRA = WIRING_INFRASTRUCTURE;
 
   function wire(design, routes, policy) {

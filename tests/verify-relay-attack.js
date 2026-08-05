@@ -1,13 +1,13 @@
 "use strict";
 
 const assert = require("assert");
-const { commandShips, createMovementIntent, updateShipMovement } = require("./src/server/movement");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { getVisibilityState } = require("./src/server/visibility");
+const { commandShips, createMovementIntent, updateShipMovement } = require("../src/server/movement");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { getVisibilityState } = require("../src/server/visibility");
 
 const DESIGN = [
   { x: 7, y: 7, type: "core" },

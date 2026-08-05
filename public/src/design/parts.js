@@ -14,7 +14,18 @@ export const PART_DEFS = {
   wingFrame: { name: "Wing Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
   wingArmor: { name: "Wing Armor", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
   wingCompositeArmor: { name: "Wing Composite Armor", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
+  ablativeArmor: { name: "Ablative Plating", color: "#ff8c69", glyph: "linear-gradient(160deg, #ffb89a, #c45c3e)" },
+  bevelArmor: { name: "Bevel Armour", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
+  bevelCompositeArmor: { name: "Bevel Composite Armour", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
+  bevelFrame: { name: "Bevel Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
+  roundedArmor: { name: "Rounded Armour", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
+  roundedCompositeArmor: { name: "Rounded Composite Armour", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
+  roundedFrame: { name: "Rounded Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
+  longWedgeArmor: { name: "Long Wedge Armour", color: "#ff9a62", glyph: "linear-gradient(160deg, #ffbd79, #bb4d36)" },
+  longWedgeCompositeArmor: { name: "Long Wedge Composite Armour", color: "#d7a56a", glyph: "linear-gradient(160deg, #ffe1a3, #8f5b32)" },
+  longWedgeFrame: { name: "Long Wedge Frame", color: "#8393aa", glyph: "linear-gradient(135deg, #5f6e83 0 35%, #b6c1d2 36% 48%, #5f6e83 49%)" },
   engine: { name: "Engine", color: "#54d7ff", glyph: "linear-gradient(180deg, #68efff, #225ed8 52%, #111827)" },
+  compactEngine: { name: "Compact Engine", color: "#38bdf8", glyph: "linear-gradient(180deg, #a5f3fc, #0ea5e9 52%, #082f49)" },
   reactor: { name: "Reactor", color: "#ffdc5e", glyph: "radial-gradient(circle, #fff7b3 0 20%, #f4c145 26% 55%, #6b4b12 60%)" },
   nuclearReactor: { name: "Nuclear Reactor", color: "#facc15", glyph: "radial-gradient(circle, #fffde7 0 12%, #fde047 14% 30%, #f97316 34% 48%, #7c2d12 54%)" },
   backupCore: { name: "Backup Command Core", color: "#c4b5fd", glyph: "radial-gradient(circle, #f5f3ff 0 18%, #8b5cf6 22% 48%, #312e81 54%)" },
@@ -54,12 +65,14 @@ export const PART_DEFS = {
   lightRailgun: { name: "Light Railgun", color: "#e2e8f0", glyph: "linear-gradient(90deg, #0f172a 0 16%, #e2e8f0 18% 72%, #60a5fa 74%)" },
   heavyRailgun: { name: "Heavy Railgun", color: "#f8fafc", glyph: "linear-gradient(90deg, #020617 0 14%, #f8fafc 16% 70%, #3b82f6 74%)" },
   beamEmitter: { name: "Beam Emitter", color: "#bae6fd", glyph: "linear-gradient(90deg, #082f49 0 18%, #7dd3fc 20% 76%, #eff6ff 78%)" },
+  thermalInductionLance: { name: "Thermal Induction Lance", color: "#d8b4fe", glyph: "linear-gradient(90deg, #2e1065 0 18%, #a855f7 20% 58%, #f3e8ff 60% 78%, #7c3aed 80%)" },
   aegisProjector: { name: "Aegis Projector", color: "#6ee7b7", glyph: "radial-gradient(circle, #ecfdf5 0 18%, #34d399 30% 56%, #064e3b 64%)" },
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
   heatPipe: { name: "Heat Pipe", color: "#38bdf8", glyph: "linear-gradient(90deg, #082f49 0 18%, #38bdf8 20% 36%, #e0f2fe 38% 50%, #38bdf8 52% 68%, #082f49 70%)" },
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
   radiator: { name: "Radiator", color: "#7dd3fc", glyph: "repeating-linear-gradient(90deg, #0c4a6e 0 12%, #bae6fd 13% 22%)" },
+  closedCycleCooler: { name: "Closed-Cycle Cooler", color: "#22d3ee", glyph: "radial-gradient(circle, #cffafe 0 20%, #22d3ee 25% 55%, #0c4a6e 60%)" },
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
@@ -88,16 +101,26 @@ const MARKERLESS_ROTATABLE_PARTS = new Set([
   "halfCompositeArmorDiagonal",
   "wingFrame",
   "wingArmor",
-  "wingCompositeArmor"
+  "wingCompositeArmor",
+  "bevelArmor",
+  "bevelCompositeArmor",
+  "bevelFrame",
+  "roundedArmor",
+  "roundedCompositeArmor",
+  "roundedFrame",
+  "longWedgeArmor",
+  "longWedgeCompositeArmor",
+  "longWedgeFrame"
 ]);
 
-const FIXED_ORIENTATION_PARTS = new Set(["engine", "maneuverThruster", "droneBay"]);
+const FIXED_ORIENTATION_PARTS = new Set(["engine", "compactEngine", "maneuverThruster", "droneBay"]);
 
 export const PART_DESCRIPTIONS = Object.freeze({
   core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
   frame: "Cheap structure used to expand the ship shape and connect other modules.",
   armor: "Heavy passive protection. Adds strong hull but increases mass and slows turning.",
   engine: "Main propulsion module. Adds thrust for speed and acceleration.",
+  compactEngine: "Compact one-cell main engine for small hulls and distributed propulsion. Easier to place and protect separately, but less efficient than the standard Engine in thrust, Power, mass and cost.",
   reactor: "Primary power source for weapons, shields, engines, and support systems. Generates heat with load and melts down (explodes) if kept overheated.",
   nuclearReactor: "Six-tile capital reactor with enormous Power output and extreme Heat generation. It needs a dedicated Heat network and can melt down if left overheated.",
   backupCore: "Secondary command centre that automatically takes over if the main Core is destroyed. Requires Power and runs the ship at reduced effectiveness.",
@@ -121,6 +144,7 @@ export const PART_DESCRIPTIONS = Object.freeze({
   torpedo: "Slow heavy missile with major burst damage against large ships.",
   swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
   beamEmitter: "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.",
+  thermalInductionLance: "Zero-damage induction beam that bypasses armour and couples Heat into one internal subsystem. Sustained contact increases Heat transfer, while active shields reduce its efficiency.",
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
@@ -197,7 +221,7 @@ export function partCategory(type) {
   if (stat.category) return stat.category === "Utility" ? "Support" : stat.category;
   if (type === "frame" || type === "armor") return "Structure";
   if (type === "reactor" || type === "battery") return "Power";
-  if (type === "engine") return "Engines";
+  if (stat.category === "Engines") return "Engines";
   if (type === "shield") return "Defence";
   if (stat.weapon) return "Weapons";
   if (type === "repair") return "Support";
@@ -261,7 +285,17 @@ export function makeWeapon(type, stats) {
     burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined,
     chargeRampSeconds: stats.chargeRampSeconds !== undefined ? Number(stats.chargeRampSeconds) : undefined,
     maxChargeDamageBonus: stats.maxChargeDamageBonus !== undefined ? Number(stats.maxChargeDamageBonus) : undefined,
-    impactHeatPerDamage: stats.impactHeatPerDamage !== undefined ? Number(stats.impactHeatPerDamage) : undefined
+    impactHeatPerDamage: stats.impactHeatPerDamage !== undefined ? Number(stats.impactHeatPerDamage) : undefined,
+    inductionHeatBasePerSecond: stats.inductionHeatBasePerSecond !== undefined ? Number(stats.inductionHeatBasePerSecond) : undefined,
+    inductionHeatMaxPerSecond: stats.inductionHeatMaxPerSecond !== undefined ? Number(stats.inductionHeatMaxPerSecond) : undefined,
+    inductionRampSeconds: stats.inductionRampSeconds !== undefined ? Number(stats.inductionRampSeconds) : undefined,
+    inductionShieldMultiplier: stats.inductionShieldMultiplier !== undefined ? Number(stats.inductionShieldMultiplier) : undefined,
+    inductionDirectFraction: stats.inductionDirectFraction !== undefined ? Number(stats.inductionDirectFraction) : undefined,
+    inductionAdjacentFraction: stats.inductionAdjacentFraction !== undefined ? Number(stats.inductionAdjacentFraction) : undefined,
+    inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
+    inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
+    inductionSelfHeatMaxMultiplier: stats.inductionSelfHeatMaxMultiplier !== undefined ? Number(stats.inductionSelfHeatMaxMultiplier) : undefined,
+    beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined
   };
 }
 
@@ -335,6 +369,8 @@ export function normalizeRuntimePart(part = {}) {
     ecmStrength: numberOr(part.ecmStrength, 0),
     frontDamageReduction: numberOr(part.frontDamageReduction, 0),
     frontArc: numberOr(part.frontArc, 0),
+    shapeType: typeof part.shapeType === "string" ? part.shapeType : null,
+    statScale: numberOr(part.statScale, 1),
     footprint: part.footprint ? { width: numberOr(part.footprint.width, 1), height: numberOr(part.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (weapon) normalized[weapon.type] = 1;
@@ -393,6 +429,11 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     // mitigation and per-ship placement limits from the authoritative balance
     // file instead of restating those constants in UI code.
     armorFlatReduction: numberOr(component.armorFlatReduction, 0),
+    heatCapacity: component.heatCapacity !== undefined ? numberOr(component.heatCapacity, 0) : undefined,
+    heatCooling: component.heatCooling !== undefined ? numberOr(component.heatCooling, 0) : undefined,
+    heatPassiveCooling: component.heatPassiveCooling !== undefined ? numberOr(component.heatPassiveCooling, 0) : undefined,
+    heatConductivity: component.heatConductivity !== undefined ? numberOr(component.heatConductivity, 0) : undefined,
+    heatRetention: component.heatRetention !== undefined ? numberOr(component.heatRetention, 0) : undefined,
     decoyConfig: component.decoy && typeof component.decoy === "object" ? { ...component.decoy } : null,
     propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object" ? Object.freeze({
       capacity: numberOr(component.propulsionCapacitor.capacity, 100),
@@ -406,6 +447,8 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
     meltdownDamage: Number.isFinite(Number(component.meltdownDamage)) ? Number(component.meltdownDamage) : null,
     meltdownRadius: Number.isFinite(Number(component.meltdownRadius)) ? Number(component.meltdownRadius) : null,
+    shapeType: typeof component.shapeType === "string" ? component.shapeType : null,
+    statScale: numberOr(component.statScale, 1),
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {

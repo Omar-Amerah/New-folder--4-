@@ -1,15 +1,15 @@
 "use strict";
 
 const assert = require("assert");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { calculateDirectionalTurnInputs, calculateMovementStats } = require("./public/src/shared/movementStats.js");
-const { PARTS } = require("./src/server/components");
-const { updateShipMovement } = require("./src/server/movement");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { calculateDirectionalTurnInputs, calculateMovementStats } = require("../public/src/shared/movementStats.js");
+const { PARTS } = require("../src/server/components");
+const { updateShipMovement } = require("../src/server/movement");
 const {
   createMovementRuntime,
   setMovementCommand,
   syncMovementTarget
-} = require("./src/server/movementRuntime");
+} = require("../src/server/movementRuntime");
 
 // Powered speed is not a momentum eraser: an engine-less ship keeps drifting,
 // while the ordinary damping remains authoritative and prevents perpetual motion.

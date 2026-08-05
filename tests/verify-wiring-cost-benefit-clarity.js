@@ -11,13 +11,13 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const clarity = require("./public/src/shared/wiringClarityRules.js");
-const { BALANCE } = require("./src/server/balanceConfig");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules.js");
-const { PARTS } = require("./src/server/components");
-const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
+const clarity = require("../public/src/shared/wiringClarityRules.js");
+const { BALANCE } = require("../src/server/balanceConfig");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules.js");
+const { PARTS } = require("../src/server/components");
+const { createShipBlueprintSnapshot } = require("../src/server/shipDesign");
 
 const infra = BALANCE.wiringInfrastructure;
 let count = 0;
@@ -40,7 +40,7 @@ const UI_FILES = [
   "public/src/ui/wiringUi.js",
   "public/src/shared/wiringClarityRules.js"
 ];
-function readFile(rel) { return fs.readFileSync(path.join(__dirname, rel), "utf8"); }
+function readFile(rel) { return fs.readFileSync(path.join(path.dirname(__dirname), rel), "utf8"); }
 
 // ---- 1. tier cards read authoritative values ----
 check("tier cards read authoritative balance values", () => {
@@ -257,7 +257,7 @@ check("infrastructure summary separates Power and Data and uses total ship cost"
 // ---- 16. 5-10% guidance is advisory ----
 check("5-10% infrastructure guidance is advisory, not validation", () => {
   const src = readFile("public/src/ui/wiringUi.js");
-  const designerSrc = fs.readFileSync(path.join(__dirname, "public/src/ui/designerUi.js"), "utf8");
+  const designerSrc = fs.readFileSync(path.join(path.dirname(__dirname), "public/src/ui/designerUi.js"), "utf8");
   assert(/around 5–10%/.test(src) || /around 5-10%/.test(src), "wiring panel shows advisory range");
   assert(/around 5–10%/.test(designerSrc) || /around 5-10%/.test(designerSrc), "cost summary shows advisory range");
   // Guidance never gates a build: no 'invalid'/'blocked' language tied to the range.

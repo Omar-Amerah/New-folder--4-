@@ -5,21 +5,21 @@
 
 const assert = require("node:assert/strict");
 const fs = require("fs");
-const { movementTestTick } = require("./tools/movementTestTick");
+const { movementTestTick } = require("../tools/movementTestTick");
 const {
   commandShips,
   maxFriendlyCorrectionPerTick,
   physicalCollisionRadius,
   resolveMapCollision,
   resolveSeparationPair
-} = require("./src/server/movement");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius, findShipHullOverlap } = require("./src/server/componentGeometry");
-const { getMaxEffectiveWeaponRange } = require("./src/server/componentData");
+} = require("../src/server/movement");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius, findShipHullOverlap } = require("../src/server/componentGeometry");
+const { getMaxEffectiveWeaponRange } = require("../src/server/componentData");
 
 const DT = 1 / 30;
 const BASE = [

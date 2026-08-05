@@ -3,10 +3,10 @@
 // Performance test for ship purchase optimizations
 // Simulates a 12-player active match scenario measuring detailed performance metrics
 
-const { getOrCreateTemplate, clearTemplateCache } = require("./src/server/shipTemplates");
-const { executePurchase } = require("./src/server/economy");
-const { computeStats } = require("./src/server/shipStats");
-const { performanceSnapshot } = require("./src/server/performanceTelemetry");
+const { getOrCreateTemplate, clearTemplateCache } = require("../src/server/shipTemplates");
+const { executePurchase } = require("../src/server/economy");
+const { computeStats } = require("../src/server/shipStats");
+const { performanceSnapshot } = require("../src/server/performanceTelemetry");
 
 function createTestRoom() {
   return {

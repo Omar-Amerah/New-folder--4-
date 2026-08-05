@@ -3,7 +3,7 @@
 // player's ships immediately — they are kept for a reconnect grace period and
 // only removed on a deliberate leave or when the grace elapses.
 const assert = require("assert");
-const { leaveRoom } = require("./src/server/players");
+const { leaveRoom } = require("../src/server/players");
 
 function makeContext() {
   const ship = { id: "s1", ownerId: "p1", alive: true, removed: false, manualRotation: 1 };

@@ -8,9 +8,9 @@
 // browser globals the model reads.
 
 const assert = require("assert");
-require('./public/src/shared/featureFlags.js');
-const HeatRules = require("./public/src/shared/heatRules");
-const TurretRules = require("./public/src/shared/turretRules");
+require('../public/src/shared/featureFlags.js');
+const HeatRules = require("../public/src/shared/heatRules");
+const TurretRules = require("../public/src/shared/turretRules");
 
 globalThis.HeatRules = HeatRules;
 globalThis.TurretRules = TurretRules;
@@ -22,8 +22,8 @@ let passed = 0;
 function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
 
 (async () => {
-  const { PART_STATS, PART_DEFS, partCategory, partDescription } = await import("./public/src/design/parts.js");
-  const Model = await import("./public/src/design/componentInspectorModel.js");
+  const { PART_STATS, PART_DEFS, partCategory, partDescription } = await import("../public/src/design/parts.js");
+  const Model = await import("../public/src/design/componentInspectorModel.js");
   const { buildComponentInspectorModel, statRow, StatLedger, categoryBadge, componentFamily, isMeaningfulValue } = Model;
 
   const build = (type, context = {}) => {

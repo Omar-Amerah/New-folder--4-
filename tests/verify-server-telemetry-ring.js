@@ -6,7 +6,7 @@ const {
   SUBSYSTEM_NAMES,
   recordRoomTick,
   performanceSnapshot
-} = require("./src/server/performanceTelemetry");
+} = require("../src/server/performanceTelemetry");
 
 for (let sample = 0; sample < 3000; sample += 1) {
   const durations = {};

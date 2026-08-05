@@ -7,9 +7,9 @@
 const assert = require("assert");
 const { EventEmitter } = require("events");
 const { decode } = require("@msgpack/msgpack");
-const delivery = require("./src/server/snapshotDelivery");
-const outbound = require("./src/server/outbound");
-const { protocolInfo, negotiate } = require("./src/server/protocol");
+const delivery = require("../src/server/snapshotDelivery");
+const outbound = require("../src/server/outbound");
+const { protocolInfo, negotiate } = require("../src/server/protocol");
 
 class Socket extends EventEmitter {
   constructor() {
@@ -97,7 +97,7 @@ function lastPacket(client) {
 }
 
 async function mergePackets(packets) {
-  const merge = await import("./public/src/snapshotMerge.js");
+  const merge = await import("../public/src/snapshotMerge.js");
   let snapshot = null;
   let networkState = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
   for (const packet of packets) {
@@ -310,7 +310,7 @@ async function run() {
     delivery.broadcastSnapshot(room, 1050);
     // In solo/team policy this fixture keeps both ships allied only when the
     // viewer is changed; exercise the merge authority directly as well.
-    const merge = await import("./public/src/snapshotMerge.js");
+    const merge = await import("../public/src/snapshotMerge.js");
     const fullState = packetList(client)[0];
     const publicUpsert = { id: "s1", detail: "public", x: 1, y: 1 };
     const base = merge.mergeSnapshotTransaction(null, { stateEpoch: 0, snapshotSeq: 0, hasFullBaseline: false }, { ...fullState, ships: [{ ...fullState.ships[0], componentPower: { secret: true }, chp: [1], detail: "full" }] });
@@ -327,7 +327,7 @@ async function run() {
   {
     const { room, ships } = roomFixture({ ships: 2 });
     const client = attach(room, "p1", modernCapabilities());
-    const merge = await import("./public/src/snapshotMerge.js");
+    const merge = await import("../public/src/snapshotMerge.js");
     delivery.sendFullSnapshot(client, 1000, "reconnect");
     const baseline = lastPacket(client);
     const baselineResult = merge.mergeSnapshotTransaction(

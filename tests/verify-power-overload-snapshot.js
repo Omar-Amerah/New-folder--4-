@@ -6,10 +6,10 @@
 // delta preservation, reset-on-replacement and numeric hygiene (no NaN/Infinity/-0).
 
 const assert = require("assert");
-const { snapshotRoom } = require("./src/server/snapshots");
-const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
-const { initializeComponentPower, powerProtectionConfig } = require("./src/server/componentPower");
-const { updateShipPowerProtection } = require("./src/server/powerProtection");
+const { snapshotRoom } = require("../src/server/snapshots");
+const { createShipBlueprintSnapshot } = require("../src/server/shipDesign");
+const { initializeComponentPower, powerProtectionConfig } = require("../src/server/componentPower");
+const { updateShipPowerProtection } = require("../src/server/powerProtection");
 
 function finite(value) {
   if (typeof value === "number") assert(Number.isFinite(value) && !Object.is(value, -0), `non-finite or -0: ${value}`);
@@ -46,7 +46,7 @@ function makeShip() {
 }
 
 (async () => {
-  const { mergeCachedShipFields } = await import("./public/src/snapshotMerge.js");
+  const { mergeCachedShipFields } = await import("../public/src/snapshotMerge.js");
   const ship = makeShip();
   const player = { id: "p", name: "P", color: "#fff", team: "blue", ships: [ship], selectedShipIds: new Set(), stats: {}, money: 0, rallyPoint: { x: 0, y: 0 } };
   const room = { code: "R", phase: "active", adminId: "p", stateEpoch: 1, snapshotSeq: 1, staticRevision: 1, mapSizeLabel: "tiny", world: { width: 100, height: 100 }, map: { asteroids: [] }, rules: { gameMode: "control" }, players: new Map([["p", player]]), ships: new Map([["s", ship]]), bullets: [], points: [], effects: [], winner: null, matchStartedAt: 1, controlVictory: null };

@@ -14,7 +14,7 @@ const {
   buildSharedSnapshot,
   collectSnapshotVisibleShipIds,
   markSnapshotVisibilityWritten
-} = require("./src/server/snapshots");
+} = require("../src/server/snapshots");
 
 const PRIVATE_FIELDS = [
   "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
@@ -147,7 +147,7 @@ function shipEntry(snapshot, id) {
 // 6. The client merge cannot restore private fields from an earlier cached
 //    full-detail snapshot when the ship later arrives as public.
 (async function mergeCannotRestorePrivate() {
-  const merge = await import("./public/src/snapshotMerge.js");
+  const merge = await import("../public/src/snapshotMerge.js");
   // Previous (cached) snapshot: ship had full private detail.
   const previous = {
     ships: [{

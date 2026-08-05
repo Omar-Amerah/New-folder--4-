@@ -4,12 +4,12 @@
 const assert = require("assert");
 const path = require("path");
 const fs = require("fs");
-const { PARTS } = require("./src/server/components");
-const TurretRules = require("./public/src/shared/turretRules");
-const { updateBullets } = require("./src/server/projectiles");
-const { findPointDefenseTarget } = require("./src/server/combat");
-const { initComponentState } = require("./src/server/componentHealth");
-const publicBalance = JSON.parse(fs.readFileSync(path.join(__dirname, "public", "component-balance.generated.json"), "utf8"));
+const { PARTS } = require("../src/server/components");
+const TurretRules = require("../public/src/shared/turretRules");
+const { updateBullets } = require("../src/server/projectiles");
+const { findPointDefenseTarget } = require("../src/server/combat");
+const { initComponentState } = require("../src/server/componentHealth");
+const publicBalance = JSON.parse(fs.readFileSync(path.join(path.dirname(__dirname), "public", "component-balance.generated.json"), "utf8"));
 
 const SCALE = 13;
 
@@ -91,7 +91,7 @@ function runUpdate(room, dt = 1 / 30, now = 0) {
   assert.strictEqual(flak.weapon.targetPriority[0], "missile", "flakCannon must prioritise missiles");
   assert.strictEqual(PARTS.pointDefense.weapon.type, "pointDefense", "Point Defence must keep its own family");
 
-  const balanceJson = JSON.parse(fs.readFileSync(path.join(__dirname, "component-balance.json"), "utf8"));
+  const balanceJson = JSON.parse(fs.readFileSync(path.join(path.dirname(__dirname), "component-balance.json"), "utf8"));
   const balanceFlak = balanceJson.components.find((c) => c.id === "flakCannon");
   assert(balanceFlak, "component-balance.json must contain flakCannon");
   assert.strictEqual(balanceFlak.weapon.family, "flak", "balance flak family must be flak");

@@ -263,6 +263,7 @@ function invalidateHeatRuntime(ship, flags = {}) {
   if (indices) for (const index of indices) addLifecycleComponent(runtime, index);
   if (flags.exposure) for (const index of runtime.topology.radiatorIndices) addLifecycleComponent(runtime, index);
   if (flags.thermalRoutes) for (const index of runtime.topology.thermalRouteIndices) addLifecycleComponent(runtime, index);
+  if (flags.activeCoolers) for (const index of runtime.topology.closedCycleCoolerIndices) addLifecycleComponent(runtime, index);
   if (flags.thermalCapacity && !indices) for (const index of runtime.topology.heatSinkIndices) addLifecycleComponent(runtime, index);
 }
 
@@ -596,16 +597,17 @@ function rebuildThermalNetworks(ship) {
     const generators = [...attached].filter(i => HeatRules.activityHeat(design[i].type, PARTS[design[i].type] || {}) > 0);
     const sinks = [...attached].filter(i => design[i].type === "heatSink");
     const radiators = [...attached].filter(i => design[i].type === "radiator");
+    const closedCycleCoolers = [...attached].filter(i => design[i].type === "closedCycleCooler");
     const heatPipeIndices = frames.filter(i => design[i].type === "heatPipe");
     const frameOnlyIndices = frames.filter(i => design[i].type !== "heatPipe");
     const id = networks.length;
     for (const index of members) ship.componentThermalNetworks[index].push(id);
     const connectedFrameCells = frames.map(index => ({ index, x: design[index].x, y: design[index].y }));
-    networks.push({ id, frameIndices: frames, heatPipeIndices, frameOnlyIndices, connectedFrameCells, attachedComponents: [...attached], generators, sinks, radiators, totalStoredHeat: 0, totalStorageCapacity: 0, totalCoolingCapacity: 0, overloaded: false });
+    networks.push({ id, frameIndices: frames, heatPipeIndices, frameOnlyIndices, connectedFrameCells, attachedComponents: [...attached], generators, sinks, radiators, closedCycleCoolers, totalStoredHeat: 0, totalStorageCapacity: 0, totalCoolingCapacity: 0, totalCooling: 0, overloaded: false });
 
     // Cached distance-to-cooling field: used only as a mild conductivity boost,
     // never as an instant/global heat drain.
-    const coolers = new Set([...sinks, ...radiators]);
+    const coolers = new Set([...sinks, ...radiators, ...closedCycleCoolers]);
     const distanceQueue = [];
     for (const frame of frames) {
       const touchesCooling = topologyNeighbourIndices(topology, frame).some((neighbour) => coolers.has(neighbour));
@@ -811,9 +813,11 @@ function updateHeatNetworkDiagnostics(ship, elapsed) {
     for (const index of network.radiators) {
       totalCoolingCapacity += ship.componentThermals[index].cooling * (ship.componentThermals[index].exposedEdges ? 1 : 0.25);
     }
+    for (const index of network.closedCycleCoolers || []) totalCoolingCapacity += ship.componentThermals[index].cooling;
     let totalCooling = 0;
     for (const index of network.radiators) totalCooling += ship.componentHeatRadiated[index];
     for (const index of network.sinks) totalCooling += ship.componentHeatCooled[index];
+    for (const index of network.closedCycleCoolers || []) totalCooling += ship.componentHeatCooled[index] || 0;
     let heatPipeTransfer = 0;
     for (const index of network.heatPipeIndices || []) heatPipeTransfer += ship.componentHeatTransferredOut[index] || 0;
     let generation = 0;
@@ -1061,6 +1065,11 @@ function updateShipHeatCore(ship, dt, room, now) {
       const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) * power : 0;
       const passiveFloor = thermal.cooling * RADIATOR_PASSIVE_COOLING_FRACTION;
       coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention * heatDissipationMult;
+    } else if (ship.design[index].type === "closedCycleCooler") {
+      const power = getComponentPowerMultiplier(ship, index);
+      const active = thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) * power;
+      const passiveFloor = thermal.passiveCooling;
+      coolingRate = Math.max(passiveFloor, active) * thermal.retention * heatDissipationMult;
     } else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
     const ratio = Math.max(0, (heat[index] + runtime.delta[index]) / Math.max(1, thermal.capacity));
     const tempFactor = 0.7 + 0.9 * ratio * ratio;
@@ -1239,6 +1248,7 @@ function buildHeatDebug(ship) {
       cooledPerSecond: (ship.componentHeatCooled?.[index] || 0) / dt,
       sentThroughFramePerSecond: (ship.componentHeatSentThroughFrame?.[index] || 0) / dt,
       removedByRadiatorPerSecond: (ship.componentHeatRadiated?.[index] || 0) / dt,
+      removedByClosedCycleCoolerPerSecond: module.type === "closedCycleCooler" ? (ship.componentHeatCooled?.[index] || 0) / dt : 0,
       ventedOverflowHeatPerSecond: (ship.componentVentedOverflowHeatThisTick?.[index] || 0) / dt,
       totalVentedOverflowHeat: ship.componentTotalVentedOverflowHeat?.[index] || 0,
       thermalNetworkIds: (ship.componentThermalNetworks?.[index] || []).slice(),
@@ -1253,10 +1263,12 @@ function buildHeatDebug(ship) {
       attachedComponents: network.attachedComponents.slice(),
       sinkIndices: network.sinks.slice(),
       radiatorIndices: network.radiators.slice(),
+      closedCycleCoolerIndices: (network.closedCycleCoolers || []).slice(),
       totalHeat: network.totalStoredHeat,
       totalStorageCapacity: network.totalStorageCapacity,
       totalCoolingCapacity: network.totalCoolingCapacity,
       totalCoolingPerSecond: (network.totalCooling || 0) / dt,
+      removedByClosedCycleCoolerPerSecond: (network.closedCycleCoolers || []).reduce((sum, i) => sum + (ship.componentHeatCooled?.[i] || 0), 0) / dt,
       heatPipeTransferPerSecond: network.heatPipeTransferPerSecond || 0,
       attachedRadiators: network.radiators.slice(),
       attachedHeatSources: network.generators.slice(),

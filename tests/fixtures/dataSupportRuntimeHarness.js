@@ -1,11 +1,11 @@
 "use strict";
 
-const { PARTS } = require("../src/server/components");
-const { initComponentState, detonateComponent, repairShipComponents } = require("../src/server/componentHealth");
-const Power = require("../src/server/componentPower");
-const Data = require("../src/server/componentData");
-const Heat = require("../src/server/heat");
-const DataRules = require("../public/src/shared/dataSupportRules");
+const { PARTS } = require("../../src/server/components");
+const { initComponentState, detonateComponent, repairShipComponents } = require("../../src/server/componentHealth");
+const Power = require("../../src/server/componentPower");
+const Data = require("../../src/server/componentData");
+const Heat = require("../../src/server/heat");
+const DataRules = require("../../public/src/shared/dataSupportRules");
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 

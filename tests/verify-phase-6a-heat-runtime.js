@@ -1,19 +1,19 @@
 "use strict";
 
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { PARTS } = require("./src/server/components");
-const { getOccupiedCells } = require("./src/server/footprint");
-const { computeStats } = require("./src/server/shipStats");
-const { applyHullDamage, componentsAlongImpactRay, detonateComponent, initComponentState, repairShipComponents } = require("./src/server/componentHealth");
-const { initializeComponentPower, reallocateShipPower } = require("./src/server/componentPower");
-const Heat = require("./src/server/heat");
-const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
-const { spawnShip } = require("./src/server/ships");
-const MovementCapability = require("./src/server/movementCapability");
-const Combat = require("./src/server/combat");
-const Drones = require("./src/server/drones");
+const HeatRules = require("../public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { PARTS } = require("../src/server/components");
+const { getOccupiedCells } = require("../src/server/footprint");
+const { computeStats } = require("../src/server/shipStats");
+const { applyHullDamage, componentsAlongImpactRay, detonateComponent, initComponentState, repairShipComponents } = require("../src/server/componentHealth");
+const { initializeComponentPower, reallocateShipPower } = require("../src/server/componentPower");
+const Heat = require("../src/server/heat");
+const { createImmutableShipTemplate } = require("../src/server/shipTemplates");
+const { spawnShip } = require("../src/server/ships");
+const MovementCapability = require("../src/server/movementCapability");
+const Combat = require("../src/server/combat");
+const Drones = require("../src/server/drones");
 
 const EPSILON = 1e-8;
 const m = (type, x, y, rotation = 0) => ({ type, x, y, rotation });

@@ -8,7 +8,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const root = __dirname;
+const root = path.dirname(__dirname);
 const files = [
   "src/server/stationTemplates.js",
   "src/server/stations.js",
@@ -24,7 +24,7 @@ const files = [
   "public/src/snapshotMerge.js",
   "public/src/snapshotPresentation.js",
   "public/src/shared/snapshotEntityDelta.js",
-  "benchmark-phase-6f.js"
+  "benchmarks/benchmark-phase-6f.js"
 ];
 
 const forbidden = [
@@ -49,7 +49,7 @@ function run() {
 
   const renderer = fs.readFileSync(path.join(root, "public/src/game/pixi/pixiStations.js"), "utf8");
   assert(renderer.includes("station.stationType === \"home\" ? 56"), "home renderer fallback is the historical scale 56");
-  const templates = require("./src/server/stationTemplates");
+  const templates = require("../src/server/stationTemplates");
   const geometry = templates.buildHomeStationGeometry();
   assert.strictEqual(templates.STATION_MODULE_SCALE, 56, "home template scale is 56");
   assert.strictEqual(geometry.shell.maxX - geometry.shell.minX, 840, "home shell is 840 units wide");

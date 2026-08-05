@@ -5,15 +5,15 @@
 // after every authoritative update boundary.
 
 const assert = require("assert");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, bumpComponentAliveRevision, markComponentDamageChanged } = require("./src/server/componentHealth");
-const { reallocateShipPower } = require("./src/server/componentPower");
-const HeatRules = require("./public/src/shared/heatRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const { RoomSpatialIndex, buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
-const { invalidateRelationshipCache } = require("./src/server/relationships");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, bumpComponentAliveRevision, markComponentDamageChanged } = require("../src/server/componentHealth");
+const { reallocateShipPower } = require("../src/server/componentPower");
+const HeatRules = require("../public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const { RoomSpatialIndex, buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { resetRoomTelemetry, getRoomTelemetry } = require("../src/server/roomTelemetry");
+const { invalidateRelationshipCache } = require("../src/server/relationships");
 const {
   updateCommandAuras,
   clearCommandAuras,
@@ -23,13 +23,13 @@ const {
   invalidateCommandAuraSource,
   invalidateCommandAuraRecipient,
   invalidateCommandAuraAllegiance
-} = require("./src/server/commandAuras");
+} = require("../src/server/commandAuras");
 const {
   assertCommandAuraConsistency
-} = require("./src/server/commandAuraRuntime");
-const { getAuraComponentIndices } = require("./src/server/commandAuraRules");
-const { tickRoom } = require("./src/server/simulation");
-const { createMovementRuntime, setMovementCommand } = require("./src/server/movementRuntimeV2");
+} = require("../src/server/commandAuraRuntime");
+const { getAuraComponentIndices } = require("../src/server/commandAuraRules");
+const { tickRoom } = require("../src/server/simulation");
+const { createMovementRuntime, setMovementCommand } = require("../src/server/movementRuntimeV2");
 
 const RANGE = getCommandAuraRange();
 const UPDATE_STEP = 200;

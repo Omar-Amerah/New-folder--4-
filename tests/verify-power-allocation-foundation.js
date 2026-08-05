@@ -7,8 +7,8 @@
 // allocation, cable behaviour or Blueprint UI is touched by this module.
 
 const assert = require("assert");
-const PP = require("./public/src/shared/powerPolicyRules");
-const PA = require("./public/src/shared/powerAllocationRules");
+const PP = require("../public/src/shared/powerPolicyRules");
+const PA = require("../public/src/shared/powerAllocationRules");
 
 let passed = 0;
 function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }

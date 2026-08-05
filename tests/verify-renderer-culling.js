@@ -1,9 +1,9 @@
 const assert = require('assert');
-require('./public/src/shared/featureFlags.js');
+require('../public/src/shared/featureFlags.js');
 global.document = { getElementById: () => ({ getContext: () => ({}), addEventListener() {}, removeEventListener() {} }), querySelector: () => null };
 global.window = {};
 (async () => {
-  const m = await import('./public/src/game/viewportCulling.js');
+  const m = await import('../public/src/game/viewportCulling.js');
   const b={left:0,right:100,top:0,bottom:100};
   assert(m.circleIntersectsViewport({x:-5,y:50,radius:5},b)); assert(m.circleIntersectsViewport({x:105,y:50,radius:5},b));
   assert(m.circleIntersectsViewport({x:50,y:-5,radius:5},b)); assert(m.circleIntersectsViewport({x:50,y:105,radius:5},b));

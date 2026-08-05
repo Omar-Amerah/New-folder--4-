@@ -11,12 +11,13 @@ const POWER_TIER_NAMES = ["light", "standard", "heavy"];
 const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
 const VALID_SENSOR_ROLES = new Set(["omniSmall", "omniLarge", "directed"]);
 const VALID_AURA_TYPES = new Set(["command", "fireControl", "fleetDefence", "shield", "engineering", "propulsion", "ewar"]);
+const VALID_SHAPE_TYPES = new Set(["halfDiagonal", "wing", "bevel", "roundedCorner", "longWedge"]);
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
   "thrust", "turn", "lateralThrust", "brakingThrust", "reverseThrust", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
   "chargeEfficiency", "dischargeEfficiency", "dischargeHeatAtMax", "dischargeHeat", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength", "sensorRangeBonus", "sensorArc",
-  "frontDamageReduction", "frontArc", "maxPerShip", "meltdownDamage", "meltdownRadius"
+  "frontDamageReduction", "frontArc", "maxPerShip", "meltdownDamage", "meltdownRadius", "statScale"
 ];
 const WEAPON_NUMERIC_FIELDS = [
   "damage", "fireRate", "range", "radius", "projectileSpeed", "projectileLifetime", "accuracy", "tracking",
@@ -24,8 +25,12 @@ const WEAPON_NUMERIC_FIELDS = [
   "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage",
   "blastDamage", "blastRadius", "proximityFuseRadius", "innerFullDamageRadius",
   "falloffExponent", "armourPenetration", "cooldown", "maximumExplosionTargets",
-  "chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage"
+  "chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage",
+  "inductionHeatBasePerSecond", "inductionHeatMaxPerSecond", "inductionRampSeconds",
+  "inductionShieldMultiplier", "inductionDirectFraction", "inductionAdjacentFraction", "inductionSecondHopFraction",
+  "inductionContactGraceSeconds", "inductionSelfHeatMaxMultiplier"
 ];
+const VALID_BEAM_STYLES = new Set(["induction"]);
 
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -55,6 +60,18 @@ function validateFiniteMap(object, path, errors) {
 
 function isFiniteNonNegative(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+const THERMAL_NUMERIC_FIELDS = [
+  "heatCapacity", "heatCooling", "heatPassiveCooling", "heatConductivity", "heatRetention"
+];
+function validateThermalProfile(component, path, errors) {
+  for (const field of THERMAL_NUMERIC_FIELDS) {
+    if (component[field] === undefined) continue;
+    if (!isFiniteNonNegative(component[field])) {
+      errors.push(`${path}.${field} must be a finite non-negative number.`);
+    }
+  }
 }
 
 // The wiring infrastructure block is authoritative for cable cost and static
@@ -306,6 +323,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     if (component.description !== undefined && typeof component.description !== "string") errors.push(`${path}.description must be a string when present.`);
     if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
     validateNumberObject(component, NUMERIC_FIELDS, path, errors);
+    validateThermalProfile(component, path, errors);
     validateComponentAura(component.aura, path, errors);
     validatePropulsionCapacitor(component.propulsionCapacitor, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
@@ -338,6 +356,9 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     }
     if (component.sensorRole === "directed" && !(isFiniteNumber(component.sensorArc) && component.sensorArc > 0 && component.sensorArc < 180)) {
       errors.push(`${path}.sensorArc must be a finite number between 0 and 180 for a directed sensor.`);
+    }
+    if (component.shapeType !== undefined && !VALID_SHAPE_TYPES.has(component.shapeType)) {
+      errors.push(`${path}.shapeType must be one of ${[...VALID_SHAPE_TYPES].join(", ")}.`);
     }
     if (component.footprint !== undefined) {
       if (!component.footprint || typeof component.footprint !== "object" || Array.isArray(component.footprint)) {
@@ -387,14 +408,54 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
             errors.push(`${path}.weapon.${field} is only supported for beam weapons.`);
           }
         }
-        if (component.weapon.chargeRampSeconds !== undefined && component.weapon.chargeRampSeconds <= 0) {
-          errors.push(`${path}.weapon.chargeRampSeconds must be greater than zero.`);
+        if (component.weapon.chargeRampSeconds !== undefined && component.weapon.chargeRampSeconds < 0) {
+          errors.push(`${path}.weapon.chargeRampSeconds must be zero or greater.`);
         }
         if (component.weapon.maxChargeDamageBonus !== undefined && (component.weapon.maxChargeDamageBonus < 0 || component.weapon.maxChargeDamageBonus > 1)) {
           errors.push(`${path}.weapon.maxChargeDamageBonus must be between 0 and 1 (inclusive).`);
         }
         if (component.weapon.impactHeatPerDamage !== undefined && component.weapon.impactHeatPerDamage < 0) {
           errors.push(`${path}.weapon.impactHeatPerDamage must be zero or greater.`);
+        }
+        const inductionFields = ["inductionHeatBasePerSecond", "inductionHeatMaxPerSecond", "inductionRampSeconds", "inductionShieldMultiplier", "inductionDirectFraction", "inductionAdjacentFraction", "inductionSecondHopFraction", "inductionContactGraceSeconds", "inductionSelfHeatMaxMultiplier"];
+        for (const field of inductionFields) {
+          if (component.weapon[field] !== undefined && family !== "beam") {
+            errors.push(`${path}.weapon.${field} is only supported for beam weapons.`);
+          }
+        }
+        if (Number.isFinite(component.weapon.inductionHeatBasePerSecond) || Number.isFinite(component.weapon.inductionHeatMaxPerSecond)) {
+          const base = component.weapon.inductionHeatBasePerSecond ?? 0;
+          const max = component.weapon.inductionHeatMaxPerSecond ?? 0;
+          if (base < 0 || max < base) {
+            errors.push(`${path}.weapon.induction ramp values must be non-negative and max must not be below base.`);
+          }
+          if (Number.isFinite(component.weapon.inductionRampSeconds) && component.weapon.inductionRampSeconds < 0) {
+            errors.push(`${path}.weapon.inductionRampSeconds must be zero or greater.`);
+          }
+          if (Number.isFinite(component.weapon.inductionShieldMultiplier) && (component.weapon.inductionShieldMultiplier < 0 || component.weapon.inductionShieldMultiplier > 1)) {
+            errors.push(`${path}.weapon.inductionShieldMultiplier must be between 0 and 1.`);
+          }
+          const fracA = component.weapon.inductionDirectFraction ?? 0;
+          const fracB = component.weapon.inductionAdjacentFraction ?? 0;
+          const fracC = component.weapon.inductionSecondHopFraction ?? 0;
+          if (fracA < 0 || fracB < 0 || fracC < 0) {
+            errors.push(`${path}.weapon.induction distribution fractions must be non-negative.`);
+          }
+          const sum = fracA + fracB + fracC;
+          if (Math.abs(sum - 1) > 1e-6) {
+            errors.push(`${path}.weapon.induction distribution fractions must sum to 1 (got ${sum}).`);
+          }
+          if (Number.isFinite(component.weapon.inductionContactGraceSeconds) && component.weapon.inductionContactGraceSeconds < 0) {
+            errors.push(`${path}.weapon.inductionContactGraceSeconds must be zero or greater.`);
+          }
+          if (Number.isFinite(component.weapon.inductionSelfHeatMaxMultiplier) && component.weapon.inductionSelfHeatMaxMultiplier < 1) {
+            errors.push(`${path}.weapon.inductionSelfHeatMaxMultiplier must be at least 1.`);
+          }
+        }
+        if (component.weapon.beamStyle !== undefined) {
+          if (typeof component.weapon.beamStyle !== "string" || !VALID_BEAM_STYLES.has(component.weapon.beamStyle)) {
+            errors.push(`${path}.weapon.beamStyle must be one of ${[...VALID_BEAM_STYLES].join(", ")}.`);
+          }
         }
         if (component.weapon.targetPriority !== undefined) {
           if (!Array.isArray(component.weapon.targetPriority)) errors.push(`${path}.weapon.targetPriority must be an array when present.`);

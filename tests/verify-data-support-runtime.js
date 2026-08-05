@@ -1,16 +1,16 @@
 "use strict";
 
 const assert = require("assert");
-const { PARTS } = require("./src/server/components");
-const WiringRules = require("./public/src/shared/wiringRules");
-const DataSupportRules = require("./public/src/shared/dataSupportRules");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat } = require("./src/server/heat");
-const { rebuildShipWiringState } = require("./src/server/componentPower");
-const { rebuildShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponRanges, getSourceDataAllocation } = require("./src/server/componentData");
-const { updateShipWeapons, findPointDefenseTarget } = require("./src/server/combat");
-const { buildSharedSnapshot } = require("./src/server/snapshots");
+const { PARTS } = require("../src/server/components");
+const WiringRules = require("../public/src/shared/wiringRules");
+const DataSupportRules = require("../public/src/shared/dataSupportRules");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat } = require("../src/server/heat");
+const { rebuildShipWiringState } = require("../src/server/componentPower");
+const { rebuildShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponRanges, getSourceDataAllocation } = require("../src/server/componentData");
+const { updateShipWeapons, findPointDefenseTarget } = require("../src/server/combat");
+const { buildSharedSnapshot } = require("../src/server/snapshots");
 
 const close = (a, b, msg, eps = 1e-9) => assert(Math.abs(a - b) < eps, `${msg}: ${a} !== ${b}`);
 const mod = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
@@ -40,7 +40,7 @@ function ship(design, paths = [], overrides = {}) {
   // Power wiring. Install explicit initialized Power runtime instead of relying
   // on componentData to infer implicit full power.
   s.componentPower = { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) };
-  require("./src/server/componentData").refreshShipDataAllocation(s, "test-explicit-power");
+  require("../src/server/componentData").refreshShipDataAllocation(s, "test-explicit-power");
   s.weaponCooldowns = design.map(() => 0);
   s.weaponAngles = design.map(() => 0);
   s.weaponAimTargetIds = design.map(() => null);
@@ -253,7 +253,7 @@ close(combatSnapshot.weaponRanges[2], supportedRange, "snapshot component range 
 s.componentHp[0] = 0;
 rebuildShipWiringState(s, "destroyed-range-source", { skipRuntimeStats: true });
 s.componentPower = { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) };
-require("./src/server/componentData").refreshShipDataAllocation(s, "destroyed-range-source");
+require("../src/server/componentData").refreshShipDataAllocation(s, "destroyed-range-source");
 combatSnapshot = buildSharedSnapshot(r, 1100, false).ships[0];
 close(combatSnapshot.railgunRange, PARTS.railgun.weapon.range, "destroyed source removes snapshot range bonus");
 close(combatSnapshot.weaponRanges[2], PARTS.railgun.weapon.range, "destroyed source removes component range bonus");
@@ -262,7 +262,7 @@ s.componentHp[0] = s.componentMaxHp[0];
 s.componentHp[1] = 0;
 rebuildShipWiringState(s, "severed-data-host", { skipRuntimeStats: true });
 s.componentPower = { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) };
-require("./src/server/componentData").refreshShipDataAllocation(s, "severed-data-host");
+require("../src/server/componentData").refreshShipDataAllocation(s, "severed-data-host");
 combatSnapshot = buildSharedSnapshot(r, 1200, false).ships[0];
 close(getEffectiveWeaponRanges(s).railgun, PARTS.railgun.weapon.range, "severed route removes live family range bonus");
 close(combatSnapshot.weaponRanges[2], PARTS.railgun.weapon.range, "severed route updates component snapshot range");
@@ -270,25 +270,25 @@ close(combatSnapshot.weaponRanges[2], PARTS.railgun.weapon.range, "severed route
 console.log("Data support runtime verification passed.");
 
 // Phase 4: destroyed Data sources cooling through physical Heat thresholds do not refresh Data allocation.
-const DataModule = require("./src/server/componentData");
-const HeatRulesRuntime = require("./public/src/shared/heatRules");
+const DataModule = require("../src/server/componentData");
+const HeatRulesRuntime = require("../public/src/shared/heatRules");
 let churnDesign = [mod("fireControl", 7, 6), mod("railgun", 7, 7)];
 let churnShip = ship(churnDesign, [[{ x: 7, y: 6 }, { x: 7, y: 7 }]]);
 churnShip.componentHeat[0] = churnShip.componentThermals[0].capacity * 1.2;
 churnShip.componentHeatState[0] = HeatRulesRuntime.STATE.OVERHEATED;
 churnShip.componentHp[0] = 0;
-require("./src/server/heat").recalculateEffectiveThermalCapacities(churnShip);
-require("./src/server/heat").refreshHeatSourceSignatures(churnShip);
+require("../src/server/heat").recalculateEffectiveThermalCapacities(churnShip);
+require("../src/server/heat").refreshHeatSourceSignatures(churnShip);
 const allocationBeforeDestroyedCooling = churnShip.runtimeDataSupport.allocationRevision;
 const originalRefresh = DataModule.refreshShipDataAllocation;
 let refreshCount = 0;
 DataModule.refreshShipDataAllocation = function countedRefresh(shipArg, reason) { refreshCount += 1; return originalRefresh(shipArg, reason); };
-for (let i = 0; i < 12; i += 1) { churnShip.componentHeat[0] *= 0.86; churnShip.hasActiveHeat = true; require("./src/server/heat").updateShipHeat(churnShip, 0.2); }
+for (let i = 0; i < 12; i += 1) { churnShip.componentHeat[0] *= 0.86; churnShip.hasActiveHeat = true; require("../src/server/heat").updateShipHeat(churnShip, 0.2); }
 assert.strictEqual(refreshCount, 0, "destroyed Fire Control cooling across thresholds causes no Data refreshes");
 assert.strictEqual(churnShip.runtimeDataSupport.allocationRevision, allocationBeforeDestroyedCooling, "destroyed Fire Control cooling causes no Data allocation revision churn");
 churnShip.componentHp[0] = churnShip.componentMaxHp[0];
 churnShip.componentHeat[0] = churnShip.componentThermals[0].capacity * HeatRulesRuntime.THRESHOLDS.hot;
-require("./src/server/heat").recalculateEffectiveThermalCapacities(churnShip);
+require("../src/server/heat").recalculateEffectiveThermalCapacities(churnShip);
 originalRefresh(churnShip, "repair-hot-data-source");
 assert.strictEqual(churnShip.componentHeatState[0], HeatRulesRuntime.STATE.HOT, "repairing hot Data source derives HOT immediately");
 close(DataModule.getSourceDataAllocation(churnShip, 0).thermalMultiplier, HeatRulesRuntime.activeOutputForState(HeatRulesRuntime.STATE.HOT), "repairing hot Data source restores thermally reduced support");

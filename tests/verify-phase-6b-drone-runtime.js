@@ -2,14 +2,14 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const RoomTelemetry = require("./src/server/roomTelemetry");
-const Drones = require("./src/server/drones");
-const DroneDecisionContext = require("./src/server/droneDecisionContext");
-const { updateBullets } = require("./src/server/projectiles");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
-const { ensureVisibilityRuntime, ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibilityRuntime");
-const HeatRules = require("./public/src/shared/heatRules");
-const { repairShipComponents } = require("./src/server/componentHealth");
+const RoomTelemetry = require("../src/server/roomTelemetry");
+const Drones = require("../src/server/drones");
+const DroneDecisionContext = require("../src/server/droneDecisionContext");
+const { updateBullets } = require("../src/server/projectiles");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
+const { ensureVisibilityRuntime, ensureTeamVisibility, invalidateVisibility } = require("../src/server/visibilityRuntime");
+const HeatRules = require("../public/src/shared/heatRules");
+const { repairShipComponents } = require("../src/server/componentHealth");
 
 function makeShip(id, ownerId, team, x, y, bayId = `${id}:bay`, droneType = "fighter") {
   return {

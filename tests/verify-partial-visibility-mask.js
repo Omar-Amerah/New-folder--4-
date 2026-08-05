@@ -7,7 +7,7 @@
 // ship is placed in the masked body layer. A screenshot is saved for manual
 // visual confirmation.
 //
-// Run: node verify-partial-visibility-mask.js   (starts its own server)
+// Run: node tests/verify-partial-visibility-mask.js   (starts its own server)
 
 const fs = require("fs");
 const path = require("path");

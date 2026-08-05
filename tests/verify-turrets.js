@@ -3,15 +3,15 @@
 // rate (no instant snapping), hold fire until aligned, and projectiles spawn at
 // the barrel tip of the (possibly rotated, possibly multi-tile) weapon.
 const assert = require("assert");
-const TurretRules = require("./public/src/shared/turretRules");
-const { PARTS } = require("./src/server/components");
+const TurretRules = require("../public/src/shared/turretRules");
+const { PARTS } = require("../src/server/components");
 const {
   updateShipWeapons,
   weaponModuleWorldPosition,
   weaponMuzzleDistance,
   moduleRotationToRadians
-} = require("./src/server/combat");
-const { angleDifference } = require("./src/server/utils");
+} = require("../src/server/combat");
+const { angleDifference } = require("../src/server/utils");
 
 const SCALE = 13;
 
@@ -311,7 +311,7 @@ function runTicks(room, me, ships, count, dt) {
 // 9. Turret aim diagnostics expose the full per-weapon decision state for
 // development/testing (dev-only /debug/turrets endpoint uses the same builder).
 {
-  const { buildShipTurretDiagnostics } = require("./src/server/combat");
+  const { buildShipTurretDiagnostics } = require("../src/server/combat");
   const design = [
     { x: 7, y: 7, type: "core", rotation: 0 },
     { x: 8, y: 7, type: "blaster", rotation: 90 }

@@ -13,10 +13,10 @@
 // Blueprint fixture.
 
 const assert = require("assert");
-const WiringRules = require("../public/src/shared/wiringRules");
-const PowerPolicyRules = require("../public/src/shared/powerPolicyRules");
-const { PARTS } = require("../src/server/components");
-const { validateDesign } = require("../src/server/shipDesign");
+const WiringRules = require("../../public/src/shared/wiringRules");
+const PowerPolicyRules = require("../../public/src/shared/powerPolicyRules");
+const { PARTS } = require("../../src/server/components");
+const { validateDesign } = require("../../src/server/shipDesign");
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 

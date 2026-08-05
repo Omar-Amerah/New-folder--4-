@@ -7,10 +7,10 @@
 // authoritative Power-flow / Power-protection records.
 
 const assert = require("assert");
-const { snapshotRoom } = require("./src/server/snapshots");
-const { createShipBlueprintSnapshot } = require("./src/server/shipDesign");
-const { initializeComponentPower, reallocateShipPower, rebuildShipWiringState } = require("./src/server/componentPower");
-const { updateShipPowerProtection } = require("./src/server/powerProtection");
+const { snapshotRoom } = require("../src/server/snapshots");
+const { createShipBlueprintSnapshot } = require("../src/server/shipDesign");
+const { initializeComponentPower, reallocateShipPower, rebuildShipWiringState } = require("../src/server/componentPower");
+const { updateShipPowerProtection } = require("../src/server/powerProtection");
 
 let count = 0;
 function check(name, fn) { fn(); count += 1; console.log(`  ok  ${count}. ${name}`); }
@@ -185,7 +185,7 @@ check("power-wiring snapshot builder duplicates no gameplay formula", () => {
 (async () => {
   // Client-merge preservation needs the ESM snapshot-merge module.
   await checkAsync("client merge preserves omitted Power layout and runtime", async () => {
-    const { mergeCachedShipFields } = await import("./public/src/snapshotMerge.js");
+    const { mergeCachedShipFields } = await import("../public/src/snapshotMerge.js");
     const ship = buildShip();
     const { room, player, client } = makeRoomClient(ship);
     const full = snapshotRoom(room, 0, player, true, null, client).ships[0];

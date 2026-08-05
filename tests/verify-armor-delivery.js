@@ -1,10 +1,10 @@
 const assert = require('assert');
-const { PARTS } = require('./src/server/components');
-const { initComponentState, applyHullDamage } = require('./src/server/componentHealth');
-const { damageShip, updateShipWeapons, weaponReloadSeconds } = require('./src/server/combat');
-const { updateBullets } = require('./src/server/projectiles');
-const HeatRules = require('./public/src/shared/heatRules');
-const { BALANCE } = require('./src/server/balanceConfig');
+const { PARTS } = require('../src/server/components');
+const { initComponentState, applyHullDamage } = require('../src/server/componentHealth');
+const { damageShip, updateShipWeapons, weaponReloadSeconds } = require('../src/server/combat');
+const { updateBullets } = require('../src/server/projectiles');
+const HeatRules = require('../public/src/shared/heatRules');
+const { BALANCE } = require('../src/server/balanceConfig');
 
 const EPS = 1e-6;
 function close(actual, expected, msg, eps = EPS) {

@@ -3,13 +3,13 @@
 // sum), penetration resolves front-to-back through components, and a reactor
 // meltdown detonates, damaging nearby components.
 const assert = require("assert");
-const { computeStats } = require("./src/server/shipStats");
+const { computeStats } = require("../src/server/shipStats");
 const {
   initComponentState,
   applyHullDamage,
   componentsAlongImpactRay,
   detonateComponent
-} = require("./src/server/componentHealth");
+} = require("../src/server/componentHealth");
 
 function makeShip(design) {
   const ship = { design, x: 0, y: 0, angle: 0, alive: true };

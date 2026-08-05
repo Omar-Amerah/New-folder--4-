@@ -11,13 +11,13 @@ global.window = { devicePixelRatio: 1 };
 (async () => {
   // Load HeatRules before importing ledgerContent so globalThis.HeatRules
   // is available when componentMechanics.js evaluates.
-  const HeatRules = require("./public/src/shared/heatRules");
+  const HeatRules = require("../public/src/shared/heatRules");
 
-  const ledger = await import("./public/src/ledger/ledgerContent.js");
+  const ledger = await import("../public/src/ledger/ledgerContent.js");
   const { SPECIAL_MECHANICS_COMPONENTS, LEDGER_RULE_CONTRACTS } = ledger;
   const { getArticleById, searchArticles, getAllArticles } = ledger;
 
-  const { PART_STATS } = await import("./public/src/design/parts.js");
+  const { PART_STATS } = await import("../public/src/design/parts.js");
 
   let passed = 0;
   const errors = [];

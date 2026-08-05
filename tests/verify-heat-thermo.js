@@ -2,8 +2,8 @@
 // Group 6 (thermodynamics): a hotter component sheds heat faster, and heat
 // routes through frames into a central heat sink (centralised heat-buffer layout).
 const assert = require("assert");
-const { initShipHeat, updateShipHeat } = require("./src/server/heat");
-const { PARTS } = require("./src/server/components");
+const { initShipHeat, updateShipHeat } = require("../src/server/heat");
+const { PARTS } = require("../src/server/components");
 
 function shipFor(design) {
   const hp = design.map((module) => PARTS[module.type]?.hp || 40);
@@ -27,7 +27,7 @@ assert(hot > cool * 1.5, `a hotter component should dissipate much faster (hot=$
 
 // 2. Frames conduct heat into a central heat sink, whose large capacity buffers
 // the ship and delays the source overheating vs an equivalent all-frame hull.
-const { STATE } = require("./public/src/shared/heatRules");
+const { STATE } = require("../public/src/shared/heatRules");
 function ticksToOverheat(design) {
   const ship = shipFor(design);
   for (let i = 0; i < 4000; i += 1) {

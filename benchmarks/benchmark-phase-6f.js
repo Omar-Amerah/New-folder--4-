@@ -8,19 +8,19 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const { performance } = require("perf_hooks");
 
-const { createRoom, sanitizeRoomRules } = require("./src/server/rooms");
+const { createRoom, sanitizeRoomRules } = require("../src/server/rooms");
 const {
   createStationsForRoom,
   updateStations
-} = require("./src/server/stations");
-const { updateStationWeapons } = require("./src/server/stationCombat");
-const { updateBullets } = require("./src/server/projectiles");
-const { updateCapturePoints, updateControlVictory } = require("./src/server/objectives");
-const { computeStats } = require("./src/server/shipStats");
-const { PARTS } = require("./src/server/components");
-const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
-const { resetRoomTelemetry, getRoomTelemetry } = require("./src/server/roomTelemetry");
-const { ensureTeamVisibility, invalidateVisibility } = require("./src/server/visibility");
+} = require("../src/server/stations");
+const { updateStationWeapons } = require("../src/server/stationCombat");
+const { updateBullets } = require("../src/server/projectiles");
+const { updateCapturePoints, updateControlVictory } = require("../src/server/objectives");
+const { computeStats } = require("../src/server/shipStats");
+const { PARTS } = require("../src/server/components");
+const { createImmutableShipTemplate } = require("../src/server/shipTemplates");
+const { resetRoomTelemetry, getRoomTelemetry } = require("../src/server/roomTelemetry");
+const { ensureTeamVisibility, invalidateVisibility } = require("../src/server/visibility");
 
 const args = new Set(process.argv.slice(2));
 if (args.has("--quick") && args.has("--full")) throw new Error("Choose either --quick or --full");
@@ -31,11 +31,11 @@ const WARMUP_SAMPLES = 5;
 const MEASURED_SAMPLES = MODE === "full" ? 30 : 8;
 const REPEATS = MODE === "full" ? 3 : 1;
 const DT = 1 / 30;
-const OUTPUT_PATH = path.join(__dirname, "test-artifacts", "performance", ASSERT_PERFORMANCE ? "profile-phase-6f-acceptance.json" : "profile-phase-6f.json");
+const OUTPUT_PATH = path.join(path.dirname(__dirname), "test-artifacts", "performance", ASSERT_PERFORMANCE ? "profile-phase-6f-acceptance.json" : "profile-phase-6f.json");
 
 function resolveCommit(ref) {
   try {
-    return execFileSync("git", ["rev-parse", ref], { cwd: __dirname, encoding: "utf8" }).trim();
+    return execFileSync("git", ["rev-parse", ref], { cwd: path.dirname(__dirname), encoding: "utf8" }).trim();
   } catch {
     return null;
   }

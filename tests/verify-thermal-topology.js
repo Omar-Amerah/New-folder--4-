@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
-const { initShipHeat, rebuildThermalNetworks, isThermalRouteType } = require("./src/server/heat");
-const { repairShipComponents } = require("./src/server/componentHealth");
-const { PARTS } = require("./src/server/components");
-const { getOccupiedCells } = require("./src/server/footprint");
-const { buildThermalTopology, createComponentAdjacency } = require("./src/server/thermalTopology");
+const { initShipHeat, rebuildThermalNetworks, isThermalRouteType } = require("../src/server/heat");
+const { repairShipComponents } = require("../src/server/componentHealth");
+const { PARTS } = require("../src/server/components");
+const { getOccupiedCells } = require("../src/server/footprint");
+const { buildThermalTopology, createComponentAdjacency } = require("../src/server/thermalTopology");
 function shipFor(design){ const hp=design.map(m=>PARTS[m.type]?.hp||40); const ship={alive:true,design,componentHp:hp.slice(),componentMaxHp:hp.slice(),stats:{powerUse:0,powerGeneration:1},dirtyComponents:new Set()}; initShipHeat(ship); return ship; }
 function edges(s,a,b){ return createComponentAdjacency(s.thermalTopology)[a].find(e=>e.index===b)?.sharedEdges||0; }
 function exposed(s,i){ return s.componentThermals[i].exposedEdges; }

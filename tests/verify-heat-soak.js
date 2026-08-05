@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 "use strict";
 const assert = require("assert");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const health = require("./src/server/componentHealth");
-const heat = require("./src/server/heat");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const health = require("../src/server/componentHealth");
+const heat = require("../src/server/heat");
 
 function shipFor(id) {
   const design = [

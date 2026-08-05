@@ -1,8 +1,8 @@
 "use strict";
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const { initShipHeat, updateShipHeat, addComponentHeat, rebuildThermalNetworks } = require("./src/server/heat");
-const { PARTS } = require("./src/server/components");
+const HeatRules = require("../public/src/shared/heatRules");
+const { initShipHeat, updateShipHeat, addComponentHeat, rebuildThermalNetworks } = require("../src/server/heat");
+const { PARTS } = require("../src/server/components");
 function shipFor(design){ const hp=design.map(m=>PARTS[m.type]?.hp||40); const ship={alive:true,design,componentHp:hp.slice(),componentMaxHp:hp.slice(),stats:{powerUse:0,powerGeneration:1},dirtyComponents:new Set()}; initShipHeat(ship); return ship; }
 function tick(s){ s.hasActiveHeat=true; updateShipHeat(s,0.2); }
 let a=shipFor([{x:0,y:0,type:"frame"},{x:1,y:0,type:"heatSink"}]); a.componentHeat[0]=50; const sum0=a.componentHeat.reduce((x,y)=>x+y,0); tick(a); assert(a.componentHeat[1]>0&&a.componentHeat[0]<50,"heat moves from higher normalized ratio to lower"); assert(a.componentHeat.reduce((x,y)=>x+y,0)<sum0,"cooling may remove heat after transfer");

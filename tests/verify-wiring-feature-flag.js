@@ -2,18 +2,18 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { WIRING_ENABLED } = require("./public/src/shared/featureFlags");
-const { DEFAULT_DESIGN, DEFAULT_WIRING } = require("./src/server/config");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
+const { WIRING_ENABLED } = require("../public/src/shared/featureFlags");
+const { DEFAULT_DESIGN, DEFAULT_WIRING } = require("../src/server/config");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
 const {
   initializeComponentPower,
   reallocateShipPower,
   getComponentPowerMultiplier
-} = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { getWeaponDataSupport, getEffectiveWeaponStats, refreshShipDataAllocation } = require("./src/server/componentData");
-const DataSupportRules = require("./public/src/shared/dataSupportRules");
+} = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { getWeaponDataSupport, getEffectiveWeaponStats, refreshShipDataAllocation } = require("../src/server/componentData");
+const DataSupportRules = require("../public/src/shared/dataSupportRules");
 
 const design = DEFAULT_DESIGN.map((part) => ({ ...part }));
 const stats = computeStats(design, DEFAULT_WIRING);

@@ -6,7 +6,7 @@
 // clean release on pool recycling, generation-safe quality changes, and full
 // renderer teardown/reinit. Proves rendered lifecycle, not source shape.
 //
-// Run: node verify-pixi-lifecycle.js   (starts its own server on PORT 5600)
+// Run: node tests/verify-pixi-lifecycle.js   (starts its own server on PORT 5600)
 
 const http = require("http");
 const assert = require("assert");

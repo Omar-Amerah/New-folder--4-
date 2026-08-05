@@ -3,7 +3,7 @@
 // focus target, an ally becomes a repair target (so repair ships can be steered
 // to a chosen friendly). Any other command clears the repair target.
 const assert = require("assert");
-const { commandShips } = require("./src/server/movement");
+const { commandShips } = require("../src/server/movement");
 
 function makeRoom() {
   const me = { id: "s1", ownerId: "me", alive: true, radius: 30, x: 500, y: 500, ships: undefined, design: [{ type: "repairBeam" }] };
@@ -59,7 +59,7 @@ function makeRoom() {
 // 4. Patching accuracy: component-only damage counts as a valid repair need,
 // even when aggregate hull HP is already full.
 {
-  const { shipRepairNeed } = require("./src/server/combat");
+  const { shipRepairNeed } = require("../src/server/combat");
   const componentDamaged = {
     id: "a2",
     alive: true,
@@ -75,7 +75,7 @@ function makeRoom() {
 // 5. Local repair modules heal only their own ship; they must not project
 // healing to an allied ship.
 {
-  const { updateShipSupport } = require("./src/server/combat");
+  const { updateShipSupport } = require("../src/server/combat");
   const repairShip = {
     id: "local-repair", ownerId: "me", alive: true, x: 0, y: 0,
     design: [{ type: "repair" }], stats: { repair: 1, repairRange: 410, efficiency: 1 },
@@ -98,7 +98,7 @@ function makeRoom() {
 // 6. Dedicated repair beams heal allied ships and produce a green beam effect
 // while updating the repair turret's authoritative angle.
 {
-  const { updateShipSupport } = require("./src/server/combat");
+  const { updateShipSupport } = require("../src/server/combat");
   const beamShip = {
     id: "beam-repair", ownerId: "me", alive: true, x: 0, y: 0, angle: 0,
     design: [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 8, y: 7, type: "repairBeam", rotation: 0 }],

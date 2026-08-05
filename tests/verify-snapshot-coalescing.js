@@ -2,8 +2,8 @@
 const assert = require('assert');
 const EventEmitter = require('events');
 const { decode } = require('@msgpack/msgpack');
-const outbound = require('./src/server/outbound');
-const delivery = require('./src/server/snapshotDelivery');
+const outbound = require('../src/server/outbound');
+const delivery = require('../src/server/snapshotDelivery');
 
 class Socket extends EventEmitter { constructor(pattern){ super(); this.pattern = pattern.slice(); this.destroyed=false; this.writes=[]; } write(){ return this.pattern.length ? this.pattern.shift() : true; } }
 function room() {
@@ -13,7 +13,7 @@ function room() {
   const r = { code:'R', phase:'active', adminId:'p', stateEpoch:1, snapshotSeq:0, staticRevision:1, componentCatalogueRevision:1, mapSizeLabel:'tiny', world:{width:100,height:100}, map:{seed:1,asteroids:[]}, rules:{gameMode:'solo'}, winner:null, matchStartedAt:1, bullets:[], effects:[{id:'e', at:0, x:1, y:1}], points:[], controlVictory:null, players:new Map([[player.id, player]]), ships:new Map([[ship.id, ship]]), clients:new Set() };
   return { r, player, ship };
 }
-async function mergeAll(packets) { const m = await import('./public/src/snapshotMerge.js'); let snap=null, net={stateEpoch:0,snapshotSeq:0,staticRevision:0,hasFullBaseline:false}; for (const packet of packets) { const res=m.mergeSnapshotTransaction(snap, net, packet); assert.equal(res.ok, true, res.reason); snap=res.snapshot; net=res.networkState; } return snap; }
+async function mergeAll(packets) { const m = await import('../public/src/snapshotMerge.js'); let snap=null, net={stateEpoch:0,snapshotSeq:0,staticRevision:0,hasFullBaseline:false}; for (const packet of packets) { const res=m.mergeSnapshotTransaction(snap, net, packet); assert.equal(res.ok, true, res.reason); snap=res.snapshot; net=res.networkState; } return snap; }
 function attach(r, pattern){ const socket = new Socket(pattern); const client = { id:'c', socket, isClosed:false, player:null, room:r }; client.player = r.players.get('p'); r.clients.add(client); return client; }
 const captured = new Map(); outbound.configureOutbound({ writeFrame(socket, payload){ const packet = decode(payload); socket.writes.push(packet); return socket.pattern.length ? socket.pattern.shift() : true; } });
 (async()=>{

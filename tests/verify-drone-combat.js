@@ -8,16 +8,16 @@ const {
   findTarget,
   pickWeaponFireTarget,
   updateShipWeapons
-} = require("./src/server/combat");
-const { updateBullets } = require("./src/server/projectiles");
-const { initComponentState } = require("./src/server/componentHealth");
-const { PARTS } = require("./src/server/components");
+} = require("../src/server/combat");
+const { updateBullets } = require("../src/server/projectiles");
+const { initComponentState } = require("../src/server/componentHealth");
+const { PARTS } = require("../src/server/components");
 const {
   CONFIG,
   damageDrone,
   setDroneDestroyed,
   _test: { chooseTarget, chooseFallbackTarget, fighterProjectileEvasion, steerFighterDrone, updateDroneEntity }
-} = require("./src/server/drones");
+} = require("../src/server/drones");
 
 function makeRoom() {
   const parent = {

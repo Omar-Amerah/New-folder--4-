@@ -127,6 +127,7 @@ function buildThermalTopology(design = []) {
   const dataSourceIndices = [];
   const radiatorIndices = [];
   const heatSinkIndices = [];
+  const closedCycleCoolerIndices = [];
   const thermalRouteIndices = [];
   for (let i = 0; i < componentCount; i += 1) {
     const module = design[i] || {};
@@ -135,6 +136,7 @@ function buildThermalTopology(design = []) {
     if (DataSupportRules.isDataSupportSource(module.type)) dataSourceIndices.push(i);
     if (module.type === "radiator") radiatorIndices.push(i);
     if (module.type === "heatSink") heatSinkIndices.push(i);
+    if (module.type === "closedCycleCooler") closedCycleCoolerIndices.push(i);
     if (isThermalRouteType(module.type)) thermalRouteIndices.push(i);
   }
 
@@ -155,6 +157,7 @@ function buildThermalTopology(design = []) {
     dataSourceIndices,
     radiatorIndices,
     heatSinkIndices,
+    closedCycleCoolerIndices,
     thermalRouteIndices
   });
 }

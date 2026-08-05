@@ -6,17 +6,17 @@
 // is verified in verify-power-flow.js.
 
 const assert = require("assert");
-const PD = require("./public/src/shared/powerDemandRules");
-const PCT = require("./public/src/shared/powerCableThermalRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const WiringInfra = require("./public/src/shared/wiringInfrastructureRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat, updateShipHeat } = require("./src/server/heat");
-const { rebuildShipWiringState, updateShipPowerDemand, getComponentPowerMultiplier } = require("./src/server/componentPower");
-const { createMovementRuntime } = require("./src/server/movementRuntime");
+const PD = require("../public/src/shared/powerDemandRules");
+const PCT = require("../public/src/shared/powerCableThermalRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const WiringInfra = require("../public/src/shared/wiringInfrastructureRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat, updateShipHeat } = require("../src/server/heat");
+const { rebuildShipWiringState, updateShipPowerDemand, getComponentPowerMultiplier } = require("../src/server/componentPower");
+const { createMovementRuntime } = require("../src/server/movementRuntime");
 
 const STANDBY = BALANCE.powerDemand;
 let passed = 0;

@@ -16,7 +16,7 @@ const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;
 const { server } = startServer(port);
 let browser;
-const artifactDir = path.join(__dirname, "test-artifacts", "combat-power-tab");
+const artifactDir = path.join(path.dirname(__dirname), "test-artifacts", "combat-power-tab");
 fs.mkdirSync(artifactDir, { recursive: true });
 
 // A fabricated selected-ship snapshot with every Power block the Power tab

@@ -1,10 +1,10 @@
 "use strict";
 const assert = require("assert");
-const serverFootprint = require("./src/server/footprint");
+const serverFootprint = require("../src/server/footprint");
 (async () => {
-  const clientFootprint = await import("./public/src/design/footprint.js");
-  const rotation = await import("./public/src/design/rotation.js");
-  const heat = await import("./public/src/shared/componentHeatSnapshot.js");
+  const clientFootprint = await import("../public/src/design/footprint.js");
+  const rotation = await import("../public/src/design/rotation.js");
+  const heat = await import("../public/src/shared/componentHeatSnapshot.js");
   const cases = [
     { x: 0, y: 0, footprint: { width: 1, height: 1 } },
     { x: 5, y: 5, footprint: { width: 2, height: 1 } },

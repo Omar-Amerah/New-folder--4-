@@ -2,12 +2,12 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const { PARTS } = require("./src/server/components");
-const WiringRules = require("./public/src/shared/wiringRules");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const PowerPolicyRules = require("./public/src/shared/powerPolicyRules");
-const { buildShipPowerSolveBaseInput, applyShipPowerAllocation, initializeComponentPower } = require("./src/server/componentPower");
-const { mergeCachedShipFields } = require("./public/src/snapshotMerge");
+const { PARTS } = require("../src/server/components");
+const WiringRules = require("../public/src/shared/wiringRules");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const PowerPolicyRules = require("../public/src/shared/powerPolicyRules");
+const { buildShipPowerSolveBaseInput, applyShipPowerAllocation, initializeComponentPower } = require("../src/server/componentPower");
+const { mergeCachedShipFields } = require("../public/src/snapshotMerge");
 
 console.log("Running Battery & Capacitor Power Storage Verification Tests...\n");
 

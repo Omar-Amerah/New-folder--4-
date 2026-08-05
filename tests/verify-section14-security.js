@@ -3,10 +3,10 @@ const assert = require("assert");
 const net = require("net");
 const crypto = require("crypto");
 const { encode } = require("@msgpack/msgpack");
-const { createGameServer } = require("./server");
-const { WebSocketFrameParser } = require("./src/server/wsFrameParser");
-const { validateClientMessage } = require("./src/server/clientSchemas");
-const { checkRateLimit, RATE_LIMITS } = require("./src/server/messageRouter");
+const { createGameServer } = require("../server");
+const { WebSocketFrameParser } = require("../src/server/wsFrameParser");
+const { validateClientMessage } = require("../src/server/clientSchemas");
+const { checkRateLimit, RATE_LIMITS } = require("../src/server/messageRouter");
 
 function httpReq(port, lines) {
   return new Promise((resolve, reject) => {

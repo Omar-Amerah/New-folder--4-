@@ -2,16 +2,16 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { createRoom, bumpStateEpoch } = require("./src/server/rooms");
-const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS } = require("./src/server/simulation");
-const { RoomSpatialIndex, buildRoomSpatialIndex, publishSpatialTelemetry, shipBroadPhaseRadius, droneBroadPhaseRadius, stationBroadPhaseRadius } = require("./src/server/spatialIndex");
-const { addBullet, removeProjectileRuntime } = require("./src/server/projectiles");
-const { spawnShip } = require("./src/server/ships");
-const { setDroneDestroyed } = require("./src/server/drones");
-const { spawnDrone } = require("./src/server/drones")._test;
-const { destroyShip } = require("./src/server/combat");
-const { createStationsForRoom, updateStations } = require("./src/server/stations");
-const { computeStats } = require("./src/server/shipStats");
+const { createRoom, bumpStateEpoch } = require("../src/server/rooms");
+const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS } = require("../src/server/simulation");
+const { RoomSpatialIndex, buildRoomSpatialIndex, publishSpatialTelemetry, shipBroadPhaseRadius, droneBroadPhaseRadius, stationBroadPhaseRadius } = require("../src/server/spatialIndex");
+const { addBullet, removeProjectileRuntime } = require("../src/server/projectiles");
+const { spawnShip } = require("../src/server/ships");
+const { setDroneDestroyed } = require("../src/server/drones");
+const { spawnDrone } = require("../src/server/drones")._test;
+const { destroyShip } = require("../src/server/combat");
+const { createStationsForRoom, updateStations } = require("../src/server/stations");
+const { computeStats } = require("../src/server/shipStats");
 
 const EPSILON = 1e-6;
 
@@ -352,7 +352,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 // 30. Real spawnDrone and setDroneDestroyed update the index.
 {
   const room = activeRoom("PH4BDRONE");
-  const { BALANCE } = require("./src/server/balanceConfig");
+  const { BALANCE } = require("../src/server/balanceConfig");
   const droneTypes = Object.keys(BALANCE.drones?.types || {});
   const droneType = droneTypes[0] || "combat";
   const ship = {
@@ -466,7 +466,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   room.ships.set("sa", shipA);
   room.ships.set("sb", shipB);
   buildRoomSpatialIndex(room, [shipA, shipB], 0);
-  const { maxFriendlyCorrectionPerTick, updateShipSeparation } = require("./src/server/movement");
+  const { maxFriendlyCorrectionPerTick, updateShipSeparation } = require("../src/server/movement");
   const beforeA = { x: shipA.x, y: shipA.y };
   const beforeB = { x: shipB.x, y: shipB.y };
   updateShipSeparation(room, [shipA, shipB], 16.666, 0);
@@ -480,8 +480,8 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
   // cells no longer share space -- not out to the sum of two bounding radii.
   // Correction is deliberately partial per tick, so it converges over a few
   // rather than snapping the overlap out in one.
-  const { findShipHullOverlap } = require("./src/server/componentGeometry");
-  const { POSITION_SLOP } = require("./src/server/movementTuning");
+  const { findShipHullOverlap } = require("../src/server/componentGeometry");
+  const { POSITION_SLOP } = require("../src/server/movementTuning");
   assert.ok(Math.hypot(dx, dy) > SEPARATION_START_GAP, "the overlap is reduced without teleporting");
   const startPenetration = findShipHullOverlap(
     { ...shipA, x: 500, y: 500 },

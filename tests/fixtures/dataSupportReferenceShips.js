@@ -1,9 +1,9 @@
 "use strict";
 
 const assert = require("assert");
-const WiringRules = require("../public/src/shared/wiringRules");
-const DataSupportRules = require("../public/src/shared/dataSupportRules");
-const { PARTS } = require("../src/server/components");
+const WiringRules = require("../../public/src/shared/wiringRules");
+const DataSupportRules = require("../../public/src/shared/dataSupportRules");
+const { PARTS } = require("../../src/server/components");
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const part = (type) => { if (!PARTS[type]) throw new Error(`Unknown component type: ${type}`); return PARTS[type]; };

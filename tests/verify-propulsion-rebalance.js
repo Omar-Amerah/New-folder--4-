@@ -1,8 +1,8 @@
 "use strict";
 // Propulsion rebalance acceptance tests for the reworked top-speed / acceleration split.
 const assert = require("assert");
-const { computeStats } = require("./src/server/shipStats");
-const { calculateMovementStats } = require("./public/src/shared/movementStats.js");
+const { computeStats } = require("../src/server/shipStats");
+const { calculateMovementStats } = require("../public/src/shared/movementStats.js");
 
 function buildShip(engineCount, extraArmor = 0) {
   const modules = [];
@@ -111,7 +111,7 @@ function run() {
 
   console.log("\n=== Server/Client Calculation Parity (via shared movementStats) ===");
   const check = computeStats(buildShip(3, 1));
-  const movement = require("./public/src/shared/movementStats");
+  const movement = require("../public/src/shared/movementStats");
   const direct = movement.calculateMovementStats({
     mass: check.mass,
     thrust: check.thrust,

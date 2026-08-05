@@ -2,13 +2,13 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { TICK_HZ } = require("./src/server/config");
-const { createRoom, bumpStateEpoch } = require("./src/server/rooms");
-const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS, FIXED_STEP_S, MAX_CATCH_UP_STEPS } = require("./src/server/simulation");
-const { getRoomTelemetry } = require("./src/server/roomTelemetry");
-const { gameplayNow } = require("./src/server/gameplayTime");
-const { requestSelfDestruct } = require("./src/server/combat");
-const { addBullet } = require("./src/server/projectiles");
+const { TICK_HZ } = require("../src/server/config");
+const { createRoom, bumpStateEpoch } = require("../src/server/rooms");
+const { tickRoom, advanceRoomAuthoritative, FIXED_STEP_MS, FIXED_STEP_S, MAX_CATCH_UP_STEPS } = require("../src/server/simulation");
+const { getRoomTelemetry } = require("../src/server/roomTelemetry");
+const { gameplayNow } = require("../src/server/gameplayTime");
+const { requestSelfDestruct } = require("../src/server/combat");
+const { addBullet } = require("../src/server/projectiles");
 
 const EPSILON = 1e-6;
 

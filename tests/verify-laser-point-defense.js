@@ -5,16 +5,16 @@ const assert = require("assert");
   globalThis.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null };
   globalThis.window = globalThis;
 
-  const { PARTS } = require("./src/server/components");
-  const { computeStats } = require("./src/server/shipStats");
-  const { validateDesign } = require("./src/server/shipDesign");
-  const { validateBlueprint } = await import("./public/src/design/blueprintValidation.js");
-  const { initComponentState } = require("./src/server/componentHealth");
-  const { updateShipWeapons, findPointDefenseTarget } = require("./src/server/combat");
-  const { reallocateShipPower } = require("./src/server/componentPower");
-  const { buildSharedSnapshot, snapshotRoom } = require("./src/server/snapshots");
-  const WiringRules = require("./public/src/shared/wiringRules");
-  const { createDroneEntity, damageDrone } = require("./src/server/drones");
+  const { PARTS } = require("../src/server/components");
+  const { computeStats } = require("../src/server/shipStats");
+  const { validateDesign } = require("../src/server/shipDesign");
+  const { validateBlueprint } = await import("../public/src/design/blueprintValidation.js");
+  const { initComponentState } = require("../src/server/componentHealth");
+  const { updateShipWeapons, findPointDefenseTarget } = require("../src/server/combat");
+  const { reallocateShipPower } = require("../src/server/componentPower");
+  const { buildSharedSnapshot, snapshotRoom } = require("../src/server/snapshots");
+  const WiringRules = require("../public/src/shared/wiringRules");
+  const { createDroneEntity, damageDrone } = require("../src/server/drones");
 
   function makeTestShip(design, wiring = null, ownerId = "p1") {
     let shipWiring = wiring;

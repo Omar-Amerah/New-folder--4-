@@ -6,8 +6,8 @@
 // without partial application or zero-filling.
 
 const assert = require("assert");
-const B = require("./public/src/shared/balanceRevision");
-const { BALANCE, BALANCE_REVISION } = require("./src/server/balanceConfig");
+const B = require("../public/src/shared/balanceRevision");
+const { BALANCE, BALANCE_REVISION } = require("../src/server/balanceConfig");
 
 // 1. Successful matching load: server revision equals a recomputation of the
 //    same balance, and equal content yields equal revisions across "sides".
@@ -70,7 +70,7 @@ const { BALANCE, BALANCE_REVISION } = require("./src/server/balanceConfig");
 
 // 7. The server exposes its revision on the hello handshake and state snapshots.
 (function serverAdvertisesRevision() {
-  const snapshots = require("./src/server/snapshots");
+  const snapshots = require("../src/server/snapshots");
   const room = {
     code: "R", phase: "active", adminId: null, stateEpoch: 1, snapshotSeq: 0, staticRevision: 1,
     componentCatalogueRevision: 1, mapSizeLabel: "tiny", world: { width: 10, height: 10 },

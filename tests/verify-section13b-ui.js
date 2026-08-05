@@ -1,15 +1,15 @@
 "use strict";
 const assert = require("assert");
 const fs = require("fs");
-require('./public/src/shared/featureFlags.js');
+require('../public/src/shared/featureFlags.js');
 globalThis.MfaFeatureFlags = { ...globalThis.MfaFeatureFlags, WIRING_ENABLED: true };
 
 globalThis.document = { getElementById() { return { style: {}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false;} }, addEventListener(){}, setAttribute(){}, getContext(){ return null; } }; }, createElement() { return { style: {}, appendChild(){}, setAttribute(){}, classList: { add(){}, remove(){}, toggle(){}, contains(){return false;} } }; } };
 globalThis.window = globalThis;
 globalThis.localStorage = { getItem(){ return null; }, setItem(){}, removeItem(){} };
 globalThis.performance = { now(){ return 0; } };
-globalThis.WiringRules = require("./public/src/shared/wiringRules.js");
-globalThis.WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules.js");
+globalThis.WiringRules = require("../public/src/shared/wiringRules.js");
+globalThis.WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
 globalThis.EngineExhaustRules = {
   analyze(modules) { return { validEngineIndices: new Set(modules.map((_, i) => i)), blockedEngineIndices: new Set() }; }
 };
@@ -25,7 +25,7 @@ globalThis.EngineExhaustRules = {
   const wiringDesign = [{ x:0, y:0, type:"core" }, { x:1, y:0, type:"gyroscope" }];
   const wiring = globalThis.WiringRules.addPathWithTier(
     globalThis.WiringRules.emptyWiring(), "power", [{ x:0, y:0 }, { x:1, y:0 }],
-    wiringDesign, (await import("./public/src/design/parts.js")).PART_STATS, "standard"
+    wiringDesign, (await import("../public/src/design/parts.js")).PART_STATS, "standard"
   );
   const wiringCostRow = ui.blueprintComparisonRows(wiringDesign, wiringDesign, wiring, null).find((row) => row.key === "unitCost");
   assert(wiringCostRow.delta > 0, "blueprint comparison includes each design's wiring cost");

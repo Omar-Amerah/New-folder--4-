@@ -1,15 +1,15 @@
 "use strict";
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const DataRules = require("./public/src/shared/dataSupportRules");
-const EngineExhaust = require("./public/src/shared/engineExhaust");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower, reallocateShipPower } = require("./src/server/componentPower");
-const { initShipHeat, updateShipHeat } = require("./src/server/heat");
-const ComponentData = require("./src/server/componentData");
+const HeatRules = require("../public/src/shared/heatRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const DataRules = require("../public/src/shared/dataSupportRules");
+const EngineExhaust = require("../public/src/shared/engineExhaust");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower, reallocateShipPower } = require("../src/server/componentPower");
+const { initShipHeat, updateShipHeat } = require("../src/server/heat");
+const ComponentData = require("../src/server/componentData");
 
 globalThis.HeatRules = HeatRules;
 globalThis.WiringRules = WiringRules;
@@ -38,8 +38,8 @@ function zeroes(n) { return Array.from({ length:n }, () => 0); }
 (async () => {
   global.document = { createElement: () => ({ getContext: () => ({}) }), getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], body: { classList: { add(){}, remove(){} } } };
   global.window = { devicePixelRatio: 1 };
-  const parts = await import("./public/src/design/parts.js"); parts.applyServerParts(PARTS);
-  const thermal = await import("./public/src/design/thermalAnalysis.js");
+  const parts = await import("../public/src/design/parts.js"); parts.applyServerParts(PARTS);
+  const thermal = await import("../public/src/design/thermalAnalysis.js");
   function load(design, wiring, mode="full", options={}) { return thermal.buildThermalLoad(thermal.buildThermalModel(design), mode, wiring, options); }
   function serverCoolingRate(ship, model, i) {
     const th = ship.componentThermals[i]; let rate = th.cooling * th.retention;
@@ -67,7 +67,7 @@ function zeroes(n) { return Array.from({ length:n }, () => 0); }
     if (initOptions.initialHeatRatios) for (const [k,v] of Object.entries(initOptions.initialHeatRatios)) { const i=Number(k); ship.componentHeat[i]=ship.componentThermals[i].capacity * v; ship.componentHeatState[i]=HeatRules.stateFor(v, ship.componentHeatState[i]); }
     if (initOptions.initialHeatStates) for (const [k,v] of Object.entries(initOptions.initialHeatStates)) setHeatState(ship, Number(k), v);
     reallocateShipPower(ship, "parity-initial-heat");
-    require("./src/server/componentData").refreshShipDataAllocation(ship, "parity-initial-heat");
+    require("../src/server/componentData").refreshShipDataAllocation(ship, "parity-initial-heat");
     if (fixture.beforeServer) fixture.beforeServer(ship);
     const generated = zeroes(fixture.design.length), cooled = zeroes(fixture.design.length), peakRatio = zeroes(fixture.design.length), peakAvailable = zeroes(fixture.design.length);
     let totalGenerated = 0, totalCooled = 0, totalAvailable = 0, totalOverflow = 0;

@@ -8,11 +8,11 @@ const fs = require("fs");
 const path = require("path");
 const { EventEmitter } = require("events");
 const { decode, encode } = require("@msgpack/msgpack");
-const delivery = require("./src/server/snapshotDelivery");
-const outbound = require("./src/server/outbound");
-const { performanceSnapshot } = require("./src/server/performanceTelemetry");
-const { performanceNow } = require("./src/server/utils");
-const { signature: snapshotEntitySignature } = require("./src/server/snapshotEntityDelta");
+const delivery = require("../src/server/snapshotDelivery");
+const outbound = require("../src/server/outbound");
+const { performanceSnapshot } = require("../src/server/performanceTelemetry");
+const { performanceNow } = require("../src/server/utils");
+const { signature: snapshotEntitySignature } = require("../src/server/snapshotEntityDelta");
 
 const COUNTS = [50, 150, 300, 600];
 const CLIENT_COUNTS = [1, 2, 4, 6];
@@ -360,7 +360,7 @@ function mutateRoom(room, scenario, frame) {
 }
 
 async function mergeWrittenPackets(packets) {
-  const merge = await import("./public/src/snapshotMerge.js");
+  const merge = await import("../public/src/snapshotMerge.js");
   let snapshot = null;
   let state = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
   const decodeSamples = [];
@@ -537,7 +537,7 @@ async function main() {
       "Signature-cost evidence is a controlled Node microbenchmark over representative field values; it compares structural-signature time with MessagePack encoding time and reports the field bytes omitted when a value stays unchanged, but does not attribute per-field production snapshots."
     ]
   };
-  const outputPath = path.join(__dirname, "test-artifacts", "performance", "benchmark-phase-5.json");
+  const outputPath = path.join(path.dirname(__dirname), "test-artifacts", "performance", "benchmark-phase-5.json");
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
   console.log(`Phase 5 benchmark wrote ${outputPath}`);

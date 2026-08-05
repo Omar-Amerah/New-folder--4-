@@ -1,11 +1,11 @@
 "use strict";
 const assert = require("assert");
-const HeatRules = require("./public/src/shared/heatRules");
-const heat = require("./src/server/heat");
-const health = require("./src/server/componentHealth");
-const movement = require("./src/server/movement");
-const combat = require("./src/server/combat");
-const { computeStats } = require("./src/server/shipStats");
+const HeatRules = require("../public/src/shared/heatRules");
+const heat = require("../src/server/heat");
+const health = require("../src/server/componentHealth");
+const movement = require("../src/server/movement");
+const combat = require("../src/server/combat");
+const { computeStats } = require("../src/server/shipStats");
 
 const S = HeatRules.STATE;
 assert.strictEqual(HeatRules.activeOutputForState(S.WARM), 1, "Warm active output remains 1");

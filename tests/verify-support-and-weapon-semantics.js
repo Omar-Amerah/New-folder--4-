@@ -2,13 +2,13 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat, STATE } = require("./src/server/heat");
-const { updateShipSupport, updateShipWeapons, findPointDefenseTarget, PRIORITY_COMPONENT_TYPES } = require("./src/server/combat");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { tickRoom } = require("./src/server/simulation");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat, STATE } = require("../src/server/heat");
+const { updateShipSupport, updateShipWeapons, findPointDefenseTarget, PRIORITY_COMPONENT_TYPES } = require("../src/server/combat");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { tickRoom } = require("../src/server/simulation");
 
 function makeShip(id, ownerId, x, y, design) {
   const ship = { id, ownerId, x, y, vx: 0, vy: 0, angle: 0, alive: true, removed: false, shield: 0, radius: 35, focusTargetId: null, combatTargetId: null, repairTargetId: null, effects: [], cost: 100, design };
@@ -62,7 +62,7 @@ function weaponShip() { return makeShip("gun", "a", 0, 0, [{ x: 7, y: 7, type: "
   const s = weaponShip(); const e = makeShip("enemy", "b", 180, 90, localDesign); const r = room([s, e]); s.componentHeatState[2] = STATE.OVERHEATED; s.weaponCooldowns = [0,0,0]; updateShipWeapons(r, s, [s, e], 0.25, 1000); assert.strictEqual(s.weaponAimTargetIds[2], e.id); assert.notStrictEqual(s.weaponAngles[2], 0, "overheated powered weapon tracks"); assert.strictEqual(r.bullets.length, 0); assert.strictEqual(s.weaponCooldowns[2], 0); s.componentHeatState[2] = STATE.NORMAL; for (let i=0;i<20 && r.bullets.length===0;i++) updateShipWeapons(r, s, [s,e], 0.1, 1000 + BALANCE.fireControl.baseReacquisitionDelayMs + i); assert(r.bullets.length > 0, "restored thermal activity permits firing"); s.componentHp[2] = 0; updateShipWeapons(r, s, [s,e], 0.1, 2000); assert.strictEqual(s.weaponAimTargetIds[2], null, "destroyed weapon cannot aim");
 }
 {
-  assert.strictEqual(require("./src/server/combat").updateDecoys, undefined, "updateDecoys is not exported");
+  assert.strictEqual(require("../src/server/combat").updateDecoys, undefined, "updateDecoys is not exported");
   assert(!fs.readFileSync("src/server/componentHealth.js", "utf8").includes("decoyRange"), "effective stat keys have no decoy fields");
   assert(!Object.values(PARTS).some(p => p.decoyRange || p.decoyCooldown || p.decoyConfuseDuration || p.decoyChance), "no live balance component exposes decoy stats");
   assert(fs.readFileSync("src/server/projectiles.js", "utf8").includes("trackingDisabledFor")); assert(fs.readFileSync("src/server/projectiles.js", "utf8").includes("ecmStrength"));

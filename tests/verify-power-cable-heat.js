@@ -5,16 +5,16 @@
 // drives Heat, kept separate from component Heat, revision-cached, damage/repair).
 
 const assert = require("assert");
-const PCT = require("./public/src/shared/powerCableThermalRules");
-const WiringRules = require("./public/src/shared/wiringRules");
-const WiringInfra = require("./public/src/shared/wiringInfrastructureRules");
-const PF = require("./public/src/shared/powerFlowRules");
-const { PARTS } = require("./src/server/components");
-const { BALANCE } = require("./src/server/balanceConfig");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initShipHeat, updateShipHeat } = require("./src/server/heat");
-const { rebuildShipWiringState } = require("./src/server/componentPower");
+const PCT = require("../public/src/shared/powerCableThermalRules");
+const WiringRules = require("../public/src/shared/wiringRules");
+const WiringInfra = require("../public/src/shared/wiringInfrastructureRules");
+const PF = require("../public/src/shared/powerFlowRules");
+const { PARTS } = require("../src/server/components");
+const { BALANCE } = require("../src/server/balanceConfig");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initShipHeat, updateShipHeat } = require("../src/server/heat");
+const { rebuildShipWiringState } = require("../src/server/componentPower");
 
 const TIERS = BALANCE.wiringInfrastructure.powerTiers;
 let passed = 0;

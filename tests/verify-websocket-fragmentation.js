@@ -1,6 +1,6 @@
 const assert = require('assert');
-const { WebSocketFrameParser } = require('./src/server/wsFrameParser');
-const { encodeMessage } = require('./src/server/wsCodec');
+const { WebSocketFrameParser } = require('../src/server/wsFrameParser');
+const { encodeMessage } = require('../src/server/wsCodec');
 function frame(payload, opcode, fin=true){const data=Buffer.from(payload);let h=Buffer.from([ (fin?0x80:0)|opcode, 0x80|data.length]);const m=Buffer.from([1,2,3,4]);const p=Buffer.alloc(data.length);for(let i=0;i<data.length;i++)p[i]=data[i]^m[i%4];return Buffer.concat([h,m,p]);}
 const msg=encodeMessage({type:'ping',n:1});
 let p=new WebSocketFrameParser();

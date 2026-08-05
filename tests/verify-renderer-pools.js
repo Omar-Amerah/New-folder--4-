@@ -1,6 +1,6 @@
 const assert = require('assert');
 (async () => {
-  const { createRendererPool } = await import('./public/src/game/rendererPool.js');
+  const { createRendererPool } = await import('../public/src/game/rendererPool.js');
   const destroyed=[]; let n=0;
   const pool=createRendererPool({name:'ship',maxIdle:2,create:()=>({id:++n,root:{x:1,visible:true},heat:5,damage:9,weaponAngle:3,text:'old',owner:'red'}),reset:o=>{o.root.x=0;o.root.visible=false;o.heat=0;o.damage=0;o.weaponAngle=0;o.text='';o.owner=null;},destroy:o=>destroyed.push(o.id)});
   const a=pool.acquire(), b=pool.acquire(); assert.strictEqual(pool.activeCount(),2);

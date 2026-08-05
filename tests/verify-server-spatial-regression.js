@@ -2,7 +2,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { RoomSpatialIndex, buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const { RoomSpatialIndex, buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 const {
   CONFIG,
   ownerActiveCount,
@@ -10,18 +10,18 @@ const {
   setDroneDestroyed,
   setDroneBayMode,
   _test: { spawnDrone, chooseTarget, updateDroneEntity }
-} = require("./src/server/drones");
-const { addBullet, ensureProjectileLookup, updateBullets } = require("./src/server/projectiles");
-const { resetMatch } = require("./src/server/rooms");
-const { repairShipComponents } = require("./src/server/componentHealth");
-const { shipRepairNeed } = require("./src/server/combat");
-const { markShipRepairCacheDirty } = require("./src/server/repairCache");
+} = require("../src/server/drones");
+const { addBullet, ensureProjectileLookup, updateBullets } = require("../src/server/projectiles");
+const { resetMatch } = require("../src/server/rooms");
+const { repairShipComponents } = require("../src/server/componentHealth");
+const { shipRepairNeed } = require("../src/server/combat");
+const { markShipRepairCacheDirty } = require("../src/server/repairCache");
 const {
   recordRoomTick,
   recordTick,
   recordSnapshot,
   performanceSnapshot
-} = require("./src/server/performanceTelemetry");
+} = require("../src/server/performanceTelemetry");
 
 function player(id, team) {
   return { id, team, ships: [], connected: true, purchaseRequests: new Map(), money: 0 };
@@ -151,7 +151,7 @@ function carrierRoom() {
   bay.mode = "recalled";
   second.state = "returning";
   second.returnReason = "recall";
-  const pose = require("./src/server/drones").bayWorldPose(carrier, bay);
+  const pose = require("../src/server/drones").bayWorldPose(carrier, bay);
   second.x = pose.x;
   second.y = pose.y;
   updateDroneEntity(room, second, 0, 20);

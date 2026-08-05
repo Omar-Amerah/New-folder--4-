@@ -15,7 +15,7 @@ const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;
 const { server } = startServer(port);
 let browser;
-const artifactDir = path.join(__dirname, "test-artifacts", "wiring-analysis");
+const artifactDir = path.join(path.dirname(__dirname), "test-artifacts", "wiring-analysis");
 fs.mkdirSync(artifactDir, { recursive: true });
 
 async function buildFixture(page) {
@@ -701,7 +701,7 @@ async function inspectCircleSafety(page) {
     assert.ok(peakMotion.animationName === "none", "no pulse animation under reduced motion");
     assert.ok(peakMotion.filter && peakMotion.filter !== "none", "static glow cue remains under reduced motion");
 
-    console.log(`Wiring tier/status and prioritised analysis browser verification passed; screenshots: ${path.relative(__dirname, artifactDir)}`);
+    console.log(`Wiring tier/status and prioritised analysis browser verification passed; screenshots: ${path.relative(path.dirname(__dirname), artifactDir)}`);
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.kill("SIGTERM");

@@ -1,13 +1,13 @@
 "use strict";
 
 const assert = require("assert");
-const { createRoom } = require("./src/server/rooms");
-const { computeStats } = require("./src/server/shipStats");
-const { DEFAULT_DESIGN } = require("./src/server/config");
-const { spawnShip } = require("./src/server/ships");
-const { commandShips } = require("./src/server/movement");
-const { requestSelfDestruct } = require("./src/server/combat");
-const { selectOwnedLivingShips } = require("./src/server/selection");
+const { createRoom } = require("../src/server/rooms");
+const { computeStats } = require("../src/server/shipStats");
+const { DEFAULT_DESIGN } = require("../src/server/config");
+const { spawnShip } = require("../src/server/ships");
+const { commandShips } = require("../src/server/movement");
+const { requestSelfDestruct } = require("../src/server/combat");
+const { selectOwnedLivingShips } = require("../src/server/selection");
 
 function player(id, team) {
   const design = DEFAULT_DESIGN.map((part) => ({ ...part }));

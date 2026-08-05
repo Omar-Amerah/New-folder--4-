@@ -13,17 +13,17 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const WiringRules = require("./public/src/shared/wiringRules");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const ShieldRules = require("./public/src/shared/shieldRules");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { STATE } = require("./src/server/heat");
+const WiringRules = require("../public/src/shared/wiringRules");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const ShieldRules = require("../public/src/shared/shieldRules");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { STATE } = require("../src/server/heat");
 const {
   initializeComponentPower, rebuildShipWiringState, reallocateShipPower,
   getComponentPowerMultiplier, effectiveShieldStats
-} = require("./src/server/componentPower");
+} = require("../src/server/componentPower");
 
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 function wire(design, routes, policy) {
@@ -73,7 +73,7 @@ check("consumer demand is the static nominal powerUse, not activity demand",
   engine.requestedMw === PARTS.engine.powerUse);
 
 // The old uniform per-network allocator (analyzeShipPower) must be gone.
-const source = fs.readFileSync(path.join(__dirname, "src", "server", "componentPower.js"), "utf8");
+const source = fs.readFileSync(path.join(path.dirname(__dirname), "src", "server", "componentPower.js"), "utf8");
 check("componentPower.js allocates via the shared solver and no longer imports the legacy analyzeShipPower allocator",
   /PowerFlowRules\.solvePowerFlow/.test(source) && !/analyzeShipPower/.test(source) && !/require\(["'][.\/]*shipDesign["']\)/.test(source));
 

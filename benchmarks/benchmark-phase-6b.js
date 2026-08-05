@@ -6,10 +6,10 @@ const path = require("node:path");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { performance } = require("node:perf_hooks");
-const RoomTelemetry = require("./src/server/roomTelemetry");
-const { updateDroneBays, CONFIG: DRONE_CONFIG } = require("./src/server/drones");
-const { updateBullets } = require("./src/server/projectiles");
-const { buildRoomSpatialIndex } = require("./src/server/spatialIndex");
+const RoomTelemetry = require("../src/server/roomTelemetry");
+const { updateDroneBays, CONFIG: DRONE_CONFIG } = require("../src/server/drones");
+const { updateBullets } = require("../src/server/projectiles");
+const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 
 function optionValue(name) {
   const prefix = `--${name}=`;

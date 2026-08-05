@@ -3,9 +3,9 @@
 // targeting chooses the closest component on the beam path rather than blueprint
 // insertion order.
 const assert = require("assert");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState, repairShipComponents } = require("./src/server/componentHealth");
-const { updateShipWeapons, componentAimWorldPosition, selectComponentAimIndex } = require("./src/server/combat");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState, repairShipComponents } = require("../src/server/componentHealth");
+const { updateShipWeapons, componentAimWorldPosition, selectComponentAimIndex } = require("../src/server/combat");
 
 function makeShip(design, overrides = {}) {
   const ship = {

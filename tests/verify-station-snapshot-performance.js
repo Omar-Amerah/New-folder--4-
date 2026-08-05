@@ -1,8 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { createRoom, sanitizeRoomRules } = require("./src/server/rooms");
-const { createStationsForRoom } = require("./src/server/stations");
+const { createRoom, sanitizeRoomRules } = require("../src/server/rooms");
+const { createStationsForRoom } = require("../src/server/stations");
 const {
   snapshotRoom,
   buildSharedSnapshot,
@@ -12,9 +12,9 @@ const {
   markSnapshotStationStaticWritten,
   markSnapshotStationComponentWritten,
   markSnapshotConditionStationsWritten
-} = require("./src/server/snapshots");
-const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("./src/server/snapshotEntityDelta");
-const { encodeMessage } = require("./src/server/wsCodec");
+} = require("../src/server/snapshots");
+const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("../src/server/snapshotEntityDelta");
+const { encodeMessage } = require("../src/server/wsCodec");
 
 function makePlayer(id, team) {
   return {
@@ -142,7 +142,7 @@ function assertFiniteNumbers(value, path) {
   const reacquiredAllied = reacquired.stations.find((station) => station.id === alliedFull.id);
   assert.ok(reacquiredAllied.componentHp?.length, "condition reacquisition resends health even when its revision is unchanged");
 
-  const merge = await import("./public/src/snapshotMerge.js");
+  const merge = await import("../public/src/snapshotMerge.js");
   const fullMerged = merge.mergeFullSnapshot(full);
   assert.equal(fullMerged.ok, true);
   const compactBuild = buildEntityDeltaSnapshot(compact, buildStateFromSnapshot(full, full.stateEpoch));

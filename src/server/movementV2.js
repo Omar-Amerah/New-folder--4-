@@ -898,24 +898,11 @@ function orbitBrakingCeiling(room, ship, stats) {
   const reach = speed * speed / (2 * deceleration) + speed * ORBIT_AVOIDANCE_REACTION_TIME;
   if (!(reach > 1)) return Infinity;
 
-  // While a valid detour route is active, probe along the next planned segment
-  // rather than along raw momentum; otherwise probe along the actual velocity.
-  const runtime = ship.movement;
-  let unitX = (ship.vx || 0) / speed;
-  let unitY = (ship.vy || 0) / speed;
-  if (runtime?.path?.length && typeof runtime.waypointIndex === "number") {
-    const index = Math.min(Math.floor(runtime.waypointIndex), runtime.path.length - 1);
-    const next = runtime.path[index];
-    if (next) {
-      const dx = next.x - ship.x;
-      const dy = next.y - ship.y;
-      const d = fastHypot(dx, dy);
-      if (d > 0.001) {
-        unitX = dx / d;
-        unitY = dy / d;
-      }
-    }
-  }
+  // Probe along the actual velocity. Momentum is what puts a hull into a rock;
+  // a valid detour route is checked by orbitPathClearDistance before the ship
+  // is committed to it.
+  const unitX = (ship.vx || 0) / speed;
+  const unitY = (ship.vy || 0) / speed;
 
   const clearFor = (distance, margin = emergencyClearance) => isSegmentClear(
     room,

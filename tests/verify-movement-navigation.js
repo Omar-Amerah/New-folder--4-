@@ -8,15 +8,15 @@
 // that without either cutting into obstacles or giving up.
 
 const assert = require("node:assert/strict");
-const { movementTestTick } = require("./tools/movementTestTick");
-const { commandShips, physicalCollisionRadius } = require("./src/server/movement");
-const { ARRIVE_DISTANCE } = require("./src/server/movementTuning");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius } = require("./src/server/componentGeometry");
+const { movementTestTick } = require("../tools/movementTestTick");
+const { commandShips, physicalCollisionRadius } = require("../src/server/movement");
+const { ARRIVE_DISTANCE } = require("../src/server/movementTuning");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
 
 const DT = 1 / 30;
 const LIGHT = [

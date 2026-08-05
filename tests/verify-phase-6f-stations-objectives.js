@@ -10,14 +10,14 @@ const {
   DURATION_FIELDS,
   COUNTER_FIELDS,
   getRoomTelemetry
-} = require("./src/server/roomTelemetry");
-const { tickRoom } = require("./src/server/simulation");
-const { destroyStationsForRoom } = require("./src/server/stations");
-const { clearStationWeaponRuntime } = require("./src/server/stationCombat");
-const { clearRoomRuntimeScratch, bumpStateEpoch } = require("./src/server/rooms");
-const { createMovementRuntime } = require("./src/server/movementRuntime");
-const { PARTS } = require("./src/server/components");
-const benchmark = require("./benchmark-phase-6f");
+} = require("../src/server/roomTelemetry");
+const { tickRoom } = require("../src/server/simulation");
+const { destroyStationsForRoom } = require("../src/server/stations");
+const { clearStationWeaponRuntime } = require("../src/server/stationCombat");
+const { clearRoomRuntimeScratch, bumpStateEpoch } = require("../src/server/rooms");
+const { createMovementRuntime } = require("../src/server/movementRuntime");
+const { PARTS } = require("../src/server/components");
+const benchmark = require("../benchmark-phase-6f");
 
 const {
   ALL_SCENARIOS,
@@ -239,7 +239,7 @@ function verifyAuthoritativeOrdering() {
     // The direct production-shaped frame is followed by the same finalization
     // boundary used by tickRoom; visibility invalidation is after ownership and
     // damage changes, never before them.
-    require("./src/server/visibility").invalidateVisibility(fixture.room, "phase-6f-final");
+    require("../src/server/visibility").invalidateVisibility(fixture.room, "phase-6f-final");
     assert((fixture.room._visibilityGeneration || 0) >= beforeGeneration, "final visibility observes the post-combat state");
   });
 

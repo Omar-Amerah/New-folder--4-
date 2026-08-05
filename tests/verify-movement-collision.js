@@ -8,7 +8,7 @@
 // solids alike, and check that launch-phase hulls stay the station's business.
 
 const assert = require("node:assert/strict");
-const { movementTestTick } = require("./tools/movementTestTick");
+const { movementTestTick } = require("../tools/movementTestTick");
 const {
   commandShips,
   commandShipsToDestination,
@@ -17,7 +17,7 @@ const {
   resolveMapCollision,
   resolveSeparationPair,
   updateShipMovement
-} = require("./src/server/movement");
+} = require("../src/server/movement");
 const {
   FRIENDLY_COMPRESSION_SPEED,
   FRIENDLY_PUSH_ABSOLUTE_CAP,
@@ -25,14 +25,14 @@ const {
   FRIENDLY_PUSH_MASS_FACTOR_MAX,
   FRIENDLY_PUSH_SPEED_RATIO,
   STATIC_COLLISION_MAX_TICK_CORRECTION
-} = require("./src/server/movementTuning");
-const { getMovementContactPairs } = require("./src/server/movementContactPairs");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { initializeComponentPower } = require("./src/server/componentPower");
-const { initShipHeat } = require("./src/server/heat");
-const { createGeneratedPowerWiring } = require("./src/server/shipDesign");
-const { computeDesignCollisionRadius, findShipHullOverlap } = require("./src/server/componentGeometry");
+} = require("../src/server/movementTuning");
+const { getMovementContactPairs } = require("../src/server/movementContactPairs");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { initializeComponentPower } = require("../src/server/componentPower");
+const { initShipHeat } = require("../src/server/heat");
+const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
+const { computeDesignCollisionRadius, findShipHullOverlap } = require("../src/server/componentGeometry");
 
 const DT = 1 / 30;
 const BASE = [
@@ -548,6 +548,33 @@ function run() {
     updateShipMovement(room, launching, DT, DT * 1000);
     assert(Math.hypot(launching.vx, launching.vy) > 0 || launching.angle !== 0,
       "once released the ship answers its order normally");
+  }
+
+  // --- pusher selection is independent of argument order ---------------------
+  //
+  // A stationary hull with a moving one overlapping it should produce the same
+  // world velocities regardless of which ship is passed as the first argument.
+  // The contact normal flips, so the pusher must be chosen from the motion into
+  // the contact rather than from argument order.
+  {
+    const radius = physicalCollisionRadius(makeShip({ x: 0, y: 0 }));
+    const gap = radius * 2 - 6;
+    const a1 = makeShip({ id: "order-a1", x: 1000, y: 1000 });
+    const b1 = makeShip({ id: "order-b1", x: 1000 + gap, y: 1000, vx: -100 });
+    const room1 = makeRoom([a1, b1]);
+    resolveSeparationPair(room1, a1, b1, DT);
+
+    const a2 = makeShip({ id: "order-a2", x: 1000, y: 1000 });
+    const b2 = makeShip({ id: "order-b2", x: 1000 + gap, y: 1000, vx: -100 });
+    const room2 = makeRoom([a2, b2]);
+    resolveSeparationPair(room2, b2, a2, DT);
+
+    assert(Math.abs(a1.vx - a2.vx) < 1e-9 && Math.abs(a1.vy - a2.vy) < 1e-9,
+      "argument order must not change the stationary ship's velocity");
+    assert(Math.abs(b1.vx - b2.vx) < 1e-9 && Math.abs(b1.vy - b2.vy) < 1e-9,
+      "argument order must not change the moving ship's velocity");
+    assert(b1.vx < a1.vx - 1e-9,
+      "the moving ship settles just behind the one it pushed");
   }
 
   console.log("verify-movement-collision: OK");

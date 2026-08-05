@@ -1,12 +1,12 @@
 "use strict";
 
 const assert = require("assert");
-const { createRoom } = require("./src/server/rooms");
-const { DEFAULT_DESIGN } = require("./src/server/config");
-const { computeStats } = require("./src/server/shipStats");
-const { createGeneratedPowerWiring, validateWiring } = require("./src/server/shipDesign");
-const { executePurchase, buyShip } = require("./src/server/economy");
-const { spawnShip, addBot } = require("./src/server/ships");
+const { createRoom } = require("../src/server/rooms");
+const { DEFAULT_DESIGN } = require("../src/server/config");
+const { computeStats } = require("../src/server/shipStats");
+const { createGeneratedPowerWiring, validateWiring } = require("../src/server/shipDesign");
+const { executePurchase, buyShip } = require("../src/server/economy");
+const { spawnShip, addBot } = require("../src/server/ships");
 
 function setup() {
   const room = createRoom("WIRE"); room.phase = "active"; room.players.clear(); room.ships.clear(); room.effects.length = 0;

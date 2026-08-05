@@ -111,7 +111,7 @@ export function buildThermalModel(design, wiring = null) {
   const coolingFrames = [];
   for (let i = 0; i < design.length; i += 1) {
     if (!isFrame(design[i].type)) continue;
-    if ([...edgeMaps[i].keys()].some(j => design[j].type === "radiator" || design[j].type === "heatSink")) {
+    if ([...edgeMaps[i].keys()].some(j => design[j].type === "radiator" || design[j].type === "heatSink" || design[j].type === "closedCycleCooler")) {
       frameCoolingDistance[i] = 0; coolingFrames.push(i);
     }
   }
@@ -306,8 +306,11 @@ export function simulateThermalLoad(model, load, options = {}) {
         const activeCooling = profiles[i].cooling * rules.activeCoolingForState(states[i]) * (powerMultiplier[i] ?? 1);
         const passiveFloor = profiles[i].cooling * rules.RADIATOR_PASSIVE_COOLING_FRACTION;
         coolingRate = Math.max(passiveFloor, activeCooling) * exposure * profiles[i].retention;
-      }
-      else if (exposed[i] > 0) coolingRate *= 1.12;
+      } else if (design[i].type === "closedCycleCooler") {
+        const activeCooling = profiles[i].cooling * rules.activeCoolingForState(states[i]) * (powerMultiplier[i] ?? 1);
+        const passiveFloor = profiles[i].passiveCooling;
+        coolingRate = Math.max(passiveFloor, activeCooling) * profiles[i].retention;
+      } else if (exposed[i] > 0) coolingRate *= 1.12;
       const coolRatio = Math.max(0, (heat[i] + delta[i]) / Math.max(1, profiles[i].capacity));
       coolingRate *= 0.7 + 0.9 * coolRatio * coolRatio;
       tickAvailableCoolingRate += coolingRate;
@@ -374,6 +377,7 @@ export function summariseThermalResult(model, load, simulation) {
   const predictions = new Map();
   for (let i = 0; i < design.length; i += 1) {
     const isRadiator = design[i].type === "radiator";
+    const isClosedCycleCooler = design[i].type === "closedCycleCooler";
     const isExposed = exposed[i] > 0;
     const powerEntry = powerByIndex.get(i);
     const activityHeat = simulation.generatedHeat?.[i] ?? 0;
@@ -385,11 +389,12 @@ export function summariseThermalResult(model, load, simulation) {
       meltdownTime: meltdownTime[i],
       exposedEdges: exposed[i],
       exteriorDirections: [...exteriorDirections[i]],
-      exposureCoolingMultiplier: isRadiator ? (isExposed ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) : (isExposed ? 1.12 : 1),
+      exposureCoolingMultiplier: isRadiator ? (isExposed ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) : (isExposed && !isClosedCycleCooler ? 1.12 : 1),
       powerMultiplier: simulation.finalPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       initialPowerMultiplier: simulation.initialPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       minimumPowerMultiplier: simulation.minimumPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       radiatorEffectiveCooling: isRadiator ? cooling[i] / dt : 0,
+      closedCycleCoolerEffectiveCooling: isClosedCycleCooler ? cooling[i] / dt : 0,
       dataSupportMultiplier: (simulation.dataSupport || load.dataSupport)?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + (simulation.dataSupport || load.dataSupport).weaponSupportByIndex[i].fireRateBonus : 1,
       componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0,
       scenarioActivity: load.powerState?.activity?.[i] ?? 0,
@@ -415,12 +420,18 @@ export function summariseThermalResult(model, load, simulation) {
     const networkClass = network ? `thermal-network-${network.id % 4}` : "";
     const frameLoad = isFrame(module.type) ? (peakRatios[i] >= rules.THRESHOLDS.hot ? " thermal-frame-heavy" : peakRatios[i] >= rules.THRESHOLDS.warm ? " thermal-frame-moderate" : " thermal-frame-cool") : "";
     const broken = isFrame(module.type) && (network?.isolated || problems.criticalFrames.has(i)) ? " thermal-route-broken" : "";
-    const coolingEffect = module.type === "heatSink" ? " heat-sink-absorption" : module.type === "radiator" && exposed[i] ? ` radiator-exposed radiator-exposed-${[...exteriorDirections[i]][0] || "right"}` : "";
+    const coolingEffect = module.type === "heatSink" ? " heat-sink-absorption" : module.type === "radiator" && exposed[i] ? ` radiator-exposed radiator-exposed-${[...exteriorDirections[i]][0] || "right"}` : module.type === "closedCycleCooler" ? " closed-cycle-cooler" : "";
     return [module, `${stateClass} ${networkClass}${frameLoad}${broken}${coolingEffect}`.trim()];
   }));
   const componentHeat = new Map(design.map((module, i) => [module, Math.round(peakRatios[i] * 100)]));
   const generation = generationRates.reduce((sum, value) => sum + value, 0);
-  const nominalCoolingRate = profiles.reduce((sum, item, i) => sum + (design[i].type === "radiator" ? item.cooling * (exposed[i] ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) : item.cooling * (exposed[i] ? 1.12 : 1)), 0);
+  const nominalCoolingRate = profiles.reduce((sum, item, i) => {
+    const isCooler = design[i].type === "closedCycleCooler";
+    const isRadiator = design[i].type === "radiator";
+    if (isRadiator) return sum + item.cooling * (exposed[i] ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER);
+    if (isCooler) return sum + item.cooling;
+    return sum + item.cooling * (exposed[i] ? 1.12 : 1);
+  }, 0);
   const totalCoolingRemoved = simulation.totalCoolingRemoved ?? 0;
   const coolingRate = simulation.averageAvailableCoolingRate ?? (simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0);
   const averageActualCoolingRate = simulation.averageActualCoolingRate ?? (simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0);

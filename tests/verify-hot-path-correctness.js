@@ -3,19 +3,19 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-global.WiringRules = require("./public/src/shared/wiringRules");
-global.PowerFlowRules = require("./public/src/shared/powerFlowRules");
-global.ShieldRules = require("./public/src/shared/shieldRules");
-global.HeatRules = require("./public/src/shared/heatRules");
+global.WiringRules = require("../public/src/shared/wiringRules");
+global.PowerFlowRules = require("../public/src/shared/powerFlowRules");
+global.ShieldRules = require("../public/src/shared/shieldRules");
+global.HeatRules = require("../public/src/shared/heatRules");
 
-const { createImmutableShipTemplate } = require("./src/server/shipTemplates");
-const { spawnShip } = require("./src/server/ships");
-const { computeStats } = require("./src/server/shipStats");
-const { PARTS } = require("./src/server/components");
-const { addComponentHeat, updateShipHeat } = require("./src/server/heat");
-const { RoomSpatialIndex, shipBroadPhaseRadius } = require("./src/server/spatialIndex");
-const { updateShipSeparation, resolveFleetMapCollisions } = require("./src/server/movement");
-const { _test: snapshotDeliveryTest } = require("./src/server/snapshotDelivery");
+const { createImmutableShipTemplate } = require("../src/server/shipTemplates");
+const { spawnShip } = require("../src/server/ships");
+const { computeStats } = require("../src/server/shipStats");
+const { PARTS } = require("../src/server/components");
+const { addComponentHeat, updateShipHeat } = require("../src/server/heat");
+const { RoomSpatialIndex, shipBroadPhaseRadius } = require("../src/server/spatialIndex");
+const { updateShipSeparation, resolveFleetMapCollisions } = require("../src/server/movement");
+const { _test: snapshotDeliveryTest } = require("../src/server/snapshotDelivery");
 
 function serverFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -24,11 +24,11 @@ function serverFiles(directory) {
   });
 }
 
-for (const file of serverFiles(path.join(__dirname, "src", "server"))) {
+for (const file of serverFiles(path.join(path.dirname(__dirname), "src", "server"))) {
   if (path.basename(file) === "heat.js") continue;
   const source = fs.readFileSync(file, "utf8");
   assert(!/componentHeatInput\s*\[[^\]]+\]\s*(?:\+=|=\s*[^=].*\+)/.test(source),
-    `${path.relative(__dirname, file)} writes componentHeatInput directly; use addComponentHeat()`);
+    `${path.relative(path.dirname(__dirname), file)} writes componentHeatInput directly; use addComponentHeat()`);
 }
 
 const design = [

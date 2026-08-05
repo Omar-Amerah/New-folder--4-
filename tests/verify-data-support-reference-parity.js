@@ -2,21 +2,21 @@
 const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
-const WiringRules = require("./public/src/shared/wiringRules");
-const DataRules = require("./public/src/shared/dataSupportRules");
-const HeatRules = require("./public/src/shared/heatRules");
-const { PARTS } = require("./src/server/components");
-const fixtures = require("./test-fixtures/dataSupportReferenceShips");
-const harness = require("./test-fixtures/dataSupportRuntimeHarness");
+const WiringRules = require("../public/src/shared/wiringRules");
+const DataRules = require("../public/src/shared/dataSupportRules");
+const HeatRules = require("../public/src/shared/heatRules");
+const { PARTS } = require("../src/server/components");
+const fixtures = require("./fixtures/dataSupportReferenceShips");
+const harness = require("./fixtures/dataSupportRuntimeHarness");
 
 if (typeof globalThis.document === "undefined") { globalThis.document = { getElementById: () => null, querySelector: () => null }; }
-const ThermalAnalysis = require("./public/src/design/thermalAnalysis");
-const PowerFlowRules = require("./public/src/shared/powerFlowRules");
-const PowerDemandRules = require("./public/src/shared/powerDemandRules");
-const PowerCableThermalRules = require("./public/src/shared/powerCableThermalRules");
-const WiringInfrastructureRules = require("./public/src/shared/wiringInfrastructureRules");
-const EngineExhaustRules = require("./public/src/shared/engineExhaust");
-const { BALANCE } = require("./src/server/balanceConfig");
+const ThermalAnalysis = require("../public/src/design/thermalAnalysis");
+const PowerFlowRules = require("../public/src/shared/powerFlowRules");
+const PowerDemandRules = require("../public/src/shared/powerDemandRules");
+const PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules");
+const WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules");
+const EngineExhaustRules = require("../public/src/shared/engineExhaust");
+const { BALANCE } = require("../src/server/balanceConfig");
 globalThis.WiringRules = WiringRules; globalThis.DataSupportRules = DataRules; globalThis.HeatRules = HeatRules; globalThis.DesignThermalAnalysis = ThermalAnalysis;
 globalThis.PowerFlowRules = PowerFlowRules; globalThis.PowerDemandRules = PowerDemandRules; globalThis.PowerCableThermalRules = PowerCableThermalRules; globalThis.WiringInfrastructureRules = WiringInfrastructureRules; globalThis.EngineExhaustRules = EngineExhaustRules;
 globalThis.WIRING_ENABLED = true;
@@ -30,8 +30,8 @@ function compareSource(label, shared, runtime, designer, index) { const s = shar
 for (const f of fixtures.allReferenceShips()) {
   const beforeDesign = clone(f.design), beforeWiring = clone(f.wiring);
   const shared = WiringRules.analyzeWiring(f.design, f.wiring, PARTS).data.supportAnalysis;
-  const Power = require("./src/server/componentPower");
-  const Data = require("./src/server/componentData");
+  const Power = require("../src/server/componentPower");
+  const Data = require("../src/server/componentData");
   const ship = harness.createRuntimeShip(f);
   const runtime = ship.runtimeDataSupport;
   const designer = Designer.analyzeDesignDataSupport(f.design, f.wiring, PARTS, { sourcePowerMultiplier: (i) => Data.sourcePowerMultiplier(ship, i), sourceThermalMultiplier: (i) => Data.sourceThermalMultiplier(ship, i), sourceOperationalMultiplier: (i) => Data.sourceOperationalMultiplier(ship, i) });

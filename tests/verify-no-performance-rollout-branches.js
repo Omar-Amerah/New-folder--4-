@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
 
-const ROOT = __dirname;
+const ROOT = path.dirname(__dirname);
 const retired = [
   "UFJPSkVDVElMRV9GTEFLX1NJTkdMRV9QQVNT",
   "UFJPSkVDVElMRV9HUklEX0NPTExJU0lPTg==",
@@ -52,7 +52,7 @@ for (const file of filesUnder(ROOT)) {
 }
 assert.deepStrictEqual(offenders, [], `Retired performance rollout references remain:\n${offenders.join("\n")}`);
 
-const protocol = require("./src/server/protocol");
+const protocol = require("../src/server/protocol");
 assert.strictEqual(protocol.MIN_CLIENT_PROTOCOL, 6);
 assert.strictEqual(protocol.MAX_CLIENT_PROTOCOL, 6);
 assert.ok(protocol.REQUIRED_CAPABILITIES.includes("entityDeltaSnapshotsV1"));

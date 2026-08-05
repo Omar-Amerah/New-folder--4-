@@ -1,8 +1,8 @@
 // Focused runtime tests for explicit direct Data-support links.
 const assert = require("assert");
-const DataRules = require("./public/src/shared/dataSupportRules");
-const ComponentData = require("./src/server/componentData");
-const { PARTS } = require("./src/server/components");
+const DataRules = require("../public/src/shared/dataSupportRules");
+const ComponentData = require("../src/server/componentData");
+const { PARTS } = require("../src/server/components");
 
 globalThis.DataSupportRules = DataRules;
 

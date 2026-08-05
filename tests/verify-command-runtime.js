@@ -1,14 +1,14 @@
 "use strict";
 const assert = require("assert");
-const { PARTS } = require("./src/server/components");
-const { computeStats } = require("./src/server/shipStats");
-const { initComponentState } = require("./src/server/componentHealth");
-const { updateShipWeapons } = require("./src/server/combat");
-const { reallocateShipPower } = require("./src/server/componentPower");
-const { updateCommandAuras, getCommandAuraMultiplier, getCommandAuraRange } = require("./src/server/commandAuras");
-const { BALANCE } = require("./src/server/balanceConfig");
-const WiringRules = require("./public/src/shared/wiringRules");
-const HeatRules = require("./public/src/shared/heatRules");
+const { PARTS } = require("../src/server/components");
+const { computeStats } = require("../src/server/shipStats");
+const { initComponentState } = require("../src/server/componentHealth");
+const { updateShipWeapons } = require("../src/server/combat");
+const { reallocateShipPower } = require("../src/server/componentPower");
+const { updateCommandAuras, getCommandAuraMultiplier, getCommandAuraRange } = require("../src/server/commandAuras");
+const { BALANCE } = require("../src/server/balanceConfig");
+const WiringRules = require("../public/src/shared/wiringRules");
+const HeatRules = require("../public/src/shared/heatRules");
 
 const AURA_RANGE = getCommandAuraRange();
 const DT = 1 / 30;
@@ -259,7 +259,7 @@ function makeRoom(ships) {
   for (let t = 0; t < 3; t++) updateShipWeapons(room, sh, ships, DT, t * MS);
   assert(sh.weaponAcquiredTargetIds || sh.weaponPendingTargetIds, "state exists before destruction");
   // Destroy ship.
-  const { destroyShip } = require("./src/server/combat");
+  const { destroyShip } = require("../src/server/combat");
   room.players.get("p2").maxMoney = 9999;
   destroyShip(room, sh, "p2", 100);
   assert.strictEqual(sh.weaponAcquiredTargetIds, null, "acquired cleared on destroy");

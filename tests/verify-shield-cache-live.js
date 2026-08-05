@@ -2,13 +2,13 @@
 const assert = require('assert/strict');
 const EventEmitter = require('events');
 const { decode } = require('@msgpack/msgpack');
-const outbound = require('./src/server/outbound');
-const delivery = require('./src/server/snapshotDelivery');
-const { createRuntimeShip, destroyComponent } = require('./test-fixtures/dataSupportRuntimeHarness');
-const { updateRuntimeShield } = require('./src/server/runtimeShield');
-const { computeStats } = require('./src/server/shipStats');
-const { PARTS } = require('./src/server/components');
-const WiringRules = require('./public/src/shared/wiringRules');
+const outbound = require('../src/server/outbound');
+const delivery = require('../src/server/snapshotDelivery');
+const { createRuntimeShip, destroyComponent } = require('./fixtures/dataSupportRuntimeHarness');
+const { updateRuntimeShield } = require('../src/server/runtimeShield');
+const { computeStats } = require('../src/server/shipStats');
+const { PARTS } = require('../src/server/components');
+const WiringRules = require('../public/src/shared/wiringRules');
 
 class Socket extends EventEmitter {
   constructor(pattern) {
@@ -34,7 +34,7 @@ function attach(r, id, pattern) {
 }
 
 async function mergeWritten(writes) {
-  const m = await import('./public/src/snapshotMerge.js');
+  const m = await import('../public/src/snapshotMerge.js');
   let snap = null;
   let net = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
   let prev = 0;
