@@ -315,7 +315,7 @@ function run() {
         `head-on: A slows heavily (${afterA.toFixed(1)} from ${before.normalA.toFixed(1)})`);
       assert(Math.abs(afterB) < Math.abs(before.normalB) * 0.1,
         `head-on: B slows heavily (${afterB.toFixed(1)} from ${before.normalB.toFixed(1)})`);
-      assert(afterA >= 0 && afterA <= before.normalA,
+      assert(afterA >= -1e-9 && afterA <= before.normalA + 1e-9,
         "head-on: A is not bounced back the way it came");
       assert(afterB >= before.normalB,
         "head-on: B is not bounced back the way it came");

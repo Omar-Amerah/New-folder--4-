@@ -274,21 +274,38 @@ function remainingPushBudget(ship, dt) {
 // both slow heavily and neither bounces.
 function resolveFriendlyPush(a, b, normal, immovableA, immovableB, dt) {
   if (immovableA && immovableB) return false;
-  // The normal points from a toward b, so the hull with the greater speed along
-  // it is the one doing the pushing.
   const speedA = normalSpeed(a, normal);
   const speedB = normalSpeed(b, normal);
-  // Separating, or travelling together at the same speed. Two ships in
-  // formation resting against each other are not a collision and must not be
-  // charged for one.
-  if (speedA <= speedB) return false;
 
-  const pusher = a;
-  const receiver = b;
-  const pusherImmovable = immovableA;
-  const receiverImmovable = immovableB;
-  const pusherSpeed = speedA;
-  const receiverSpeed = speedB;
+  // Normal points from a toward b. inwardA is how fast a is moving into the
+  // contact; inwardB is how fast b is moving into the contact.
+  const inwardA = Math.max(0, speedA);
+  const inwardB = Math.max(0, -speedB);
+
+  // No closing motion at all.
+  if (inwardA <= 0 && inwardB <= 0) return false;
+
+  // Both ships are driving into each other. Remove the closing normal component
+  // from each while preserving any component that would carry it outward, so
+  // they slow heavily rather than reversing.
+  if (inwardA > 0 && inwardB > 0) {
+    if (!immovableA) setNormalSpeed(a, normal, speedA - inwardA);
+    if (!immovableB) setNormalSpeed(b, normal, speedB + inwardB);
+
+    return true;
+  }
+
+  // Exactly one ship is pushing. Choose it from the motion into the contact,
+  // not from argument order, and orient the contact frame so the pusher is
+  // always the first argument of the one-way logic.
+  const aIsPusher = inwardA >= inwardB;
+  const pusher = aIsPusher ? a : b;
+  const receiver = aIsPusher ? b : a;
+  const pusherImmovable = aIsPusher ? immovableA : immovableB;
+  const receiverImmovable = aIsPusher ? immovableB : immovableA;
+  const pusherNormal = aIsPusher ? normal : { x: -normal.x, y: -normal.y };
+  const pusherSpeed = aIsPusher ? speedA : -speedB;
+  const receiverSpeed = aIsPusher ? speedB : -speedA;
 
   // A hull the station is still launching has fixed authority: it is not moved
   // by contact, but whatever runs into it still stops driving through it.
@@ -314,7 +331,7 @@ function resolveFriendlyPush(a, b, normal, immovableA, immovableB, dt) {
     nextReceiverSpeed = base + increase;
     receiver._friendlyPushVelocityAdded = Math.max(0, Number(receiver._friendlyPushVelocityAdded) || 0)
       + increase;
-    setNormalSpeed(receiver, normal, nextReceiverSpeed);
+    setNormalSpeed(receiver, pusherNormal, nextReceiverSpeed);
   }
 
   if (!pusherImmovable) {
@@ -322,7 +339,7 @@ function resolveFriendlyPush(a, b, normal, immovableA, immovableB, dt) {
     // it -- but never reversed and never dragged below a standstill by the
     // contact. A shove takes closing speed away; it does not hand any back.
     const floor = Math.min(pusherSpeed, Math.max(nextReceiverSpeed, 0));
-    setNormalSpeed(pusher, normal, Math.max(
+    setNormalSpeed(pusher, pusherNormal, Math.max(
       floor,
       Math.min(pusherSpeed, nextReceiverSpeed + FRIENDLY_COMPRESSION_SPEED)
     ));

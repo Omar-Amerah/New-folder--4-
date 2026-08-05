@@ -888,13 +888,36 @@ function orbitPathClearDistance(room, ship, path) {
 function orbitBrakingCeiling(room, ship, stats) {
   const speed = fastHypot(ship.vx || 0, ship.vy || 0);
   if (!(speed > REST_SPEED)) return Infinity;
-  const clearance = routeClearance(ship);
+
+  // The +24 route-planning envelope is for planning the detour, not for the
+  // emergency forward-collision probe. The emergency probe uses the physical
+  // hull margin so that being inside the padded envelope is not mistaken for
+  // being in physical contact.
+  const emergencyClearance = physicalCollisionRadius(ship) + ORBIT_PINCH_HULL_MARGIN;
   const deceleration = Math.max(1, brakingAcceleration(stats));
   const reach = speed * speed / (2 * deceleration) + speed * ORBIT_AVOIDANCE_REACTION_TIME;
   if (!(reach > 1)) return Infinity;
-  const unitX = (ship.vx || 0) / speed;
-  const unitY = (ship.vy || 0) / speed;
-  const clearFor = (distance, margin = clearance) => isSegmentClear(
+
+  // While a valid detour route is active, probe along the next planned segment
+  // rather than along raw momentum; otherwise probe along the actual velocity.
+  const runtime = ship.movement;
+  let unitX = (ship.vx || 0) / speed;
+  let unitY = (ship.vy || 0) / speed;
+  if (runtime?.path?.length && typeof runtime.waypointIndex === "number") {
+    const index = Math.min(Math.floor(runtime.waypointIndex), runtime.path.length - 1);
+    const next = runtime.path[index];
+    if (next) {
+      const dx = next.x - ship.x;
+      const dy = next.y - ship.y;
+      const d = fastHypot(dx, dy);
+      if (d > 0.001) {
+        unitX = dx / d;
+        unitY = dy / d;
+      }
+    }
+  }
+
+  const clearFor = (distance, margin = emergencyClearance) => isSegmentClear(
     room,
     ship.x,
     ship.y,
@@ -926,8 +949,7 @@ function orbitBrakingCeiling(room, ship, stats) {
   if (!clearFor(0)) {
     if (speed > ORBIT_PINCH_ESCAPE_SPEED) return 0;
     const crawlStop = ORBIT_PINCH_ESCAPE_SPEED * ORBIT_PINCH_ESCAPE_SPEED / (2 * deceleration);
-    const hullMargin = physicalCollisionRadius(ship) + ORBIT_PINCH_HULL_MARGIN;
-    return clearFor(crawlStop + ORBIT_PINCH_HULL_MARGIN, hullMargin)
+    return clearFor(crawlStop + ORBIT_PINCH_HULL_MARGIN, emergencyClearance)
       ? ORBIT_PINCH_ESCAPE_SPEED
       : 0;
   }
