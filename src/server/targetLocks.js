@@ -43,6 +43,7 @@ function collectTrackedEntityIds(ship) {
     for (const targetId of ship[property] || []) add(targetId);
   }
   for (const contact of ship.weaponBeamContacts || []) add(contact?.targetShipId);
+  for (const contact of ship.weaponInductionContacts || []) add(contact?.targetShipId);
   return ids;
 }
 
@@ -77,6 +78,15 @@ function clearHiddenWeaponLocks(ship, hiddenIds) {
       const contact = ship.weaponBeamContacts[index];
       if (!hiddenIds.has(String(contact?.targetShipId))) continue;
       ship.weaponBeamContacts[index] = null;
+      cleared += 1;
+    }
+  }
+
+  if (Array.isArray(ship.weaponInductionContacts)) {
+    for (let index = 0; index < ship.weaponInductionContacts.length; index += 1) {
+      const contact = ship.weaponInductionContacts[index];
+      if (!hiddenIds.has(String(contact?.targetShipId))) continue;
+      ship.weaponInductionContacts[index] = null;
       cleared += 1;
     }
   }

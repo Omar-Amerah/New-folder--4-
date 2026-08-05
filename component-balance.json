@@ -1441,6 +1441,8 @@
       "energy": 0,
       "repair": 0,
       "utility": "heatTransfer",
+      "heatCapacity": 10,
+      "heatCooling": 0,
       "description": "Specialised high-conductivity thermal conduit that transfers heat to a connected sink or radiator route. It removes no heat by itself, stores very little heat, and is structurally weak: use frames for hull support and heat pipes for dedicated long thermal runs."
     },
     {

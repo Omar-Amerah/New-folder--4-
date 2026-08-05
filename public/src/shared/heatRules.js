@@ -36,6 +36,13 @@
   // Soft cap on shared-edge count so a large multi-cell component does not get
   // an unreasonable multiplier from many shared edges.
   const MAX_SHARED_EDGE_MULTIPLIER = 3;
+  // Pipe-network transport: a connected group of living heat pipes acts as one
+  // shared bus. Each attachment edge can move at most this much heat per second,
+  // regardless of how many pipe tiles lie between source and sink. The solver
+  // runs several sub-passes per thermal tick so heat can propagate through the
+  // entire network within one tick while staying bounded and conserved.
+  const PIPE_NETWORK_ATTACHMENT_BANDWIDTH = 40;
+  const PIPE_NETWORK_PASSES = 8;
   // A power generator pinned at the overheat failure state for this long melts
   // down and explodes (server: componentHealth.detonateComponent). Shared so
   // the designer's thermal prediction and part inspector stay in sync.
@@ -50,7 +57,7 @@
     // cost). Normal system components hold less heat than before so hotspots form
     // and must be conducted away through frames to sinks/radiators.
     const capacity = Number.isFinite(part?.heatCapacity) ? part.heatCapacity
-      : type === "heatSink" ? 340 : type === "radiator" ? 115 : type === "heatPipe" ? 35
+      : type === "heatSink" ? 340 : type === "radiator" ? 115 : type === "heatPipe" ? 10
       : type === "armor" ? 125 : type === "compositeArmor" ? 140 : 85;
     const cooling = Number.isFinite(part?.heatCooling) ? part.heatCooling
       : type === "radiator" ? 14 : type === "heatSink" ? 1.5 : type === "heatPipe" ? 0
@@ -176,5 +183,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, HEAT_PIPE_TRANSFER, MAX_SHARED_EDGE_MULTIPLIER, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, RADIATOR_ACTIVE_COOLING_BY_STATE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, routeTypeMultiplier, effectiveSharedEdges });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, HEAT_PIPE_TRANSFER, MAX_SHARED_EDGE_MULTIPLIER, PIPE_NETWORK_ATTACHMENT_BANDWIDTH, PIPE_NETWORK_PASSES, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, RADIATOR_ACTIVE_COOLING_BY_STATE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, routeTypeMultiplier, effectiveSharedEdges });
 }));

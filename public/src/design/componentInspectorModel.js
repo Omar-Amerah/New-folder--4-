@@ -555,6 +555,26 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.charge", "Sustained Charge", `+${Math.round((weapon.maxChargeDamageBonus || 0) * 100)}% damage after ${weapon.chargeRampSeconds || 0}s`));
     rows.push(statRow("weapon.impactHeat", "Impact Heating", `${Number(weapon.impactHeatPerDamage || 0).toFixed(2)} Heat per damage`));
   }
+  if (Number.isFinite(weapon.inductionHeatBasePerSecond) && Number.isFinite(weapon.inductionHeatMaxPerSecond)) {
+    rows.push(statRow("weapon.damage", "Direct damage", "0"));
+    rows.push(statRow("weapon.vsShields", "Shield damage", "0"));
+    rows.push(statRow("weapon.vsHull", "Hull damage", "0"));
+    rows.push(statRow("weapon.inductionRange", "Range", formatDistance(weapon.range || 0)));
+    rows.push(statRow("weapon.inductionArc", "Arc", `${weapon.arc || 0}°`));
+    rows.push(statRow("weapon.aimSpeed", "Aim speed", `${weapon.aimSpeed || 0} rad/s`));
+    rows.push(statRow("weapon.inductionBase", "Base induction", `${weapon.inductionHeatBasePerSecond} H/s`));
+    rows.push(statRow("weapon.inductionMax", "Maximum induction", `${weapon.inductionHeatMaxPerSecond} H/s`));
+    rows.push(statRow("weapon.inductionRamp", "Ramp time", `${weapon.inductionRampSeconds || 0}s`));
+    rows.push(statRow("weapon.inductionShielded", "Shielded efficiency", `${Math.round((weapon.inductionShieldMultiplier || 0.4) * 100)}%`));
+    rows.push(statRow("weapon.inductionDirect", "Direct subsystem", `${Math.round((weapon.inductionDirectFraction || 0.6) * 100)}%`));
+    rows.push(statRow("weapon.inductionAdjacent", "Immediate neighbours", `${Math.round((weapon.inductionAdjacentFraction || 0.3) * 100)}%`));
+    rows.push(statRow("weapon.inductionSecond", "Second-hop neighbours", `${Math.round((weapon.inductionSecondHopFraction || 0.1) * 100)}%`));
+    rows.push(statRow("weapon.inductionGrace", "Contact grace", `${weapon.inductionContactGraceSeconds || 0.25}s`));
+    rows.push(statRow("weapon.inductionSelfHeat", "Self-Heat at max ramp", `×${weapon.inductionSelfHeatMaxMultiplier || 1.5}`));
+    rows.push(statRow("weapon.burnThrough", "Burn-Through", "None"));
+    rows.push(statRow("weapon.charge", "Conventional beam charge", "None"));
+    rows.push(statRow("weapon.inductionDescription", "Effect", "Deals no structural damage. Sustained contact couples increasing Heat into one internal subsystem and its local thermal region. Active shields reduce the Heat transfer to 40%."));
+  }
   if (weapon.antiMissile) {
     rows.push(statRow("weapon.antiMissile", "Anti-Missile", "Yes"));
     if (type === "pointDefense" || (Number(weapon.projectileSpeed) || 0) === 0) {

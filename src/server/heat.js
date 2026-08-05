@@ -14,7 +14,7 @@ const {
 const { performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
 
-const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION } = HeatRules;
+const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, PIPE_NETWORK_ATTACHMENT_BANDWIDTH, PIPE_NETWORK_PASSES } = HeatRules;
 
 const TELEMETRY_STRIDE = 8;
 const TELEMETRY_FIELDS = Object.freeze([
@@ -625,11 +625,60 @@ function rebuildThermalNetworks(ship) {
   }
   ship.thermalNetworks = networks;
   ship.thermalNetworkBuilds = (ship.thermalNetworkBuilds || 0) + 1;
+  rebuildPipeNetworks(ship);
   if (ship._thermalRuntime) {
     ship._thermalRuntime.networkDiagnosticsDirty = true;
     if (ship.componentHeat && ship.componentHeatState) refreshHeatRuntimeLists(ship);
   }
   wakeHeatRuntime(ship);
+}
+
+function findAttachmentSharedEdges(topology, pipeIndex, attachmentIndex) {
+  const start = topology.incidentEdgeOffsets[pipeIndex];
+  const end = topology.incidentEdgeOffsets[pipeIndex + 1];
+  for (let offset = start; offset < end; offset += 1) {
+    const edgeId = topology.incidentEdgeIds[offset];
+    const other = topology.edgeA[edgeId] === pipeIndex ? topology.edgeB[edgeId] : topology.edgeA[edgeId];
+    if (other === attachmentIndex) return topology.edgeSharedEdges[edgeId];
+  }
+  return 1;
+}
+
+function rebuildPipeNetworks(ship) {
+  const topology = ship.thermalTopology;
+  if (!topology) {
+    ship.pipeNetworks = [];
+    return;
+  }
+  const design = ship.design || [];
+  const alivePipes = new Set();
+  for (let i = 0; i < design.length; i += 1) if (design[i].type === "heatPipe" && (ship.componentHp?.[i] ?? 1) > 0) alivePipes.add(i);
+  const visited = new Set();
+  const networks = [];
+  for (const start of alivePipes) {
+    if (visited.has(start)) continue;
+    const pipes = [];
+    const queue = [start]; visited.add(start);
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const index = queue[cursor]; pipes.push(index);
+      for (const neighbour of topologyNeighbourIndices(topology, index)) {
+        if (alivePipes.has(neighbour) && !visited.has(neighbour)) { visited.add(neighbour); queue.push(neighbour); }
+      }
+    }
+    const attached = [];
+    const attachedSet = new Set();
+    for (const pipeIndex of pipes) {
+      for (const neighbour of topologyNeighbourIndices(topology, pipeIndex)) {
+        if (alivePipes.has(neighbour)) continue;
+        if ((ship.componentHp?.[neighbour] ?? 1) <= 0) continue;
+        if (attachedSet.has(neighbour)) continue;
+        attachedSet.add(neighbour);
+        attached.push({ index: neighbour, sharedEdges: findAttachmentSharedEdges(topology, pipeIndex, neighbour) });
+      }
+    }
+    networks.push({ id: networks.length, pipeIndices: pipes, attachments: attached });
+  }
+  ship.pipeNetworks = networks;
 }
 
 // Maps a Power-source component index to the network it feeds. The thermal tick
@@ -793,6 +842,120 @@ function buildHeatWorkSet(ship) {
   for (const index of runtime.lifecycleComponents) addHeatWorkComponent(ship, index);
   for (const index of runtime.topology.powerSourceIndices) {
     if ((Number(ship.componentMeltdown?.[index]) || 0) > 0) addHeatWorkComponent(ship, index);
+  }
+}
+
+function solvePipeNetworks(ship, elapsed) {
+  const networks = ship.pipeNetworks;
+  if (!networks || networks.length === 0) return;
+  const runtime = ship._thermalRuntime;
+  if (!runtime) return;
+
+  for (const network of networks) {
+    const alivePipes = [];
+    let networkHeat = 0;
+    let networkCapacity = 0;
+    for (const pipeIndex of network.pipeIndices) {
+      if ((ship.componentHp?.[pipeIndex] ?? 1) <= 0) continue;
+      touchHeatNeighbour(ship, pipeIndex);
+      alivePipes.push(pipeIndex);
+      const heat = Math.max(0, runtime.workingHeat[pipeIndex]);
+      const capacity = Math.max(1, ship.componentThermals[pipeIndex].capacity);
+      networkHeat += heat;
+      networkCapacity += capacity;
+    }
+    if (networkCapacity <= 0 || alivePipes.length === 0) continue;
+
+    const attachments = [];
+    const DEBUG = ship.design.length === 5 && ship.design[1].type === "heatPipe";
+    for (const { index, sharedEdges } of network.attachments) {
+      if ((ship.componentHp?.[index] ?? 1) <= 0) continue;
+      touchHeatNeighbour(ship, index);
+      const capacity = Math.max(1, ship.componentThermals[index].capacity);
+      const heat = Math.max(0, runtime.workingHeat[index]);
+      const edgeCount = Math.min(sharedEdges, HeatRules.MAX_SHARED_EDGE_MULTIPLIER);
+      const bandwidth = PIPE_NETWORK_ATTACHMENT_BANDWIDTH * edgeCount * elapsed;
+      if (DEBUG) console.error("attach", index, "heat", heat, "capacity", capacity, "bandwidth", bandwidth, "working", runtime.workingHeat[index], "delta", runtime.delta[index]);
+      attachments.push({ index, capacity, heat, bandwidth, delta: 0 });
+    }
+    if (attachments.length === 0) continue;
+
+    const networkRatio0 = networkHeat / networkCapacity;
+    const originalNetworkHeat = networkHeat;
+    let sourceOut = 0;
+    const sourceSet = new Set();
+    if (DEBUG) console.error("source stage", "networkRatio0", networkRatio0);
+    for (let i = 0; i < attachments.length; i += 1) {
+      const a = attachments[i];
+      const ratio = a.heat / a.capacity;
+      if (DEBUG) console.error("  source check", a.index, "ratio", ratio, "pressure", (ratio - networkRatio0) * a.capacity, "heat", a.heat, "bandwidth", a.bandwidth);
+      if (ratio <= networkRatio0) continue;
+      const pressure = (ratio - networkRatio0) * a.capacity;
+      const amount = Math.min(pressure, a.heat, a.bandwidth);
+      if (amount <= 0) continue;
+      sourceSet.add(i);
+      a.delta -= amount;
+      a.heat = Math.max(0, a.heat - amount);
+      sourceOut += amount;
+      if (DEBUG) console.error("  source out", a.index, amount, "sourceOut", sourceOut);
+    }
+
+    networkHeat += sourceOut;
+    const networkRatio1 = networkHeat / networkCapacity;
+    if (DEBUG) console.error("sink stage", "networkHeat", networkHeat, "networkRatio1", networkRatio1);
+
+    let sinkIn = 0;
+    const sinkRecords = [];
+    for (let i = 0; i < attachments.length; i += 1) {
+      if (sourceSet.has(i)) continue;
+      const a = attachments[i];
+      const ratio = a.heat / a.capacity;
+      if (DEBUG) console.error("  sink check", a.index, "ratio", ratio, "demand", (networkRatio1 - ratio) * a.capacity, "room", a.capacity - a.heat, "bandwidth", a.bandwidth);
+      if (ratio >= networkRatio1) continue;
+      const demand = (networkRatio1 - ratio) * a.capacity;
+      const room = a.capacity - a.heat;
+      const amount = Math.min(demand, room, a.bandwidth);
+      if (amount <= 0) continue;
+      if (DEBUG) console.error("  sink in", a.index, amount);
+      sinkRecords.push({ a, amount });
+      sinkIn += amount;
+    }
+    if (DEBUG) console.error("  sinkIn", sinkIn, "sinkScale", sinkIn > networkHeat ? networkHeat / sinkIn : 1);
+    const sinkScale = sinkIn > networkHeat ? networkHeat / sinkIn : 1;
+    for (const { a, amount } of sinkRecords) {
+      const actual = amount * sinkScale;
+      a.delta += actual;
+      a.heat += actual;
+    }
+    networkHeat -= sinkIn * sinkScale;
+    if (networkHeat < 0) networkHeat = 0;
+
+    for (const a of attachments) {
+      runtime.delta[a.index] += a.delta;
+      runtime.workingHeat[a.index] = a.heat;
+      if (a.delta > 0) ship.componentHeatReceived[a.index] += a.delta;
+      else if (a.delta < 0) ship.componentHeatTransferredOut[a.index] += -a.delta;
+    }
+
+    const pipeDelta = networkHeat - originalNetworkHeat;
+    if (pipeDelta !== 0) {
+      let applied = 0;
+      for (let i = 0; i < alivePipes.length - 1; i += 1) {
+        const pipeIndex = alivePipes[i];
+        const share = pipeDelta * (ship.componentThermals[pipeIndex].capacity / networkCapacity);
+        const current = runtime.workingHeat[pipeIndex];
+        const clampedShare = Math.max(-current, share);
+        runtime.delta[pipeIndex] += clampedShare;
+        runtime.workingHeat[pipeIndex] = Math.max(0, current + clampedShare);
+        applied += clampedShare;
+      }
+      const lastPipe = alivePipes[alivePipes.length - 1];
+      const remaining = pipeDelta - applied;
+      const lastCurrent = runtime.workingHeat[lastPipe];
+      const lastClamped = Math.max(-lastCurrent, remaining);
+      runtime.delta[lastPipe] += lastClamped;
+      runtime.workingHeat[lastPipe] = Math.max(0, lastCurrent + lastClamped);
+    }
   }
 }
 
@@ -997,11 +1160,16 @@ function updateShipHeatCore(ship, dt, room, now) {
     transferRank[left] - transferRank[right] || left - right
   );
 
+  solvePipeNetworks(ship, elapsed);
+
   let transferStart = performanceNow();
   let transferCount = 0;
   for (const edgeId of runtime.candidateEdgeIds) {
     const i = topology.edgeA[edgeId];
     const j = topology.edgeB[edgeId];
+    const typeI = ship.design[i]?.type;
+    const typeJ = ship.design[j]?.type;
+    if (typeI === "heatPipe" || typeJ === "heatPipe") continue;
     touchHeatNeighbour(ship, i);
     touchHeatNeighbour(ship, j);
     const aliveI = (ship.componentHp?.[i] ?? 1) > 0;
