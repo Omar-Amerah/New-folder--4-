@@ -673,7 +673,7 @@ function rebuildPipeNetworks(ship) {
         if ((ship.componentHp?.[neighbour] ?? 1) <= 0) continue;
         if (attachedSet.has(neighbour)) continue;
         attachedSet.add(neighbour);
-        attached.push({ index: neighbour, sharedEdges: findAttachmentSharedEdges(topology, pipeIndex, neighbour) });
+        attached.push({ index: neighbour, pipeIndex, sharedEdges: findAttachmentSharedEdges(topology, pipeIndex, neighbour) });
       }
     }
     networks.push({ id: networks.length, pipeIndices: pipes, attachments: attached });
@@ -867,68 +867,62 @@ function solvePipeNetworks(ship, elapsed) {
     if (networkCapacity <= 0 || alivePipes.length === 0) continue;
 
     const attachments = [];
-    const DEBUG = ship.design.length === 5 && ship.design[1].type === "heatPipe";
-    for (const { index, sharedEdges } of network.attachments) {
+    let attachmentHeat = 0;
+    let attachmentCapacity = 0;
+    for (const { index, pipeIndex, sharedEdges } of network.attachments) {
       if ((ship.componentHp?.[index] ?? 1) <= 0) continue;
       touchHeatNeighbour(ship, index);
       const capacity = Math.max(1, ship.componentThermals[index].capacity);
       const heat = Math.max(0, runtime.workingHeat[index]);
       const edgeCount = Math.min(sharedEdges, HeatRules.MAX_SHARED_EDGE_MULTIPLIER);
       const bandwidth = PIPE_NETWORK_ATTACHMENT_BANDWIDTH * edgeCount * elapsed;
-      if (DEBUG) console.error("attach", index, "heat", heat, "capacity", capacity, "bandwidth", bandwidth, "working", runtime.workingHeat[index], "delta", runtime.delta[index]);
-      attachments.push({ index, capacity, heat, bandwidth, delta: 0 });
+      attachments.push({ index, pipeIndex, capacity, heat, bandwidth, delta: 0 });
+      attachmentHeat += heat;
+      attachmentCapacity += capacity;
     }
     if (attachments.length === 0) continue;
 
-    const networkRatio0 = networkHeat / networkCapacity;
-    const originalNetworkHeat = networkHeat;
-    let sourceOut = 0;
-    const sourceSet = new Set();
-    if (DEBUG) console.error("source stage", "networkRatio0", networkRatio0);
-    for (let i = 0; i < attachments.length; i += 1) {
-      const a = attachments[i];
+    const busTemperature = attachmentCapacity > 0 ? attachmentHeat / attachmentCapacity : 0;
+
+    let sourceTotal = 0;
+    const sources = [];
+    let sinkTotal = 0;
+    const sinks = [];
+    for (const a of attachments) {
       const ratio = a.heat / a.capacity;
-      if (DEBUG) console.error("  source check", a.index, "ratio", ratio, "pressure", (ratio - networkRatio0) * a.capacity, "heat", a.heat, "bandwidth", a.bandwidth);
-      if (ratio <= networkRatio0) continue;
-      const pressure = (ratio - networkRatio0) * a.capacity;
-      const amount = Math.min(pressure, a.heat, a.bandwidth);
-      if (amount <= 0) continue;
-      sourceSet.add(i);
-      a.delta -= amount;
-      a.heat = Math.max(0, a.heat - amount);
-      sourceOut += amount;
-      if (DEBUG) console.error("  source out", a.index, amount, "sourceOut", sourceOut);
+      if (ratio > busTemperature) {
+        const amount = Math.min(a.heat, a.bandwidth);
+        if (amount > 0) {
+          sources.push({ a, amount });
+          sourceTotal += amount;
+        }
+      } else if (ratio < busTemperature) {
+        const amount = Math.min(a.capacity - a.heat, a.bandwidth);
+        if (amount > 0) {
+          sinks.push({ a, amount });
+          sinkTotal += amount;
+        }
+      }
     }
 
-    networkHeat += sourceOut;
-    const networkRatio1 = networkHeat / networkCapacity;
-    if (DEBUG) console.error("sink stage", "networkHeat", networkHeat, "networkRatio1", networkRatio1);
+    const sourceScale = sourceTotal > 0 ? Math.min(1, sinkTotal / sourceTotal) : 0;
+    const sinkScale = sinkTotal > 0 ? Math.min(1, sourceTotal / sinkTotal) : 0;
 
-    let sinkIn = 0;
-    const sinkRecords = [];
-    for (let i = 0; i < attachments.length; i += 1) {
-      if (sourceSet.has(i)) continue;
-      const a = attachments[i];
-      const ratio = a.heat / a.capacity;
-      if (DEBUG) console.error("  sink check", a.index, "ratio", ratio, "demand", (networkRatio1 - ratio) * a.capacity, "room", a.capacity - a.heat, "bandwidth", a.bandwidth);
-      if (ratio >= networkRatio1) continue;
-      const demand = (networkRatio1 - ratio) * a.capacity;
-      const room = a.capacity - a.heat;
-      const amount = Math.min(demand, room, a.bandwidth);
-      if (amount <= 0) continue;
-      if (DEBUG) console.error("  sink in", a.index, amount);
-      sinkRecords.push({ a, amount });
-      sinkIn += amount;
+    let actualSource = 0;
+    for (const { a, amount } of sources) {
+      const actual = amount * sourceScale;
+      a.heat = Math.max(0, a.heat - actual);
+      a.delta -= actual;
+      actualSource += actual;
     }
-    if (DEBUG) console.error("  sinkIn", sinkIn, "sinkScale", sinkIn > networkHeat ? networkHeat / sinkIn : 1);
-    const sinkScale = sinkIn > networkHeat ? networkHeat / sinkIn : 1;
-    for (const { a, amount } of sinkRecords) {
+    let actualSink = 0;
+    for (const { a, amount } of sinks) {
       const actual = amount * sinkScale;
-      a.delta += actual;
       a.heat += actual;
+      a.delta += actual;
+      ship.componentHeatTransferredOut[a.pipeIndex] += actual;
+      actualSink += actual;
     }
-    networkHeat -= sinkIn * sinkScale;
-    if (networkHeat < 0) networkHeat = 0;
 
     for (const a of attachments) {
       runtime.delta[a.index] += a.delta;
@@ -937,7 +931,7 @@ function solvePipeNetworks(ship, elapsed) {
       else if (a.delta < 0) ship.componentHeatTransferredOut[a.index] += -a.delta;
     }
 
-    const pipeDelta = networkHeat - originalNetworkHeat;
+    const pipeDelta = actualSource - actualSink;
     if (pipeDelta !== 0) {
       let applied = 0;
       for (let i = 0; i < alivePipes.length - 1; i += 1) {
