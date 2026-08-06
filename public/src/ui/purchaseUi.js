@@ -36,6 +36,18 @@ export function handlePurchasePointerDown(event) {
   }
 }
 
+export function handlePurchaseWheel(event) {
+  const options = dom.purchaseOptions;
+  if (!options) return;
+  // The bar owns the wheel while the pointer is over it, so the arena never zooms at the same time.
+  event.preventDefault();
+  event.stopPropagation();
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? options.clientWidth : 1;
+  const delta = (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY) * unit;
+  if (!Number.isFinite(delta) || delta === 0) return;
+  options.scrollLeft += delta;
+}
+
 export function handlePurchasePointerUp(event) {
   const pointer = state.purchasePointer;
   if (!pointer || pointer.pointerId !== event.pointerId) return;

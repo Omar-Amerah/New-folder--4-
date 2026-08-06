@@ -3,6 +3,7 @@
 import { state } from "../state.js";
 import { synchronizeTelemetryFocus } from "../telemetryFocus.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
+import { pruneOrderQueues } from "./orderQueue.js";
 
 export function shipVisualState(ship) {
   const vis = state.visualShips?.get?.(ship.id);
@@ -110,6 +111,8 @@ export function pruneSelection({ invalidate = true } = {}) {
       changed = true;
     }
   }
+  // A course drawn for a ship that no longer exists is nothing.
+  pruneOrderQueues(live);
   if (state.selectedShipIds.size === 0 && state.activeShipGroup !== null) {
     state.activeShipGroup = null;
     changed = true;

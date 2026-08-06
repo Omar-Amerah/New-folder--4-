@@ -158,6 +158,10 @@ const HOLD_FACING_IMPROVEMENT_RATIO = 0.12;
 // is depth, so even the outermost ship in a very wide fleet still closes on the
 // target rather than sliding along beside it.
 const LANE_LATERAL_LIMIT = 0.9;
+// How many move orders may be stacked behind the one a single ship is flying.
+// A cap rather than a design limit: the queue costs nothing to hold, but it is
+// player input arriving over the wire and it does not get to grow without end.
+const MAX_QUEUED_WAYPOINTS = 16;
 
 // combat.js requires movement, so movement cannot require it at load time. The
 // resolution is memoised rather than repeated per call: these are per-ship,
@@ -234,7 +238,12 @@ function turnTowardHeading(ship, desiredHeading, stats, dt) {
   applyTurnHeat(ship, ship.turnActivity, dt);
 }
 
-function applyManualRotation(ship, stats, dt) {
+// Holding I or O turns the hull directly. The angle it reaches is also latched
+// as the ship's standing facing: without that, every heading the controller
+// would otherwise have held -- the arrival heading, a combat facing -- is still
+// sitting there waiting, and the hull snaps back to it the tick the key comes
+// up, which reads as the keys not working at all.
+function applyManualRotation(ship, runtime, stats, dt) {
   const direction = ship.manualRotation === 1 ? 1 : -1;
   const rate = signedTurnRate(stats, direction, ship);
   if (!(rate > 0)) {
@@ -242,6 +251,20 @@ function applyManualRotation(ship, stats, dt) {
     return;
   }
   ship.angle = normalizeHullAngle((ship.angle || 0) + direction * rate * dt);
+  // Only a ship standing still keeps the angle. A hull still flying to a
+  // destination points where the thrust has to go, so a mid-flight nudge is
+  // transient by nature and must not become the heading it parks on.
+  if (runtime && !(runtime.destination && !runtime.arrived)) {
+    runtime.manualFacing = ship.angle;
+    runtime.arrivalHeading = ship.angle;
+    runtime.combatFacingHeld = false;
+    // The order's own final facing is a heading from before the player took the
+    // helm by hand, and leaving it set would reassert itself on the next order
+    // tick. The command otherwise stands: the ship still flies where it was sent.
+    if (runtime.command && Number.isFinite(runtime.command.finalFacing)) {
+      runtime.command.finalFacing = null;
+    }
+  }
   ship.turnActivity = direction;
   ship._turnDirection = direction;
   applyTurnHeat(ship, ship.turnActivity, dt);
@@ -2645,6 +2668,9 @@ function routeView(room, ship, runtime, stats) {
 // detoured round an obstacle from swinging back onto the bearing its route was
 // originally planned with, which reads as a spontaneous turn on the spot.
 function restingHeading(ship, runtime, command) {
+  // A hand aim first, ahead even of the order's own final facing: the player
+  // turned this hull after the order was given, and that is the later word.
+  if (Number.isFinite(runtime?.manualFacing)) return runtime.manualFacing;
   if (Number.isFinite(command?.finalFacing)) return command.finalFacing;
   if (Number.isFinite(runtime?.arrivalHeading)) return runtime.arrivalHeading;
   return ship.angle || 0;
@@ -2733,27 +2759,51 @@ function holdWeaponFacingHeading(room, ship, runtime, target) {
 // explains. Either way this is orientation only -- it never moves a ship off the
 // point it was sent to.
 function stationaryHeading(room, ship, runtime, command) {
-  if (combatStance(ship) !== "sentry") {
-    const engaged = engagementTarget(room, ship, runtime);
-    if (engaged && !(engaged.explicit === false && completedPlainMove(runtime))) {
-      if (engaged.type === "attack" && combatStance(ship) === "hold" && runtime.holdEngaged) {
-        return holdWeaponFacingHeading(room, ship, runtime, engaged.target);
-      }
-      // A Kite ship holding its band, or braking because there is nowhere safe
-      // to go, is still flying a stance. Facing the target here would undo the
-      // whole point of the heading the controller chose -- a rear-mounted gun
-      // would be swung off the target it is already covering.
-      if (engaged.type === "attack" && runtime.kiteSteering
-        && Number.isFinite(Number(runtime.kiteHeading))) {
-        return Number(runtime.kiteHeading);
-      }
-      const point = targetAttackPointFrom(ship.x || 0, ship.y || 0, engaged.target);
-      if (fastHypot(point.x - (ship.x || 0), point.y - (ship.y || 0)) > BEARING_MIN_DISTANCE) {
-        return bearingTo(ship, point);
-      }
-    }
+  // Aimed by hand with I/O. Nothing below may take it back, or the keys do
+  // nothing on any ship that has an enemy in sight -- which is most of them.
+  if (Number.isFinite(runtime?.manualFacing)) return runtime.manualFacing;
+  const heading = movementToggles(ship).autoTurn
+    ? combatFacingHeading(room, ship, runtime)
+    : null;
+  if (Number.isFinite(heading)) {
+    // The fight owns the nose now. Drop the heading the ship arrived on: keeping
+    // it would give the hull somewhere to snap back to the moment the target is
+    // gone, which is the turn-out-and-turn-back nobody asked for.
+    runtime.arrivalHeading = null;
+    runtime.combatFacingHeld = true;
+    return heading;
+  }
+  if (runtime?.combatFacingHeld) {
+    // Whatever it was facing has been dealt with, or lost. Stand where the fight
+    // left the hull pointing rather than unwinding to a pre-fight heading.
+    runtime.combatFacingHeld = false;
+    runtime.arrivalHeading = normalizeHullAngle(Number(ship.angle) || 0);
   }
   return restingHeading(ship, runtime, command);
+}
+
+// The heading an engagement wants a stopped ship to hold, or null when no
+// engagement is asking for one.
+function combatFacingHeading(room, ship, runtime) {
+  if (combatStance(ship) === "sentry") return null;
+  const engaged = engagementTarget(room, ship, runtime);
+  if (!engaged || (engaged.explicit === false && completedPlainMove(runtime))) return null;
+  if (engaged.type === "attack" && combatStance(ship) === "hold" && runtime.holdEngaged) {
+    return holdWeaponFacingHeading(room, ship, runtime, engaged.target);
+  }
+  // A Kite ship holding its band, or braking because there is nowhere safe
+  // to go, is still flying a stance. Facing the target here would undo the
+  // whole point of the heading the controller chose -- a rear-mounted gun
+  // would be swung off the target it is already covering.
+  if (engaged.type === "attack" && runtime.kiteSteering
+    && Number.isFinite(Number(runtime.kiteHeading))) {
+    return Number(runtime.kiteHeading);
+  }
+  const point = targetAttackPointFrom(ship.x || 0, ship.y || 0, engaged.target);
+  if (fastHypot(point.x - (ship.x || 0), point.y - (ship.y || 0)) > BEARING_MIN_DISTANCE) {
+    return bearingTo(ship, point);
+  }
+  return null;
 }
 
 // A Move order the ship has already carried out. The distinction that matters
@@ -2781,13 +2831,15 @@ function planMovement(room, ship, runtime, stats, route) {
   const command = runtime.command;
   const resting = { desiredHeading: restingHeading(ship, runtime, command), desiredSpeed: 0 };
   if (command?.type === "stop") {
-    const engaged = engagementTarget(room, ship, runtime);
+    const engaged = movementToggles(ship).autoTurn && !Number.isFinite(runtime.manualFacing)
+      ? engagementTarget(room, ship, runtime)
+      : null;
     const point = engaged ? targetAttackPointFrom(ship.x, ship.y, engaged.target) : null;
     const distance = point ? fastHypot(point.x - ship.x, point.y - ship.y) : 0;
     return {
       desiredHeading: point && distance > BEARING_MIN_DISTANCE
         ? bearingTo(ship, point)
-        : ship.angle || 0,
+        : restingHeading(ship, runtime, null),
       desiredSpeed: 0,
       // Still braking while it is still moving, whichever way that is relative
       // to the nose: a hull sliding sideways has not stopped.
@@ -2934,12 +2986,19 @@ function planMovement(room, ship, runtime, stats, route) {
 }
 
 function movementStep(room, ship, runtime, stats, routed, dt) {
+  // A hand aim is a thing you do to a ship that is standing still. Once it is
+  // flying somewhere -- the player's order or a stance's own solution -- the
+  // nose belongs to the course, and holding the old angle in reserve would
+  // spring it back on arrival for no reason the player could see.
+  if (runtime.destination && !runtime.arrived && !ship.manualRotation) {
+    runtime.manualFacing = null;
+  }
   const route = routed ? routeView(room, ship, runtime, stats) : null;
   const plan = planMovement(room, ship, runtime, stats, route);
   runtime.desiredHeading = plan.desiredHeading;
   runtime.desiredSpeed = plan.desiredSpeed;
   if (ship.manualRotation) {
-    applyManualRotation(ship, stats, dt);
+    applyManualRotation(ship, runtime, stats, dt);
     runtime.phase = plan.phase === "idle" ? "turning" : plan.phase;
   } else {
     turnTowardHeading(ship, plan.desiredHeading, stats, dt);
@@ -3053,6 +3112,9 @@ function updateShipMovement(room, ship, dt, now) {
     bumpMovementMetric("sharedControllerRuns");
     movementStep(room, ship, runtime, stats, routed, stepDt);
   }
+  // After the step, so a leg that completed on this tick hands the next one over
+  // on the same tick rather than parking the hull for a frame between waypoints.
+  advanceQueuedWaypoint(room, ship, runtime);
   syncMovementTarget(ship);
 }
 
@@ -3086,6 +3148,38 @@ function issueMove(ship, commandId, destination, options = {}) {
     manual: options.manual
   });
   syncMovementTarget(ship);
+}
+
+// Hand a single ship the next leg of the course it was given, once it has
+// finished the one it is flying.
+//
+// The queue is advanced here, on the ship, rather than by the command that
+// filled it, because "finished" is a fact only the controller has: the order
+// completes when the hull actually settles on the point, not when the route to
+// it was planned. A leg the planner could not reach is also finished -- but only
+// once the ship has flown out the partial route and stopped on its end, which is
+// what `arrived` distinguishes. Advancing on `blocked` alone would drain the
+// whole course in one tick every time a route was momentarily unroutable.
+function advanceQueuedWaypoint(room, ship, runtime) {
+  const queue = runtime.queuedWaypoints;
+  if (!Array.isArray(queue) || queue.length === 0) return false;
+  // Anything that is not the move this queue was built behind has taken the
+  // helm -- an attack order, a stop, a rally. The course is not resumed after it.
+  if (runtime.command?.type !== "move") {
+    runtime.queuedWaypoints = [];
+    return false;
+  }
+  if (!runtime.orderComplete && !(runtime.blocked && runtime.arrived)) return false;
+  const next = queue[0];
+  // setMovementCommand clears the queue, as it must for every other caller, so
+  // the remainder is carried across the call by hand.
+  const remaining = queue.slice(1);
+  issueMove(ship, nextMovementCommandId(room, "m"), next, {
+    arrivalRadius: ARRIVE_DISTANCE,
+    manual: true
+  });
+  runtime.queuedWaypoints = remaining;
+  return true;
 }
 
 function issueStop(ship, commandId, manual = true) {
@@ -3184,6 +3278,18 @@ function issueRepair(ship, commandId, targetId) {
   syncMovementTarget(ship);
 }
 
+// Where a lone ship is actually sent for a click at (x, y). The formation
+// planner is reused for one ship deliberately: with a single slot it is exactly
+// "clamp to the world, then walk off anything solid", and borrowing it is what
+// keeps a solo move and a one-ship-wide fleet move landing on the same point.
+// The plan comes back with the point because commandShips returns it either way
+// -- the planned bearing is part of what a caller is told about a move order.
+function soloMovePlan(room, ship, x, y) {
+  const plan = planFormation(room, [ship], { x, y });
+  const slot = plan.slots[0];
+  return { plan, point: slot ? { x: slot.x, y: slot.y } : { x, y } };
+}
+
 function commandShips(room, player, x, y, options = {}) {
   const selected = selectOwnedLivingShips(player, options.shipIds);
   if (!selected.ok) return { ok: false, code: selected.code, commanded: 0 };
@@ -3212,6 +3318,39 @@ function commandShips(room, player, x, y, options = {}) {
   if (ally) {
     for (const ship of ships) issueRepair(ship, commandId, livingTarget.id);
     return { ok: true, code: "repair", commanded: ships.length };
+  }
+
+  // One ship, on its own, is steered rather than arranged. It goes to the point
+  // that was clicked -- walked clear of geometry, but with no formation slot and
+  // no formation record on the order -- and it is the only case that may carry a
+  // queue of further legs behind it. A course is drawn for a hull; there is
+  // nothing a list of points means to a fleet that a fleet could fly.
+  if (ships.length === 1) {
+    const ship = ships[0];
+    const { plan, point } = soloMovePlan(room, ship, x, y);
+    const runtime = ensureMovementRuntime(ship);
+    const queue = Array.isArray(runtime.queuedWaypoints) ? runtime.queuedWaypoints : [];
+    // Appending only ever extends a move already in progress. With the ship
+    // parked, fighting, or under any other order, the first shift-click is the
+    // start of a new course rather than a leg added to a finished one.
+    const extending = options.append === true
+      && runtime.command?.type === "move"
+      && runtime.command.manual
+      && !runtime.orderComplete;
+    if (extending) {
+      if (queue.length >= MAX_QUEUED_WAYPOINTS) {
+        return { ok: true, code: "queue-full", commanded: 0, queued: queue.length };
+      }
+      queue.push(point);
+      runtime.queuedWaypoints = queue;
+      return { ok: true, code: "queued", commanded: 1, queued: queue.length };
+    }
+    issueMove(ship, commandId, point, {
+      arrivalRadius: ARRIVE_DISTANCE,
+      finalFacing: Number.isFinite(options.finalFacing) ? options.finalFacing : null,
+      manual: true
+    });
+    return { ok: true, code: "move", commanded: 1, queued: 0, formation: plan.formation, plan };
   }
 
   // An ordinary move order is the one place a formation is resolved. Each ship
@@ -3362,6 +3501,7 @@ function applyMovementToggles(ship, toggles) {
 
 module.exports = {
   FORMATION_TYPES,
+  MAX_QUEUED_WAYPOINTS,
   SUPPORTED_MOVEMENT_TYPES,
   alignmentThrottle,
   applyCombatStyle,

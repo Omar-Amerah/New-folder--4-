@@ -17,6 +17,7 @@ import { updateTeamHud, updateFleetHud, updateEconomyHud, updateRelayHud, update
 import {
   onCombatStyleResult,
   onOrbitDirectionResult,
+  onMovementTogglesResult,
   updateShipGroupUi,
   updateRallyUi,
   updateSelectionCommandUi,
@@ -338,6 +339,7 @@ export function handleServerMessage(message) {
     if (message.resumeToken) saveResumeCredential(message.room, message.resumeToken);
     state.selectedShipIds.clear();
     state.pendingCombatStyle = null;
+    state.pendingMovementToggles.clear();
     state.joinedConnectionGeneration = state.connectionGeneration;
     state.snapshotNetwork = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false, resyncing: false, lastResyncRequestAt: 0 };
     resetRenderHistory();
@@ -487,6 +489,11 @@ function requestFullState(reason) {
     return;
   }
 
+  if (message.type === "movementTogglesResult") {
+    onMovementTogglesResult(message);
+    return;
+  }
+
   if (message.type === "pong") {
     if (message.at) {
       state.latency = performance.now() - message.at;
@@ -523,6 +530,7 @@ function requestFullState(reason) {
   if (message.type === "kicked" || message.type === "closed" || message.type === "leftLobby") {
     const tone = message.type === "kicked" ? "error" : "warning";
     state.pendingCombatStyle = null;
+    state.pendingMovementToggles.clear();
     disableReconnect(message.type);
     clearResumeCredential(state.room || dom.roomCode?.value);
     forgetActiveRoom();

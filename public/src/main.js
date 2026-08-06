@@ -11,8 +11,8 @@ import { renderSavedDesigns, initializeSavedBlueprintLibraryControls, handleSave
 import { openBlueprintDesigner, openBlueprintDesignerFromLobby, closeBlueprintDesigner, requestCloseBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
 import { bindPowerPriorityControls } from "./ui/wiringUi.js";
-import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick, restoreActiveLoadout } from "./ui/purchaseUi.js";
-import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick, handleMovementToggleChange } from "./ui/sidePanelUi.js";
+import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick, handlePurchaseWheel, restoreActiveLoadout } from "./ui/purchaseUi.js";
+import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick, handleMovementToggleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
 import { focusPanelStation } from "./ui/stationPanelUi.js";
 import { initArenaRenderer, resizeArenaRenderer } from "./game/renderController.js";
@@ -78,7 +78,7 @@ dom.shipGroupList?.addEventListener("change", handleShipGroupListChange);
 dom.rallyPointButton?.addEventListener("click", beginRallyPointPlacement);
 dom.resetRallyButton?.addEventListener("click", resetRallyPointToSpawn);
 dom.combatStyleControls?.addEventListener("click", handleSelectedCombatStyleClick);
-dom.movementToggleControls?.addEventListener("change", handleMovementToggleChange);
+dom.movementToggleControls?.addEventListener("click", handleMovementToggleClick);
 dom.blueprintCostBanner?.addEventListener("click", () => {
   if (dom.blueprintCostBreakdown) {
     const open = dom.blueprintCostBreakdown.hidden;
@@ -240,6 +240,7 @@ dom.savedDesignList?.addEventListener("click", handleSavedDesignKeyboardClick);
 dom.purchaseOptions?.addEventListener("pointerdown", handlePurchasePointerDown);
 dom.purchaseOptions?.addEventListener("pointerup", handlePurchasePointerUp);
 dom.purchaseOptions?.addEventListener("click", handlePurchaseKeyboardClick);
+dom.purchaseBar?.addEventListener("wheel", handlePurchaseWheel, { passive: false });
 
 // Bind kick handlers
 bindKickButtonContainer(dom.playerList);

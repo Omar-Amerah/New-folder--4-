@@ -166,9 +166,32 @@
             <button type="button" data-combat-style="orbit">Orbit</button>
             <button type="button" data-combat-style="kite">Kite</button>
           </div>
-          <div id="movementToggleControls" class="movement-toggle-controls" role="group" aria-label="Movement toggles">
-            <label><input type="checkbox" data-movement-toggle="autoEngage" checked><span>Auto engage</span></label>
-            <label><input type="checkbox" data-movement-toggle="pursue" checked><span>Pursue</span></label>
+          <div id="movementToggleControls" class="movement-toggle-controls" role="group" aria-labelledby="movementToggleHeading">
+            <div class="movement-toggle-head">
+              <span id="movementToggleHeading">Engagement Orders</span>
+              <span id="movementToggleScope" class="movement-toggle-scope">0 ships</span>
+            </div>
+            <button type="button" class="movement-toggle-row" data-movement-toggle="autoEngage" role="switch" aria-checked="true">
+              <span class="movement-toggle-text">
+                <span class="movement-toggle-name">Automatic engagement</span>
+                <span class="movement-toggle-desc">Move toward enemies the ship picks out for itself. Attack orders you issue are unaffected.</span>
+              </span>
+              <span class="movement-toggle-state" data-movement-toggle-state>On</span>
+            </button>
+            <button type="button" class="movement-toggle-row" data-movement-toggle="pursue" role="switch" aria-checked="true">
+              <span class="movement-toggle-text">
+                <span class="movement-toggle-name">Continue pursuit</span>
+                <span class="movement-toggle-desc">Follow a target that opens the range after the ship has engaged. Off, it holds the firing position it took.</span>
+              </span>
+              <span class="movement-toggle-state" data-movement-toggle-state>On</span>
+            </button>
+            <button type="button" class="movement-toggle-row" data-movement-toggle="autoTurn" role="switch" aria-checked="true">
+              <span class="movement-toggle-text">
+                <span class="movement-toggle-name">Turn to engage</span>
+                <span class="movement-toggle-desc">Turn the hull to face what the ship is fighting. Off, it never turns on its own &mdash; its heading is only ever what your orders and the I / O keys leave it on.</span>
+              </span>
+              <span class="movement-toggle-state" data-movement-toggle-state>On</span>
+            </button>
           </div>
           <div id="heatHud" class="heat-hud" title="Highest overall stored heat among selected ships">
             <span id="heatHudLabel">HEAT 0%</span><i><b id="heatHudFill"></b></i>

@@ -10,7 +10,7 @@ const { getRoute } = require("./routeRegistry");
 const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
 const RATE_LIMITS = {
-  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setOrbitDirection", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
+  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setOrbitDirection", "setMovementToggles", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
   management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "ready", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
 };
 function bucketForType(type) {
@@ -394,7 +394,10 @@ function handleMessage(client, message) {
       targetId: typeof message.targetId === "string" ? message.targetId : null,
       finalFacing: Number.isFinite(message.finalFacing) ? message.finalFacing : null,
       formation: typeof message.formation === "string" ? message.formation : null,
-      direction: Number.isFinite(message.direction) ? message.direction : null
+      direction: Number.isFinite(message.direction) ? message.direction : null,
+      // Shift-click. Only honoured for a single selected ship; commandShips
+      // owns that rule so no other caller has to remember it.
+      append: message.append === true
     });
     return;
   }

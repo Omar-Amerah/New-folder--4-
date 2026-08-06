@@ -48,6 +48,15 @@ function createMovementRuntime() {
     path: [],
     waypointIndex: 0,
     route: null,
+    // Move orders the player queued behind the one being flown, in the order
+    // they were given. Only ever populated for a single selected ship: a queue
+    // is a course drawn for one hull, and there is no meaning to be had from
+    // handing the same list of points to a formation.
+    //
+    // This is a list of ORDERS, not a route. Each entry becomes its own move
+    // command -- fully planned and flown, obstacle avoidance and all -- once the
+    // leg before it finishes.
+    queuedWaypoints: [],
     phase: "idle",
     desiredHeading: null,
     desiredSpeed: 0,
@@ -64,6 +73,16 @@ function createMovementRuntime() {
     // afterwards, and reinstating the plan's bearing on arrival is a visible
     // spin on the spot. Null until the ship has settled.
     arrivalHeading: null,
+    // The heading the player aimed the hull at by hand with I/O. It outranks
+    // every heading the ship would otherwise choose for itself, including a
+    // combat facing, because a manual aim that something else immediately undoes
+    // is not an aim at all. Cleared only by a new movement order.
+    manualFacing: null,
+    // Set while a combat facing is what is holding the nose where it is. When the
+    // engagement ends, this is what says the hull keeps the heading the fight
+    // left it on instead of unwinding to a pre-fight one -- the swing out and
+    // back that made ships look like they were changing their minds.
+    combatFacingHeld: false,
     // Hold has reached its firing position. Also latched -- it is what makes the
     // ship ignore a target closing on it rather than backing away.
     holdEngaged: false,
@@ -195,6 +214,7 @@ function ensureMovementRuntime(ship) {
   }
   if (!Object.prototype.hasOwnProperty.call(runtime, "arrivalRadius")) runtime.arrivalRadius = 16;
   if (!Object.prototype.hasOwnProperty.call(runtime, "route")) runtime.route = null;
+  if (!Array.isArray(runtime.queuedWaypoints)) runtime.queuedWaypoints = [];
   if (!Object.prototype.hasOwnProperty.call(runtime, "holdFacing")) runtime.holdFacing = null;
   if (!Object.prototype.hasOwnProperty.call(runtime, "holdCoverageRange")) runtime.holdCoverageRange = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "attackLane")) runtime.attackLane = null;
@@ -205,6 +225,8 @@ function ensureMovementRuntime(ship) {
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSteering")) runtime.orbitSteering = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSpeedLimit")) runtime.orbitSpeedLimit = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "arrivalHeading")) runtime.arrivalHeading = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "manualFacing")) runtime.manualFacing = null;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "combatFacingHeld")) runtime.combatFacingHeld = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDirect")) runtime.orbitDirect = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitScanAt")) runtime.orbitScanAt = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitAvoidance")) runtime.orbitAvoidance = null;
@@ -243,11 +265,20 @@ function setMovementCommand(ship, command) {
   runtime.path = [];
   runtime.waypointIndex = 0;
   runtime.route = null;
+  // A new order retires the queue behind the old one. Anything that meant to
+  // keep flying a queued course -- the queue advancing itself -- writes the rest
+  // of the list back after this call; everything else (a fresh click, a stop, an
+  // attack) is the player replacing the course, and the old points go with it.
+  runtime.queuedWaypoints = [];
   runtime.desiredHeading = null;
   runtime.desiredSpeed = 0;
   runtime.arrived = false;
   runtime.orderComplete = false;
   runtime.arrivalHeading = null;
+  // A new order supersedes a hand aim: the player has said where this ship is
+  // going next, and holding the old nose angle through it would fight the helm.
+  runtime.manualFacing = null;
+  runtime.combatFacingHeld = false;
   runtime.holdEngaged = false;
   runtime.chargeEngaged = false;
   runtime.blocked = false;

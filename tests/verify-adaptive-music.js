@@ -12,7 +12,7 @@ globalThis.window = globalThis.window || { addEventListener(){}, removeEventList
 // fade curve can be asserted directly.
 const created = [];
 globalThis.Audio = class {
-  constructor(src){ this.src = src; this.loop = false; this.preload = ''; this.volume = 0; this.paused = false; this.duration = 240; this.currentTime = 0; created.push(this); }
+  constructor(src){ this.src = src; this.loop = false; this.preload = ''; this.volume = 0; this.paused = false; this.duration = 240; this.currentTime = 0; this.playbackRate = 1; created.push(this); }
   play(){ this.paused = false; return Promise.resolve(); }
   pause(){ this.paused = true; }
 };
@@ -25,7 +25,7 @@ const { COMBAT_FADE_IN_MS, COMBAT_HOLD_MS, COMBAT_FADE_OUT_MS } = music;
 music.initMusic({ musicEnabled: true, musicVolume: 0.5 });
 const [ambient, combat] = created;
 assert.equal(created.length, 2, 'ambient and combat stems are both created');
-assert.ok(ambient.src.endsWith('Always.wav') && combat.src.endsWith('Combat.wav'));
+assert.ok(ambient.src.endsWith('Ambient.mp3') && combat.src.endsWith('Combat.mp3'));
 assert.ok(ambient.loop && combat.loop, 'both stems loop');
 assert.ok(!ambient.paused && !combat.paused, 'both stems play at all times');
 
@@ -97,14 +97,59 @@ const prefs = loadPreferences().preferences;
 assert.equal(prefs.musicVolume, 0.2, 'music volume persists');
 assert.equal(prefs.musicEnabled, true, 'music enabled state persists');
 
-// Drift correction keeps the two stems phase-aligned.
+// --- Phase lock between the two stems -------------------------------------
+// While the combat stem is silent a seek is inaudible, so it is snapped onto
+// the ambient stem exactly. That is what makes every fade-in start aligned.
+advance(COMBAT_HOLD_MS + COMBAT_FADE_OUT_MS + 1000);
+assert.equal(music.getCombatMusicGain(), 0, 'combat stem is silent again');
+
+ambient.currentTime = 11.0;
 combat.currentTime = 12.0;
-ambient.currentTime = 11.0;
 advance(50);
-assert.equal(combat.currentTime, 11.0, 'a drifted combat stem is reseeked onto the ambient stem');
-combat.currentTime = 11.1;
-ambient.currentTime = 11.0;
-advance(50);
-assert.equal(combat.currentTime, 11.1, 'small drift is left alone');
+assert.equal(combat.currentTime, 11.0, 'a silent combat stem is snapped onto the ambient stem');
+assert.equal(combat.playbackRate, 1, 'snapping does not touch the playback rate');
+
+// Media elements publish currentTime coarsely, so a few milliseconds of
+// apparent drift is noise and must not provoke a seek on every tick.
+ambient.currentTime = 30.0;
+combat.currentTime = 30.008;
+advance(1000);
+assert.equal(combat.currentTime, 30.008, 'measurement noise does not provoke a seek');
+
+// Once the stem is audible, drift is corrected by trimming its rate instead —
+// a seek would be heard as a jump in the middle of the music.
+advance(COMBAT_FADE_IN_MS + 200, { combatActive: true });
+assert.ok(music.getCombatMusicGain() > 0.99, 'combat stem is at full gain');
+
+ambient.currentTime = 40.0;
+combat.currentTime = 40.1;
+advance(200, { combatActive: true });
+assert.equal(combat.currentTime, 40.1, 'an audible stem is not reseeked for ordinary drift');
+assert.ok(combat.playbackRate < 1, 'a stem running ahead is slowed down');
+
+ambient.currentTime = 50.1;
+combat.currentTime = 50.0;
+advance(400, { combatActive: true });
+assert.ok(combat.playbackRate > 1, 'a stem running behind is sped up');
+assert.ok(Math.abs(combat.playbackRate - 1) <= 0.02, 'the rate trim stays small enough to be inaudible');
+
+// A wrap-around is a phase match, not a full-track jump.
+ambient.currentTime = 0.02;
+combat.currentTime = 239.99;
+advance(400, { combatActive: true });
+assert.equal(combat.currentTime, 239.99, 'looping past the end is not mistaken for gross drift');
+
+// In phase: no correction at all.
+ambient.currentTime = 60.0;
+combat.currentTime = 60.0;
+advance(1000, { combatActive: true });
+assert.equal(combat.playbackRate, 1, 'stems in phase run at normal speed');
+
+// Gross drift is worth the glitch even while audible.
+ambient.currentTime = 70.0;
+combat.currentTime = 71.5;
+advance(1000, { combatActive: true });
+assert.equal(combat.currentTime, 70.0, 'grossly drifted stems are reseeked even when audible');
+assert.equal(combat.playbackRate, 1, 'the rate trim is released after a reseek');
 
 console.log('Adaptive music verification passed');

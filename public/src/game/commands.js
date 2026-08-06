@@ -6,6 +6,7 @@ import { send } from "../network.js";
 import { minimapWorldAt, screenToWorld } from "./camera.js";
 import { findShipAt, findStationAt, pruneSelection, ownLiveShips } from "./selection.js";
 import { playerMap } from "../ui/matchStatusUi.js";
+import { clearOrderQueues, recordOrderQueue } from "./orderQueue.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 
 const latchedRotationShipIds = new Map();
@@ -50,6 +51,14 @@ export function issueCommand(event) {
   const shipIds = selectedShipIdsForCommand();
   const target = commandTargetAt(world, shipIds);
   const targetEntity = target.entity;
+  // A course belongs to one hull. With more than one ship commanded the click
+  // is an ordinary fleet order and nothing is queued, exactly as before.
+  const append = Boolean(event?.shiftKey) && shipIds.length === 1 && !targetEntity;
+  if (shipIds.length === 1 && !targetEntity) {
+    recordOrderQueue(shipIds[0], { x: world.x, y: world.y }, append);
+  } else {
+    clearOrderQueues(shipIds);
+  }
 
   state.command = {
     x: targetEntity?.x || world.x,
@@ -66,6 +75,7 @@ export function issueCommand(event) {
     y: targetEntity?.y || world.y,
     targetId: targetEntity?.id || null,
     shipIds,
+    append
   });
   showCommandMarker(event.clientX, event.clientY, target.kind);
 }
@@ -79,6 +89,7 @@ export function destructSelectedShips() {
   const shipIds = [...state.selectedShipIds];
   if (shipIds.length === 0) return false;
   if (!send({ type: "destruct", shipIds })) return false;
+  clearOrderQueues(shipIds);
   return true;
 }
 
@@ -89,6 +100,7 @@ export function stopSelectedShips() {
   const shipIds = [...state.selectedShipIds];
   if (shipIds.length === 0) return false;
   if (!send({ type: "stop", shipIds })) return false;
+  clearOrderQueues(shipIds);
   return true;
 }
 

@@ -39,7 +39,7 @@ const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "aste
 const VITAL_FIELDS = ["hp", "maxHp", "shield", "maxShield", "alive"];
 const COMMAND_FIELDS = ["combatStyle", "commandState", "focusTargetId", "combatTargetId"];
 
-const MOVEMENT_TOGGLE_FIELDS = ["autoEngage", "pursue"];
+const MOVEMENT_TOGGLE_FIELDS = ["autoEngage", "pursue", "autoTurn"];
 
 // Compared flag by flag rather than through fieldsChanged, because the snapshot
 // carries a fresh object every tick and comparing those by identity would report

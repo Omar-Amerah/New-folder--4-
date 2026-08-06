@@ -235,6 +235,7 @@ function drone(type, id = type) {
 
 {
   const { room, parent, enemyShip, hostileDrone } = makeRoom();
+  parent.focusTargetId = null; // auto-acquired target: defensive diversion is allowed
   assert.equal(findTarget(room, parent, [...room.ships.values()]), enemyShip, "the ship-level combat target remains an enemy ship while one is valid");
   const forwardModule = { type: "autocannon", x: 7, y: 7, rotation: 0 };
   assert.equal(
@@ -308,9 +309,33 @@ function drone(type, id = type) {
 
 {
   const { room, parent, enemyShip, hostileDrone } = makeRoom();
+  const forwardModule = { type: "autocannon", x: 7, y: 7, rotation: 0 };
+  const options = { weapon: PARTS.autocannon.weapon, module: forwardModule };
+  parent.focusTargetId = null;
+  assert.equal(
+    pickWeaponFireTarget(room, parent, [...room.ships.values()], parent.x, parent.y, enemyShip, 400, options),
+    hostileDrone,
+    "without an order the defensive Autocannon still diverts to the attacking Fighter"
+  );
+  parent.focusTargetId = enemyShip.id;
+  assert.equal(
+    pickWeaponFireTarget(room, parent, [...room.ships.values()], parent.x, parent.y, enemyShip, 400, options),
+    enemyShip,
+    "a player-ordered focus on an enemy ship is exclusive: no weapon peels off for a drone"
+  );
+  assert.equal(
+    pickWeaponFireTarget(room, parent, [...room.ships.values()], parent.x, parent.y, enemyShip, 100, options),
+    hostileDrone,
+    "a focused ship that is out of weapon range still leaves the weapon free to shoot drones"
+  );
+}
+
+{
+  const { room, parent, enemyShip, hostileDrone } = makeRoom();
   hostileDrone.type = "repair";
   hostileDrone.targetId = null;
   hostileDrone.x = 100;
+  parent.focusTargetId = null;
   assert.equal(
     pickWeaponFireTarget(room, parent, [...room.ships.values()], parent.x, parent.y, enemyShip, 400, {
       weapon: PARTS.autocannon.weapon,
@@ -326,6 +351,7 @@ function drone(type, id = type) {
   hostileDrone.type = "defence";
   hostileDrone.targetId = null;
   hostileDrone.x = 100;
+  parent.focusTargetId = null;
   room.drones.set("hostile-2", { ...hostileDrone, id: "hostile-2", x: 110 });
   room.drones.set("hostile-3", { ...hostileDrone, id: "hostile-3", x: 120 });
   const selected = pickWeaponFireTarget(room, parent, [...room.ships.values()], parent.x, parent.y, enemyShip, 400, {

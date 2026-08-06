@@ -13,7 +13,7 @@
 
 .blueprint-designer-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(420px, 1fr) minmax(360px, 420px);
+  grid-template-columns: minmax(228px, 268px) minmax(420px, 1fr) minmax(360px, 420px);
   gap: 12px;
   height: 100%;
   min-height: 0;
@@ -26,7 +26,11 @@
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  padding-right: 8px;
+  /* Reserve the scrollbar channel so switching to a long category (Structure)
+     does not steal width from the part grid. The gutter replaces the old
+     padding-right, and the column below is widened to compensate. */
+  scrollbar-gutter: stable;
+  padding-right: 0;
 }
 
 .designer-right-col {

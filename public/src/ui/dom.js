@@ -182,6 +182,7 @@ export const dom = {
   selectionPanelCount: document.getElementById("selectionPanelCount"),
   combatStyleControls: document.getElementById("combatStyleControls"),
   movementToggleControls: document.getElementById("movementToggleControls"),
+  movementToggleScope: document.getElementById("movementToggleScope"),
   shipDamagePanel: document.getElementById("shipDamagePanel"),
   shipDroneSummary: document.getElementById("shipDroneSummary"),
   shipHeatSummary: document.getElementById("shipHeatSummary"),

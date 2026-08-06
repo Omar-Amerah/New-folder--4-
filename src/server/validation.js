@@ -79,7 +79,11 @@ const MOVEMENT_TOGGLE_DEFAULTS = Object.freeze({
   // what it can reach, it just will not go anywhere about it.
   autoEngage: true,
   // Go after a target that opens the range again once already established.
-  pursue: true
+  pursue: true,
+  // Swing the hull round to face what it is fighting. Off, nothing the combat
+  // code decides may turn the ship: its heading is whatever flying the player's
+  // own orders and the I/O keys leave it on.
+  autoTurn: true
 });
 
 const MOVEMENT_TOGGLE_KEYS = Object.freeze(Object.keys(MOVEMENT_TOGGLE_DEFAULTS));

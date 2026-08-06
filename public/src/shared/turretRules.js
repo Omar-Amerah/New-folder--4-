@@ -66,5 +66,38 @@
     return MUZZLE_TIP_TILES[type] ?? MUZZLE_TIP_TILES[family] ?? MUZZLE_TIP_TILES.default;
   }
 
-  return Object.freeze({ TURN_RATES, MUZZLE_TIP_TILES, turnRateFor, muzzleTiles });
+  // Weapons whose art has more than one visible barrel. `count` barrels sit
+  // evenly spaced across `spreadTiles` on either side of the turret pivot,
+  // measured perpendicular to the barrel axis in tiles, so rounds leave the
+  // tube the player is looking at instead of the pivot between them. The
+  // autocannon pair mirrors the +/- size * 0.17 barrel centres drawn in
+  // componentArt.js (drawProfessionalModuleDetail) — move both together.
+  const BARRELS = Object.freeze({
+    autocannon: Object.freeze({ count: 2, spreadTiles: 0.17 })
+  });
+
+  function barrelCount(type) {
+    return BARRELS[type]?.count ?? 1;
+  }
+
+  // Lateral offset of one barrel from the pivot, in tiles. Positive is to the
+  // turret's right (local +y). Single-barrel weapons always return 0, so
+  // callers can pass a shot counter unconditionally.
+  function barrelLateralTiles(type, barrelIndex) {
+    const spec = BARRELS[type];
+    if (!spec || spec.count < 2) return 0;
+    const index = ((Math.trunc(barrelIndex) || 0) % spec.count + spec.count) % spec.count;
+    const step = (spec.spreadTiles * 2) / (spec.count - 1);
+    return -spec.spreadTiles + step * index;
+  }
+
+  return Object.freeze({
+    TURN_RATES,
+    MUZZLE_TIP_TILES,
+    BARRELS,
+    turnRateFor,
+    muzzleTiles,
+    barrelCount,
+    barrelLateralTiles
+  });
 }));

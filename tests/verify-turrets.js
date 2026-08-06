@@ -131,6 +131,46 @@ function runTicks(room, me, ships, count, dt) {
   assert(Math.abs(spawnOffset - expected) < 0.01, `railgun bullet spawned ${spawnOffset.toFixed(2)}px from pivot, expected ${expected.toFixed(2)} (barrel tip)`);
 }
 
+// 4b. Twin-barrel autocannon: consecutive rounds leave alternating tubes,
+// offset laterally by the art's barrel spacing. Purely cosmetic — the cadence,
+// count and aim of the shots must be exactly what a single-barrel mount fires.
+{
+  const design = [
+    { x: 7, y: 7, type: "core", rotation: 0 },
+    { x: 8, y: 7, type: "autocannon", rotation: 0 }
+  ];
+  const room = makeRoom();
+  const me = makeShip("me", 0, 0, design);
+  const foe = makeShip("foe", 300, 0, [{ x: 7, y: 7, type: "core", rotation: 0 }]);
+  room.ships.set(me.id, me); room.ships.set(foe.id, foe);
+  room.combatRandom = () => 0.5; // no spread, so shots differ only by barrel
+  runTicks(room, me, [me, foe], 120, 1 / 30);
+  assert(room.bullets.length >= 4, "autocannon should land several rounds in this window");
+
+  const pivot = weaponModuleWorldPosition(me, design[1]);
+  const spacing = TurretRules.BARRELS.autocannon.spreadTiles * SCALE;
+  // Measure each spawn perpendicular to the shot's own line of flight: with no
+  // spread the velocity is the turret's aim, so the offset left of that line is
+  // exactly the barrel the round came out of.
+  for (let i = 0; i < room.bullets.length; i += 1) {
+    const bullet = room.bullets[i];
+    const dir = Math.atan2(bullet.vy, bullet.vx);
+    const lateral = (bullet.x - pivot.x) * -Math.sin(dir) + (bullet.y - pivot.y) * Math.cos(dir);
+    const expected = i % 2 === 0 ? -spacing : spacing;
+    assert(Math.abs(lateral - expected) < 0.01,
+      `round ${i} left the wrong barrel: lateral ${lateral.toFixed(2)}, expected ${expected.toFixed(2)}`);
+    // Alternating the muzzle must not shorten the barrel: the forward reach is
+    // the same barrel tip a single-barrel mount would use.
+    const forward = (bullet.x - pivot.x) * Math.cos(dir) + (bullet.y - pivot.y) * Math.sin(dir);
+    assert(Math.abs(forward - weaponMuzzleDistance(design[1], "blaster")) < 0.01,
+      `round ${i} spawned ${forward.toFixed(2)}px along the barrel, expected the barrel tip`);
+  }
+
+  // Single-barrel weapons keep spawning exactly on the aim line.
+  assert.strictEqual(TurretRules.barrelLateralTiles("blaster", 1), 0, "single-barrel weapons take no lateral offset");
+  assert.strictEqual(TurretRules.barrelCount("blaster"), 1, "the blaster is a single-barrel mount");
+}
+
 // 5. Client and server share one traverse-rate table. The client's rate lookup
 // now lives in the renderer-neutral weaponAim module, imported by both renderers.
 {

@@ -1511,6 +1511,16 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   }
 
+  // Which barrel each multi-barrel weapon fires next. Purely cosmetic: the
+  // shot count, damage and cadence are unchanged, the rounds just alternate
+  // between the visible tubes.
+
+  if (!ship.weaponBarrelIndex) {
+
+    ship.weaponBarrelIndex = new Array(ship.design ? ship.design.length : 0).fill(0);
+
+  }
+
   if (!ship.beamEffectsAt) {
 
     ship.beamEffectsAt = new Array(ship.design ? ship.design.length : 0).fill(0);
@@ -1887,10 +1897,22 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           // we keep the existing timer so the turret does not get stuck
           // cycling through nearby threats.
           if (!pdPendingId) {
-            const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
-            const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
-            const delay = Math.round(baseDelay / Math.max(0.01, reactMult));
-            ship.pdAcquireCompleteAt[i] = Math.max(now + delay, pdReactionReady);
+            if (pdReactionReady > 0) {
+              // A reaction period opened when the previous threat was lost is
+              // already counting down, and usually finishes while the next
+              // threat is still flying in. Honour the time already served.
+              // Restarting a full delay from the moment this threat came into
+              // reach stacked two consecutive delays and collapsed the usable
+              // envelope: a 450-unit Laser PD only opened fire at ~110 units,
+              // roughly 650 ms after the threat entered range.
+              ship.pdAcquireCompleteAt[i] = pdReactionReady;
+            } else {
+              // Switching off a target that is still alive: the full delay is
+              // the cost of breaking track mid-engagement.
+              const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
+              const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
+              ship.pdAcquireCompleteAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
+            }
           }
         }
         // While reaction delay is pending, the turret may track the threat
@@ -2224,7 +2246,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-    const muzzle = weaponMuzzleWorldPosition(ship, module, worldWeaponAngle, family);
+    const barrelIndex = ship.weaponBarrelIndex?.[i] || 0;
+
+    const muzzle = weaponMuzzleWorldPosition(ship, module, worldWeaponAngle, family, barrelIndex);
 
 
 
@@ -2273,6 +2297,14 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     });
 
       ship.weaponCooldowns[i] = reload;
+
+      // Cosmetic only: hand the next round to the other tube of a twin mount.
+
+      if (ship.weaponBarrelIndex) {
+
+        ship.weaponBarrelIndex[i] = (barrelIndex + 1) % TurretRules.barrelCount(module.type);
+
+      }
 
       addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
 
@@ -2895,17 +2927,23 @@ function weaponMuzzleDistance(module, family, scale = MODULE_SCALE) {
 
 
 
-function weaponMuzzleWorldPosition(ship, module, angle, family) {
+function weaponMuzzleWorldPosition(ship, module, angle, family, barrelIndex = 0) {
 
   const origin = weaponModuleWorldPosition(ship, module);
 
   const distance = weaponMuzzleDistance(module, family);
 
+  // Multi-barrel weapons (autocannon) stagger their shots across the tubes, so
+  // the round leaves the barrel that fired it rather than the pivot between
+  // them. Zero for every single-barrel weapon.
+
+  const lateral = TurretRules.barrelLateralTiles(module.type, barrelIndex) * MODULE_SCALE;
+
   return {
 
-    x: origin.x + Math.cos(angle) * distance,
+    x: origin.x + Math.cos(angle) * distance - Math.sin(angle) * lateral,
 
-    y: origin.y + Math.sin(angle) * distance
+    y: origin.y + Math.sin(angle) * distance + Math.cos(angle) * lateral
 
   };
 
@@ -5082,14 +5120,19 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
   const owner = room.players?.get?.(ship.ownerId);
   const viewerTeam = owner?.team || ship.team;
 
+  // A player-ordered focus is exclusive: no weapon may quietly peel off it for
+  // a drone, however threatening that drone looks.
+  let focusLocked = false;
+
   if (primary?.alive && !room.drones?.has?.(primary.id) && canTeamTargetEntity(room, viewerTeam, primary, now)) {
+
+    focusLocked = ship.focusTargetId === primary.id
+      && Relationships.areEntityEnemies(room, ship.ownerId, primary);
 
     // An explicit hostile station focus is exclusive for offensive weapons.
     // Keep the weapon tracking/waiting on the station until its surface is in
     // range instead of silently redirecting fire to a ship or drone.
-    if (primary.entityType === "station"
-      && ship.focusTargetId === primary.id
-      && Relationships.areEntityEnemies(room, ship.ownerId, primary)) return primary;
+    if (focusLocked && primary.entityType === "station") return primary;
 
     const primaryPoint = targetAttackPoint(worldX, worldY, primary);
     const distance = fastHypot(primaryPoint.x - worldX, primaryPoint.y - worldY);
@@ -5163,7 +5206,7 @@ function pickWeaponFireTarget(room, ship, ships, worldX, worldY, primary, range,
 
   const canDivert = canWeaponDefensivelyTargetDrones(options.weapon);
 
-  if (shipTarget && !canDivert) return shipTarget;
+  if (shipTarget && (!canDivert || (focusLocked && shipTarget === primary))) return shipTarget;
 
   const droneChoice = bestDroneFireTarget(room, ship, worldX, worldY, range, options.module, options.weapon);
 

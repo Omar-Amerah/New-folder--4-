@@ -166,10 +166,16 @@ export function handleSelectedCombatStyleClick(event) {
   setSelectedCombatStyle(style);
 }
 
-export function handleMovementToggleChange(event) {
-  const box = event.target?.closest?.("[data-movement-toggle]");
-  if (!box || !dom.movementToggleControls?.contains?.(box)) return;
-  setSelectedMovementToggle(box.dataset.movementToggle, box.checked);
+// The whole row is the switch, so anywhere in it -- including the explanation --
+// is a click target.
+export function handleMovementToggleClick(event) {
+  const row = event.target?.closest?.("[data-movement-toggle]");
+  if (!row || row.disabled || !dom.movementToggleControls?.contains?.(row)) return;
+  event.preventDefault();
+  // Mixed reads as "not all on", so the first click brings the selection onto
+  // on together rather than picking a side at random.
+  const next = row.getAttribute("aria-checked") !== "true";
+  setSelectedMovementToggle(row.dataset.movementToggle, next);
 }
 
 export function getRallyPoint() {
@@ -382,24 +388,61 @@ function renderSelectionControls() {
   renderSelectedSummary(selectedShips);
 }
 
-const MOVEMENT_TOGGLE_DESCRIPTIONS = {
-  autoEngage: "Move to engage targets the ship picks out for itself. Off, it holds station and fires at whatever comes into range.",
-  pursue: "Go after a target that opens the range again. Off, the ship keeps the position it took and lets it go."
+// These are standing orders, not settings, so each row says when it applies and
+// what it does not touch. "Auto engage"/"Pursue" on their own read as near
+// synonyms; the longer names and the sentence under each are what separate them.
+const MOVEMENT_TOGGLE_LABELS = {
+  autoEngage: "Automatic engagement",
+  pursue: "Continue pursuit",
+  autoTurn: "Turn to engage"
 };
 
-// A checkbox over a mixed selection shows indeterminate rather than picking a
-// side, so the player can see the selection disagrees before they change it.
+const MOVEMENT_TOGGLE_DESCRIPTIONS = {
+  autoEngage: "Move to engage targets the ship picks out for itself. Off, it holds station and fires at whatever comes into range. Attack orders you issue are unaffected.",
+  pursue: "Go after a target that opens the range again after the ship has engaged. Off, it keeps the firing position it took and lets the target go.",
+  autoTurn: "Turn the hull to face what the ship is fighting. Off, it never turns on its own: its heading is only ever what your move orders and the I / O keys leave it on."
+};
+
+function pendingMovementToggle(key) {
+  for (const pending of state.pendingMovementToggles.values()) {
+    if (pending.key === key) return pending;
+  }
+  return null;
+}
+
+// Four readouts, not two: a selection that disagrees and a change still in
+// flight are both states the player has to be able to see, and a checkbox can
+// show neither.
 function renderMovementToggles(selectedShips) {
   if (!dom.movementToggleControls) return;
-  const boxes = dom.movementToggleControls.querySelectorAll("input[data-movement-toggle]");
-  for (const box of boxes) {
-    const key = box.dataset.movementToggle;
-    box.disabled = state.phase !== "active" || selectedShips.length === 0;
-    const description = MOVEMENT_TOGGLE_DESCRIPTIONS[key];
-    if (description) box.title = description;
+  const disabled = state.phase !== "active" || selectedShips.length === 0;
+  if (dom.movementToggleScope) {
+    const text = disabled && selectedShips.length === 0
+      ? "No selection"
+      : `${selectedShips.length} ship${selectedShips.length === 1 ? "" : "s"}`;
+    if (dom.movementToggleScope.textContent !== text) dom.movementToggleScope.textContent = text;
+  }
+  const rows = dom.movementToggleControls.querySelectorAll("[data-movement-toggle]");
+  for (const row of rows) {
+    const key = row.dataset.movementToggle;
+    row.disabled = disabled;
     const values = new Set(selectedShips.map((ship) => ship.movementToggles?.[key] !== false));
-    box.indeterminate = values.size > 1;
-    box.checked = values.size === 1 ? [...values][0] : true;
+    const mixed = values.size > 1;
+    const on = values.size === 1 ? [...values][0] : true;
+    const pending = pendingMovementToggle(key);
+    row.setAttribute("aria-checked", mixed ? "mixed" : String(on));
+    if (pending) row.dataset.pending = "1";
+    else delete row.dataset.pending;
+    const label = MOVEMENT_TOGGLE_LABELS[key] || key;
+    const description = MOVEMENT_TOGGLE_DESCRIPTIONS[key];
+    const stateText = pending ? "Applying…" : mixed ? "Mixed" : on ? "On" : "Off";
+    const readout = row.querySelector("[data-movement-toggle-state]");
+    if (readout && readout.textContent !== stateText) readout.textContent = stateText;
+    const title = mixed
+      ? `${description} Selected ships disagree — click to turn it on for all of them.`
+      : description;
+    if (title && row.title !== title) row.title = title;
+    row.setAttribute("aria-label", `${label}: ${stateText}`);
   }
 }
 
@@ -419,20 +462,57 @@ function setSelectedMovementToggle(key, value) {
   }
   // Only the one key travels, so the server merges it onto whatever else each
   // hull already had rather than the panel restating the lot.
-  const payload = { type: "setMovementToggles", requestId: makeCombatStyleRequestId(), toggles: { [key]: value } };
+  const requestId = makeCombatStyleRequestId();
+  const payload = { type: "setMovementToggles", requestId, toggles: { [key]: value } };
   if (shipIds.length === ownShips.length || shipIds.length > MAX_COMBAT_STYLE_EXPLICIT_IDS) {
     payload.scope = "all-owned";
   } else {
     payload.shipIds = shipIds;
   }
-  // Optimistic, so the checkbox answers immediately; the next snapshot is
-  // authoritative either way.
+  // Optimistic, so the row answers immediately. The previous value is kept per
+  // ship so a rejection can put it back rather than leaving the panel claiming
+  // a change the fleet never took.
+  const previous = [];
   for (const ship of ownShips) {
     if (payload.scope || shipIds.includes(ship.id)) {
+      previous.push([ship.id, ship.movementToggles?.[key]]);
       ship.movementToggles = { ...(ship.movementToggles || {}), [key]: value };
     }
   }
+  state.pendingMovementToggles.set(requestId, { key, value, previous });
   send(payload);
+  renderSelectionControls();
+}
+
+// The server answers every toggle request. Without this the panel would show a
+// rejected change as applied until the next snapshot silently undid it.
+export function onMovementTogglesResult(message) {
+  const requestId = message.requestId || null;
+  const pending = requestId ? state.pendingMovementToggles.get(requestId) : null;
+  if (pending) state.pendingMovementToggles.delete(requestId);
+  const label = MOVEMENT_TOGGLE_LABELS[pending?.key] || "Movement order";
+  if (message.ok) {
+    recordNetworkEvent("notice", {
+      message: `${label} acknowledged`,
+      requestId,
+      toggles: message.toggles,
+      updatedCount: message.updatedCount
+    });
+    renderSelectionControls();
+    return;
+  }
+  if (pending) {
+    const shipById = state.snapshotIndex?.shipById;
+    for (const [shipId, was] of pending.previous) {
+      const ship = shipById?.get(shipId);
+      if (!ship?.movementToggles) continue;
+      if (was === undefined) delete ship.movementToggles[pending.key];
+      else ship.movementToggles[pending.key] = was;
+    }
+  }
+  const text = message.message || `${label} change failed.`;
+  notify.error(text, { key: `movement-toggle-failed:${requestId || "unknown"}` });
+  recordNetworkEvent("error", { code: message.code || "movement-toggles-failed", message: text, requestId });
   renderSelectionControls();
 }
 

@@ -9,10 +9,11 @@
 //
 //   autoEngage           go after targets nobody ordered you to
 //   pursue               go after a target that opens the range again
+//   autoTurn             point the hull at what you are fighting
 //
-// There was a third, autoTurn, gating whether a stopped ship faced what it was
-// engaging. It is gone: which way a parked hull points is now settled by the
-// order and the stance rather than by a switch.
+// autoTurn off is the strict reading: nothing the combat code decides may move
+// the nose, so the heading is whatever the player's own orders and the I/O keys
+// leave it on.
 
 const assert = require("assert");
 const { movementTestTick } = require("../tools/movementTestTick");
@@ -180,6 +181,30 @@ function run() {
       "invalid-toggles", "a non-boolean value is refused");
     assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoEngage: false } }).code,
       "invalid-selection", "a request naming no ships is refused");
+
+    // A selection wider than a click. The toggle case allows up to
+    // MAX_COMBAT_SHIP_IDS the same way the stance case does, so the generic
+    // 64-id bound must not be applied on top of it -- otherwise a Grand Battle
+    // selection between 65 and 360 ships is rejected while both smaller and
+    // scope-wide ones go through, which reads as the control being unreliable.
+    const many = (n) => Array.from({ length: n }, (_, i) => `s${i}`);
+    assert.strictEqual(check({ type: "setMovementToggles", toggles: { pursue: false }, shipIds: many(200) }).ok, true,
+      "a 200-ship selection is accepted");
+    assert.strictEqual(check({ type: "setMovementToggles", toggles: { pursue: false }, shipIds: many(361) }).code,
+      "invalid-selection", "...and one past the cap is still refused");
+    assert.strictEqual(check({ type: "setMovementToggles", toggles: { pursue: false }, scope: "all-owned" }).ok, true,
+      "a scope-wide request is accepted");
+  }
+
+  // --- it is a frequent command, not a management one -----------------------
+  {
+    // Toggling a switch over a selection sits alongside stance and orders in
+    // how often a player does it. In the management bucket (4/s) a couple of
+    // quick changes get dropped and the panel looks broken.
+    const { RATE_LIMITS } = require("../src/server/messageRouter");
+    assert(RATE_LIMITS.frequent.types.has("setMovementToggles"),
+      "setMovementToggles belongs in the frequent bucket with setCombatStyle");
+    assert(!RATE_LIMITS.management.types.has("setMovementToggles"));
   }
 
   // --- The message actually reaches the ship --------------------------------
@@ -247,28 +272,108 @@ function run() {
       "a ship that was not named must not be changed");
   }
 
-  // --- there is no autoTurn toggle ------------------------------------------
+  // --- autoTurn -------------------------------------------------------------
   {
-    // Facing what you are engaging is not optional any more. It is decided by
-    // the order and the stance -- see verify-movement-arrival-heading -- and a
-    // switch that could only ever turn the default off had nothing left to do.
-    assert(!MOVEMENT_TOGGLE_KEYS.includes("autoTurn"), "autoTurn is not a toggle");
-    assert.strictEqual(MOVEMENT_TOGGLE_DEFAULTS.autoTurn, undefined,
-      "...and carries no default");
-    assert.strictEqual(sanitizeMovementToggles({ autoTurn: false }).autoTurn, undefined,
-      "a client that still sends it gets it dropped rather than stored");
+    assert(MOVEMENT_TOGGLE_KEYS.includes("autoTurn"), "autoTurn is a toggle");
+    assert.strictEqual(MOVEMENT_TOGGLE_DEFAULTS.autoTurn, true, "...defaulting to on");
+    assert.strictEqual(sanitizeMovementToggles({ autoTurn: false }).autoTurn, false);
     assert.strictEqual(
-      validateClientMessage({ type: "setMovementToggles", toggles: { autoTurn: false }, shipIds: ["a"] }).code,
-      "invalid-toggles", "...and the wire schema refuses the name outright");
+      validateClientMessage({ type: "setMovementToggles", toggles: { autoTurn: false }, shipIds: ["a"] }).ok,
+      true, "...and the wire schema accepts the name");
 
-    // The behaviour it used to gate is still there, unconditionally.
+    // On, which is the default: a stopped ship faces what it is engaging.
+    {
+      const holder = makeShip(1000, 2000, 0, GUNSHIP, "p1");
+      const enemy = makeShip(1000, 2400, Math.PI, UNARMED, "p2");
+      const { room, ships } = makeScenario({ p1: [holder], p2: [enemy] });
+      holder.combatTargetId = enemy.id;
+      simulate(room, ships, 30);
+      assert(facingError(holder, enemy) < 0.1,
+        `a stopped ship faces what it is engaging (${facingError(holder, enemy).toFixed(3)} rad off)`);
+    }
+
+    // Off: the same ship in the same fight never moves its nose. Not "less", not
+    // "later" -- the heading it started on is the heading it keeps.
+    {
+      const holder = makeShip(1000, 2000, 0, GUNSHIP, "p1");
+      const enemy = makeShip(1000, 2400, Math.PI, UNARMED, "p2");
+      const { room, ships } = makeScenario({ p1: [holder], p2: [enemy] });
+      applyMovementToggles(holder, { autoTurn: false });
+      holder.combatTargetId = enemy.id;
+      const before = holder.angle;
+      let drift = 0;
+      simulate(room, ships, 30, () => {
+        drift = Math.max(drift, Math.abs(holder.angle - before));
+      });
+      assert(drift < 1e-6,
+        `autoTurn off means the hull never turns itself (${drift.toFixed(4)} rad of drift)`);
+      assert(facingError(holder, enemy) > 1,
+        "...so it is still pointing where it was, not at the enemy");
+    }
+  }
+
+  // --- turning to engage does not unwind afterwards -------------------------
+  {
+    // The complaint this exists for: a parked ship swings round to an enemy and
+    // then, when the fight is over, swings all the way back to a heading from
+    // before it -- a spin on the spot with nothing on screen to explain it.
+    const { ensureMovementRuntime } = require("../src/server/movementRuntime");
     const holder = makeShip(1000, 2000, 0, GUNSHIP, "p1");
     const enemy = makeShip(1000, 2400, Math.PI, UNARMED, "p2");
     const { room, ships } = makeScenario({ p1: [holder], p2: [enemy] });
+    // A ship that has flown somewhere carries the heading it settled on, and
+    // that latch is what it used to snap back to. Set directly so the case is
+    // the facing rule and nothing about how the route happened to be flown.
+    ensureMovementRuntime(holder).arrivalHeading = 0;
     holder.combatTargetId = enemy.id;
     simulate(room, ships, 30);
-    assert(facingError(holder, enemy) < 0.1,
-      `a stopped ship still faces what it is engaging (${facingError(holder, enemy).toFixed(3)} rad off)`);
+    const engagedAngle = holder.angle;
+    assert(facingError(holder, enemy) < 0.1, "the ship turned onto the target");
+    assert(Math.abs(engagedAngle) > 0.3,
+      "...which is a real turn away from the heading it was holding");
+
+    // The target is gone. Nothing else has been ordered.
+    enemy.alive = false;
+    room.ships.delete(enemy.id);
+    ships.splice(ships.indexOf(enemy), 1);
+    buildRoomSpatialIndex(room, ships, 0);
+    holder.combatTargetId = null;
+    simulate(room, ships, 10);
+    const unwound = Math.abs(holder.angle - engagedAngle);
+    assert(unwound < 0.05,
+      `the hull holds where the fight left it (${unwound.toFixed(3)} rad of unwind)`);
+  }
+
+  // --- manual rotation is not overridden ------------------------------------
+  {
+    // Holding I or O turns the hull. What made the keys look broken was that
+    // everything else the controller could have pointed at was still latched
+    // behind them, so the ship snapped back the moment the key came up.
+    const { setManualRotation } = require("../src/server/movementRuntime");
+    const ship = makeShip(1000, 2000, 0, GUNSHIP, "p1");
+    const enemy = makeShip(1000, 2400, Math.PI, UNARMED, "p2");
+    const { room, ships } = makeScenario({ p1: [ship], p2: [enemy] });
+    ship.combatTargetId = enemy.id;
+    // Let it settle onto the target first, so there is a combat facing to beat.
+    simulate(room, ships, 20);
+    assert(facingError(ship, enemy) < 0.1, "the ship is facing its target to begin with");
+
+    setManualRotation(ship, 1);
+    simulate(room, ships, 1);
+    const aimed = ship.angle;
+    assert(Math.abs(aimed - Math.atan2(enemy.y - ship.y, enemy.x - ship.x)) > 0.2,
+      "holding the key turned the hull off the target");
+
+    // Key up. The engagement is still live and must not take the helm back.
+    setManualRotation(ship, null);
+    simulate(room, ships, 10);
+    assert(Math.abs(ship.angle - aimed) < 0.05,
+      `the hand aim holds after the key is released (${Math.abs(ship.angle - aimed).toFixed(3)} rad off)`);
+
+    // ...until the player says otherwise. A new order is the later word.
+    commandShips(room, room.players.get("p1"), 1600, 2000, { shipIds: [ship.id] });
+    simulate(room, ships, 20);
+    assert(Math.abs(ship.angle - aimed) > 0.05, "a new order retires the hand aim");
   }
 
   // --- autoEngage -----------------------------------------------------------

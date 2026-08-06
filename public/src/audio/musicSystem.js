@@ -5,8 +5,11 @@
 //
 // Playing (rather than starting/stopping) the combat stem is what keeps the two
 // layers phase-aligned; starting it on demand would drop it in at an arbitrary
-// bar. A drift correction below repairs the small clock skew two independent
-// <audio> elements accumulate over a long session.
+// bar. That alone is not enough — two <audio> elements run on independent
+// clocks, start at whatever moment autoplay lets them, and wrap their loops
+// separately — so syncStems() below holds the combat stem on the ambient stem's
+// clock every tick: snapped exactly while it is silent, and nudged by a tiny
+// playbackRate trim while it can be heard.
 
 import { loadPreferences, persistPreferences } from "../localPreferences.js";
 
@@ -20,8 +23,34 @@ export const COMBAT_HOLD_MS = 20000;
 export const COMBAT_FADE_OUT_MS = 4000;
 
 const TICK_MS = 50;
-// Beyond this the two stems are audibly out of phase and worth a hard reseek.
-const MAX_DRIFT_SECONDS = 0.25;
+// Phase lock thresholds. Two <audio> elements run on independent clocks and
+// wrap their loops independently, so drift has to be actively corrected rather
+// than merely tolerated.
+//
+// Within the deadband the stems are tight enough that no correction is worth
+// the disturbance. Past it the combat stem's playbackRate is trimmed so it
+// slides back into phase without an audible seek — but only while the stem can
+// actually be heard. Whenever the combat stem is silent (out of combat, or
+// music muted) a seek costs nothing, so it is snapped to an exact match; that
+// is what guarantees every combat entrance starts perfectly aligned.
+const SYNC_DEADBAND_SECONDS = 0.012;
+// While the stem is silent, anything past this is snapped away outright.
+const SILENT_SNAP_SECONDS = 0.03;
+const SEEK_COOLDOWN_MS = 500;
+// A seek is worth its glitch only once the stems are grossly apart.
+const AUDIBLE_RESEEK_SECONDS = 0.35;
+// Drift the rate trim is expected to swallow on its own; larger errors just
+// clamp to the maximum trim.
+const RATE_TRIM_RANGE_SECONDS = 0.3;
+// 1.5% is roughly 26 cents of pitch — inaudible on a sustained bed, and closes
+// the deadband in a couple of seconds.
+const MAX_RATE_TRIM = 0.015;
+// Smoothing for the drift estimate: currentTime only advances when the element
+// services its audio thread, so raw per-tick readings are quantised and noisy.
+const DRIFT_SMOOTHING = 0.25;
+// Below this gain the combat stem is buried under the ambient stem, so the
+// first moments of a fade-in are still cheap enough to seek through.
+const INAUDIBLE_GAIN = 0.03;
 
 // Effects the server emits that mean "something is shooting or being shot".
 // Support and logistics effects (repair beams, drone launches, warps, floating
@@ -58,6 +87,8 @@ let musicVolume = 0.6;
 let combatGain = 0;
 let lastCombatAt = -Infinity;
 let unlockBound = false;
+let smoothedDrift = 0;
+let lastSeekAt = -Infinity;
 
 function clamp01(value) {
   const n = Number(value);
@@ -105,18 +136,65 @@ function bindUnlockGesture() {
   window.addEventListener("keydown", unlock, { once: true });
 }
 
-// Two independent media elements drift apart over minutes. Nudge the combat
-// stem back onto the ambient stem's clock, comparing modulo the loop length so
-// a wrap-around does not read as a full-track jump.
-function correctStemDrift() {
+function setCombatRate(rate) {
+  if (!combatAudio) return;
+  if (combatAudio.playbackRate === rate) return;
+  try { combatAudio.playbackRate = rate; } catch { /* rate not settable yet */ }
+}
+
+// Seeking a media element costs a re-buffer, and its currentTime reading is
+// quantised to whatever the audio thread last published, so seeks are rate
+// limited: without this the noise floor alone would trigger one every tick.
+function seekCombatToAmbient(now) {
+  if (now - lastSeekAt < SEEK_COOLDOWN_MS) return;
+  try { combatAudio.currentTime = ambientAudio.currentTime; } catch { return; }
+  lastSeekAt = now;
+  smoothedDrift = 0;
+}
+
+// Holds the combat stem on the ambient stem's clock. The two elements drift
+// apart over a session — they start at slightly different moments when autoplay
+// unlocks, decode on independent clocks, and wrap their loops independently —
+// so this runs every tick rather than waiting for the gap to become audible.
+//
+// Drift is compared modulo the loop length so a wrap-around does not read as a
+// full-track jump.
+function syncStems(now) {
   if (!ambientAudio || !combatAudio) return;
-  if (ambientAudio.paused || combatAudio.paused) return;
+  if (ambientAudio.paused || combatAudio.paused) {
+    // Nothing meaningful to measure; leave the rate neutral so playback resumes
+    // at pitch and the next tick re-aligns from scratch.
+    setCombatRate(1);
+    return;
+  }
   const duration = ambientAudio.duration;
   if (!Number.isFinite(duration) || duration <= 0) return;
+
   let drift = combatAudio.currentTime - ambientAudio.currentTime;
   drift -= Math.round(drift / duration) * duration;
-  if (Math.abs(drift) <= MAX_DRIFT_SECONDS) return;
-  try { combatAudio.currentTime = ambientAudio.currentTime; } catch { /* seek not ready yet */ }
+  smoothedDrift += (drift - smoothedDrift) * DRIFT_SMOOTHING;
+
+  // While the combat stem is inaudible a seek has no cost, so keep it exactly
+  // locked. Every fade-in therefore begins from a perfect match.
+  const audible = musicEnabled && combatGain > INAUDIBLE_GAIN;
+  if (!audible) {
+    setCombatRate(1);
+    if (Math.abs(smoothedDrift) > SILENT_SNAP_SECONDS) seekCombatToAmbient(now);
+    return;
+  }
+
+  if (Math.abs(smoothedDrift) > AUDIBLE_RESEEK_SECONDS) {
+    setCombatRate(1);
+    seekCombatToAmbient(now);
+    return;
+  }
+  if (Math.abs(smoothedDrift) <= SYNC_DEADBAND_SECONDS) {
+    setCombatRate(1);
+    return;
+  }
+  // Ahead of the ambient stem: play slower. Behind: play faster.
+  const correction = Math.max(-1, Math.min(1, smoothedDrift / RATE_TRIM_RANGE_SECONDS));
+  setCombatRate(1 - correction * MAX_RATE_TRIM);
 }
 
 export function musicTick(now = Date.now()) {
@@ -132,7 +210,7 @@ export function musicTick(now = Date.now()) {
 
   applyVolumes();
   attemptPlayback();
-  correctStemDrift();
+  syncStems(now);
 }
 
 // Called once per rendered frame with the snapshot being drawn. Any live
@@ -181,6 +259,8 @@ export function initMusic(preferences) {
 
   ambientAudio = createLoop(AMBIENT_SRC);
   combatAudio = createLoop(COMBAT_SRC);
+  smoothedDrift = 0;
+  lastSeekAt = -Infinity;
   applyVolumes();
   attemptPlayback();
 
@@ -200,4 +280,6 @@ export function destroyMusic() {
   combatAudio = null;
   combatGain = 0;
   lastCombatAt = -Infinity;
+  smoothedDrift = 0;
+  lastSeekAt = -Infinity;
 }

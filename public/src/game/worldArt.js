@@ -160,9 +160,9 @@ export function drawBulletVisual(bullet, color) {
     ctx.stroke();
   } else if (bullet.type === "missile") {
     if (bullet.subtype === "swarmMissile") {
-      ctx.shadowColor = "#e9d5ff";
+      ctx.shadowColor = "#5eead4";
       ctx.shadowBlur = qualityShadowBlur(12);
-      ctx.fillStyle = "#f3e8ff";
+      ctx.fillStyle = "#ccfbf1";
       ctx.beginPath();
       ctx.moveTo(9, 0);
       ctx.lineTo(-4, -2.5);
@@ -170,7 +170,7 @@ export function drawBulletVisual(bullet, color) {
       ctx.lineTo(-4, 2.5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#8b5cf6";
+      ctx.fillStyle = "#14b8a6";
       ctx.fillRect(-5, -1.5, 4, 3);
       ctx.fillStyle = "rgba(251, 146, 60, 0.85)";
       ctx.beginPath();
@@ -203,9 +203,9 @@ export function drawBulletVisual(bullet, color) {
       ctx.closePath();
       ctx.fill();
     } else {
-      ctx.shadowColor = "#ffd37a";
+      ctx.shadowColor = "#fbbf24";
       ctx.shadowBlur = qualityShadowBlur(18);
-      ctx.fillStyle = "#ffe7ad";
+      ctx.fillStyle = "#fef3c7";
       ctx.beginPath();
       ctx.moveTo(13, 0);
       ctx.lineTo(-7, -5);
@@ -213,7 +213,7 @@ export function drawBulletVisual(bullet, color) {
       ctx.lineTo(-7, 5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "#8b5cf6";
+      ctx.fillStyle = "#f59e0b";
       ctx.fillRect(-8, -3, 8, 6);
       ctx.fillStyle = "rgba(255, 111, 64, 0.85)";
       ctx.beginPath();

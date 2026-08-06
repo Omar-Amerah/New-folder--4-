@@ -148,6 +148,14 @@ export const state = {
   shipStatusView: "damage",
   debugTurrets: false,
   selectedShipIds: new Set(),
+  // Courses this client has drawn for single ships: shipId -> ordered [{x, y}],
+  // starting with the leg the ship is flying now. It is a record of what was
+  // ordered, not a copy of server state -- the queue itself lives on the server,
+  // and this exists so the path can be drawn without putting every ship's
+  // pending orders on the wire for everyone to see. Entries are trimmed against
+  // the ship's published destination each frame and dropped once they no longer
+  // describe the order the ship is actually under.
+  orderQueues: new Map(),
   // Station selection is deliberately separate from ship selection: stations are
   // inspectable but not commandable, so they must never join a command group.
   selectedStationId: null,
@@ -201,6 +209,7 @@ export const state = {
   purchasePointer: null,
   savedDesignPointer: null,
   pendingCombatStyle: null,
+  pendingMovementToggles: new Map(),
   pendingDeleteDesignId: null,
   pendingKickTargetId: null,
   kickPointer: null,

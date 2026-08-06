@@ -30,7 +30,7 @@ function validShipIds(v){ return Array.isArray(v)&&v.length<=MAX_SHIP_IDS&&v.eve
 // Messages that may name every ship the player owns rather than a click
 // selection, and so are checked against MAX_COMBAT_SHIP_IDS by their own case
 // below instead of the generic bound.
-const SELECTION_WIDE_TYPES=new Set(['setCombatStyle','setOrbitDirection']);
+const SELECTION_WIDE_TYPES=new Set(['setCombatStyle','setOrbitDirection','setMovementToggles']);
 function validCombatShipIds(v){ return Array.isArray(v)&&v.length<=MAX_COMBAT_SHIP_IDS&&v.every(id); }
 function validDesign(v){ return Array.isArray(v)&&v.length>0&&v.length<=MAX_DESIGN&&v.every((e)=>isPlainObject(e)&&str(e.part||e.type||e.id||'x',128)); }
 // Wiring v2 separates canonical physical sections (which own tier) from
@@ -64,7 +64,7 @@ function validateSpecific(m){
     case 'setDroneBayMode': { const miss=checkRequired(m,['shipId','componentId','mode']); if(miss)return miss; return id(m.shipId)&&id(m.componentId)&&['deployed','recalled'].includes(m.mode)?null:fail('invalid-drone-command','Invalid Drone Bay command'); }
     case 'setTelemetryFocus': { const miss=checkRequired(m,['shipId']); if(miss)return miss; return m.shipId===null||id(m.shipId)?null:fail('invalid-selection','Invalid telemetry focus'); }
     case 'setRallyPoint': { const miss=checkRequired(m,['x','y']); if(miss)return miss; return num(m.x)&&num(m.y)?null:fail('invalid-rally','Invalid rally point'); }
-    case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.finalFacing!==undefined&&!num(m.finalFacing,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid final facing'); if(m.formation!==undefined&&m.formation!==null&&typeof m.formation!=='string')return fail('invalid-command','Invalid formation'); if(m.direction!==undefined&&m.direction!==null&&!num(m.direction,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid formation direction');
+    case 'command': { const miss=checkRequired(m,['x','y']); if(miss)return miss; if(!num(m.x)||!num(m.y))return fail('invalid-command','Invalid command coordinates'); if(m.shipIds!==undefined&&!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(m.targetId!==undefined&&m.targetId!==null&&!id(m.targetId))return fail('invalid-target','Invalid target'); if(m.finalFacing!==undefined&&!num(m.finalFacing,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid final facing'); if(m.formation!==undefined&&m.formation!==null&&typeof m.formation!=='string')return fail('invalid-command','Invalid formation'); if(m.direction!==undefined&&m.direction!==null&&!num(m.direction,-Math.PI*8,Math.PI*8))return fail('invalid-command','Invalid formation direction'); if(m.append!==undefined&&typeof m.append!=='boolean')return fail('invalid-command','Invalid append flag');
 return null; }
     case 'resetRallyPoint': return null;
     case 'destruct': { const miss=checkRequired(m,['shipIds']); if(miss)return miss; if(!validShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); return null; }

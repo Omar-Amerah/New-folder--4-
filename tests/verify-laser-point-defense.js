@@ -371,5 +371,54 @@ const assert = require("assert");
     console.log("✔ Test 18 passed: Flak Cannon targets hostile drones with correct priority order.");
   }
 
-  console.log("\nAll 18 Laser Point Defence Verification Tests Passed Successfully!");
+  // 19. A second threat is engaged near the edge of the PD envelope, not on
+  //     top of the hull. The reaction period opened when the previous threat
+  //     was lost must count down while the next one flies in; restarting a
+  //     full delay from the moment the new threat came into reach stacked two
+  //     consecutive delays and collapsed the usable envelope from 450 to ~110.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    pdShip.x = 0; pdShip.y = 0;
+    const enemyShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    enemyShip.x = 3000; enemyShip.y = 0;
+    const room = makeRoom([pdShip, enemyShip]);
+
+    const pdRange = PARTS.pointDefense.weapon.range;
+    const speed = 520;
+    const dt = 1 / 60;
+    let now = 0;
+    const firstHitRanges = [];
+
+    for (let missileIndex = 0; missileIndex < 2; missileIndex += 1) {
+      const missile = {
+        id: `seq${missileIndex}`, type: "missile", ownerId: "p2", targetId: pdShip.id,
+        x: 900, y: 0, vx: -speed, vy: 0, life: 20, interceptable: true, hp: 1000
+      };
+      room.bullets = [missile];
+      let firstHitRange = null;
+      // Run the missile all the way in, then drop it and send the next one.
+      while (missile.x > 0) {
+        now += dt * 1000;
+        missile.x += missile.vx * dt;
+        const hpBefore = missile.hp;
+        updateShipWeapons(room, pdShip, [pdShip, enemyShip], dt, now);
+        if (firstHitRange === null && missile.hp < hpBefore) firstHitRange = missile.x;
+      }
+      firstHitRanges.push(firstHitRange);
+      room.bullets = [];
+    }
+
+    assert.ok(firstHitRanges[0] !== null && firstHitRanges[1] !== null, "PD engages both threats");
+    assert.ok(
+      firstHitRanges[0] > pdRange * 0.9,
+      `first threat engaged near maximum range (was ${Math.round(firstHitRanges[0])} of ${pdRange})`
+    );
+    assert.ok(
+      firstHitRanges[1] > pdRange * 0.8,
+      `second threat engaged near maximum range, not on top of the hull (was ${Math.round(firstHitRanges[1])} of ${pdRange})`
+    );
+    console.log(`✔ Test 19 passed: consecutive threats engaged at ${Math.round(firstHitRanges[0])} and ${Math.round(firstHitRanges[1])} of ${pdRange} range.`);
+  }
+
+  console.log("\nAll 19 Laser Point Defence Verification Tests Passed Successfully!");
 })();
