@@ -58,11 +58,6 @@ export function renderPartInspector() {
   // reset when the selection moves to a different component.
   const openState = openSectionsFor(type);
 
-  const componentActions = placed && placed.type !== "core" ? `
-    <div class="part-inspector-actions${type === "droneBay" ? " drone-bay-actions" : ""}" aria-label="Selected component actions">
-      ${isRotatablePart(type) ? `<button type="button" data-component-action="rotate">Rotate</button>` : ""}
-      <button type="button" class="danger" data-component-action="remove">Remove</button>
-    </div>` : "";
 
   dom.partInspector.innerHTML = `
     ${headerMarkup(type, model)}
@@ -72,7 +67,6 @@ export function renderPartInspector() {
     ${operationalOverviewMarkup(type, model)}
     ${warningsMarkup(model)}
     ${droneBayControlsMarkup(type)}
-    ${componentActions}
     ${model.sections.map((section) => accordionMarkup(section, openState)).join("")}
     ${isRotatablePart(type) ? `<p class="part-inspector-tip">Hover a placed matching part and press R to rotate.</p>` : ""}
   `;

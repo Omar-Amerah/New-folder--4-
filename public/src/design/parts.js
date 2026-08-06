@@ -64,7 +64,7 @@ export const PART_DEFS = {
   pointDefense: { name: "Laser Point Defence", color: "#fda4af", glyph: "radial-gradient(circle, #fff1f2 0 18%, #fb7185 30% 56%, #881337 62%)" },
   decoyLauncher: { name: "Decoy Launcher", color: "#93c5fd", glyph: "radial-gradient(circle, #eff6ff 0 12%, #60a5fa 16% 28%, #7c3aed 32% 45%, #172554 50%)" },
 
-  flakCannon: { name: "Flak Cannon", color: "#fda4af", glyph: "radial-gradient(circle, #fecdd3 0 25%, #f43f5e 35% 56%, #881337 62%)" },
+  flakCannon: { name: "Flak Cannon", color: "#a3e635", glyph: "radial-gradient(circle, #ecfccb 0 25%, #84cc16 35% 56%, #365314 62%)" },
   interceptorPod: { name: "Interceptor Pod", color: "#c084fc", glyph: "radial-gradient(circle, #f3e8ff 0 22%, #a855f7 30% 60%, #3b0764 65%)" },
   lightBlaster: { name: "Light Blaster", color: "#fb7185", glyph: "linear-gradient(90deg, #3f0d1b 0 18%, #fb7185 20% 72%, #ffe4e6 73%)" },
   heavyBlaster: { name: "Heavy Blaster", color: "#f43f5e", glyph: "linear-gradient(90deg, #3f0d1b 0 16%, #e11d48 18% 70%, #ffe4e6 72%)" },

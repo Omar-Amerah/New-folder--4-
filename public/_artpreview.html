@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>art preview</title>
+<style>body{margin:0;background:#0b0f16}canvas{display:block}</style></head>
+<body>
+<canvas id="c" width="900" height="360"></canvas>
+<script type="module">
+import { withCanvasContext } from "./src/ui/dom.js";
+import { drawStaticComponentBase, drawStaticWeaponMount, drawRotatingWeaponTop } from "./src/game/componentArt.js";
+
+const c = document.getElementById("c");
+const g = c.getContext("2d");
+const list = [
+  ["railgun", "#f4f7ff"], ["swarmMissile", "#d8b4fe"], ["torpedo", "#a78bfa"],
+  ["beamEmitter", "#bae6fd"], ["thermalInductionLance", "#d8b4fe"]
+];
+list.forEach(([type, color], i) => {
+  const U = 84;
+  const x = 80 + i * 130;
+  withCanvasContext(g, () => {
+    g.save();
+    g.translate(x, 150);
+    g.rotate(-Math.PI / 2);
+    drawStaticComponentBase({ type, unit: U, tilesLong: 2, tilesCross: 1, color });
+    drawStaticWeaponMount({ type, unit: U, tilesLong: 2, tilesCross: 1, color });
+    drawRotatingWeaponTop({ type, unit: U, tilesLong: 2, tilesCross: 1, color });
+    g.restore();
+  });
+  g.fillStyle = "rgba(226,232,240,0.6)";
+  g.font = "10px sans-serif";
+  g.fillText(type.slice(0, 14), x - 40, 250);
+  // small scale
+  const u2 = 30;
+  const off = document.createElement("canvas");
+  off.width = off.height = u2 * 3;
+  const og = off.getContext("2d");
+  withCanvasContext(og, () => {
+    og.translate(u2 * 1.5, u2 * 1.5);
+    og.rotate(-Math.PI / 2);
+    drawStaticComponentBase({ type, unit: u2, tilesLong: 2, tilesCross: 1, color });
+    drawStaticWeaponMount({ type, unit: u2, tilesLong: 2, tilesCross: 1, color });
+    drawRotatingWeaponTop({ type, unit: u2, tilesLong: 2, tilesCross: 1, color });
+  });
+  g.imageSmoothingEnabled = false;
+  g.drawImage(off, x - 45, 265, 90, 90);
+});
+g.fillStyle = "#e2e8f0";
+g.font = "14px sans-serif";
+g.fillText("depth pass", 20, 30);
+window.__ready = true;
+</script>
+</body></html>

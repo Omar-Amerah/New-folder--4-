@@ -1134,6 +1134,7 @@ function syncEnemyVisibilityMask(env, bounds) {
   const sources = enabled ? getAlliedSensorSources(bounds) : [];
   const maskReady = enabled && updatePixiVisibilityMask(env, env.layers.enemyVisibilityMask, sources);
   const maskDiagnostics = maskReady ? pixiVisibilityMaskDiagnostics() : null;
+  env.layers.enemyShipBodiesMasked.mask = maskReady ? env.layers.enemyVisibilityMask : null;
   const lastBuildMs = performance.now() - start;
   _visibilityMaskStats = {
     enabled,

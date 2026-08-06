@@ -42,7 +42,7 @@
     blaster: 0.56,
     lightBlaster: 0.56,
     heavyBlaster: 0.56,
-    autocannon: 0.7,
+    autocannon: 0.62,
     missile: 0.4,
     lightMissile: 0.4,
     railgun: 0.68,
