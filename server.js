@@ -25,6 +25,9 @@ const { isComponentAssertionEnabled } = require("./src/server/componentHealth");
 // gzip variants for text assets — avoids re-reading and re-sending full payloads.
 const staticCache = new Map();
 const COMPRESSIBLE = new Set([".html", ".css", ".js", ".json", ".svg"]);
+// Music stems are tens of megabytes each; streaming them from disk on every
+// request is far cheaper than pinning them in the process heap forever.
+const MAX_CACHED_STATIC_BYTES = 4 * 1024 * 1024;
 const componentBalanceJson = JSON.stringify(COMPONENT_BALANCE);
 const componentBalanceGzip = zlib.gzipSync(componentBalanceJson);
 
@@ -274,6 +277,11 @@ function handleHttpRequest(req, res) {
       return;
     }
 
+    if (stats.size > MAX_CACHED_STATIC_BYTES) {
+      streamStaticFile(req, res, { filePath, size: stats.size, contentType, cacheControl });
+      return;
+    }
+
     fs.readFile(filePath, (err, data) => {
       if (err) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -286,6 +294,57 @@ function handleHttpRequest(req, res) {
       serveBuffer(req, res, { data, gzip, contentType, cacheControl });
     });
   });
+}
+
+// Large media (the music stems) is streamed rather than buffered, with Range
+// support so browsers can seek and resume instead of refetching the whole file.
+function streamStaticFile(req, res, { filePath, size, contentType, cacheControl }) {
+  const headers = {
+    ...securityHeaders(),
+    "content-type": contentType,
+    "cache-control": cacheControl,
+    "accept-ranges": "bytes"
+  };
+
+  let start = 0;
+  let end = size - 1;
+  let status = 200;
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+  if (range) {
+    const hasStart = range[1] !== "";
+    const hasEnd = range[2] !== "";
+    if (!hasStart && !hasEnd) {
+      res.writeHead(416, { ...headers, "content-range": `bytes */${size}` });
+      res.end();
+      return;
+    }
+    if (hasStart) {
+      start = Number(range[1]);
+      if (hasEnd) end = Math.min(end, Number(range[2]));
+    } else {
+      // Suffix form: the last N bytes.
+      start = Math.max(0, size - Number(range[2]));
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
+      res.writeHead(416, { ...headers, "content-range": `bytes */${size}` });
+      res.end();
+      return;
+    }
+    status = 206;
+    headers["content-range"] = `bytes ${start}-${end}/${size}`;
+  }
+
+  headers["content-length"] = end - start + 1;
+  res.writeHead(status, headers);
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+
+  const stream = fs.createReadStream(filePath, { start, end });
+  stream.on("error", () => res.destroy());
+  res.on("close", () => stream.destroy());
+  stream.pipe(res);
 }
 
 

@@ -96,7 +96,10 @@ const MIME = {
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
-  ".svg": "image/svg+xml; charset=utf-8"
+  ".svg": "image/svg+xml; charset=utf-8",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".mp3": "audio/mpeg"
 };
 
 const COLORS = [

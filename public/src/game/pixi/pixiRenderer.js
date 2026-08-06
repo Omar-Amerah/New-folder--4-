@@ -22,6 +22,7 @@ import { destroyPixiFog } from "./pixiFog.js";
 import { updatePixiDrones, updatePixiDronePoses, destroyPixiDrones } from "./pixiDrones.js";
 import { recordRendererFrame, rendererMetricsSnapshot, resetRendererMetrics, setRendererMetricsPhase } from "../rendererMetrics.js";
 import { updatePixiScreenUi, destroyPixiScreenUi } from "./pixiScreenUi.js";
+import { updateMusicCombatState } from "../../audio/musicSystem.js";
 
 let pixiEnv = null;
 let pixiFrameCount = 0;
@@ -235,6 +236,8 @@ function pixiFrame() {
     state.debugStats.drawnEffects = 0;
     state.debugStats.totalEffects = 0;
 
+    lastRenderStage = "updateMusicCombatState";
+    updateMusicCombatState(state.snapshot, Date.now());
     lastRenderStage = "consumePendingZoom";
     consumePendingZoom();
     lastRenderStage = "interpolateShips";

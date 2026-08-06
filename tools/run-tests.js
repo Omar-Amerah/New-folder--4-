@@ -109,6 +109,7 @@ const GROUPS = {
     "tests/verify-ship-identification-renderer.js",
     "tests/verify-selection.js",
     "tests/verify-client-selection.js",
+    "tests/verify-adaptive-music.js",
     "tests/verify-station-infrastructure.js",
     "tests/verify-relay-transfer-recovery.js",
     "tests/verify-station-single-hangar.js",

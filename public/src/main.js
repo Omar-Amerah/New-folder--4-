@@ -24,9 +24,11 @@ import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network
 import { applyComponentBalance } from "./design/parts.js";
 import { initLedger, openLedger, closeLedger } from "./ledger/fleetLedgerUi.js";
 import { applyFeatureFlagPresentation, WIRING_ENABLED } from "./featureFlags.js";
+import { initMusic } from "./audio/musicSystem.js";
 
 const loadedPreferences = loadPreferences().preferences;
 applyFeatureFlagPresentation();
+initMusic(loadedPreferences);
 if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.floor(100 + Math.random() * 900)}`;
 applyInterfacePreferences(loadedPreferences);
 dom.pilotName.value = loadedPreferences.pilotName;

@@ -147,6 +147,7 @@
     "test:webgl-context": "npm run build && node tests/verify-webgl-context-browser.js",
     "test:purchase-bar-layout": "npm run build && node tests/verify-purchase-bar-layout-browser.js",
     "test:all-non-browser": "npm run check && node tests/verify-switchgear-runtime.js && npm run test:blueprint-information-polish && npm run test:blueprint-modes && npm run test:blueprint-discoverability && npm run test:blueprint-undo && npm run test:shield-impact-heat && npm run test:support-semantics && npm run test:armor-delivery && node tools/run-tests.js all-non-browser && npm run test:ship-hull-outline",
+    "test:adaptive-music": "node tests/verify-adaptive-music.js",
     "test:client-selection": "node tests/verify-client-selection.js && node tests/verify-client-self-destruct.js",
     "test:message-routes": "node tests/verify-message-route-inventory.js",
     "test:message-dispatch": "node tests/verify-message-dispatch.js && node tests/verify-self-destruct-router.js",

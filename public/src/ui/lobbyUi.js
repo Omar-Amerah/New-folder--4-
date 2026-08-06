@@ -1,5 +1,6 @@
 import { resizeArenaRenderer } from "../game/renderController.js";
 import { getRenderQuality, setRenderQuality, getCombatEffectsEnabled, setCombatEffectsEnabled, getDebugRendererEnabled, setDebugRendererEnabled, getMobileTestingModeEnabled, setMobileTestingModeEnabled, getFogOpacity, setFogOpacity } from "../game/renderSettings.js";
+import { getMusicEnabled, setMusicEnabled, getMusicVolume, setMusicVolume } from "../audio/musicSystem.js";
 // Handles lobby screens, player wing choices, starting/leaving, rules updates, and host controls.
 
 import { dom } from "./dom.js";
@@ -832,6 +833,9 @@ export function openSettings() {
   if (dom.mobileTestingToggle) {
     dom.mobileTestingToggle.checked = getMobileTestingModeEnabled();
   }
+  if (dom.musicEnabledToggle) dom.musicEnabledToggle.checked = getMusicEnabled();
+  if (dom.musicVolumeSlider) dom.musicVolumeSlider.value = String(getMusicVolume());
+  if (dom.musicVolumeValue) dom.musicVolumeValue.textContent = `${Math.round(getMusicVolume() * 100)}%`;
 }
 
 export function closeSettings() {
@@ -1023,6 +1027,15 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
       dom.fogOpacitySlider.addEventListener("input", (e) => {
         setFogOpacity(e.target.value);
         if (dom.fogOpacityValue) dom.fogOpacityValue.textContent = `${Math.round(getFogOpacity() * 100)}%`;
+      });
+    }
+    if (dom.musicEnabledToggle) {
+      dom.musicEnabledToggle.addEventListener("change", (e) => setMusicEnabled(e.target.checked));
+    }
+    if (dom.musicVolumeSlider) {
+      dom.musicVolumeSlider.addEventListener("input", (e) => {
+        setMusicVolume(e.target.value);
+        if (dom.musicVolumeValue) dom.musicVolumeValue.textContent = `${Math.round(getMusicVolume() * 100)}%`;
       });
     }
     if (dom.resetFogOpacityButton) {

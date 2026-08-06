@@ -12,7 +12,9 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   serverUrl: "",
   reducedMotion: false,
   interfaceScale: 1,
-  fogOpacity: 0.76
+  fogOpacity: 0.76,
+  musicEnabled: true,
+  musicVolume: 0.6
 });
 
 const teams = new Set(["blue", "red"]);
@@ -57,6 +59,9 @@ export function validatePreferences(input = {}, storage = getStorage()) {
     p.interfaceScale = scales.has(scale) ? scale : DEFAULT_PREFERENCES.interfaceScale;
     const fog = Number(input.fogOpacity);
     p.fogOpacity = Number.isFinite(fog) ? Math.min(1, Math.max(0, fog)) : DEFAULT_PREFERENCES.fogOpacity;
+    p.musicEnabled = bool(input.musicEnabled, DEFAULT_PREFERENCES.musicEnabled);
+    const music = Number(input.musicVolume);
+    p.musicVolume = Number.isFinite(music) ? Math.min(1, Math.max(0, music)) : DEFAULT_PREFERENCES.musicVolume;
   }
   if (!p.pilotName) p.pilotName = cleanName(safeGet(storage, LOCAL_NAME_KEY));
   return p;
