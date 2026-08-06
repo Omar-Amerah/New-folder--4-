@@ -92,7 +92,6 @@ const {
 const {
   applyEngineHeat,
   applyTurnHeat,
-  directionalTurnRate,
   driveAcceleration,
   hasDrive,
   heatAdjustedMovementStats,
@@ -186,6 +185,28 @@ function momentumRetention(headingError) {
   return clampNumber(1 - beyond / (Math.PI - MOMENTUM_HOLD_ANGLE), 0, 1);
 }
 
+// A heading directly astern has no shorter side to turn through. Signed
+// shortest-angle normalization has to break that tie somehow and breaks it at
+// +PI, so every about-face goes right -- on a hull whose maneuver thrusters are
+// uneven, or which has lost the ones on one side, that is reliably the slow way
+// round and reads as the controller picking the wrong direction. Only inside
+// this window is the choice genuinely ambiguous; outside it the shortest side is
+// the answer and nothing here may second-guess it.
+const TURN_TIE_WINDOW = 0.02;
+
+// Which way round to turn: the shorter side, unless the two sides are within a
+// hair of equal, in which case the faster side, then the way the hull is already
+// rotating -- reversing a turn in progress costs more than finishing it -- then
+// a fixed answer so the same situation always resolves the same way.
+function resolveTurnDirection(ship, stats, difference) {
+  if (Math.PI - Math.abs(difference) > TURN_TIE_WINDOW) return difference > 0 ? 1 : -1;
+  const right = signedTurnRate(stats, 1, ship);
+  const left = signedTurnRate(stats, -1, ship);
+  if (Math.abs(right - left) > 1e-9) return right > left ? 1 : -1;
+  if (ship._turnDirection === 1 || ship._turnDirection === -1) return ship._turnDirection;
+  return difference >= 0 ? 1 : -1;
+}
+
 function turnTowardHeading(ship, desiredHeading, stats, dt) {
   if (!Number.isFinite(desiredHeading)) {
     ship.turnActivity = 0;
@@ -193,15 +214,20 @@ function turnTowardHeading(ship, desiredHeading, stats, dt) {
   }
   const before = Number(ship.angle) || 0;
   const difference = angleDifference(before, desiredHeading);
-  const rate = directionalTurnRate(stats, before, desiredHeading, ship);
+  const direction = resolveTurnDirection(ship, stats, difference);
+  const rate = signedTurnRate(stats, direction, ship);
   const maxDelta = rate * dt;
   if (!(maxDelta > 0)) {
     ship.turnActivity = 0;
     return;
   }
   const blend = 1 - Math.exp(-dt / TURN_TIME_CONSTANT_S);
-  const step = clampNumber(difference * blend, -maxDelta, maxDelta);
+  // Size from the heading error, side from the resolved direction. They agree
+  // everywhere except at the about-face tie, and there the resolved side has to
+  // win or the ship turns the way the tie-break just rejected.
+  const step = direction * Math.min(Math.abs(difference) * blend, maxDelta);
   ship.angle = normalizeHullAngle(before + step);
+  if (Math.abs(step) > 0) ship._turnDirection = step > 0 ? 1 : -1;
   ship.turnActivity = Math.abs(difference) < FINAL_FACING_TOLERANCE
     ? 0
     : clampNumber(step / maxDelta, -1, 1);
@@ -217,6 +243,7 @@ function applyManualRotation(ship, stats, dt) {
   }
   ship.angle = normalizeHullAngle((ship.angle || 0) + direction * rate * dt);
   ship.turnActivity = direction;
+  ship._turnDirection = direction;
   applyTurnHeat(ship, ship.turnActivity, dt);
 }
 
@@ -437,17 +464,14 @@ function movementAuthority(room, ship, runtime) {
   if (command?.type === "move") {
     if (!runtime.orderComplete) return "move";
     if (engagementTarget(room, ship, runtime)) return "engage";
-    const destination = command.destination;
-    runtime.destination = destination;
-    const displaced = destination
-      && fastHypot(destination.x - (ship.x || 0), destination.y - (ship.y || 0))
-        > Math.max(ARRIVE_DISTANCE * ARRIVE_LATCH_RATIO, runtime.arrivalRadius || ARRIVE_DISTANCE);
-    if (displaced) {
-      runtime.orderComplete = false;
-      runtime.arrived = false;
-      runtime.blocked = false;
-      return "move";
-    }
+    runtime.destination = command.destination;
+    // Deliberately no "it has drifted off the point, re-run the move" branch.
+    // Collision correction and friendly separation shove a parked hull around by
+    // more than the arrival envelope all the time in a crowded formation, and
+    // reopening the order on that reinstates route steering for a tick, which
+    // re-derives the nose direction from the path and then hands it back to the
+    // resting heading -- the ship visibly hunts between the two. The order was
+    // carried out; being nudged afterwards does not un-carry it out.
     return "position";
   }
   return "engage";
@@ -2615,9 +2639,23 @@ function routeView(room, ship, runtime, stats) {
   };
 }
 
-function restingHeading(ship, command) {
+// Where a parked ship points, in priority order: a facing the player explicitly
+// asked for, then the heading the hull actually settled on, then whatever it is
+// pointing at right now. The latched arrival heading is what stops a ship that
+// detoured round an obstacle from swinging back onto the bearing its route was
+// originally planned with, which reads as a spontaneous turn on the spot.
+function restingHeading(ship, runtime, command) {
   if (Number.isFinite(command?.finalFacing)) return command.finalFacing;
+  if (Number.isFinite(runtime?.arrivalHeading)) return runtime.arrivalHeading;
   return ship.angle || 0;
+}
+
+// Called once, on the tick the hull settles. `ship.angle` here is the heading
+// the turn integrator left it on, which is the real arrival heading -- not the
+// route's planned direction, and not anything the stance has yet touched.
+function latchArrivalHeading(ship, runtime) {
+  if (!runtime || Number.isFinite(runtime.arrivalHeading)) return;
+  runtime.arrivalHeading = normalizeHullAngle(Number(ship.angle) || 0);
 }
 
 function bearingTo(ship, point) {
@@ -2683,16 +2721,21 @@ function holdWeaponFacingHeading(room, ship, runtime, target) {
     : bearingTo(ship, targetAttackPointFrom(ship.x || 0, ship.y || 0, target));
 }
 
-// Where a ship that has stopped points. A commanded final facing is the resting
-// default, not an override: it is what the hull settles on with nothing to
-// shoot at. An engagement outranks it, because a formation arriving on its
-// heading and then refusing to look at the enemy in front of it is not what the
-// heading was for. Either way this is orientation only -- it never moves a ship
-// off the point it was sent to.
+// Where a ship that has stopped points. An engagement the player asked for --
+// an Attack or Repair order, or a stance actively flying its own solution --
+// outranks the resting heading, because refusing to look at the thing it was
+// sent to fight is not what the order was for.
+//
+// An AUTOMATICALLY acquired target does not, once a plain Move has been carried
+// out. A right-click on empty space says go there and stop; letting a target the
+// player never picked take the helm on the arrival tick is what spins a ship
+// through 180 degrees the instant it parks, for a reason nothing on screen
+// explains. Either way this is orientation only -- it never moves a ship off the
+// point it was sent to.
 function stationaryHeading(room, ship, runtime, command) {
   if (combatStance(ship) !== "sentry") {
-    const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
-    if (engaged) {
+    const engaged = engagementTarget(room, ship, runtime);
+    if (engaged && !(engaged.explicit === false && completedPlainMove(runtime))) {
       if (engaged.type === "attack" && combatStance(ship) === "hold" && runtime.holdEngaged) {
         return holdWeaponFacingHeading(room, ship, runtime, engaged.target);
       }
@@ -2710,7 +2753,14 @@ function stationaryHeading(room, ship, runtime, command) {
       }
     }
   }
-  return restingHeading(ship, command);
+  return restingHeading(ship, runtime, command);
+}
+
+// A Move order the ship has already carried out. The distinction that matters
+// for facing: this ship is standing where the player put it, under no order to
+// fight anything.
+function completedPlainMove(runtime) {
+  return runtime?.command?.type === "move" && Boolean(runtime.orderComplete);
 }
 
 function restingAgainstCloserFriendly(room, ship, destination) {
@@ -2729,9 +2779,9 @@ function restingAgainstCloserFriendly(room, ship, destination) {
 
 function planMovement(room, ship, runtime, stats, route) {
   const command = runtime.command;
-  const resting = { desiredHeading: restingHeading(ship, command), desiredSpeed: 0 };
+  const resting = { desiredHeading: restingHeading(ship, runtime, command), desiredSpeed: 0 };
   if (command?.type === "stop") {
-    const engaged = movementToggles(ship).autoTurn ? engagementTarget(room, ship, runtime) : null;
+    const engaged = engagementTarget(room, ship, runtime);
     const point = engaged ? targetAttackPointFrom(ship.x, ship.y, engaged.target) : null;
     const distance = point ? fastHypot(point.x - ship.x, point.y - ship.y) : 0;
     return {
@@ -2747,7 +2797,7 @@ function planMovement(room, ship, runtime, stats, route) {
 
   const destination = runtime.destination;
   if (!destination) {
-    const engaged = combatStance(ship) !== "sentry" && movementToggles(ship).autoTurn
+    const engaged = combatStance(ship) !== "sentry"
       ? engagementTarget(room, ship, runtime)
       : null;
     if (engaged) {
@@ -2789,6 +2839,9 @@ function planMovement(room, ship, runtime, stats, route) {
     runtime.arrived = true;
     if (isMove && route?.reachable !== false) runtime.orderComplete = true;
     if (route?.reachable === false) runtime.blocked = true;
+    // Before stationaryHeading gets a say: this is the last tick on which
+    // ship.angle is still purely the product of flying the route there.
+    latchArrivalHeading(ship, runtime);
     return {
       desiredHeading: stationaryHeading(room, ship, runtime, command),
       desiredSpeed: 0,
@@ -3176,11 +3229,15 @@ function commandShips(room, player, x, y, options = {}) {
       // Every ship has its own slot, so the shared crowding envelope that a
       // single stacked destination needed would only stop ships short of it.
       arrivalRadius: ARRIVE_DISTANCE,
-      // A formation that arrives pointing every which way is not a formation.
-      // Absent an explicit heading, the shape's own direction of travel is the
-      // one they all end on. Automatic combat facing may still turn a parked
-      // hull afterwards; that changes orientation, never position.
-      finalFacing: Number.isFinite(options.finalFacing) ? options.finalFacing : plan.direction,
+      // Only a heading the player actually asked for. Defaulting this to the
+      // formation's planned direction turned every ordinary move into a
+      // move-and-then-face order, and the planned direction is the bearing from
+      // where the fleet STARTED -- so a ship that detoured, was pushed off line,
+      // or braked round a corner arrived and then rotated onto a course it was
+      // no longer flying. With this null the hull keeps the heading it arrived
+      // on, which for a formation travelling together is the shape's direction
+      // anyway, without forcing it back when it isn't.
+      finalFacing: Number.isFinite(options.finalFacing) ? options.finalFacing : null,
       manual: true,
       formation: {
         type: plan.formation,

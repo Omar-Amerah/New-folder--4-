@@ -2,14 +2,17 @@
 
 // Per-ship movement toggles.
 //
-// Four standing instructions the player can switch off. Each defaults to true,
-// and true is exactly how the controller behaved before they existed, so the
-// first thing checked here is that a ship which has never been told anything
-// flies the same as it always did.
+// Standing instructions the player can switch off. Each defaults to true, and
+// true is exactly how the controller behaved before they existed, so the first
+// thing checked here is that a ship which has never been told anything flies
+// the same as it always did.
 //
-//   autoTurn             face what you are engaging once you have stopped
 //   autoEngage           go after targets nobody ordered you to
 //   pursue               go after a target that opens the range again
+//
+// There was a third, autoTurn, gating whether a stopped ship faced what it was
+// engaging. It is gone: which way a parked hull points is now settled by the
+// order and the stance rather than by a switch.
 
 const assert = require("assert");
 const { movementTestTick } = require("../tools/movementTestTick");
@@ -152,31 +155,30 @@ function run() {
     // A partial request keeps everything it did not mention.
     const merged = sanitizeMovementToggles({ pursue: false }, MOVEMENT_TOGGLE_DEFAULTS);
     assert.strictEqual(merged.pursue, false, "the named toggle changes");
-    assert.strictEqual(merged.autoTurn, true, "...and the rest are left alone");
+    assert.strictEqual(merged.autoEngage, true, "...and the rest are left alone");
     // Junk in, defaults out.
     assert.deepStrictEqual(sanitizeMovementToggles(null), { ...MOVEMENT_TOGGLE_DEFAULTS });
     assert.deepStrictEqual(sanitizeMovementToggles("nonsense"), { ...MOVEMENT_TOGGLE_DEFAULTS });
-    assert.strictEqual(sanitizeMovementToggles({ autoTurn: "yes" }).autoTurn, true,
+    assert.strictEqual(sanitizeMovementToggles({ autoEngage: "yes" }).autoEngage, true,
       "values are coerced to booleans rather than stored raw");
 
     // applyMovementToggles merges onto what the ship already had.
     const ship = makeShip(0, 0);
-    applyMovementToggles(ship, { autoTurn: false });
+    applyMovementToggles(ship, { autoEngage: false });
     applyMovementToggles(ship, { pursue: false });
-    assert.strictEqual(ship.movementToggles.autoTurn, false, "an earlier toggle survives a later one");
+    assert.strictEqual(ship.movementToggles.autoEngage, false, "an earlier toggle survives a later one");
     assert.strictEqual(ship.movementToggles.pursue, false);
-    assert.strictEqual(ship.movementToggles.autoEngage, true);
   }
 
   // --- The wire schema rejects nonsense -------------------------------------
   {
     const check = (message) => validateClientMessage(message);
-    assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoTurn: false }, shipIds: ["a"] }).ok, true);
+    assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoEngage: false }, shipIds: ["a"] }).ok, true);
     assert.strictEqual(check({ type: "setMovementToggles", toggles: { madeUp: false }, shipIds: ["a"] }).code,
       "invalid-toggles", "an unknown toggle name is refused");
-    assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoTurn: 1 }, shipIds: ["a"] }).code,
+    assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoEngage: 1 }, shipIds: ["a"] }).code,
       "invalid-toggles", "a non-boolean value is refused");
-    assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoTurn: false } }).code,
+    assert.strictEqual(check({ type: "setMovementToggles", toggles: { autoEngage: false } }).code,
       "invalid-selection", "a request naming no ships is refused");
   }
 
@@ -233,39 +235,40 @@ function run() {
     handleMessage(client, {
       type: "setMovementToggles",
       requestId: "r1",
-      toggles: { autoTurn: false },
+      toggles: { autoEngage: false },
       shipIds: [mine.id]
     });
 
     assert(writes.length > 0, "the router should answer the request");
     assert(!client.isClosed, "...without tearing the connection down");
-    assert.strictEqual(mine.movementToggles.autoTurn, false, "the named ship is changed");
+    assert.strictEqual(mine.movementToggles.autoEngage, false, "the named ship is changed");
     assert.strictEqual(mine.movementToggles.pursue, true, "...and its other toggles are left alone");
-    assert.notStrictEqual(other.movementToggles?.autoTurn, false,
+    assert.notStrictEqual(other.movementToggles?.autoEngage, false,
       "a ship that was not named must not be changed");
   }
 
-  // --- autoTurn -------------------------------------------------------------
+  // --- there is no autoTurn toggle ------------------------------------------
   {
-    // Both ships engage the same way; only the nose differs.
-    const settle = (toggles) => {
-      const holder = makeShip(1000, 2000, 0, GUNSHIP, "p1", toggles);
-      const enemy = makeShip(1000, 2400, Math.PI, UNARMED, "p2");
-      const { room, ships } = makeScenario({ p1: [holder], p2: [enemy] });
-      holder.combatTargetId = enemy.id;
-      simulate(room, ships, 30);
-      return { holder, enemy };
-    };
+    // Facing what you are engaging is not optional any more. It is decided by
+    // the order and the stance -- see verify-movement-arrival-heading -- and a
+    // switch that could only ever turn the default off had nothing left to do.
+    assert(!MOVEMENT_TOGGLE_KEYS.includes("autoTurn"), "autoTurn is not a toggle");
+    assert.strictEqual(MOVEMENT_TOGGLE_DEFAULTS.autoTurn, undefined,
+      "...and carries no default");
+    assert.strictEqual(sanitizeMovementToggles({ autoTurn: false }).autoTurn, undefined,
+      "a client that still sends it gets it dropped rather than stored");
+    assert.strictEqual(
+      validateClientMessage({ type: "setMovementToggles", toggles: { autoTurn: false }, shipIds: ["a"] }).code,
+      "invalid-toggles", "...and the wire schema refuses the name outright");
 
-    const tracking = settle(null);
-    assert(facingError(tracking.holder, tracking.enemy) < 0.1,
-      `by default a stopped ship faces what it is engaging (${facingError(tracking.holder, tracking.enemy).toFixed(3)} rad off)`);
-
-    const fixed = settle({ autoTurn: false });
-    assert(facingError(fixed.holder, fixed.enemy) > 1,
-      `with autoTurn off it should keep its own heading (${facingError(fixed.holder, fixed.enemy).toFixed(3)} rad off)`);
-    assert(Math.abs(fixed.holder.angle) < 0.05,
-      "...which here is the heading it started on");
+    // The behaviour it used to gate is still there, unconditionally.
+    const holder = makeShip(1000, 2000, 0, GUNSHIP, "p1");
+    const enemy = makeShip(1000, 2400, Math.PI, UNARMED, "p2");
+    const { room, ships } = makeScenario({ p1: [holder], p2: [enemy] });
+    holder.combatTargetId = enemy.id;
+    simulate(room, ships, 30);
+    assert(facingError(holder, enemy) < 0.1,
+      `a stopped ship still faces what it is engaging (${facingError(holder, enemy).toFixed(3)} rad off)`);
   }
 
   // --- autoEngage -----------------------------------------------------------

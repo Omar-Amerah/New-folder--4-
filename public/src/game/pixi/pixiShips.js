@@ -155,7 +155,7 @@ function updatePixiShieldRing(view, ship, design, zoom, displayedShield = ship?.
   const ringRadius = shieldRingRadius(ship, design, SHIP_SCALE);
   // The ring is static at a stable shield value. Quantising only the visual
   // ratio avoids rebuilding Pixi geometry for insignificant float noise.
-  const sig = `${ship?.id || ""}|${ship?.alive ? 1 : 0}|${ringRadius.toFixed(2)}|${Math.round(ratio * 1000)}|${zoom.toFixed(3)}`;
+  const sig = `${ship?.id || ""}|${ship?.alive ? 1 : 0}|${ringRadius.toFixed(2)}|${Math.round(ratio * 1000)}|${Math.round(zoom * 40) / 40}`;
   if (view.shieldRingSig === sig) return;
   view.shieldRingSig = sig;
   gfx.clear();
@@ -1128,13 +1128,12 @@ let _visibilityMaskStats = {
   maskedEnemyShipCount: 0
 };
 
-function syncEnemyVisibilityMask(env) {
+function syncEnemyVisibilityMask(env, bounds) {
   const enabled = usesSensorVisibility();
   const start = performance.now();
-  const sources = enabled ? getAlliedSensorSources() : [];
+  const sources = enabled ? getAlliedSensorSources(bounds) : [];
   const maskReady = enabled && updatePixiVisibilityMask(env, env.layers.enemyVisibilityMask, sources);
   const maskDiagnostics = maskReady ? pixiVisibilityMaskDiagnostics() : null;
-  env.layers.enemyShipBodiesMasked.mask = maskReady ? env.layers.enemyVisibilityMask : null;
   const lastBuildMs = performance.now() - start;
   _visibilityMaskStats = {
     enabled,
@@ -1176,7 +1175,7 @@ export function updatePixiShips(env, now, players, bounds) {
   if (shipOverlaysCleared) shipOverlays.removeChildren();
   const debug = turretDebugEnabled();
   const visibleShipIds = new Set();
-  const sources = syncEnemyVisibilityMask(env);
+  const sources = syncEnemyVisibilityMask(env, bounds);
   const sensorMode = usesSensorVisibility();
   let maskedEnemyCount = 0;
   let tExhaust = 0, tTurrets = 0, tHud = 0, tEffects = 0;
@@ -1309,7 +1308,7 @@ export function updatePixiShipPoses(env, now, players, bounds) {
   const overlay = env.layers.overlay;
   const shipOverlays = env.layers.shipOverlays;
   const zoom = state.camera.zoom;
-  const sources = syncEnemyVisibilityMask(env);
+  const sources = syncEnemyVisibilityMask(env, bounds);
   const sensorMode = usesSensorVisibility();
   let maskedEnemyCount = 0;
 

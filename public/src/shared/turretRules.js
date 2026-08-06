@@ -39,12 +39,12 @@
   // when the art changes. Multi-tile weapons draw their barrels out to the
   // forward footprint edge, so the muzzle sits just inside that edge.
   const MUZZLE_TIP_TILES = Object.freeze({
-    blaster: 0.64,
-    lightBlaster: 0.64,
-    heavyBlaster: 0.64,
+    blaster: 0.56,
+    lightBlaster: 0.56,
+    heavyBlaster: 0.56,
     autocannon: 0.7,
-    missile: 0.64,
-    lightMissile: 0.64,
+    missile: 0.4,
+    lightMissile: 0.4,
     railgun: 0.68,
     lightRailgun: 0.68,
     heavyRailgun: 0.68,

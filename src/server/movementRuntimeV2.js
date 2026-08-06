@@ -57,6 +57,13 @@ function createMovementRuntime() {
     // takes the helm, and it must not be able to hand it back by nudging the
     // ship far enough off the point to look un-arrived again.
     orderComplete: false,
+    // The heading the hull actually settled on when it finished its order,
+    // latched once at that moment. This is what a parked ship points at absent
+    // an explicit instruction: the route bearing the order was planned with is
+    // NOT it, because pathfinding, avoidance and braking all move the nose
+    // afterwards, and reinstating the plan's bearing on arrival is a visible
+    // spin on the spot. Null until the ship has settled.
+    arrivalHeading: null,
     // Hold has reached its firing position. Also latched -- it is what makes the
     // ship ignore a target closing on it rather than backing away.
     holdEngaged: false,
@@ -197,6 +204,7 @@ function ensureMovementRuntime(ship) {
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitReversing")) runtime.orbitReversing = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSteering")) runtime.orbitSteering = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitSpeedLimit")) runtime.orbitSpeedLimit = 0;
+  if (!Object.prototype.hasOwnProperty.call(runtime, "arrivalHeading")) runtime.arrivalHeading = null;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitDirect")) runtime.orbitDirect = false;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitScanAt")) runtime.orbitScanAt = 0;
   if (!Object.prototype.hasOwnProperty.call(runtime, "orbitAvoidance")) runtime.orbitAvoidance = null;
@@ -239,6 +247,7 @@ function setMovementCommand(ship, command) {
   runtime.desiredSpeed = 0;
   runtime.arrived = false;
   runtime.orderComplete = false;
+  runtime.arrivalHeading = null;
   runtime.holdEngaged = false;
   runtime.chargeEngaged = false;
   runtime.blocked = false;

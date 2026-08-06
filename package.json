@@ -24,7 +24,7 @@
     "test:live-turrets": "node tests/verify-live-turrets.js",
     "test:heat": "node tests/verify-heat.js",
     "test:engine-exhaust": "node tests/verify-engine-exhaust.js",
-    "test:movement": "node tests/verify-movement-simplified.js && node tests/verify-movement-formations.js && node tests/verify-movement-momentum.js && node tests/verify-movement-navigation.js && node tests/verify-movement-collision.js && node tests/verify-movement-hold-facing.js && node tests/verify-movement-orbit.js && node tests/verify-movement-kite.js",
+    "test:movement": "node tests/verify-movement-simplified.js && node tests/verify-movement-formations.js && node tests/verify-movement-momentum.js && node tests/verify-movement-navigation.js && node tests/verify-movement-collision.js && node tests/verify-movement-hold-facing.js && node tests/verify-movement-arrival-heading.js && node tests/verify-movement-orbit.js && node tests/verify-movement-kite.js",
     "test:movement-phase2": "node tests/verify-movement-phase2.js",
     "test:movement-phase4": "node tests/verify-movement-phase4.js",
     "test:movement-hold-facing": "node tests/verify-movement-hold-facing.js",

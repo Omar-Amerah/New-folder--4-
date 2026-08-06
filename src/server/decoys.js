@@ -5,6 +5,9 @@ const { getShipComponentCellWorldCoords } = require("./componentGeometry");
 const { compareIdStrings } = require("./utils");
 const HeatRules = require("../../public/src/shared/heatRules");
 
+const PREDICTION_CAP_SECONDS = 6;
+const MIN_CLOSING_SPEED = 0;
+
 function ensureDecoyRuntime(room) {
   if (!room.decoys) room.decoys = new Map();
   return room.decoys;
@@ -62,14 +65,13 @@ function evaluateThreatMetrics(ship, projectile, dangerRadius) {
     result.tca = Infinity;
   }
   if (Number.isFinite(result.tca) && result.tca >= 0) {
-    const cap = Math.min(
+    const predictionHorizon = Math.min(
       Number.isFinite(projectile.life) ? projectile.life : Infinity,
-      Number.isFinite(projectile.trackRemaining) ? projectile.trackRemaining : Infinity,
-      6
+      PREDICTION_CAP_SECONDS
     );
-    const t = Math.min(result.tca, cap);
-    result.predictedDistSq = (dx + dvx * t) ** 2 + (dy + dvy * t) ** 2;
-    result.credible = dot < 0 && result.currentDistSq <= rangeSq && result.predictedDistSq <= rangeSq && result.tca <= cap;
+    const closingRate = result.currentDistSq > 0 ? -dot / Math.sqrt(result.currentDistSq) : 0;
+    result.predictedDistSq = (dx + dvx * result.tca) ** 2 + (dy + dvy * result.tca) ** 2;
+    result.credible = closingRate > MIN_CLOSING_SPEED && result.tca <= predictionHorizon && result.predictedDistSq <= rangeSq;
   }
   return result;
 }

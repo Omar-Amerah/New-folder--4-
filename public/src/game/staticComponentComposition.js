@@ -9,7 +9,8 @@ import {
   drawFootprintComponent,
   drawStaticComponentBase,
   drawStaticWeaponMount,
-  drawRotatingWeaponTop
+  drawRotatingWeaponTop,
+  STRUCTURAL_PARTS
 } from "./componentArt.js";
 
 import {
@@ -70,11 +71,25 @@ export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim,
         stat.footprint
       )
       : place.longAxisAngle;
-    ctx.rotate(artAngle);
-    drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState });
+    if (part.type.startsWith("longWedge")) {
+      // Long wedge needs the same shape/material split as 1-cell bevels, but its
+      // material routine is interleaved with frame bracing. Keep rotating the full
+      // canvas for now to avoid a visual regression while the single-cell fix lands.
+      ctx.rotate(artAngle);
+      drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState });
+    } else if (STRUCTURAL_PARTS.has(part.type)) {
+      drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState, rotation: artAngle });
+    } else {
+      ctx.rotate(artAngle);
+      drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState });
+    }
   } else if (isRotatablePart(part?.type) || part?.type === "maneuverThruster") {
-    ctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
-    drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim, visualState });
+    if (STRUCTURAL_PARTS.has(part?.type)) {
+      drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim, visualState, rotation: normalizeRotation(part.rotation) });
+    } else {
+      ctx.rotate(moduleRotationToRadians(normalizeRotation(part.rotation)));
+      drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim, visualState });
+    }
   } else {
     drawModule({ x: 0, y: 0, size: unit, color: bodyColor, type: part.type, trim, visualState });
   }

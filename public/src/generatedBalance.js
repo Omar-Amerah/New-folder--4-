@@ -1237,7 +1237,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "weapon": {
         "family": "blaster",
-        "damage": 8,
+        "damage": 7,
         "fireRate": 6,
         "range": 400,
         "projectileSpeed": 760,
@@ -1630,7 +1630,7 @@ export const GENERATED_BALANCE = {
       "thrust": 0,
       "turn": -0.01,
       "energy": 0,
-      "repair": 10,
+      "repair": 8,
       "description": "Small support module that slowly repairs hull over time."
     },
     {
@@ -1671,7 +1671,7 @@ export const GENERATED_BALANCE = {
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
-      "repair": 20,
+      "repair": 16,
       "rotatable": true,
       "description": "Heavy repair beam. Aim it toward a friendly ship to project a hull-recovery beam from the emitter.",
       "footprint": {
@@ -1761,7 +1761,7 @@ export const GENERATED_BALANCE = {
         "productionSeconds": 6,
         "launchCooldownSeconds": 1.2,
         "lifetimeSeconds": 6,
-        "triggerRange": 600,
+        "triggerRange": 900,
         "attractionRange": 420,
         "attractionChance": 0.55,
         "driftSpeed": 95,

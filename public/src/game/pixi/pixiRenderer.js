@@ -6,7 +6,7 @@ import { dom, replaceArenaCanvas } from "../../ui/dom.js";
 import { DIAGNOSTICS_ENABLED } from "../../constants.js";
 import { state } from "../../state.js";
 import { updateCamera, invalidateCanvasRectCache } from "../camera.js";
-import { bindArenaPointerListeners, unbindArenaPointerListeners, inputDiagnostics } from "../input.js";
+import { bindArenaPointerListeners, unbindArenaPointerListeners, inputDiagnostics, consumePendingZoom } from "../input.js";
 import { interpolateShips } from "../renderInterpolation.js";
 import { getViewportWorldBounds } from "../viewportCulling.js";
 import { cameraViewportWorldBounds } from "../camera.js";
@@ -83,11 +83,11 @@ export async function initPixiRenderer() {
   const enemyVisibilityMask = new PIXI.Sprite(PIXI.Texture.EMPTY);
   enemyVisibilityMask.label = "EnemyVisibilityMask";
   enemyVisibilityMask.eventMode = "none";
+  enemyVisibilityMask.visible = false;
   const enemyShipBodiesMasked = new PIXI.Container();
   enemyShipBodiesMasked.label = "EnemyShipBodiesMasked";
-  enemyShipBodiesMasked.addChild(enemyVisibilityMask);
   enemyShipBodiesMasked.setMask({ mask: enemyVisibilityMask, channel: "alpha" });
-  const stationCovers = new PIXI.Graphics();
+  const stationCovers = new PIXI.Container();
   stationCovers.label = "StationHangarCovers";
   const stationWeapons = new PIXI.Container();
   stationWeapons.label = "StationWeapons";
@@ -135,6 +135,7 @@ export async function initPixiRenderer() {
   // alpha sprite with the same inward-only fade as the fog edge, so hull and
   // shield pixels fade continuously to zero at the authoritative range.
   worldRoot.addChild(layers.enemyShipBodiesMasked);
+  worldRoot.addChild(layers.enemyVisibilityMask);
   worldRoot.addChild(layers.fog);
   // Friendly ships and overlays remain above the fog presentation.
   worldRoot.addChild(layers.friendlyShipBodies);
@@ -234,6 +235,8 @@ function pixiFrame() {
     state.debugStats.drawnEffects = 0;
     state.debugStats.totalEffects = 0;
 
+    lastRenderStage = "consumePendingZoom";
+    consumePendingZoom();
     lastRenderStage = "interpolateShips";
     interpolateShips(dt, now);
     lastRenderStage = "updateCamera";

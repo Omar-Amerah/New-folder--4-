@@ -75,8 +75,6 @@ function sanitizeOrbitDirection(value, fallback = ORBIT_DIRECTION.CLOCKWISE) {
 // a ship that has never been told otherwise flies exactly as it always did and
 // an older client that sends none of this is unaffected.
 const MOVEMENT_TOGGLE_DEFAULTS = Object.freeze({
-  // Swing the nose onto whatever the ship is engaging once it has stopped.
-  autoTurn: true,
   // Act on a target combat acquired by itself. Off, the ship will still shoot
   // what it can reach, it just will not go anywhere about it.
   autoEngage: true,

@@ -56,6 +56,7 @@ export function cameraViewportWorldBounds(camera = state.camera, rect = canvasCs
   const halfW = (rect.width / z) / 2; const halfH = (rect.height / z) / 2;
   return { left: cam.x - halfW - padding, right: cam.x + halfW + padding, top: cam.y - halfH - padding, bottom: cam.y + halfH + padding, halfWidth: halfW, halfHeight: halfH };
 }
+const CLAMP_EDGE_EPSILON = 1;
 export function clampCameraToWorld(camera = state.camera, rect = canvasCssRect(), world = state.world) {
   const cam = cameraLike(camera); const w = worldLike(world);
   const halfW = (rect.width / cam.zoom) / 2; const halfH = (rect.height / cam.zoom) / 2;
@@ -65,7 +66,7 @@ export function clampCameraToWorld(camera = state.camera, rect = canvasCssRect()
   const marginY = w.height * (CAMERA_PAN_RANGE_SCALE - 1) / 2;
   const minX = -marginX + halfW, maxX = w.width + marginX - halfW;
   const minY = -marginY + halfH, maxY = w.height + marginY - halfH;
-  return { ...camera, x: minX > maxX ? w.width / 2 : clamp(cam.x, minX, maxX), y: minY > maxY ? w.height / 2 : clamp(cam.y, minY, maxY), zoom: cam.zoom };
+  return { ...camera, x: minX > maxX + CLAMP_EDGE_EPSILON ? w.width / 2 : clamp(cam.x, minX, maxX), y: minY > maxY + CLAMP_EDGE_EPSILON ? w.height / 2 : clamp(cam.y, minY, maxY), zoom: cam.zoom };
 }
 export function zoomCameraAtScreenPoint(camera, screenPoint, zoomIntent, rect = canvasCssRect(), world = state.world) {
   const cam = cameraLike(camera); const intent = clamp(finite(zoomIntent), -6, 6);

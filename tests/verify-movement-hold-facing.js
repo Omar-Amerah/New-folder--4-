@@ -286,8 +286,12 @@ function run() {
       "a heading that no longer exposes anything must be given up");
   }
 
-  // A ship parked on a completed formation slot may turn to bring weapons to
-  // bear. It may not translate: facing is a hull orientation, never a new slot.
+  // A ship parked on a completed formation slot holds the heading it arrived
+  // on. Weapon facing is worth having, but not at the price of a hull that
+  // rotates on its own the instant it parks, for a target the player never
+  // picked -- see verify-movement-arrival-heading. An Attack order still brings
+  // the guns round, and neither case may translate the ship: facing is a hull
+  // orientation, never a new slot.
   {
     const ship = makeShip(2000, 2000, [...BASE, { ...BLASTER, rotation: 90 }], "p1");
     const enemy = makeShip(2400, 2000, UNARMED, "p2");
@@ -303,12 +307,22 @@ function run() {
     const beforeAngle = ship.angle;
     ship.combatTargetId = enemy.id;
     simulate(room, [ship], 3);
-    assert(Math.abs(angleDelta(ship.angle, beforeAngle)) > 0.2,
-      "a side-mounted weapon should rotate the parked hull onto the target");
+    assert(Math.abs(angleDelta(ship.angle, beforeAngle)) < 0.05,
+      "an auto-acquired target must not rotate a hull that has finished its move");
     assert(Math.hypot(ship.x - parked.x, ship.y - parked.y) < 2,
-      "combat facing must not translate a ship off its formation slot");
+      "and must not translate it off its formation slot either");
     assert.deepStrictEqual({ ...ship.movement.command.destination }, slot,
       "...nor change where the order sent it");
+
+    // Ordered onto the same target, the same hull does turn.
+    const attack = commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
+      shipIds: [ship.id],
+      targetId: enemy.id
+    });
+    assert.strictEqual(attack.code, "attack");
+    simulate(room, [ship], 3);
+    assert(Math.abs(angleDelta(ship.angle, beforeAngle)) > 0.2,
+      "an Attack order still rotates the parked hull to bring the side mount to bear");
   }
 
   // Hold stops where the GUNS reach, not where the hull centre reaches.

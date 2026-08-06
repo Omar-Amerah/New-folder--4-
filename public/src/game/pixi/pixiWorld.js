@@ -7,6 +7,7 @@ import { INTERPOLATION_DELAY_MS } from "../renderInterpolation.js";
 import { projectBallisticProjectile } from "../projectileTimeline.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { isCircleVisible, cullVisual } from "../viewportCulling.js";
+import { teamColorFor } from "../../shared/teamColors.js";
 import { getNebulaSprite, drawAsteroid, drawBulletVisual, isFriendlyProjectile } from "../worldArt.js";
 import { playerMap } from "../../ui/matchStatusUi.js";
 import { activeEngineSmoke } from "../shipDynamics.js";
@@ -238,9 +239,8 @@ function updatePixiRelays(env, now, players, bounds) {
       const owner = point.ownerId ? players.get(point.ownerId) : null;
       let color = "rgba(180,200,225,0.62)";
       const isSolo = state.rules?.gameMode === "solo";
-      const myTeam = state.mine?.team;
       if (point.ownerTeam && !isSolo) {
-        color = (myTeam && point.ownerTeam === myTeam) ? "#38d7ff" : "#ff3838";
+        color = teamColorFor(point.ownerTeam) || owner?.color || color;
       } else if (owner) {
         color = owner.color || color;
       }
@@ -253,7 +253,7 @@ function updatePixiRelays(env, now, players, bounds) {
       const idLabelY = stationMode ? -(140 + 26 / zoom) : -46 / zoom;
       const badgeWidth = 38 / zoom;
       const badgeHeight = 28 / zoom;
-      const zoomKey = zoom.toFixed(3);
+      const zoomKey = Math.round(zoom * 40) / 40;
       const staticSignature = `${zoomKey}|${color}|${stationMode ? 1 : 0}`;
       if (view.staticSignature !== staticSignature) {
         view.staticSignature = staticSignature;

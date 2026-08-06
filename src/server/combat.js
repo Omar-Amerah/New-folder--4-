@@ -232,6 +232,18 @@ function inductionComponentWeight(target, index) {
 
 function selectInductionComponentIndex(room, target, ship, weaponIndex, now) {
   if (!target?.alive || !target.design?.length) return -1;
+  const powerGenerators = [];
+  for (let i = 0; i < target.design.length; i += 1) {
+    if (!isComponentAlive(target, i)) continue;
+    const module = target.design[i];
+    const part = PARTS[module.type] || PARTS.frame;
+    if (module.type === "core") continue;
+    if (part.category === "Structure") continue;
+    if (part.powerGeneration > 0) powerGenerators.push(i);
+  }
+  if (powerGenerators.length > 0) {
+    return powerGenerators[Math.floor(roomCombatRandom(room)() * powerGenerators.length)];
+  }
   const candidates = [];
   const weights = [];
   let total = 0;

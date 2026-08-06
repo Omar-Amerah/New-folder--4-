@@ -225,6 +225,9 @@ function createPixiStationView(env) {
   shieldGfx.label = "StationShield";
   const hudGfx = new PIXI.Graphics();
   hudGfx.label = "StationHud";
+  const coverGfx = new PIXI.Graphics();
+  coverGfx.label = "StationCover";
+  env.layers.stationCovers.addChild(coverGfx);
 
   const makeText = (style) => {
     const text = new PIXI.Text({ text: "", style, resolution: 2 });
@@ -258,10 +261,12 @@ function createPixiStationView(env) {
     hudGfx,
     stateText,
     productionText,
+    coverGfx,
     auraSignature: "",
     shellSignature: "",
     shieldSignature: "",
     hudSignature: "",
+    coverSignature: "",
     turretSignature: "",
     turretSprites: [],
     turretsByDesignIndex: new Map(),
@@ -272,6 +277,7 @@ function createPixiStationView(env) {
       this.shellSignature = "";
       this.shieldSignature = "";
       this.hudSignature = "";
+      this.coverSignature = "";
       this.turretSignature = "";
       this.stateLabel = null;
       this.productionLabel = null;
@@ -279,6 +285,7 @@ function createPixiStationView(env) {
       this.shellGfx.clear();
       this.shieldGfx.clear();
       this.hudGfx.clear();
+      if (this.coverGfx) this.coverGfx.visible = false;
       this.turretContainer.removeChildren();
       this.turretContainer.visible = false;
       for (const sprite of this.turretSprites) {
@@ -295,6 +302,10 @@ function createPixiStationView(env) {
       if (this.turretContainerWorldSpace) {
         if (this.turretContainer.parent) this.turretContainer.parent.removeChild(this.turretContainer);
         if (!this.turretContainer.destroyed) this.turretContainer.destroy({ children: false });
+      }
+      if (this.coverGfx) {
+        if (this.coverGfx.parent) this.coverGfx.parent.removeChild(this.coverGfx);
+        if (!this.coverGfx.destroyed) this.coverGfx.destroy({ children: false, texture: false, textureSource: false });
       }
       if (!this.root.destroyed) this.root.destroy({ children: true, texture: false, textureSource: false });
     }
@@ -1063,9 +1074,11 @@ function hangarGeometrySignature(station) {
   ].join(":")).join(",");
 }
 
+// Quantise zoom so small changes do not rebuild station aura / HUD geometry.
+const ZOOM_BUCKET_STEPS = 40;
+function zoomBucketFor(zoom) { return Math.round(zoom * ZOOM_BUCKET_STEPS) / ZOOM_BUCKET_STEPS; }
+
 export function updatePixiStations(env, now, players, bounds) {
-  const stationCovers = env.layers.stationCovers;
-  stationCovers?.clear?.();
   const stations = state.snapshot?.stations;
   if (!Array.isArray(stations) || stations.length === 0) {
     if (pixiStationPool) {
@@ -1078,7 +1091,7 @@ export function updatePixiStations(env, now, players, bounds) {
   pixiStationPool.frameStart();
 
   const zoom = state.camera.zoom;
-  const zoomKey = zoom.toFixed(3);
+  const zoomKey = zoomBucketFor(zoom);
   for (const station of stations) {
     // Culling uses the aura extent, not the hull: a home station's repair ring
     // and a relay's capture ring are meaningful long before the structure
@@ -1090,41 +1103,12 @@ export function updatePixiStations(env, now, players, bounds) {
 
     const view = pixiStationPool.acquire(station.id);
     const color = stationColor(station, players);
+    const selected = state.selectedStationId === station.id;
+
     view.root.position.set(station.x, station.y);
     view.auraGfx.rotation = Number(station.angle) || 0;
-    view.shellGfx.rotation = Number(station.angle) || 0;
-    if (view.turretContainerWorldSpace) view.turretContainer.position.set(station.x, station.y);
-    else view.turretContainer.position.set(0, 0);
-    view.turretContainer.rotation = Number(station.angle) || 0;
-
-    // Weapon art only. The station's interior components are never baked or
-    // drawn — see the shell section — so the only sprites here are the turrets,
-    // on the hardpoints the server fires from. Absent design (a compact
-    // snapshot received before any full one) leaves the view empty rather than
-    // inventing a placeholder.
-    const design = station.design;
-    if (Array.isArray(design) && design.length > 0) {
-      const turretSignature = `${station.stationType}|${design.length}|${env.bakeScale}|${getPixiBakeGeneration()}|${station.hardpoints ? 1 : 0}`;
-      if (view.turretSignature !== turretSignature) {
-        view.turretSignature = turretSignature;
-        rebuildStationTurrets(env, view, station);
-      }
-      // A destroyed battery keeps its barrel on the structure — it is wreckage,
-      // not a hole — but stops tracking and goes dark. `componentHp` is rounded
-      // to a tenth in the snapshot, so only a true zero counts as destroyed.
-      for (const sprite of view.turretSprites) {
-        const hp = station.componentHp?.[sprite.__designIndex];
-        const dead = hp !== undefined && hp <= 0;
-        const operational = stationIsPowered(station.state);
-        sprite.rotation = authoritativeWeaponAngle(station, sprite.__designIndex) || 0;
-        sprite.visible = true;
-        sprite.alpha = dead ? 0.28 : (operational ? 1 : 0.45);
-      }
-    }
-    const selected = state.selectedStationId === station.id;
-    view.turretContainer.visible = true;
-    view.turretContainer.alpha = 1;
-    view.shellGfx.alpha = 1;
+    view.auraGfx.visible = true;
+    view.root.visible = true;
 
     const stationDebug = isStationDebugEnabled();
     const captureStep = Math.round((station.captureProgress || 0) * 100);
@@ -1134,89 +1118,143 @@ export function updatePixiStations(env, now, players, bounds) {
       rebuildStationAura(view, station, color, zoom, stationDebug, captureStep, selected);
     }
 
-    const production = station.stationType === "home" ? activeProductionSummary(station) : { label: "", progress: 0 };
-
-    // The shell draws a socket per battery, so it has to rebuild when a battery
-    // is destroyed. Only the weapon indices matter, not all 176 components.
-    if (
-      view.destroyedMountComponentRevision !== station.componentDamageRevision
-      || view.destroyedMountHardpoints !== station.hardpoints
-    ) {
-      let destroyedMounts = "";
-      if (Array.isArray(station.hardpoints)) {
-        for (let i = 0; i < station.hardpoints.length; i += 1) {
-          if (station.hardpoints[i] && station.componentHp?.[i] <= 0) destroyedMounts += `${i},`;
-        }
-      }
-      view.destroyedMounts = destroyedMounts;
-      view.destroyedMountComponentRevision = station.componentDamageRevision;
-      view.destroyedMountHardpoints = station.hardpoints;
-    }
-    const destroyedMounts = view.destroyedMounts || "";
-    const shellSignature = `${station.stationType}|${color}|${station.state}|${station.design?.length || 0}|${Math.round(station.moduleScale || 0)}|${hangarGeometrySignature(station)}|${destroyedMounts}`;
-    if (view.shellSignature !== shellSignature) {
-      view.shellSignature = shellSignature;
-      rebuildStationShell(view, station, color);
-    }
-
     const localBounds = stationLocalBounds(station);
-    drawStationHangarCovers(stationCovers, station, localBounds, color);
-    // Quantised so a regenerating shield does not rebuild the ring every frame.
-    const shieldSignature = `${Math.round((station.maxShield > 0 ? station.shield / station.maxShield : 0) * 200)}|${Math.round(localBounds.maxX)}|${Math.round(Number(station.shieldRadius) || 0)}`;
-    if (view.shieldSignature !== shieldSignature) {
-      view.shieldSignature = shieldSignature;
-      rebuildStationShield(view, station, localBounds);
-    }
-
-    // The HUD is world-aligned while the structure is rotated, so the bars have
-    // to clear the station's circumscribed extent, not its local height.
     const cornerReach = Math.hypot(
       Math.max(Math.abs(localBounds.minX), Math.abs(localBounds.maxX)),
       Math.max(Math.abs(localBounds.minY), Math.abs(localBounds.maxY))
     );
-    const barY = Math.max(36, cornerReach + 14 / zoom);
-    const hudSignature = [
-      zoomKey, color, station.state, selected ? 1 : 0,
-      Math.round(station.hp), Math.round(station.maxHp),
-      Math.round(station.shield), Math.round(station.maxShield),
-      Math.round(production.progress * 100), Math.round(barY)
-    ].join("|");
-    if (view.hudSignature !== hudSignature) {
-      view.hudSignature = hudSignature;
-      rebuildStationHud(env, view, station, color, zoom, selected, barY, production.progress);
-    }
+    const bodyVisible = !bounds || isCircleVisible(station.x, station.y, cornerReach, bounds);
 
-    const labelScale = Math.max(1, 1 / zoom);
-    let stateLabel = stationStateLabel(station);
-    if (station.ownerId && station.ownerId !== state.myId) {
-      const owner = players?.get?.(station.ownerId);
-      if (owner) stateLabel += ` — ${owner.name || owner.team || ""}`;
-    } else if (station.team) {
-      stateLabel += ` — ${station.team === "blue" ? "Blue" : station.team === "red" ? "Red" : station.team}`;
-    }
-    if (station.stationType === "relay" && !selected && (station.captureProgress || 0) > 0) {
-      stateLabel += ` (${Math.round((station.captureProgress || 0) * 100)}%)`;
-    }
-    if (station.stationType === "relay" && station.state === "recovering") {
-      stateLabel += ` (${Math.round(((station.hp || 0) / Math.max(1, station.maxHp || 0)) * 100)}%)`;
-    }
-    if (view.stateLabel !== stateLabel) {
-      view.stateLabel = stateLabel;
-      view.stateText.text = stateLabel;
-    }
-    const stateFill = station.state === "destroyed" ? "#ffb4b4" : "#ffffff";
-    if (view.stateText.style.fill !== stateFill) view.stateText.style.fill = stateFill;
-    view.stateText.scale.set(labelScale);
-    view.stateText.position.set(0, barY + 18 / zoom);
-    view.stateText.visible = true;
+    view.shellGfx.visible = bodyVisible;
+    view.shieldGfx.visible = bodyVisible;
+    view.hudGfx.visible = bodyVisible;
+    view.turretContainer.visible = bodyVisible;
+    view.stateText.visible = bodyVisible;
+    view.productionText.visible = false;
+    if (view.coverGfx) view.coverGfx.visible = false;
 
-    if (view.productionLabel !== production.label) {
-      view.productionLabel = production.label;
-      view.productionText.text = production.label;
+    if (bodyVisible) {
+      view.shellGfx.rotation = Number(station.angle) || 0;
+      if (view.turretContainerWorldSpace) view.turretContainer.position.set(station.x, station.y);
+      else view.turretContainer.position.set(0, 0);
+      view.turretContainer.rotation = Number(station.angle) || 0;
+
+      // Weapon art only. The station's interior components are never baked or
+      // drawn — see the shell section — so the only sprites here are the turrets,
+      // on the hardpoints the server fires from. Absent design (a compact
+      // snapshot received before any full one) leaves the view empty rather than
+      // inventing a placeholder.
+      const design = station.design;
+      if (Array.isArray(design) && design.length > 0) {
+        const turretSignature = `${station.stationType}|${design.length}|${env.bakeScale}|${getPixiBakeGeneration()}|${station.hardpoints ? 1 : 0}`;
+        if (view.turretSignature !== turretSignature) {
+          view.turretSignature = turretSignature;
+          rebuildStationTurrets(env, view, station);
+        }
+        // A destroyed battery keeps its barrel on the structure — it is wreckage,
+        // not a hole — but stops tracking and goes dark. `componentHp` is rounded
+        // to a tenth in the snapshot, so only a true zero counts as destroyed.
+        for (const sprite of view.turretSprites) {
+          const hp = station.componentHp?.[sprite.__designIndex];
+          const dead = hp !== undefined && hp <= 0;
+          const operational = stationIsPowered(station.state);
+          sprite.rotation = authoritativeWeaponAngle(station, sprite.__designIndex) || 0;
+          sprite.visible = true;
+          sprite.alpha = dead ? 0.28 : (operational ? 1 : 0.45);
+        }
+      }
+      view.turretContainer.visible = true;
+      view.turretContainer.alpha = 1;
+      view.shellGfx.alpha = 1;
+
+      // The shell draws a socket per battery, so it has to rebuild when a battery
+      // is destroyed. Only the weapon indices matter, not all 176 components.
+      if (
+        view.destroyedMountComponentRevision !== station.componentDamageRevision
+        || view.destroyedMountHardpoints !== station.hardpoints
+      ) {
+        let destroyedMounts = "";
+        if (Array.isArray(station.hardpoints)) {
+          for (let i = 0; i < station.hardpoints.length; i += 1) {
+            if (station.hardpoints[i] && station.componentHp?.[i] <= 0) destroyedMounts += `${i},`;
+          }
+        }
+        view.destroyedMounts = destroyedMounts;
+        view.destroyedMountComponentRevision = station.componentDamageRevision;
+        view.destroyedMountHardpoints = station.hardpoints;
+      }
+      const destroyedMounts = view.destroyedMounts || "";
+      const shellSignature = `${station.stationType}|${color}|${station.state}|${station.design?.length || 0}|${Math.round(station.moduleScale || 0)}|${hangarGeometrySignature(station)}|${destroyedMounts}`;
+      if (view.shellSignature !== shellSignature) {
+        view.shellSignature = shellSignature;
+        rebuildStationShell(view, station, color);
+      }
+
+      if (view.coverGfx) {
+        view.coverGfx.visible = station.stationType === "home";
+        const coverSignature = `${station.x.toFixed(1)}|${station.y.toFixed(1)}|${(station.angle || 0).toFixed(3)}|${color}|${station.state}|${hangarGeometrySignature(station)}`;
+        if (view.coverSignature !== coverSignature) {
+          view.coverSignature = coverSignature;
+          view.coverGfx.clear();
+          drawStationHangarCovers(view.coverGfx, station, localBounds, color);
+        }
+      }
+
+      // Quantised so a regenerating shield does not rebuild the ring every frame.
+      const shieldSignature = `${Math.round((station.maxShield > 0 ? station.shield / station.maxShield : 0) * 200)}|${Math.round(localBounds.maxX)}|${Math.round(Number(station.shieldRadius) || 0)}`;
+      if (view.shieldSignature !== shieldSignature) {
+        view.shieldSignature = shieldSignature;
+        rebuildStationShield(view, station, localBounds);
+      }
+
+      const production = station.stationType === "home" ? activeProductionSummary(station) : { label: "", progress: 0 };
+
+      // The HUD is world-aligned while the structure is rotated, so the bars have
+      // to clear the station's circumscribed extent, not its local height.
+      const barY = Math.max(36, cornerReach + 14 / zoom);
+      const hudSignature = [
+        zoomKey, color, station.state, selected ? 1 : 0,
+        Math.round(station.hp), Math.round(station.maxHp),
+        Math.round(station.shield), Math.round(station.maxShield),
+        Math.round(production.progress * 100), Math.round(barY)
+      ].join("|");
+      if (view.hudSignature !== hudSignature) {
+        view.hudSignature = hudSignature;
+        rebuildStationHud(env, view, station, color, zoom, selected, barY, production.progress);
+      }
+
+      const labelScale = Math.max(1, 1 / zoom);
+      let stateLabel = stationStateLabel(station);
+      if (station.ownerId && station.ownerId !== state.myId) {
+        const owner = players?.get?.(station.ownerId);
+        if (owner) stateLabel += ` — ${owner.name || owner.team || ""}`;
+      } else if (station.team) {
+        stateLabel += ` — ${station.team === "blue" ? "Blue" : station.team === "red" ? "Red" : station.team}`;
+      }
+      if (station.stationType === "relay" && !selected && (station.captureProgress || 0) > 0) {
+        stateLabel += ` (${Math.round((station.captureProgress || 0) * 100)}%)`;
+      }
+      if (station.stationType === "relay" && station.state === "recovering") {
+        stateLabel += ` (${Math.round(((station.hp || 0) / Math.max(1, station.maxHp || 0)) * 100)}%)`;
+      }
+      if (view.stateLabel !== stateLabel) {
+        view.stateLabel = stateLabel;
+        view.stateText.text = stateLabel;
+      }
+      const stateFill = station.state === "destroyed" ? "#ffb4b4" : "#ffffff";
+      if (view.stateText.style.fill !== stateFill) view.stateText.style.fill = stateFill;
+      view.stateText.scale.set(labelScale);
+      view.stateText.position.set(0, barY + 18 / zoom);
+      view.stateText.visible = true;
+
+      if (view.productionLabel !== production.label) {
+        view.productionLabel = production.label;
+        view.productionText.text = production.label;
+      }
+      view.productionText.visible = production.label.length > 0;
+      view.productionText.scale.set(labelScale);
+      view.productionText.position.set(0, barY + 32 / zoom);
     }
-    view.productionText.visible = production.label.length > 0;
-    view.productionText.scale.set(labelScale);
-    view.productionText.position.set(0, barY + 32 / zoom);
   }
 
   pixiStationPool.frameEnd();

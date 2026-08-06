@@ -15,7 +15,6 @@
 // Keeping this here rather than inside the steering module keeps the ship's
 // physics envelope and thermal behaviour in one authoritative boundary.
 
-const { angleDifference } = require("./utils");
 const { PARTS } = require("./components");
 const { addComponentHeat, componentPerformance } = require("./heat");
 const { getCommandAuraMultiplier } = require("./commandAuras");
@@ -98,15 +97,10 @@ function heatAdjustedMovementStats(ship, baseStats) {
 
 // Turning left and turning right are not the same manoeuvre: maneuver thrusters
 // sit on one side of the centre of mass or the other, so losing one costs the
-// hull rotation in that direction only.
-function directionalTurnRate(stats, current, desired, ship) {
-  const difference = angleDifference(current, desired);
-  if (Math.abs(difference) < 1e-9) return 0;
-  return signedTurnRate(stats, difference > 0 ? 1 : -1, ship);
-}
-
-// The same answer for a rotation whose direction is already known -- manual
-// I/O rotation, where there is no target angle to difference against.
+// hull rotation in that direction only. Callers pick the side -- see
+// resolveTurnDirection in movementV2, which is where a heading error is turned
+// into one -- because at an exact about-face the shorter side does not exist and
+// the choice has to be made on the rates this function reports.
 function signedTurnRate(stats, direction, ship) {
   const base = direction > 0
     ? (stats.turnRateRight ?? stats.turnRate ?? 0)
@@ -204,7 +198,6 @@ function applyEngineHeat(ship, activity, dt) {
 module.exports = {
   applyEngineHeat,
   applyTurnHeat,
-  directionalTurnRate,
   driveAcceleration,
   hasDrive,
   heatActiveGyroscopes,

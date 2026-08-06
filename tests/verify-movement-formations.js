@@ -168,19 +168,11 @@ function assertNoSlotOverlap(ships, label) {
   }
 }
 
-function attackSlotState(ship) {
-  return ship.movement.attackSlot;
-}
-
-// A slot's own position, in the target-anchored frame the runtime holds it in.
-function attackSlotWorldPoint(slot, target) {
-  const lateralX = -slot.awayY;
-  const lateralY = slot.awayX;
-  const along = slot.centreDistance + slot.forwardOffset;
-  return {
-    x: target.x + slot.awayX * along + lateralX * slot.lateralOffset,
-    y: target.y + slot.awayY * along + lateralY * slot.lateralOffset
-  };
+// Which way this ship is closing on the target of a Hold attack order, and how
+// far to the side of the group it started. Hold carries a lane rather than a
+// slot: there is no shape and no fixed point, only an axis and an offset.
+function attackLaneState(ship) {
+  return ship.movement.attackLane;
 }
 
 function holdRangeOf(ship) {
@@ -318,22 +310,30 @@ function run() {
     });
 
     const expected = Math.atan2(1800 - fleet.y, 3200 - fleet.x);
+    // The shared heading is an OUTCOME of flying the shape there together, not
+    // an instruction stapled to the order. Forcing it as a final facing meant
+    // every plain move ended in a rotation onto the bearing the fleet set off
+    // on, which a ship that detoured or was pushed off line had long stopped
+    // flying -- see verify-movement-arrival-heading.
     const facings = ships.map((ship) => ship.movement.command.finalFacing);
-    assert(facings.every((facing) => Math.abs(facing - facings[0]) < 1e-9),
-      "every command carries the same final facing");
-    assert(Math.abs(facings[0] - expected) < 1e-9,
-      "final facing is the fleet-centre-to-click direction");
-    // ...and specifically NOT each ship's own bearing to the clicked point.
-    const individual = ships.map((ship) => Math.atan2(1800 - ship.y, 3200 - ship.x));
-    assert(individual.some((bearing) => angleError(bearing, facings[0]) > 0.05),
-      "final facing must not be each ship's individual bearing to the click");
+    assert(facings.every((facing) => facing === null),
+      "an ordinary move order carries no commanded facing");
 
     for (let index = 0; index < 900; index += 1) movementTestTick(room, ships, DT, index * DT * 1000);
     const clumpCentre = centreOf(ships);
+    // Broadly one heading, not exactly one. Each ship keeps the heading it
+    // arrived on, and the flankers of a column converge onto their slots from
+    // the side, so the settled group fans by around a fifth of a radian either
+    // way about the fleet bearing instead of snapping flat onto it. That fan is
+    // the honest cost of not forcing a facing; if it ever widens past this the
+    // run-in itself has changed, which is worth knowing about.
     for (const ship of ships) {
-      assert(angleError(ship.angle, expected) < 0.1,
+      assert(angleError(ship.angle, expected) < 0.35,
         `a settled clump shares one heading (${ship.id} off by ${angleError(ship.angle, expected).toFixed(3)} rad)`);
     }
+    let spread = 0;
+    for (const a of ships) for (const b of ships) spread = Math.max(spread, angleError(a.angle, b.angle));
+    assert(spread < 0.6, `and no two of them face wildly apart (spread ${spread.toFixed(3)} rad)`);
     // The group did not settle looking in at its own middle -- which is also
     // where it was clicked, so this rules out both failure modes at once.
     const inwardError = ships.reduce((sum, ship) => (
@@ -505,6 +505,10 @@ function run() {
     const spread = Math.max(...lanes.map((lane) => lane.lateralOffset))
       - Math.min(...lanes.map((lane) => lane.lateralOffset));
     assert(spread > 800, `an enemy click preserves the fleet's own spread (${spread.toFixed(0)} px)`);
+    // A lane is an axis and an offset, not a place: the point each ship is
+    // actually flying at is derived from it against the target's live position,
+    // so it exists from the first tick of the order rather than at issue time.
+    movementTestTick(room, [...ships, enemy], DT, 0);
     const destinations = ships.map((ship) => ({ ...ship.movement.destination || {} }));
     const distinct = new Set(destinations.map((point) => `${Math.round(point.x)}:${Math.round(point.y)}`));
     assert.equal(distinct.size, ships.length, "no two ships are sent to the same point");
@@ -720,8 +724,8 @@ function run() {
       shipIds: ships.map((ship) => ship.id),
       targetId: enemy.id
     });
-    assert(ships.every((ship) => ship.movement.attackSlot === null),
-      "Charge never takes a clump Hold position");
+    assert(ships.every((ship) => attackLaneState(ship) === null),
+      "Charge never takes a Hold approach lane");
 
     for (let index = 0; index < 1200; index += 1) {
       movementTestTick(room, [...ships, enemy], DT, index * DT * 1000);
@@ -802,8 +806,8 @@ function run() {
       targetId: patient.id
     });
     assert.equal(result.code, "repair");
-    assert(medics.every((ship) => ship.movement.attackSlot === null),
-      "an allied target must not produce a Hold attack clump");
+    assert(medics.every((ship) => attackLaneState(ship) === null),
+      "an allied target must not produce a Hold approach lane");
     assert(medics.every((ship) => ship.movement.command.type === "repair"));
   }
 

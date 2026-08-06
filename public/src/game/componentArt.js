@@ -16,6 +16,10 @@
 
 import { ctx } from "../ui/dom.js";
 import { PART_STATS } from "../design/parts.js";
+import {
+  moduleRotationToRadians,
+  normalizeRotation
+} from "../design/rotation.js";
 import { qualityShadowBlur } from "./renderSettings.js";
 import { moduleLocalPosition } from "./shipGeometry.js";
 
@@ -32,7 +36,7 @@ export function roundRect(context, { x, y, width, height, radius }) {
   context.closePath();
 }
 
-const STRUCTURAL_PARTS = new Set([
+export const STRUCTURAL_PARTS = new Set([
   "frame", "armor", "compositeArmor", "ablativeArmor",
   "halfFrameDiagonal", "halfArmorDiagonal", "halfCompositeArmorDiagonal",
   "wingFrame", "wingArmor", "wingCompositeArmor",
@@ -97,6 +101,30 @@ function getModuleGradient(size, color) {
     fill.addColorStop(0.32, mixColor(color, "#ffffff", 0.14));
     fill.addColorStop(0.6, color);
     fill.addColorStop(1, mixColor(color, "#05070c", 0.74));
+    ctxCache.set(key, fill);
+  }
+  return fill;
+}
+
+// Cross-axis barrel shading: the barrel keeps its original pale colour along
+// the lit top edge and only darkens toward the underside, so it reads as a
+// rounded tube instead of a flat tab. Cached the same way as the module
+// gradient so the Canvas 2D path does not rebuild a gradient per frame.
+const barrelGradientCache = new WeakMap();
+
+function getBarrelGradient(halfWidth, pale) {
+  const key = `${halfWidth}|${pale}`;
+  let ctxCache = barrelGradientCache.get(ctx);
+  if (!ctxCache) {
+    ctxCache = new Map();
+    barrelGradientCache.set(ctx, ctxCache);
+  }
+  let fill = ctxCache.get(key);
+  if (!fill) {
+    fill = ctx.createLinearGradient(0, -halfWidth, 0, halfWidth);
+    fill.addColorStop(0, mixColor(pale, "#ffffff", 0.25));
+    fill.addColorStop(0.4, pale);
+    fill.addColorStop(1, mixColor(pale, "#7b2740", 0.62));
     ctxCache.set(key, fill);
   }
   return fill;
@@ -498,8 +526,10 @@ export function drawStaticWeaponMount({ type, unit, tilesLong = 1, tilesCross = 
     const hc = (tilesCross * unit) / 2;
     drawFootprintPanel(unit, hl, hc, 0.94, 0.88, 0.09);
     drawFootprintSeams(unit, hl, hc, tilesLong);
-    // Central bearing ring the gun assembly pivots on.
-    drawWeaponBase(Math.min(hl, hc) * 1.7);
+    // Central bearing ring the gun assembly pivots on. The railgun keeps a
+    // small one: its slug carriage sits over the pivot, and a full-size ring
+    // would peek out between the open rails as a stray circle.
+    drawWeaponBase(Math.min(hl, hc) * (artType === "railgun" ? 0.85 : 1.7));
     ctx.restore();
     return;
   }
@@ -616,10 +646,58 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
   }
 
   if (artType === "blaster") {
-    ctx.fillStyle = "#ffd1dc";
-    roundRect(ctx, { x: size * 0.02, y: -size * 0.13, width: size * 0.62, height: size * 0.26, radius: size * 0.08 });
+    // Short, wide straight-sided barrel. Its breech end runs back over the
+    // pivot cap so the barrel visibly bolts into the hub instead of ending at
+    // the socket ring. Tip sits at TurretRules.MUZZLE_TIP_TILES.blaster.
+    const back = -size * 0.15;
+    const tip = size * 0.56;
+    const half = size * 0.15;
+    const barrelPath = (dy = 0, grow = 0) => {
+      roundRect(ctx, {
+        x: back - grow,
+        y: -half - grow + dy,
+        width: tip - back + grow * 2,
+        height: half * 2 + grow * 2,
+        radius: size * 0.04
+      });
+    };
+
+    // Pivot cap first: the barrel is drawn over it, so the cap reads as the
+    // yoke the barrel is seated in.
+    drawTurretCap(size, color, 0.2);
+
+    // Contact shadow separating the barrel from the circular base below it.
+    ctx.save();
+    ctx.fillStyle = "rgba(3,6,12,0.55)";
+    barrelPath(size * 0.075, size * 0.015);
     ctx.fill();
-    drawTurretCap(size, color);
+    ctx.restore();
+
+    // Same pale barrel colour as before, shaded across the tube so it reads as
+    // a rounded barrel rather than a flat tab.
+    ctx.fillStyle = getBarrelGradient(half, "#ffd1dc");
+    barrelPath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Muzzle: a dark opening recessed into the tip with a bright energy slit
+    // inside it. The slit stays inside the barrel edge so it never reads as a
+    // pale tab stuck on the end.
+    ctx.save();
+    ctx.fillStyle = "rgba(4,7,13,0.94)";
+    roundRect(ctx, {
+      x: tip - size * 0.11,
+      y: -half * 0.9,
+      width: size * 0.11,
+      height: half * 1.8,
+      radius: size * 0.028
+    });
+    ctx.fill();
+    ctx.shadowColor = mixColor(color, "#ffffff", 0.35);
+    ctx.shadowBlur = qualityShadowBlur(4);
+    ctx.fillStyle = mixColor(color, "#ffffff", 0.68);
+    ctx.fillRect(tip - size * 0.08, -half * 0.48, size * 0.04, half * 0.96);
+    ctx.restore();
   } else if (artType === "autocannon") {
     ctx.fillStyle = "#fdba74";
     // Twin barrels: roundRect() starts a new path, so each barrel must be filled
@@ -656,25 +734,72 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     drawTurretCap(size * 0.65, color, 0.16);
     ctx.restore();
   } else if (artType === "missile") {
-    ctx.fillStyle = "#f0dcff";
+    // A missile on a rail rather than a flat kite: straight body, a distinct
+    // nose cone, swept tail fins, and a rear that runs back over the pivot cap
+    // so the round is visibly seated on the launcher. The round is balanced
+    // about the pivot: `back` and `nose` are equal and opposite (give or take
+    // the fin overhang) so the round's own midpoint lands on the component
+    // centre instead of riding forward in the cell. The nose sits at
+    // TurretRules.MUZZLE_TIP_TILES.missile (0.4) — keep the two in sync.
+    const back = -size * 0.36;
+    const shoulder = size * 0.2;
+    const nose = size * 0.4;
+    const half = size * 0.135;
+    const bodyPath = (dy = 0, grow = 0) => {
+      ctx.beginPath();
+      ctx.moveTo(nose + grow, dy);
+      ctx.lineTo(shoulder, -half - grow + dy);
+      ctx.lineTo(back - grow, -half - grow + dy);
+      ctx.lineTo(back - grow, half + grow + dy);
+      ctx.lineTo(shoulder, half + grow + dy);
+      ctx.closePath();
+    };
+
+    drawTurretCap(size, color, 0.19);
+
+    // Contact shadow so the round sits on the launcher instead of floating.
+    ctx.save();
+    ctx.fillStyle = "rgba(3,6,12,0.55)";
+    bodyPath(size * 0.075, size * 0.015);
+    ctx.fill();
+    ctx.restore();
+
+    // Fins first, so the body overlaps them and they read as attached.
+    ctx.save();
+    ctx.fillStyle = "#a78bfa";
+    ctx.lineWidth = Math.max(0.7, size * 0.04);
+    for (const sy of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(size * 0.02, sy * half * 0.85);
+      ctx.lineTo(back - size * 0.01, sy * size * 0.25);
+      ctx.lineTo(back - size * 0.01, sy * half * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.fillStyle = getBarrelGradient(half, "#f0dcff");
+    bodyPath();
+    ctx.fill();
+    ctx.stroke();
+
+    // The whole warhead cone is tinted, not just its tip, so the head reads as
+    // a separate section at a glance. A seam band marks where it joins the body.
+    ctx.save();
+    ctx.fillStyle = mixColor("#f0dcff", "#7c3aed", 0.72);
     ctx.beginPath();
-    ctx.moveTo(size * 0.64, 0);
-    ctx.lineTo(size * 0.08, -size * 0.2);
-    ctx.lineTo(-size * 0.08, 0);
-    ctx.lineTo(size * 0.08, size * 0.2);
+    ctx.moveTo(nose, 0);
+    ctx.lineTo(shoulder, -half);
+    ctx.lineTo(shoulder, half);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "#7c3aed";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.02, -size * 0.14);
-    ctx.lineTo(-size * 0.16, -size * 0.24);
-    ctx.lineTo(size * 0.08, -size * 0.14);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.02, size * 0.14);
-    ctx.lineTo(-size * 0.16, size * 0.24);
-    ctx.lineTo(size * 0.08, size * 0.14);
-    ctx.fill();
+    // Re-stroke the cone edges the tint just covered, so the head keeps a crisp
+    // outline against a purple hull.
+    ctx.stroke();
+    ctx.fillStyle = "rgba(50,22,95,0.7)";
+    ctx.fillRect(shoulder - size * 0.03, -half, size * 0.035, half * 2);
+    ctx.restore();
   } else if (artType === "railgun") {
     ctx.strokeStyle = "#f4f7ff";
     ctx.lineWidth = Math.max(1.2, size * 0.1);
@@ -796,37 +921,88 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
 // footprint centre; the footprint slab and panel stay on the hull.
 function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
   const fine = Math.max(0.7, unit * 0.045);
-  const line = Math.max(1, unit * 0.075);
 
   if (artType === "railgun") {
-    // Armoured breech, capacitor coil bands, twin accelerator rails and the
-    // bright muzzle armature — the gun assembly from the pro footprint art.
-    ctx.fillStyle = mixColor(color, "#101827", 0.42);
-    roundRect(ctx, { x: -hl + unit * 0.08, y: -hc * 0.8, width: unit * 0.7, height: hc * 1.6, radius: unit * 0.09 });
+    // Two rails accelerating one visible slug — deliberately only four parts,
+    // plus a single brace. Every extra mechanism (inner cage, paired clamps,
+    // rail-end brackets, a second charge bar) made this read as a capital-class
+    // spinal mount rather than a standard railgun, so the empty space between
+    // the rails is load-bearing here: keep it empty.
+    const railY = hc * 0.54;
+    const railBack = -hl + unit * 0.44;
+    const railFront = hl - unit * 0.2;
+
+    // 1. The open gap. Filled flush between the rails with no border of its
+    //    own — the railgun's near-white colour would otherwise swallow the
+    //    rails, but an outlined panel here reads as a cage around the slug.
+    ctx.save();
+    ctx.fillStyle = "rgba(6,10,18,0.58)";
+    ctx.fillRect(railBack, -railY, railFront - railBack, railY * 2);
+    ctx.restore();
+
+    // 2. Compact breech at the rear: the only heavy mass on the weapon.
+    ctx.fillStyle = mixColor(color, "#0b111c", 0.55);
+    roundRect(ctx, {
+      x: -hl + unit * 0.07,
+      y: -hc * 0.6,
+      width: unit * 0.4,
+      height: hc * 1.2,
+      radius: unit * 0.07
+    });
     ctx.fill();
     ctx.stroke();
-    const bands = Math.max(2, Math.round((hl * 2) / unit));
-    ctx.fillStyle = "rgba(122,164,255,0.4)";
-    for (let i = 0; i < bands; i += 1) {
-      const bx = -hl + unit * 0.95 + (hl * 2 - unit * 1.45) * (bands > 1 ? i / (bands - 1) : 0.5);
-      ctx.fillRect(bx, -hc * 0.66, unit * 0.09, hc * 1.32);
-    }
+    ctx.fillStyle = "rgba(122,164,255,0.5)";
+    ctx.fillRect(-hl + unit * 0.17, -hc * 0.3, unit * 0.16, hc * 0.6);
+
+    // 3. The rails: two continuous pale bars running almost the full length.
+    ctx.save();
     ctx.strokeStyle = "#eef4ff";
-    ctx.lineWidth = line;
+    ctx.lineWidth = Math.max(1.1, unit * 0.1);
     ctx.beginPath();
-    ctx.moveTo(-hl + unit * 0.6, -hc * 0.44);
-    ctx.lineTo(hl - unit * 0.06, -hc * 0.44);
-    ctx.moveTo(-hl + unit * 0.6, hc * 0.44);
-    ctx.lineTo(hl - unit * 0.06, hc * 0.44);
+    ctx.moveTo(railBack, -railY); ctx.lineTo(railFront, -railY);
+    ctx.moveTo(railBack, railY); ctx.lineTo(railFront, railY);
     ctx.stroke();
-    ctx.fillStyle = "#5f8fff";
-    ctx.fillRect(hl - unit * 0.32, -hc * 0.56, unit * 0.24, hc * 1.12);
+    ctx.restore();
+
+    // A single brace behind the slug, so the rails read as one assembly.
+    ctx.fillStyle = mixColor(color, "#0b111c", 0.45);
+    roundRect(ctx, {
+      x: -unit * 0.54,
+      y: -railY,
+      width: unit * 0.09,
+      height: railY * 2,
+      radius: unit * 0.02
+    });
+    ctx.fill();
+    ctx.stroke();
+
+    // 4. The slug: small, bright, sitting directly in the open gap. This is the
+    //    focal point, so it is the only part that glows.
     ctx.save();
     ctx.shadowColor = "#9fdcff";
-    ctx.shadowBlur = qualityShadowBlur(5);
+    ctx.shadowBlur = qualityShadowBlur(6);
     ctx.fillStyle = "#dbeafe";
-    ctx.fillRect(hl - unit * 0.16, -hc * 0.18, unit * 0.12, hc * 0.36);
+    roundRect(ctx, {
+      x: -unit * 0.13,
+      y: -unit * 0.075,
+      width: unit * 0.32,
+      height: unit * 0.15,
+      radius: unit * 0.06
+    });
+    ctx.fill();
     ctx.restore();
+
+    // 5. Muzzle bridge: one bar spanning the rail tips, marking the exit.
+    ctx.fillStyle = "#cbd5e1";
+    roundRect(ctx, {
+      x: hl - unit * 0.24,
+      y: -railY - unit * 0.05,
+      width: unit * 0.13,
+      height: railY * 2 + unit * 0.1,
+      radius: unit * 0.035
+    });
+    ctx.fill();
+    ctx.stroke();
   } else if (artType === "beamEmitter" || artType === "repairBeam") {
     const repair = artType === "repairBeam";
     const accent = repair ? "#4ade80" : "#38bdf8";
@@ -1007,9 +1183,35 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
   }
 }
 
+// Draw a structural cut-away/rounded/wedge shape. The silhouette, cut edges and
+// rivets rotate with `rotation`, but the underlying plate/tile material and the
+// soft body gradient are drawn in ship-local space so adjacent armour tiles read
+// as one continuous belt with consistent lighting.
+function withRotatedShape(size, rotation, outline, drawMaterial, drawEdge) {
+  const shapeAngle = moduleRotationToRadians(normalizeRotation(rotation));
+
+  ctx.save();
+  ctx.rotate(shapeAngle);
+  outline();
+  ctx.clip();
+  ctx.rotate(-shapeAngle);
+  ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
+  drawMaterial();
+  ctx.restore();
+
+  ctx.save();
+  ctx.rotate(shapeAngle);
+  drawEdge();
+  outline();
+  ctx.strokeStyle = "rgba(3,6,12,0.72)";
+  ctx.lineWidth = Math.max(0.9, size * 0.08);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // --- Professional single-cell detail ------------------------------------------
 
-function drawProfessionalModuleDetail(type, size, color, visualState = "active") {
+function drawProfessionalModuleDetail(type, size, color, visualState = "active", rotation = 0) {
   type = componentArtType(type);
   const line = Math.max(0.8, size * 0.065);
   const fine = Math.max(0.7, size * 0.045);
@@ -1060,27 +1262,25 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
       ctx.lineTo(-size * 0.5, size * 0.5);
       ctx.closePath();
     };
-    outline();
-    ctx.fill();
-    ctx.stroke();
     if (ABLATIVE_PARTS.has(type)) {
-      drawClippedAblativeFace(size, color, fine, outline);
-      // Hot cut face along the hypotenuse rather than the interior chevron the
-      // plated variants use: over spall tiles a bright interior stroke reads as
-      // a smear instead of a lit edge.
-      drawAblativeHotEdge(size, () => {
-        ctx.moveTo(size * 0.4, -size * 0.42);
-        ctx.lineTo(-size * 0.42, size * 0.4);
-      });
-      return true;
+      withRotatedShape(size, rotation, outline,
+        () => drawAblativeSpallPlating(size, color, fine),
+        () => drawAblativeHotEdge(size, () => {
+          ctx.moveTo(size * 0.4, -size * 0.42);
+          ctx.lineTo(-size * 0.42, size * 0.4);
+        }));
+    } else {
+      withRotatedShape(size, rotation, outline, () => {},
+        () => {
+          ctx.strokeStyle = type === "halfFrameDiagonal" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
+          ctx.lineWidth = line;
+          ctx.beginPath();
+          ctx.moveTo(-size * 0.32, -size * 0.32);
+          ctx.lineTo(type === "halfFrameDiagonal" ? size * 0.17 : size * 0.1, -size * 0.32);
+          ctx.lineTo(-size * 0.32, type === "halfFrameDiagonal" ? size * 0.17 : size * 0.1);
+          ctx.stroke();
+        });
     }
-    ctx.strokeStyle = type === "halfFrameDiagonal" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
-    ctx.lineWidth = line;
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.32, -size * 0.32);
-    ctx.lineTo(type === "halfFrameDiagonal" ? size * 0.17 : size * 0.1, -size * 0.32);
-    ctx.lineTo(-size * 0.32, type === "halfFrameDiagonal" ? size * 0.17 : size * 0.1);
-    ctx.stroke();
     return true;
   }
 
@@ -1092,26 +1292,27 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
       ctx.lineTo(-size * 0.5, size * 0.5);
       ctx.closePath();
     };
-    outline();
-    ctx.fill();
-    ctx.stroke();
     if (ABLATIVE_PARTS.has(type)) {
-      drawClippedAblativeFace(size, color, fine, outline);
-      drawAblativeHotEdge(size, () => {
-        ctx.moveTo(-size * 0.44, -size * 0.4);
-        ctx.lineTo(size * 0.38, -size * 0.03);
-        ctx.moveTo(-size * 0.44, size * 0.4);
-        ctx.lineTo(size * 0.38, size * 0.03);
-      });
-      return true;
+      withRotatedShape(size, rotation, outline,
+        () => drawAblativeSpallPlating(size, color, fine),
+        () => drawAblativeHotEdge(size, () => {
+          ctx.moveTo(-size * 0.44, -size * 0.4);
+          ctx.lineTo(size * 0.38, -size * 0.03);
+          ctx.moveTo(-size * 0.44, size * 0.4);
+          ctx.lineTo(size * 0.38, size * 0.03);
+        }));
+    } else {
+      withRotatedShape(size, rotation, outline, () => {},
+        () => {
+          ctx.strokeStyle = type === "wingFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
+          ctx.lineWidth = line;
+          ctx.beginPath();
+          ctx.moveTo(-size * 0.34, -size * 0.3);
+          ctx.lineTo(size * 0.16, 0);
+          ctx.lineTo(-size * 0.34, size * 0.3);
+          ctx.stroke();
+        });
     }
-    ctx.strokeStyle = type === "wingFrame" ? "rgba(225,236,250,0.46)" : "rgba(255,244,220,0.42)";
-    ctx.lineWidth = line;
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.34, -size * 0.3);
-    ctx.lineTo(size * 0.16, 0);
-    ctx.lineTo(-size * 0.34, size * 0.3);
-    ctx.stroke();
     return true;
   }
 
@@ -1143,38 +1344,31 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
       ctx.lineTo(-s, s);
       ctx.closePath();
     };
-    outline();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.save();
-    outline();
-    ctx.clip();
-    if (isFrame) drawFrameBracing(size, fine, 0.3);
-    else if (type === "bevelAblativeArmor") drawAblativeSpallPlating(size, color, fine);
-    else drawArmorLaminate(size, color, type === "bevelCompositeArmor", fine);
-    // Chamfer face: a bright inner bevel band hugging the cut edge.
-    ctx.lineCap = "butt";
-    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
-    ctx.lineWidth = Math.max(1.4, size * 0.11);
-    ctx.beginPath();
-    ctx.moveTo(s - cut - size * 0.06, -s - size * 0.06);
-    ctx.lineTo(s + size * 0.06, -s + cut + size * 0.06);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(3,6,12,0.4)";
-    ctx.lineWidth = Math.max(0.8, size * 0.05);
-    ctx.beginPath();
-    ctx.moveTo(s - cut + size * 0.09, -s + size * 0.14);
-    ctx.lineTo(s - size * 0.14, -s + cut - size * 0.09);
-    ctx.stroke();
-    ctx.restore();
-
-    outline();
-    ctx.strokeStyle = "rgba(3,6,12,0.72)";
-    ctx.lineWidth = Math.max(0.9, size * 0.08);
-    ctx.stroke();
-    if (isFrame) drawComponentPort(size, -0.08, 0.08, 0.085, "#d8e2f0", 0.35);
-    else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
+    const drawMaterial = () => {
+      if (isFrame) drawFrameBracing(size, fine, 0.3);
+      else if (type === "bevelAblativeArmor") drawAblativeSpallPlating(size, color, fine);
+      else drawArmorLaminate(size, color, type === "bevelCompositeArmor", fine);
+    };
+    const drawEdge = () => {
+      ctx.save();
+      ctx.lineCap = "butt";
+      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+      ctx.lineWidth = Math.max(1.4, size * 0.11);
+      ctx.beginPath();
+      ctx.moveTo(s - cut - size * 0.06, -s - size * 0.06);
+      ctx.lineTo(s + size * 0.06, -s + cut + size * 0.06);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(3,6,12,0.4)";
+      ctx.lineWidth = Math.max(0.8, size * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(s - cut + size * 0.09, -s + size * 0.14);
+      ctx.lineTo(s - size * 0.14, -s + cut - size * 0.09);
+      ctx.stroke();
+      ctx.restore();
+      if (isFrame) drawComponentPort(size, -0.08, 0.08, 0.085, "#d8e2f0", 0.35);
+      else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
+    };
+    withRotatedShape(size, rotation, outline, drawMaterial, drawEdge);
     return true;
   }
 
@@ -1194,36 +1388,28 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
       ctx.lineTo(-s, s);
       ctx.closePath();
     };
-    outline();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.save();
-    outline();
-    ctx.clip();
-    if (isFrame) drawFrameBracing(size, fine, 0.3);
-    else if (type === "roundedAblativeArmor") drawAblativeSpallPlating(size, color, fine);
-    else drawArmorLaminate(size, color, type === "roundedCompositeArmor", fine);
-    // Swept shoulder: a bright rim inside the arc with a darker shadow line
-    // behind it, so the curve reads as a rolled surface.
-    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
-    ctx.lineWidth = Math.max(1.4, size * 0.1);
-    ctx.beginPath();
-    ctx.arc(s - r, -s + r, r - size * 0.04, -Math.PI * 0.5, 0);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(3,6,12,0.4)";
-    ctx.lineWidth = Math.max(0.8, size * 0.05);
-    ctx.beginPath();
-    ctx.arc(s - r, -s + r, r - size * 0.16, -Math.PI * 0.5, 0);
-    ctx.stroke();
-    ctx.restore();
-
-    outline();
-    ctx.strokeStyle = "rgba(3,6,12,0.72)";
-    ctx.lineWidth = Math.max(0.9, size * 0.08);
-    ctx.stroke();
-    if (isFrame) drawComponentPort(size, -0.1, 0.1, 0.085, "#d8e2f0", 0.35);
-    else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
+    const drawMaterial = () => {
+      if (isFrame) drawFrameBracing(size, fine, 0.3);
+      else if (type === "roundedAblativeArmor") drawAblativeSpallPlating(size, color, fine);
+      else drawArmorLaminate(size, color, type === "roundedCompositeArmor", fine);
+    };
+    const drawEdge = () => {
+      // Swept shoulder: a bright rim inside the arc with a darker shadow line
+      // behind it, so the curve reads as a rolled surface.
+      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+      ctx.lineWidth = Math.max(1.4, size * 0.1);
+      ctx.beginPath();
+      ctx.arc(s - r, -s + r, r - size * 0.04, -Math.PI * 0.5, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(3,6,12,0.4)";
+      ctx.lineWidth = Math.max(0.8, size * 0.05);
+      ctx.beginPath();
+      ctx.arc(s - r, -s + r, r - size * 0.16, -Math.PI * 0.5, 0);
+      ctx.stroke();
+      if (isFrame) drawComponentPort(size, -0.1, 0.1, 0.085, "#d8e2f0", 0.35);
+      else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
+    };
+    withRotatedShape(size, rotation, outline, drawMaterial, drawEdge);
     return true;
   }
 
@@ -1733,7 +1919,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active")
 
 // --- Single-cell module composition --------------------------------------------
 
-export function drawModule({ x, y, size, color, type, trim, drawBase = true, drawDetail = true, visualState = "active" }) {
+export function drawModule({ x, y, size, color, type, trim, drawBase = true, drawDetail = true, visualState = "active", rotation = 0 }) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineJoin = "round";
@@ -1782,7 +1968,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
   // All currently selectable parts use the unified professional detail set.
   // Legacy branches remain below as compatibility art for any old/custom part
   // ids loaded from storage.
-  if (drawProfessionalModuleDetail(type, size, bodyColor, visualState)) {
+  if (drawProfessionalModuleDetail(type, size, bodyColor, visualState, rotation)) {
     ctx.restore();
     return;
   }
@@ -2781,7 +2967,7 @@ function drawGenericFootprintMachine(type, unit, tilesLong, color, hl, hc) {
   return true;
 }
 
-function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, color, hl, hc, visualState) {
+function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, color, hl, hc, visualState, rotation = 0) {
   type = componentArtType(type);
   const line = Math.max(1, unit * 0.075);
   const fine = Math.max(0.7, unit * 0.045);
@@ -2970,8 +3156,8 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   if (type === "longWedgeFrame" || type === "longWedgeArmor" || type === "longWedgeCompositeArmor"
     || type === "longWedgeAblativeArmor") {
     // Two-cell prow: broad at the rear (-x), tapering to a blunt nose at +x.
-    // Without this branch the wedges fell through to the generic structural
-    // machine and rendered as a rectangle with a cross — nothing like a wedge.
+    // The prow silhouette rotates with the part, but the armour courses / tile
+    // rows stay in ship-local space so the prow still reads as the same belt.
     const isFrame = type === "longWedgeFrame";
     const composite = type === "longWedgeCompositeArmor";
     const ablative = type === "longWedgeAblativeArmor";
@@ -2985,157 +3171,169 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
       ctx.lineTo(-hl, hc);
       ctx.closePath();
     };
-    outline();
-    ctx.fill();
-    ctx.stroke();
 
-    ctx.save();
-    outline();
-    ctx.clip();
-    if (isFrame) {
-      // Truss: flank chords, a centre spar and diagonal web members.
-      ctx.strokeStyle = "rgba(8,14,24,0.7)";
-      ctx.lineWidth = Math.max(1.2, unit * 0.11);
-      ctx.beginPath();
-      ctx.moveTo(-hl * 0.92, -hc * 0.78);
-      ctx.lineTo(hl * 0.82, -hc * 0.12);
-      ctx.moveTo(-hl * 0.92, hc * 0.78);
-      ctx.lineTo(hl * 0.82, hc * 0.12);
-      ctx.moveTo(-hl * 0.92, 0);
-      ctx.lineTo(hl * 0.86, 0);
-      ctx.stroke();
-      ctx.lineWidth = Math.max(1, unit * 0.075);
-      ctx.beginPath();
-      const bays = 3;
-      for (let i = 0; i < bays; i += 1) {
-        const x0 = -hl * 0.9 + (hl * 1.7 * i) / bays;
-        const x1 = -hl * 0.9 + (hl * 1.7 * (i + 1)) / bays;
-        const t0 = 1 - (x0 + hl) / (hl * 2);
-        const t1 = 1 - (x1 + hl) / (hl * 2);
-        ctx.moveTo(x0, -hc * 0.78 * t0);
-        ctx.lineTo(x1, hc * 0.78 * t1);
-        ctx.moveTo(x0, hc * 0.78 * t0);
-        ctx.lineTo(x1, -hc * 0.78 * t1);
-      }
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(225,236,250,0.3)";
-      ctx.lineWidth = Math.max(0.7, unit * 0.04);
-      ctx.beginPath();
-      ctx.moveTo(-hl * 0.92, -hc * 0.72);
-      ctx.lineTo(hl * 0.8, -hc * 0.1);
-      ctx.stroke();
-    } else if (ablative) {
-      // Sacrificial tile courses laid along the length on the same charred
-      // substrate as the one-cell block, staggered row to row, with the nose
-      // tiles already burned back.
-      ctx.fillStyle = "rgba(14,7,10,0.94)";
-      ctx.fillRect(-hl, -hc, hl * 2, hc * 2);
-      ctx.strokeStyle = "rgba(255,146,64,0.55)";
-      ctx.lineWidth = Math.max(0.8, unit * 0.03);
-      ctx.beginPath();
-      ctx.moveTo(-hl, 0);
-      ctx.lineTo(hl, 0);
-      ctx.stroke();
+    const drawMaterial = () => {
+      if (ablative) {
+        ctx.fillStyle = "rgba(14,7,10,0.94)";
+        ctx.fillRect(-hl, -hc, hl * 2, hc * 2);
+        ctx.strokeStyle = "rgba(255,146,64,0.55)";
+        ctx.lineWidth = Math.max(0.8, unit * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(-hl, 0);
+        ctx.lineTo(hl, 0);
+        ctx.stroke();
 
-      const columns = Math.max(4, tilesLong * 2);
-      const span = (hl * 2) / columns;
-      const tileW = span - unit * 0.06;
-      const tileH = hc - unit * 0.06;
-      const cut = Math.min(tileW, tileH) * 0.22;
-      const tileFills = [
-        mixColor(color, "#140609", 0.52),
-        mixColor(color, "#ffffff", 0.08),
-        mixColor(color, "#05070c", 0.28)
-      ];
-      ctx.lineWidth = fine;
-      for (let i = 0; i < columns; i += 1) {
-        const cx = -hl + span * (i + 0.5);
-        for (const row of [-1, 1]) {
-          const cy = row * hc * 0.5;
-          ctx.fillStyle = tileFills[(i + (row > 0 ? 1 : 0)) % tileFills.length];
-          ctx.strokeStyle = "rgba(3,6,12,0.6)";
-          ctx.beginPath();
-          ctx.moveTo(cx - tileW * 0.5 + cut, cy - tileH * 0.5);
-          ctx.lineTo(cx + tileW * 0.5 - cut, cy - tileH * 0.5);
-          ctx.lineTo(cx + tileW * 0.5, cy - tileH * 0.5 + cut);
-          ctx.lineTo(cx + tileW * 0.5, cy + tileH * 0.5 - cut);
-          ctx.lineTo(cx + tileW * 0.5 - cut, cy + tileH * 0.5);
-          ctx.lineTo(cx - tileW * 0.5 + cut, cy + tileH * 0.5);
-          ctx.lineTo(cx - tileW * 0.5, cy + tileH * 0.5 - cut);
-          ctx.lineTo(cx - tileW * 0.5, cy - tileH * 0.5 + cut);
-          ctx.closePath();
+        const columns = Math.max(4, tilesLong * 2);
+        const span = (hl * 2) / columns;
+        const tileW = span - unit * 0.06;
+        const tileH = hc - unit * 0.06;
+        const cut = Math.min(tileW, tileH) * 0.22;
+        const tileFills = [
+          mixColor(color, "#140609", 0.52),
+          mixColor(color, "#ffffff", 0.08),
+          mixColor(color, "#05070c", 0.28)
+        ];
+        ctx.lineWidth = fine;
+        for (let i = 0; i < columns; i += 1) {
+          const cx = -hl + span * (i + 0.5);
+          for (const row of [-1, 1]) {
+            const cy = row * hc * 0.5;
+            ctx.fillStyle = tileFills[(i + (row > 0 ? 1 : 0)) % tileFills.length];
+            ctx.strokeStyle = "rgba(3,6,12,0.6)";
+            ctx.beginPath();
+            ctx.moveTo(cx - tileW * 0.5 + cut, cy - tileH * 0.5);
+            ctx.lineTo(cx + tileW * 0.5 - cut, cy - tileH * 0.5);
+            ctx.lineTo(cx + tileW * 0.5, cy - tileH * 0.5 + cut);
+            ctx.lineTo(cx + tileW * 0.5, cy + tileH * 0.5 - cut);
+            ctx.lineTo(cx + tileW * 0.5 - cut, cy + tileH * 0.5);
+            ctx.lineTo(cx - tileW * 0.5 + cut, cy + tileH * 0.5);
+            ctx.lineTo(cx - tileW * 0.5, cy + tileH * 0.5 - cut);
+            ctx.lineTo(cx - tileW * 0.5, cy - tileH * 0.5 + cut);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+
+        ctx.fillStyle = "rgba(255,132,52,0.5)";
+        ctx.beginPath();
+        ctx.moveTo(hl * 0.6, -hc * 0.42);
+        ctx.lineTo(hl * 0.95, -hc * 0.1);
+        ctx.lineTo(hl * 0.95, hc * 0.1);
+        ctx.lineTo(hl * 0.6, hc * 0.42);
+        ctx.closePath();
+        ctx.fill();
+      } else if (!isFrame) {
+        // Laminate courses stacked across the width, so the wedge reads as the
+        // same plate material as the rest of the armour family.
+        const courses = Math.max(4, tilesLong * 2);
+        const span = (hl * 2) / courses;
+        const fills = [
+          mixColor(color, "#ffffff", 0.2),
+          mixColor(color, "#ffffff", 0.03),
+          mixColor(color, "#05070c", 0.26)
+        ];
+        ctx.strokeStyle = "rgba(3,6,12,0.6)";
+        ctx.lineWidth = fine;
+        for (let i = 0; i < courses; i += 1) {
+          ctx.fillStyle = fills[i % fills.length];
+          roundRect(ctx, { x: -hl + i * span + unit * 0.02, y: -hc, width: span - unit * 0.04, height: hc * 2, radius: unit * 0.05 });
           ctx.fill();
           ctx.stroke();
         }
+        if (composite) {
+          ctx.strokeStyle = "rgba(255,214,140,0.45)";
+          ctx.lineWidth = fine;
+          ctx.beginPath();
+          for (let i = 0; i < 3; i += 1) {
+            const x = -hl * 0.62 + i * hl * 0.52;
+            ctx.moveTo(x - hc * 0.7, hc);
+            ctx.lineTo(x + hc * 0.7, -hc);
+          }
+          ctx.stroke();
+        }
       }
+    };
 
-      ctx.fillStyle = "rgba(255,132,52,0.5)";
-      ctx.beginPath();
-      ctx.moveTo(hl * 0.6, -hc * 0.42);
-      ctx.lineTo(hl * 0.95, -hc * 0.1);
-      ctx.lineTo(hl * 0.95, hc * 0.1);
-      ctx.lineTo(hl * 0.6, hc * 0.42);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // Laminate courses stacked along the length, so the wedge reads as the
-      // same plate material as the rest of the armour family.
-      const courses = Math.max(4, tilesLong * 2);
-      const span = (hl * 2) / courses;
-      const fills = [
-        mixColor(color, "#ffffff", 0.2),
-        mixColor(color, "#ffffff", 0.03),
-        mixColor(color, "#05070c", 0.26)
-      ];
-      ctx.strokeStyle = "rgba(3,6,12,0.6)";
-      ctx.lineWidth = fine;
-      for (let i = 0; i < courses; i += 1) {
-        ctx.fillStyle = fills[i % fills.length];
-        roundRect(ctx, { x: -hl + i * span + unit * 0.02, y: -hc, width: span - unit * 0.04, height: hc * 2, radius: unit * 0.05 });
-        ctx.fill();
-        ctx.stroke();
-      }
-      if (composite) {
-        ctx.strokeStyle = "rgba(255,214,140,0.45)";
-        ctx.lineWidth = fine;
+    const drawEdge = () => {
+      if (isFrame) {
+        // Truss: flank chords, a centre spar and diagonal web members.
+        ctx.strokeStyle = "rgba(8,14,24,0.7)";
+        ctx.lineWidth = Math.max(1.2, unit * 0.11);
         ctx.beginPath();
-        for (let i = 0; i < 3; i += 1) {
-          const x = -hl * 0.62 + i * hl * 0.52;
-          ctx.moveTo(x - hc * 0.7, hc);
-          ctx.lineTo(x + hc * 0.7, -hc);
+        ctx.moveTo(-hl * 0.92, -hc * 0.78);
+        ctx.lineTo(hl * 0.82, -hc * 0.12);
+        ctx.moveTo(-hl * 0.92, hc * 0.78);
+        ctx.lineTo(hl * 0.82, hc * 0.12);
+        ctx.moveTo(-hl * 0.92, 0);
+        ctx.lineTo(hl * 0.86, 0);
+        ctx.stroke();
+        ctx.lineWidth = Math.max(1, unit * 0.075);
+        ctx.beginPath();
+        const bays = 3;
+        for (let i = 0; i < bays; i += 1) {
+          const x0 = -hl * 0.9 + (hl * 1.7 * i) / bays;
+          const x1 = -hl * 0.9 + (hl * 1.7 * (i + 1)) / bays;
+          const t0 = 1 - (x0 + hl) / (hl * 2);
+          const t1 = 1 - (x1 + hl) / (hl * 2);
+          ctx.moveTo(x0, -hc * 0.78 * t0);
+          ctx.lineTo(x1, hc * 0.78 * t1);
+          ctx.moveTo(x0, hc * 0.78 * t0);
+          ctx.lineTo(x1, -hc * 0.78 * t1);
         }
         ctx.stroke();
+        ctx.strokeStyle = "rgba(225,236,250,0.3)";
+        ctx.lineWidth = Math.max(0.7, unit * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(-hl * 0.92, -hc * 0.72);
+        ctx.lineTo(hl * 0.8, -hc * 0.1);
+        ctx.stroke();
       }
-    }
 
-    // Lit leading edges along both angled flanks: the signature of a prow.
-    ctx.lineCap = "butt";
-    ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : ablative ? "rgba(255,168,96,0.6)" : "rgba(255,240,214,0.62)";
-    ctx.lineWidth = Math.max(1.3, unit * 0.09);
-    ctx.beginPath();
-    ctx.moveTo(-hl, -hc);
-    ctx.lineTo(hl * 0.86, -hc * 0.2);
-    ctx.lineTo(hl, -hc * 0.06);
-    ctx.moveTo(-hl, hc);
-    ctx.lineTo(hl * 0.86, hc * 0.2);
-    ctx.lineTo(hl, hc * 0.06);
-    ctx.stroke();
+      // Lit leading edges along both angled flanks: the signature of a prow.
+      ctx.lineCap = "butt";
+      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : ablative ? "rgba(255,168,96,0.6)" : "rgba(255,240,214,0.62)";
+      ctx.lineWidth = Math.max(1.3, unit * 0.09);
+      ctx.beginPath();
+      ctx.moveTo(-hl, -hc);
+      ctx.lineTo(hl * 0.86, -hc * 0.2);
+      ctx.lineTo(hl, -hc * 0.06);
+      ctx.moveTo(-hl, hc);
+      ctx.lineTo(hl * 0.86, hc * 0.2);
+      ctx.lineTo(hl, hc * 0.06);
+      ctx.stroke();
+
+      if (isFrame) {
+        drawFootprintPort(unit, -hl + unit * 0.34, 0, unit * 0.1, "#d8e2f0");
+        drawFootprintPort(unit, hl * 0.62, 0, unit * 0.08, "#d8e2f0");
+      } else {
+        const rivet = mixColor(color, "#ffffff", 0.55);
+        drawFootprintPort(unit, -hl + unit * 0.22, -hc * 0.66, unit * 0.07, rivet);
+        drawFootprintPort(unit, -hl + unit * 0.22, hc * 0.66, unit * 0.07, rivet);
+        drawFootprintPort(unit, hl * 0.42, 0, unit * 0.07, rivet);
+      }
+    };
+
+    // Base fill and material are clipped to the rotated prow but drawn in ship
+    // axes so plating direction is continuous across the whole ship.
+    ctx.save();
+    ctx.rotate(rotation);
+    outline();
+    ctx.clip();
+    ctx.rotate(-rotation);
+    ctx.fillRect(-hl, -hc, hl * 2, hc * 2);
+    drawMaterial();
     ctx.restore();
 
+    // Silhouette, chamfer and hardware rotate with the prow.
+    ctx.save();
+    ctx.rotate(rotation);
+    drawEdge();
     outline();
     ctx.strokeStyle = "rgba(3,6,12,0.72)";
     ctx.lineWidth = Math.max(0.9, unit * 0.08);
     ctx.stroke();
-
-    if (isFrame) {
-      drawFootprintPort(unit, -hl + unit * 0.34, 0, unit * 0.1, "#d8e2f0");
-      drawFootprintPort(unit, hl * 0.62, 0, unit * 0.08, "#d8e2f0");
-    } else {
-      const rivet = mixColor(color, "#ffffff", 0.55);
-      drawFootprintPort(unit, -hl + unit * 0.22, -hc * 0.66, unit * 0.07, rivet);
-      drawFootprintPort(unit, -hl + unit * 0.22, hc * 0.66, unit * 0.07, rivet);
-      drawFootprintPort(unit, hl * 0.42, 0, unit * 0.07, rivet);
-    }
+    ctx.restore();
     return true;
   }
 
@@ -3152,7 +3350,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
 // and the body is centred on the origin. Shared by the arena ship renderer and
 // the designer icon baker so blueprint and in-game visuals match. 1x1 parts
 // keep using drawModule(); this only handles the elongated/multi-cell types.
-export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim, drawBase = true, drawDetail = true, visualState = "safed" }) {
+export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim, drawBase = true, drawDetail = true, visualState = "safed", rotation = 0 }) {
   const hl = (tilesLong * unit) / 2; // half length along +x
   const hc = (tilesCross * unit) / 2; // half width along y
   const edge = "rgba(3,6,12,0.72)";
@@ -3181,7 +3379,7 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
     return;
   }
 
-  if (drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, bodyColor, hl, hc, visualState)) {
+  if (drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, bodyColor, hl, hc, visualState, rotation)) {
     ctx.restore();
     return;
   }

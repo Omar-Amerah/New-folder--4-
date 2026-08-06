@@ -2,7 +2,7 @@
 
 import { dom } from "../ui/dom.js";
 import { state } from "../state.js";
-import { clampCameraToWorld, minimapWorldAt, screenToWorld, zoomCameraAtScreenPoint, resetCameraZoomToFit, centerCameraOnShips } from "./camera.js";
+import { clampCameraToWorld, minimapWorldAt, screenToWorld, zoomCameraAtScreenPoint, resetCameraZoomToFit, centerCameraOnShips, CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM } from "./camera.js";
 import { selectAt, selectBox, selectAllOwnShips, ownLiveShips } from "./selection.js";
 import { rotateFocusedPart, undoBlueprintEdit } from "../ui/designerUi.js";
 import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
@@ -15,7 +15,27 @@ import { issueCommand, destructSelectedShips, stopSelectedShips, rotateSelectedS
 import { getMobileTestingModeEnabled } from "./renderSettings.js";
 
 let binding = null; let bindingGeneration = 0;
-export function inputDiagnostics() { return { bindingGeneration, bound: !!binding, canvasMatches: binding?.canvas === dom.canvas, activePointerGesture: state.drag ? "select" : state.camDrag ? "pan" : null }; }
+let pendingZoomIntent = 0;
+let pendingZoomPoint = null;
+export function inputDiagnostics() { return { bindingGeneration, bound: !!binding, canvasMatches: binding?.canvas === dom.canvas, activePointerGesture: state.drag ? "select" : state.camDrag ? "pan" : null, pendingZoom: pendingZoomIntent !== 0 }; }
+export function consumePendingZoom() {
+  if (pendingZoomIntent === 0 || pendingZoomPoint === null) return false;
+  const intent = clampNumber(pendingZoomIntent, -6, 6);
+  const preZoom = state.camera.zoom;
+  const targetZoom = clampNumber(preZoom * Math.exp(intent * 0.13), CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM);
+  if (Math.abs(targetZoom - preZoom) < 1e-9) {
+    pendingZoomIntent = 0;
+    pendingZoomPoint = null;
+    return false;
+  }
+  const point = pendingZoomPoint;
+  pendingZoomIntent = 0;
+  pendingZoomPoint = null;
+  Object.assign(state.camera, zoomCameraAtScreenPoint(state.camera, point, intent));
+  state.camera.follow = false;
+  state.camera.panTarget = null;
+  return true;
+}
 function eventIsOnCanvas(event) { return !!binding && event.currentTarget === binding.canvas && event.target === binding.canvas; }
 function releaseCapture(canvas, id) { try { if (canvas?.hasPointerCapture?.(id)) canvas.releasePointerCapture(id); } catch {} }
 export function cancelArenaPointerState(reason = "cancel") { if (binding) { releaseCapture(binding.canvas, state.drag?.pointerId); releaseCapture(binding.canvas, state.camDrag?.pointerId); } state.drag = null; state.camDrag = null; state.pointerCancelledAt = performance.now?.() || Date.now(); state.pointerCancelReason = reason; }
@@ -51,7 +71,8 @@ function handlePointerCancel(event) { if (state.drag?.pointerId === event.pointe
 export function handleWheel(event) {
   if (!eventIsOnCanvas(event)) return; event.preventDefault(); event.stopPropagation();
   const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1; const intent = clampNumber(-event.deltaY * unit / 120, -4, 4);
-  Object.assign(state.camera, zoomCameraAtScreenPoint(state.camera, { x: event.clientX, y: event.clientY }, intent)); state.camera.follow = false; state.camera.panTarget = null;
+  pendingZoomIntent += intent;
+  pendingZoomPoint = { x: event.clientX, y: event.clientY };
 }
 function clampNumber(v, lo, hi) { return Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : 0)); }
 export function eventComesFromEditableControl(event) {

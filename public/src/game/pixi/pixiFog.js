@@ -10,6 +10,8 @@
 import { state } from "../../state.js";
 import { WORLD_FALLBACK } from "../../constants.js";
 import { getFogOpacity } from "../../game/renderSettings.js";
+import { cameraViewportWorldBounds, canvasCssRect } from "../camera.js";
+import { isCircleVisible } from "../viewportCulling.js";
 import { angleDifference } from "../../shared/math.js";
 
 const SENSOR_FOG_COLOR_BASE = "rgba(0, 4, 16, ";
@@ -45,6 +47,10 @@ function worldDimensions(snapshot = state.snapshot) {
     worldW: Math.max(1, Number(state.world?.width) || Number(snapshot?.world?.width) || WORLD_FALLBACK.width),
     worldH: Math.max(1, Number(state.world?.height) || Number(snapshot?.world?.height) || WORLD_FALLBACK.height)
   };
+}
+
+function currentViewportBounds() {
+  return cameraViewportWorldBounds(state.camera, canvasCssRect(), state.world);
 }
 
 function createFogView(env) {
@@ -130,7 +136,7 @@ function configureFogSurface(env, view, worldW, worldH, mode, opacity) {
   return policy;
 }
 
-function alliedSensorSources(snapshot, team) {
+function alliedSensorSources(snapshot, team, viewport = null) {
   const sources = [];
   if (team === null || team === undefined) return sources;
   const ownerTeams = new Map((snapshot.players || []).map((player) => [player.id, player.team]));
@@ -143,12 +149,14 @@ function alliedSensorSources(snapshot, team) {
     const x = Number.isFinite(visual?.x) ? visual.x : Number(ship.x);
     const y = Number.isFinite(visual?.y) ? visual.y : Number(ship.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (viewport && !isCircleVisible(x, y, range, viewport)) continue;
     sources.push({ id: ship.id, shape: "circle", x, y, range });
     const shipAngle = Number.isFinite(visual?.angle) ? visual.angle : Number(ship.angle) || 0;
     for (const cone of ship.sensorCones || []) {
       const coneRange = Number(cone.range);
       const arc = Number(cone.arc);
       if (!(coneRange > 0) || !(arc > 0)) continue;
+      if (viewport && !isCircleVisible(x, y, coneRange, viewport)) continue;
       sources.push({
         id: `${ship.id}:cone:${cone.componentIndex}`,
         shape: "cone",
@@ -165,7 +173,10 @@ function alliedSensorSources(snapshot, team) {
     const range = Number(station.sensorRange);
     if (!(range > 0) || station.team !== team) continue;
     if (!Number.isFinite(Number(station.x)) || !Number.isFinite(Number(station.y))) continue;
-    sources.push({ id: `station:${station.id}`, shape: "circle", x: Number(station.x), y: Number(station.y), range });
+    const x = Number(station.x);
+    const y = Number(station.y);
+    if (viewport && !isCircleVisible(x, y, range, viewport)) continue;
+    sources.push({ id: `station:${station.id}`, shape: "circle", x, y, range });
   }
   return sources;
 }
@@ -231,8 +242,10 @@ function createVisibilityMaskView(env, sprite) {
     context: null,
     canvasWidth: 0,
     canvasHeight: 0,
-    worldW: 0,
-    worldH: 0,
+    viewportLeft: 0,
+    viewportTop: 0,
+    viewportWorldW: 0,
+    viewportWorldH: 0,
     quality: null,
     lastSourcesKey: null,
     lastDrawAt: Number.NEGATIVE_INFINITY,
@@ -256,14 +269,18 @@ function disposeVisibilityMaskTexture(view, destroyRetired = false) {
   }
 }
 
-function configureVisibilityMaskSurface(env, view, worldW, worldH) {
+function configureVisibilityMaskSurface(env, view, cssWidth, cssHeight, viewport) {
   const policy = texturePolicy(env.quality);
-  const dimensions = textureDimensions(worldW, worldH, policy.maxDimension);
+  const dimensions = textureDimensions(cssWidth, cssHeight, policy.maxDimension);
+  const viewportWorldW = Math.max(1, viewport.right - viewport.left);
+  const viewportWorldH = Math.max(1, viewport.bottom - viewport.top);
   const unchanged = view.canvas
     && view.canvasWidth === dimensions.width
     && view.canvasHeight === dimensions.height
-    && view.worldW === worldW
-    && view.worldH === worldH
+    && view.viewportLeft === viewport.left
+    && view.viewportTop === viewport.top
+    && view.viewportWorldW === viewportWorldW
+    && view.viewportWorldH === viewportWorldH
     && view.quality === env.quality;
   if (unchanged) return Boolean(view.context && view.texture);
 
@@ -276,8 +293,10 @@ function configureVisibilityMaskSurface(env, view, worldW, worldH) {
   view.context = context;
   view.canvasWidth = dimensions.width;
   view.canvasHeight = dimensions.height;
-  view.worldW = worldW;
-  view.worldH = worldH;
+  view.viewportLeft = viewport.left;
+  view.viewportTop = viewport.top;
+  view.viewportWorldW = viewportWorldW;
+  view.viewportWorldH = viewportWorldH;
   view.quality = env.quality;
   view.lastSourcesKey = null;
   view.lastDrawAt = Number.NEGATIVE_INFINITY;
@@ -285,17 +304,19 @@ function configureVisibilityMaskSurface(env, view, worldW, worldH) {
 
   view.texture = env.PIXI.Texture.from(canvas);
   view.sprite.texture = view.texture;
-  view.sprite.position.set(0, 0);
-  view.sprite.width = worldW;
-  view.sprite.height = worldH;
+  view.sprite.position.set(viewport.left, viewport.top);
+  view.sprite.width = viewportWorldW;
+  view.sprite.height = viewportWorldH;
   return true;
 }
 
-function drawVisibilityMask(view, sources) {
+function drawVisibilityMask(view, sources, viewport) {
   const context = view.context;
   if (!context) return;
-  const sx = view.canvasWidth / view.worldW;
-  const sy = view.canvasHeight / view.worldH;
+  const viewportW = Math.max(1, viewport.right - viewport.left);
+  const viewportH = Math.max(1, viewport.bottom - viewport.top);
+  const sx = view.canvasWidth / viewportW;
+  const sy = view.canvasHeight / viewportH;
   const scale = Math.min(sx, sy);
   const texelWorld = 1 / Math.max(scale, Number.EPSILON);
 
@@ -304,8 +325,8 @@ function drawVisibilityMask(view, sources) {
   context.clearRect(0, 0, view.canvasWidth, view.canvasHeight);
 
   for (const source of sources) {
-    const x = Number(source.x) * sx;
-    const y = Number(source.y) * sy;
+    const x = (Number(source.x) - viewport.left) * sx;
+    const y = (Number(source.y) - viewport.top) * sy;
     const range = Number(source.range);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !(range > 0)) continue;
 
@@ -348,11 +369,12 @@ export function updatePixiVisibilityMask(env, maskSprite, sources = []) {
     visibilityMaskView = createVisibilityMaskView(env, maskSprite);
   }
 
-  const { worldW, worldH } = worldDimensions();
-  if (!configureVisibilityMaskSurface(env, visibilityMaskView, worldW, worldH)) return false;
+  const viewport = currentViewportBounds();
+  const rect = canvasCssRect();
+  if (!configureVisibilityMaskSurface(env, visibilityMaskView, rect.width, rect.height, viewport)) return false;
   const key = sourcesKey(sources);
   if (key !== visibilityMaskView.lastSourcesKey) {
-    drawVisibilityMask(visibilityMaskView, sources);
+    drawVisibilityMask(visibilityMaskView, sources, viewport);
     visibilityMaskView.lastSourcesKey = key;
     visibilityMaskView.lastDrawAt = performance.now();
   }
@@ -364,8 +386,8 @@ export function pixiVisibilityMaskDiagnostics() {
     ready: Boolean(visibilityMaskView?.texture && visibilityMaskView.context),
     width: visibilityMaskView?.canvasWidth || 0,
     height: visibilityMaskView?.canvasHeight || 0,
-    worldW: visibilityMaskView?.worldW || 0,
-    worldH: visibilityMaskView?.worldH || 0
+    worldW: visibilityMaskView?.viewportWorldW || 0,
+    worldH: visibilityMaskView?.viewportWorldH || 0
   };
 }
 
@@ -401,8 +423,8 @@ export function updatePixiFog(env, now, _bounds) {
   fogView.lastDrawAt = now;
 }
 
-export function getAlliedSensorSources() {
-  return alliedSensorSources(state.snapshot || {}, viewerTeam());
+export function getAlliedSensorSources(viewport = null) {
+  return alliedSensorSources(state.snapshot || {}, viewerTeam(), viewport);
 }
 
 export function sensorVisibilityAlpha(distance, range) {
