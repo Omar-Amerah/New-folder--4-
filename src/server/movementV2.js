@@ -2547,12 +2547,30 @@ function maxTurnRate(stats) {
   );
 }
 
+// The next point the ship will be sent to after the one it is flying to, or null
+// when this is the end of the course. A queued leg is a corner in the ship's
+// path just as much as a routed waypoint is, and everything that reads ahead of
+// the current goal has to see it -- otherwise the hull treats a mid-course point
+// as somewhere to stop and only discovers the rest of the course once it has.
+function nextQueuedWaypoint(runtime) {
+  const queue = runtime?.queuedWaypoints;
+  return Array.isArray(queue) && queue.length > 0 ? queue[0] : null;
+}
+
+// This leg has another behind it, so its end is a corner and not a destination.
+function flowingThroughLeg(runtime) {
+  return runtime?.command?.type === "move" && Boolean(nextQueuedWaypoint(runtime));
+}
+
 function cornerSpeedLimit(ship, runtime, stats, lookaheadDistance) {
   const path = runtime.path;
   if (!path?.length) return Infinity;
   const index = routeWaypointIndex(runtime);
   const goal = path[index];
-  const next = path[index + 1];
+  // Past the last routed waypoint the corner is the queued leg itself: the ship
+  // is closing on the point it was sent to and the turn it has to make there is
+  // the one onto the next order.
+  const next = path[index + 1] || nextQueuedWaypoint(runtime);
   if (!next) return Infinity;
   const capture = waypointCaptureRadius(ship);
   const distanceToCorner = fastHypot(goal.x - ship.x, goal.y - ship.y);
@@ -2867,7 +2885,13 @@ function planMovement(room, ship, runtime, stats, route) {
   const distance = fastHypot(arrivalPoint.x - (ship.x || 0), arrivalPoint.y - (ship.y || 0));
   const isMove = command?.type === "move";
   const isCharge = command?.type === "attack" && combatStance(ship) === "charge";
-  const canLatch = isMove || isCharge;
+  // A leg with another queued behind it is never arrived at. Latching would park
+  // the hull, latch an arrival heading and hand the order to the combat stance
+  // for the tick it takes the queue to hand over the next leg -- which is the
+  // stop-at-every-point crawl a course is supposed to replace. The queue advances
+  // on capture instead: see advanceQueuedWaypoint.
+  const flowThrough = flowingThroughLeg(runtime);
+  const canLatch = (isMove && !flowThrough) || isCharge;
   const restingOnFriendly = isMove && distance <= arrivalRadius
     && restingAgainstCloserFriendly(room, ship, destination);
 
@@ -2955,10 +2979,14 @@ function planMovement(room, ship, runtime, stats, route) {
   const kiteSpeedLimit = runtime.kiteSteering
     ? Math.max(0, Number(runtime.kiteSpeedLimit) || 0)
     : Infinity;
+  // Braking to a standstill, and slowing enough to be pointed at the goal on
+  // reaching it, are both about ARRIVING. A leg the ship is flying through gets
+  // neither: what governs its speed there is the turn it has to make onto the
+  // next leg, which cornerLimit below has already measured.
   const permitted = Math.min(
     ownMaxSpeed,
-    ramming || aimingAtBearing ? Infinity : safeArrivalSpeed,
-    ramming || aimingAtBearing ? Infinity : turnLimit,
+    ramming || aimingAtBearing || flowThrough ? Infinity : safeArrivalSpeed,
+    ramming || aimingAtBearing || flowThrough ? Infinity : turnLimit,
     route ? route.cornerLimit : Infinity,
     route ? route.orbitLimit : Infinity,
     blockedLimit,
@@ -3150,16 +3178,23 @@ function issueMove(ship, commandId, destination, options = {}) {
   syncMovementTarget(ship);
 }
 
-// Hand a single ship the next leg of the course it was given, once it has
-// finished the one it is flying.
+// Hand a single ship the next leg of the course it was given, as soon as it is
+// done with the one it is flying.
 //
-// The queue is advanced here, on the ship, rather than by the command that
-// filled it, because "finished" is a fact only the controller has: the order
-// completes when the hull actually settles on the point, not when the route to
-// it was planned. A leg the planner could not reach is also finished -- but only
-// once the ship has flown out the partial route and stopped on its end, which is
-// what `arrived` distinguishes. Advancing on `blocked` alone would drain the
-// whole course in one tick every time a route was momentarily unroutable.
+// "Done" for a mid-course leg is REACHING the point, not stopping on it. A ship
+// that had to settle at every waypoint before being told about the next one
+// would brake, park, turn and accelerate at each corner, which is a course flown
+// as a series of separate journeys. So the leg is handed over on capture -- the
+// same radius the route planner treats its own waypoints as reached at -- and
+// planMovement declines to brake for a point it knows is a corner. The hull
+// carries its speed through and turns onto the next leg.
+//
+// The other two ways a leg finishes are still honoured: the ordinary arrival
+// latch, for a ship that did come to rest on the point, and a leg whose route
+// could not reach it -- but only once the ship has flown out the partial route
+// and stopped on its end, which is what `arrived` distinguishes. Advancing on
+// `blocked` alone would drain the whole course in one tick every time a route
+// was momentarily unroutable.
 function advanceQueuedWaypoint(room, ship, runtime) {
   const queue = runtime.queuedWaypoints;
   if (!Array.isArray(queue) || queue.length === 0) return false;
@@ -3169,7 +3204,11 @@ function advanceQueuedWaypoint(room, ship, runtime) {
     runtime.queuedWaypoints = [];
     return false;
   }
-  if (!runtime.orderComplete && !(runtime.blocked && runtime.arrived)) return false;
+  const destination = runtime.destination;
+  const captured = destination
+    && fastHypot(destination.x - ship.x, destination.y - ship.y)
+      <= Math.max(waypointCaptureRadius(ship), Number(runtime.arrivalRadius) || ARRIVE_DISTANCE);
+  if (!captured && !runtime.orderComplete && !(runtime.blocked && runtime.arrived)) return false;
   const next = queue[0];
   // setMovementCommand clears the queue, as it must for every other caller, so
   // the remainder is carried across the call by hand.

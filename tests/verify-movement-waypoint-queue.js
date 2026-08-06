@@ -150,6 +150,57 @@ function run() {
     assert.ok(near(ship, 4500, 1500), "and ends at the last point of the course");
   }
 
+  // --- a mid-course point is flown through, not stopped at -------------------
+  {
+    // Three points in a straight line. There is nothing to slow down for, so a
+    // ship that dips anywhere near a standstill at the middle one is treating it
+    // as a destination and waiting to be told about the rest of the course --
+    // which is a course flown as a series of separate journeys.
+    const ship = makeShip({ x: 1000, y: 1000 });
+    const room = makeRoom([ship]);
+    command(room, [ship], 4000, 1000);
+    command(room, [ship], 7000, 1000, { append: true });
+
+    let cruise = 0;
+    let slowestUnderway = Infinity;
+    let handedOver = false;
+    for (let index = 0; index < 2500; index += 1) {
+      movementTestTick(room, [ship], DT, index * DT * 1000);
+      const speed = Math.hypot(ship.vx, ship.vy);
+      cruise = Math.max(cruise, speed);
+      if (ship.movement.queuedWaypoints.length === 0) handedOver = true;
+      // Measured across the hand-over only: the run up to speed at the start and
+      // the braking onto the final point are both legitimate.
+      const nearMiddle = Math.abs(ship.x - 4000) < 900;
+      if (cruise > 50 && nearMiddle) slowestUnderway = Math.min(slowestUnderway, speed);
+      if (handedOver && near(ship, 7000, 1000)) break;
+    }
+    assert.ok(near(ship, 7000, 1000), "the ship finishes the course");
+    assert.ok(slowestUnderway > cruise * 0.7,
+      `it keeps its speed through the middle point (${slowestUnderway.toFixed(0)} of ${cruise.toFixed(0)} px/s)`);
+  }
+
+  // --- and it turns a corner without parking on it ---------------------------
+  {
+    // A right-angle corner does cost speed -- the hull has to be able to make the
+    // turn -- but it is a corner, not a stop.
+    const ship = makeShip({ x: 1000, y: 1000 });
+    const room = makeRoom([ship]);
+    command(room, [ship], 5000, 1000);
+    command(room, [ship], 5000, 5000, { append: true });
+    let stopped = false;
+    let cruise = 0;
+    for (let index = 0; index < 2500; index += 1) {
+      movementTestTick(room, [ship], DT, index * DT * 1000);
+      const speed = Math.hypot(ship.vx, ship.vy);
+      cruise = Math.max(cruise, speed);
+      if (cruise > 50 && ship.movement.queuedWaypoints.length > 0 && speed < 4) stopped = true;
+      if (ship.movement.queuedWaypoints.length === 0 && near(ship, 5000, 5000)) break;
+    }
+    assert.ok(!stopped, "the ship never comes to rest while it still has a leg queued");
+    assert.ok(near(ship, 5000, 5000), "and it rounds the corner onto the last point");
+  }
+
   // --- a plain click replaces the course -------------------------------------
   {
     const ship = makeShip({ x: 1000, y: 1000 });
