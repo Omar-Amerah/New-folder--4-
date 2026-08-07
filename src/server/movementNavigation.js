@@ -57,8 +57,24 @@ function stationSignature(room) {
   return signature.join("|");
 }
 
-// Signed distance from a point to a rotated rectangle: positive outside,
-// negative inside, so it drops into the same "clearance" min as an asteroid.
+// Clearance from a point to a rotated rectangle, measured the way the exact
+// station test measures it: positive outside, negative inside.
+//
+// Deliberately not the Euclidean distance. isSegmentStationClear blocks a
+// segment that touches the piece *expanded by the margin* -- a box with square
+// corners -- so the clearance that decides whether a cell is usable has to be
+// the one that expansion implies, which is the larger of the two per-axis
+// overhangs (an L-infinity distance in the piece's local frame) rather than the
+// hypotenuse of both.
+//
+// The two disagree exactly at corners: a cell 71 px from a relay corner in a
+// straight line is only 46 px clear of the box the segment test expands, so the
+// grid called it usable, A* routed through it, and the exact validation at the
+// end of searchPathWorld then threw the whole route away -- leaving planPath to
+// park the ship where it stood with nowhere to go. Measuring the grid the way
+// the validator measures it keeps the two agreeing, and makes the convexity
+// argument hold: distance to a convex set is convex under any norm, so a
+// segment whose endpoints both clear the expanded box never enters it.
 function boxClearance(x, y, piece) {
   const cos = Math.cos(-(piece.angle || 0));
   const sin = Math.sin(-(piece.angle || 0));
@@ -66,12 +82,9 @@ function boxClearance(x, y, piece) {
   const dy = y - piece.y;
   const localX = dx * cos - dy * sin;
   const localY = dx * sin + dy * cos;
-  const halfWidth = piece.halfWidth || 0;
-  const halfHeight = piece.halfHeight || 0;
-  const outX = Math.abs(localX) - halfWidth;
-  const outY = Math.abs(localY) - halfHeight;
-  if (outX <= 0 && outY <= 0) return -Math.min(-outX, -outY);
-  return fastHypot(Math.max(outX, 0), Math.max(outY, 0));
+  const outX = Math.abs(localX) - (piece.halfWidth || 0);
+  const outY = Math.abs(localY) - (piece.halfHeight || 0);
+  return Math.max(outX, outY);
 }
 
 // Past this distance a structure can no longer be the binding constraint on any
@@ -421,6 +434,22 @@ class BinaryHeap {
   }
 }
 
+// Every leg of a finished route against exact geometry. The grid is a search
+// hint; this is the answer.
+function routeClear(room, points, clearance) {
+  for (let index = 1; index < points.length; index += 1) {
+    if (!isSegmentClear(
+      room,
+      points[index - 1].x,
+      points[index - 1].y,
+      points[index].x,
+      points[index].y,
+      clearance
+    )) return false;
+  }
+  return true;
+}
+
 function heuristic(nav, colA, rowA, colB, rowB) {
   const a = cellCenter(nav, colA, rowA);
   const b = cellCenter(nav, colB, rowB);
@@ -550,6 +579,25 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance, options 
       adjustedGoal: false
     };
   }
+  // Only a route that arrives may end on the requested point. A partial one ends
+  // on the cell the search actually settled, which is already the last entry.
+  //
+  // Substituting the exact destination for the cell centre can invalidate the
+  // leg that reached it -- the two are up to half a cell apart, which is the
+  // whole margin in a tight passage. Keep the cell as a waypoint whenever that
+  // happens, rather than discarding a route that is otherwise perfectly good.
+  //
+  // This happens before smoothing so the smoother validates the final leg for
+  // real, against the point the ship will actually be flown to.
+  if (reachedGoal && raw.length > 1) {
+    const lastIndex = raw.length - 1;
+    const exact = { x: goalX, y: goalY };
+    if (isSegmentClear(room, raw[lastIndex - 1].x, raw[lastIndex - 1].y, exact.x, exact.y, required)) {
+      raw[lastIndex] = exact;
+    } else {
+      raw.push(exact);
+    }
+  }
   const smoothed = [raw[0]];
   let anchor = 0;
   while (anchor < raw.length - 1) {
@@ -568,33 +616,14 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance, options 
     smoothed.push(raw[candidate]);
     anchor = candidate;
   }
-  // Only a route that arrives may end on the requested point. A partial one ends
-  // on the cell the search actually settled, which is already the last entry.
-  //
-  // Substituting the exact destination for the cell centre the smoother
-  // validated can invalidate the leg that reached it -- the two are up to half a
-  // cell apart, which is the whole margin in a tight passage. Keep the cell as a
-  // waypoint whenever that happens, rather than failing validation below and
-  // discarding a route that is otherwise perfectly good.
-  if (reachedGoal) {
-    const lastIndex = smoothed.length - 1;
-    const exact = { x: goalX, y: goalY };
-    const approach = lastIndex > 0 ? smoothed[lastIndex - 1] : null;
-    const detour = approach
-      && !isSegmentClear(room, approach.x, approach.y, exact.x, exact.y, required)
-      && isSegmentClear(room, smoothed[lastIndex].x, smoothed[lastIndex].y, exact.x, exact.y, required);
-    if (detour) smoothed.push(exact);
-    else smoothed[lastIndex] = exact;
-  }
-  for (let waypointIndex = 1; waypointIndex < smoothed.length; waypointIndex += 1) {
-    if (!isSegmentClear(
-      room,
-      smoothed[waypointIndex - 1].x,
-      smoothed[waypointIndex - 1].y,
-      smoothed[waypointIndex].x,
-      smoothed[waypointIndex].y,
-      required
-    )) {
+  // Exact geometry is the final authority on both forms of the route.
+  let route = smoothed;
+  if (!routeClear(room, smoothed, required)) {
+    // Smoothing only ever shortcuts a route it was handed, and the shortcut it
+    // settles on when nothing longer verifies -- the very next point -- is taken
+    // unchecked. The grid route underneath it is still a legal route, so fly
+    // that rather than throwing away a way through that demonstrably exists.
+    if (!routeClear(room, raw, required)) {
       return {
         waypoints: [],
         reachedGoal: false,
@@ -603,10 +632,12 @@ function searchPathWorld(room, startX, startY, goalX, goalY, clearance, options 
         adjustedGoal: false
       };
     }
+    route = raw;
+    bumpMovementMetric("pathSmoothFallbackCount");
   }
-  const terminal = smoothed[smoothed.length - 1] || null;
+  const terminal = route[route.length - 1] || null;
   return {
-    waypoints: smoothed,
+    waypoints: route,
     reachedGoal,
     requestedGoal: { x: goalX, y: goalY },
     terminal: terminal ? { x: terminal.x, y: terminal.y } : null,
