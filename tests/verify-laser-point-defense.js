@@ -420,5 +420,54 @@ const assert = require("assert");
     console.log(`✔ Test 19 passed: consecutive threats engaged at ${Math.round(firstHitRanges[0])} and ${Math.round(firstHitRanges[1])} of ${pdRange} range.`);
   }
 
-  console.log("\nAll 19 Laser Point Defence Verification Tests Passed Successfully!");
+  // 20. A mount already shooting an enemy hull switches to an inbound missile
+  //     without paying the break-track delay. "ship" is the last entry in every
+  //     defensive targetPriority list, so a mount with nothing else to shoot
+  //     settles onto the hull; charging the full reacquisition delay from there
+  //     kept it silent while the missile crossed the whole envelope and landed.
+  {
+    const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
+    pdShip.x = 0; pdShip.y = 0;
+    // Inside PD range, so the mount is engaging the hull when the missile appears.
+    const enemyShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 7, y: 8, type: "engine" }], null, "p2");
+    enemyShip.x = 300; enemyShip.y = 0;
+    const room = makeRoom([pdShip, enemyShip]);
+
+    const pdRange = PARTS.pointDefense.weapon.range;
+    const dt = 1 / 60;
+    let now = 0;
+
+    // Settle onto the hull first.
+    for (let t = 0; t < 60; t += 1) {
+      now += dt * 1000;
+      updateShipWeapons(room, pdShip, [pdShip, enemyShip], dt, now);
+    }
+    assert.strictEqual(
+      room.ships.get(pdShip.id).pdAcquiredTargetIds[1], enemyShip.id,
+      "PD holds the enemy hull when no ordnance is inbound"
+    );
+
+    const missile = {
+      id: "escalate", type: "missile", ownerId: "p2", targetId: pdShip.id,
+      x: 900, y: 0, vx: -520, vy: 0, life: 20, interceptable: true, hp: 1000
+    };
+    room.bullets = [missile];
+    let firstHitRange = null;
+    while (missile.x > 0) {
+      now += dt * 1000;
+      missile.x += missile.vx * dt;
+      const hpBefore = missile.hp;
+      updateShipWeapons(room, pdShip, [pdShip, enemyShip], dt, now);
+      if (firstHitRange === null && missile.hp < hpBefore) firstHitRange = missile.x;
+    }
+
+    assert.ok(firstHitRange !== null, "PD engages the missile while it is still inbound");
+    assert.ok(
+      firstHitRange > pdRange * 0.8,
+      `missile engaged near maximum range despite the mount being on the hull (was ${Math.round(firstHitRange)} of ${pdRange})`
+    );
+    console.log(`✔ Test 20 passed: hull-to-missile escalation engaged at ${Math.round(firstHitRange)} of ${pdRange} range.`);
+  }
+
+  console.log("\nAll 20 Laser Point Defence Verification Tests Passed Successfully!");
 })();

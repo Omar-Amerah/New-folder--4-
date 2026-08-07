@@ -608,6 +608,17 @@ function updateBullets(room, dt, now) {
     flakMetrics.explosionEntities += processed;
   }
 
+  // Offensive impact burst (Fragmentation Cannon). The direct hit has already
+  // been resolved by the caller, so this only adds the surrounding blast and
+  // deliberately reuses the Flak detonation maths rather than inventing a second
+  // falloff model. `isDirect` stays false so the struck entity is not charged the
+  // direct damage twice.
+  function detonateImpactBurst(bullet, x, y, now) {
+    if (!bullet || bullet.type === "flak") return;
+    if (!((Number(bullet.blastRadius) || 0) > 0) || !((Number(bullet.blastDamage) || 0) > 0)) return;
+    detonateFlakShell(bullet, x, y, null, null, now, false);
+  }
+
   let ballisticCount = 0;
   let missileCount = 0;
   let flakCount = 0;
@@ -986,6 +997,7 @@ function updateBullets(room, dt, now) {
 
     if (earliest?.kind === "asteroid") {
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
+      detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       discardBullet(room, bulletsById, bullet);
       continue;
@@ -1025,8 +1037,11 @@ function updateBullets(room, dt, now) {
       damageShip(room, ship, shipDamage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,
         hullDamageMultiplier: bullet.hullDamageMultiplier,
-        armorInteractionSeconds: bullet.armorInteractionSeconds
+        armorInteractionSeconds: bullet.armorInteractionSeconds,
+        impactHeatPerDamage: bullet.impactHeatPerDamage,
+        penetrationProfile: bullet.penetrationProfile
       });
+      detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       if (earliest.shield) {
         const ang = Math.atan2(earliest.y - ship.y, earliest.x - ship.x);
         const surfaceR = shieldCollisionRadius(ship);
@@ -1049,6 +1064,7 @@ function updateBullets(room, dt, now) {
     if (earliest?.kind === "drone") {
       recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       require("./drones").damageDrone(room, earliest.drone, bullet.damage, bullet.ownerId, now);
+      detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       room.effects.push({
         type: (bullet.type === "missile" || bullet.type === "torpedo") ? "burst" : bullet.type === "rail" ? "railhit" : "spark",
         x: earliest.x,
@@ -1067,6 +1083,7 @@ function updateBullets(room, dt, now) {
         hullDamageMultiplier: bullet.hullDamageMultiplier,
         armorInteractionSeconds: bullet.armorInteractionSeconds
       });
+      detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       if (earliest.shield) {
         const ang = Math.atan2(earliest.y - station.y, earliest.x - station.x);
         const surfaceR = shieldCollisionRadius(station);

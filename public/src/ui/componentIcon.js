@@ -41,7 +41,7 @@ function emblemAngle(type, rotationDeg) {
   const rot = normalizeRotation(rotationDeg);
   // Fixed propulsion faces ship-forward. The arena's canonical +x direction is
   // up on the blueprint, including the square maneuver-thruster footprint.
-  if (type === "engine" || type === "compactEngine") return -Math.PI / 2;
+  if (type === "engine" || type === "compactEngine" || type === "heavyEngine") return -Math.PI / 2;
   if (type === "maneuverThruster") return moduleRotationToRadians(rot) - Math.PI / 2;
   // Every rotatable part rotates its own art with placement (there is no separate
   // rotation marker). The arena art is authored in the +x-forward convention, so

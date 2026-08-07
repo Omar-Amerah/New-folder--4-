@@ -345,6 +345,19 @@ function thermalSummaryRows(type, stat, ledger) {
     rows.push(statRow("heat.cooling", "Active Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
     rows.push(statRow("heat.passiveCooling", "Passive Emergency Cooling", `${heatRate(profile.passiveCooling)} minimum`, { tone: "cool" }));
   }
+  // Burst cooling is not a rate, so quoting only "Removes N Heat/s" would
+  // describe the wrong component entirely. The store, the trigger and the dead
+  // window are the three numbers a player actually plans around.
+  const burst = stat.burstCooler;
+  if (burst) {
+    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} Heat`));
+    rows.push(statRow("heat.burstVent", "Burst Vent", `Dumps ${Math.round(Number(burst.burstHeat) || 0)} Heat at once`, { tone: "cool" }));
+    rows.push(statRow("heat.burstTrigger", "Vents At", `${Math.round((Number(burst.triggerHeatRatio) || 0) * 100)}% of its own capacity`));
+    rows.push(statRow("heat.burstRecharge", "Recharge", `${Number(burst.rechargeSeconds) || 0}s at ${Math.round((Number(burst.rechargeCoolingFraction) || 0) * 100)}% cooling`, { tone: "hot" }));
+  }
+  if (stat.heatBeamShield) {
+    rows.push(statRow("heat.beamShield", "Heat Beams", "Blocks induction Heat beams passing through it", { tone: "cool" }));
+  }
   if (type === "heatPipe") rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
   return ledger.take(rows);
 }
@@ -533,7 +546,17 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.damage", "Damage", `${formatDamage(weapon.damage)}/s`));
     rows.push(statRow("weapon.radius", "Beam Radius", formatDistance(weapon.radius || 0)));
   } else {
-    rows.push(statRow("weapon.damage", "Damage per Shot", formatDamage(weapon.damage)));
+    const pellets = Number(weapon.pelletCount) || 0;
+    if (pellets >= 2) {
+      // A multi-pellet weapon's headline number is per pellet, and quoting only
+      // the volley total would hide the reason armour counters it so hard.
+      rows.push(statRow("weapon.damage", "Damage per Pellet", formatDamage(weapon.damage)));
+      rows.push(statRow("weapon.pelletCount", "Pellets per Shot", `${pellets}`));
+      rows.push(statRow("weapon.pelletDamage", "Damage per Shot", `${formatDamage(weapon.damage * pellets)} across ${pellets} separate impacts`));
+      rows.push(statRow("weapon.pelletSpread", "Pellet Spread", `±${Number(weapon.pelletSpreadDegrees) || 0}°`));
+    } else {
+      rows.push(statRow("weapon.damage", "Damage per Shot", formatDamage(weapon.damage)));
+    }
     // Fire rate and reload are the same fact twice — only fire rate is shown.
     rows.push(statRow("weapon.fireRate", "Fire Rate", `${weapon.fireRate} shots/s`));
     rows.push(statRow("weapon.projectileSpeed", "Projectile Speed", (Number(weapon.projectileSpeed) || 0) > 0 ? formatSpeed(weapon.projectileSpeed) : "Hitscan"));
@@ -574,6 +597,36 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.burnThrough", "Burn-Through", "None"));
     rows.push(statRow("weapon.charge", "Conventional beam charge", "None"));
     rows.push(statRow("weapon.inductionDescription", "Effect", "Deals no structural damage. Sustained contact couples increasing Heat into one internal subsystem and its local thermal region. Active shields reduce the Heat transfer to 40%."));
+  }
+  // Offensive impact burst. Anti-missile mounts already report their blast
+  // through the defensive rows above, so this only covers ship-killing shells.
+  if (!weapon.antiMissile && (Number(weapon.blastRadius) || 0) > 0 && (Number(weapon.blastDamage) || 0) > 0) {
+    rows.push(statRow("weapon.blastDamage", "Blast Damage", formatDamage(weapon.blastDamage)));
+    rows.push(statRow("weapon.blastRadius", "Blast Radius", formatDistance(weapon.blastRadius)));
+    if ((Number(weapon.innerFullDamageRadius) || 0) > 0) {
+      rows.push(statRow("weapon.blastInner", "Full-Damage Radius", formatDistance(weapon.innerFullDamageRadius)));
+    }
+    if ((Number(weapon.maximumExplosionTargets) || 0) > 0) {
+      rows.push(statRow("weapon.blastTargets", "Blast Target Cap", `${weapon.maximumExplosionTargets} entities`));
+    }
+  }
+  // Impact Heat on a projectile weapon (the beam families report it above).
+  if (!weapon.burnThroughCarryMultiplier && type !== "beamEmitter" && (Number(weapon.impactHeatPerDamage) || 0) > 0) {
+    rows.push(statRow("weapon.impactHeat", "Impact Heating", `${Number(weapon.impactHeatPerDamage).toFixed(2)} Heat per damage`));
+  }
+  if (weapon.spinalCharge) {
+    const charge = weapon.spinalCharge;
+    const chargeSeconds = Number(charge.chargeSeconds) || 0;
+    const reloadSeconds = weapon.fireRate > 0 ? 1 / weapon.fireRate : 0;
+    rows.push(statRow("weapon.spinalCharge", "Charge Time", `${chargeSeconds}s holding a firing solution`));
+    rows.push(statRow("weapon.spinalCycle", "Full Cycle", `${(chargeSeconds + reloadSeconds).toFixed(1)}s — about ${((weapon.damage || 0) / Math.max(0.01, chargeSeconds + reloadSeconds)).toFixed(0)} damage/s sustained`));
+    rows.push(statRow("weapon.spinalHold", "Charge Retention", `${Number(charge.chargeHoldSeconds) || 0}s after losing the target, then bleeds away`));
+    rows.push(statRow("weapon.spinalCommit", "Committed Aim", `Traverse falls to ${Math.round((Number(charge.committedAimTraverseFloor) || 0) * 100)}% past ${Math.round((Number(charge.committedAimStartProgress) || 0) * 100)}% charge`));
+    rows.push(statRow("weapon.spinalHull", "Hull Commitment", `Ship turns at ${Math.round((Number(charge.hullTurnPenaltyMultiplier) || 1) * 100)}% past ${Math.round((Number(charge.hullTurnPenaltyStartProgress) || 0) * 100)}% charge`));
+    if (Array.isArray(charge.penetrationProfile) && charge.penetrationProfile.length) {
+      rows.push(statRow("weapon.spinalPenetration", "Penetration", charge.penetrationProfile.map((share) => `${Math.round(share * 100)}%`).join(" → ")));
+    }
+    rows.push(statRow("weapon.spinalTelegraph", "Telegraph", "The charge is visible on the hull for the whole cycle"));
   }
   if (weapon.antiMissile) {
     rows.push(statRow("weapon.antiMissile", "Anti-Missile", "Yes"));

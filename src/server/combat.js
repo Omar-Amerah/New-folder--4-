@@ -483,6 +483,24 @@ function isInductionBeamBlockedBefore(room, x1, y1, x2, y2, beamRadius, intended
   return false;
 }
 
+// Refractory Armour stops an induction lance outright. An induction beam does no
+// damage — it reaches past the hull and couples Heat straight into an internal
+// subsystem — so the only way to answer it is to put material in the way that
+// will not conduct. If a live heat-shielded component sits on the beam line in
+// front of the component the lance has coupled to, no Heat crosses at all. This
+// is a full block rather than an attenuation, which makes the counter a
+// placement decision (armour the approach the lance is using) instead of a stat
+// check the attacker can simply out-scale.
+function isInductionBlockedByHeatShield(target, componentIndex, x1, y1, x2, y2, beamRadius) {
+  if (!target?.design?.length) return false;
+  const intersections = findBeamRayIntersections(target, x1, y1, x2, y2, beamRadius);
+  for (const entry of intersections) {
+    if (entry.index === componentIndex) return false;
+    if (PARTS[target.design[entry.index]?.type]?.heatBeamShield) return true;
+  }
+  return false;
+}
+
 function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, worldWeaponAngle, effectiveWeapon, part, dt, now, activityMultiplier, powerMultiplier) {
   const range = Number(effectiveWeapon.range) || 0;
   const contact = ship.weaponInductionContacts?.[weaponIndex];
@@ -508,7 +526,9 @@ function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, world
   }
 
   const beamRadius = Number(effectiveWeapon.radius) || 8;
-  if (isInductionBeamBlockedBefore(room, muzzle.x, muzzle.y, targetPos.x, targetPos.y, beamRadius, weaponTarget)) {
+  const blocked = isInductionBeamBlockedBefore(room, muzzle.x, muzzle.y, targetPos.x, targetPos.y, beamRadius, weaponTarget)
+    || isInductionBlockedByHeatShield(weaponTarget, componentIndex, muzzle.x, muzzle.y, targetPos.x, targetPos.y, beamRadius);
+  if (blocked) {
     const graceMs = Math.max(0, Number(effectiveWeapon.inductionContactGraceSeconds) || 0.25) * 1000;
     if (contact && now - contact.lastContactAt > graceMs) {
       ship.weaponInductionContacts[weaponIndex] = null;
@@ -1489,6 +1509,64 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
   return target;
 }
 
+// --- Spinal charge cycle ------------------------------------------------------
+//
+// A spinal mount does not fire on cooldown alone: it has to hold a firing
+// solution for `chargeSeconds` first, and the charge is visible on the hull the
+// whole time. Losing the solution does not instantly waste that work — the
+// charge survives `chargeHoldSeconds` and only then bleeds away, so a target
+// sidestepping for half a second does not reset ten seconds of aiming. Progress
+// is 0..1 and is the exact value replicated to the client as the glow travelling
+// up the barrel; nothing else may derive it.
+
+function finiteOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function spinalChargeProgress(ship, index, config) {
+  const seconds = Math.max(0.05, finiteOr(config?.chargeSeconds, 10));
+  return clampNumber((ship.weaponCharge?.[index] || 0) / seconds, 0, 1);
+}
+
+// Run once per tick for every spinal mount, before the firing branch decides
+// whether it may add to the charge. Keeping the decay unconditional here means
+// every early return in the weapon loop (out of arc, out of range, reloading,
+// no target, blocked line of fire) bleeds the charge without each one having to
+// remember to.
+function decaySpinalCharge(ship, index, config, dt) {
+  const idle = (ship.weaponChargeIdle[index] || 0) + dt;
+  ship.weaponChargeIdle[index] = idle;
+  const hold = Math.max(0, finiteOr(config.chargeHoldSeconds, 0));
+  if (idle > hold && (ship.weaponCharge[index] || 0) > 0) {
+    ship.weaponCharge[index] = Math.max(0, ship.weaponCharge[index] - dt * Math.max(0, finiteOr(config.chargeDecayMultiplier, 1)));
+  }
+  return spinalChargeProgress(ship, index, config);
+}
+
+function clearSpinalCharge(ship, index) {
+  if (ship.weaponCharge) ship.weaponCharge[index] = 0;
+  if (ship.weaponChargeIdle) ship.weaponChargeIdle[index] = 0;
+}
+
+// Traverse authority falls away as the charge nears full: past
+// committedAimStartProgress the mount slows toward committedAimTraverseFloor, so
+// the shot has to be aimed where the target will be rather than where it is.
+function spinalTraverseScale(config, progress) {
+  const start = clampNumber(finiteOr(config.committedAimStartProgress, 0.5), 0, 1);
+  const floor = clampNumber(finiteOr(config.committedAimTraverseFloor, 0.05), 0, 1);
+  if (progress <= start) return 1;
+  const t = clampNumber((progress - start) / Math.max(1e-6, 1 - start), 0, 1);
+  return 1 + (floor - 1) * t;
+}
+
+// In the final stage the hull itself is part of the aim and turns sluggishly.
+function spinalHullTurnScale(config, progress) {
+  const start = clampNumber(finiteOr(config.hullTurnPenaltyStartProgress, 0.8), 0, 1);
+  if (progress < start) return 1;
+  return clampNumber(finiteOr(config.hullTurnPenaltyMultiplier, 1), 0.05, 1);
+}
+
 function updateShipWeapons(room, ship, ships, dt, now) {
 
   if (ship.launchPhase) {
@@ -1496,6 +1574,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     if (ship.weaponAimTargetIds) ship.weaponAimTargetIds.fill(null);
     if (ship.weaponFireTargetIds) ship.weaponFireTargetIds.fill(null);
     if (ship.weaponComponentTargetIds) ship.weaponComponentTargetIds.fill(null);
+    if (ship.weaponCharge) ship.weaponCharge.fill(0);
+    if (ship.weaponChargeIdle) ship.weaponChargeIdle.fill(0);
+    ship.spinalTurnPenalty = 1;
     return;
   }
 
@@ -1575,6 +1656,25 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   }
 
+  // Spinal charge state: seconds of charge accumulated, and seconds since the
+  // mount last had a firing solution. Both are per weapon slot and are the only
+  // authority for the charge glow the client renders.
+  if (!ship.weaponCharge) {
+
+    ship.weaponCharge = new Array(ship.design ? ship.design.length : 0).fill(0);
+
+  }
+
+  if (!ship.weaponChargeIdle) {
+
+    ship.weaponChargeIdle = new Array(ship.design ? ship.design.length : 0).fill(0);
+
+  }
+
+  // Rebuilt from scratch each tick by the charging weapons themselves, so a
+  // destroyed, unpowered or discharged mount stops penalising the hull.
+  let spinalTurnPenalty = 1;
+
 
 
   // Per-tick map of how much damage has already been committed to each fragile
@@ -1651,6 +1751,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       clearWeaponComponentAim(ship, i);
 
+      clearSpinalCharge(ship, i);
+
       if (ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
 
       return;
@@ -1678,6 +1780,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       clearWeaponComponentAim(ship, i);
 
+      clearSpinalCharge(ship, i);
+
       if (ship.weaponBeamContacts) ship.weaponBeamContacts[i] = null;
 
       return;
@@ -1695,6 +1799,16 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const family = effectiveWeapon.type || part.weapon?.type || "beam";
 
     const cooldown = ship.weaponCooldowns[i] || 0;
+
+    // Spinal mounts bleed charge every tick they are not actively charging; the
+    // firing branch below is the only thing that adds to it.
+    const spinalConfig = effectiveWeapon.spinalCharge || null;
+
+    const spinalProgress = spinalConfig ? decaySpinalCharge(ship, i, spinalConfig, dt) : 0;
+
+    if (spinalConfig && spinalProgress > 0) {
+      spinalTurnPenalty = Math.min(spinalTurnPenalty, spinalHullTurnScale(spinalConfig, spinalProgress));
+    }
 
 
 
@@ -1890,7 +2004,27 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         aimEntity = currentPdTarget.entity;
       } else {
         // Threat differs from acquired target.
-        if (newPdId !== pdPendingId) {
+        // Escalation — a strictly higher-priority threat class than the one
+        // currently held — bypasses the break-track cost entirely. Every
+        // defensive targetPriority list ends in "ship", so a mount with no
+        // ordnance to shoot settles onto an enemy hull; charging the full
+        // reacquisition delay from there meant the mount stayed silent while
+        // an inbound missile crossed its envelope and usually hit first. The
+        // delay still applies between threats of the same class, which is what
+        // stops the turret cycling through a salvo without killing anything.
+        const pdPriorityList = pdBaseWeapon.targetPriority
+          || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
+        const pdRank = (candidate) => {
+          const idx = candidate ? Targeting.getCandidatePriorityIndex(candidate, pdPriorityList) : -1;
+          return idx < 0 ? Infinity : idx;
+        };
+        const isPdEscalation = Boolean(pdCached) && pdCurrentValid
+          && pdRank(currentPdTarget) < pdRank(pdCached);
+
+        if (isPdEscalation) {
+          ship.pdPendingTargetIds[i] = newPdId;
+          ship.pdAcquireCompleteAt[i] = 0;
+        } else if (newPdId !== pdPendingId) {
           ship.pdPendingTargetIds[i] = newPdId;
           // Only start a new reaction delay if there was no pending target.
           // If a different target appears while we are already reacting,
@@ -2108,7 +2242,8 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-    const turnRate = getWeaponTurnRate(effectiveWeapon);
+    const turnRate = getWeaponTurnRate(effectiveWeapon)
+      * (spinalConfig ? spinalTraverseScale(spinalConfig, spinalProgress) : 1);
 
     const currentRelative = ship.weaponAngles[i] !== undefined ? ship.weaponAngles[i] : defaultRelative;
 
@@ -2262,39 +2397,60 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
-      TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
+      // One trigger pull, one or more projectiles. `damage` is per pellet, so a
+      // Scatter Cannon pays the armour flat reduction on every pellet — that is
+      // the whole point of the weapon and must not be collapsed into one shot.
+      const pellets = pelletShotCount(effectiveWeapon);
 
-        type: "bolt",
+      const pelletCone = pellets > 1
+        ? Math.max(0, Number(effectiveWeapon.pelletSpreadDegrees) || 0) * Math.PI / 180
+        : 0;
 
-        ownerId: ship.ownerId,
+      TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => {
 
-        targetId: weaponTarget.id,
+        for (let pellet = 0; pellet < pellets; pellet += 1) {
 
-        targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
+          const pelletAngle = pelletCone > 0
+            ? shotAngle + rngRange(roomCombatRandom(room), -pelletCone, pelletCone)
+            : shotAngle;
 
-        x: muzzle.x,
+          addBullet(room, {
 
-        y: muzzle.y,
+            type: "bolt",
 
-        vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
+            ownerId: ship.ownerId,
 
-        vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
+            targetId: weaponTarget.id,
 
-        damage: effectiveWeapon.damage,
+            targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
 
-        shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+            x: muzzle.x,
 
-        hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
+            y: muzzle.y,
 
-        life: life,
+            vx: Math.cos(pelletAngle) * speed + ship.vx * 0.25,
 
-        bornAt: now,
+            vy: Math.sin(pelletAngle) * speed + ship.vy * 0.25,
 
-        armorInteractionSeconds: Math.min(1, reload)
+            damage: effectiveWeapon.damage,
+
+            shieldDamageMultiplier: effectiveWeapon.shieldDamageMultiplier ?? 1,
+
+            hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
+
+            ...impactPayload(effectiveWeapon),
+
+            life: life,
+
+            bornAt: now,
+
+            armorInteractionSeconds: Math.min(1, reload)
+
+          });
+
+        }
 
       });
-
-    });
 
       ship.weaponCooldowns[i] = reload;
 
@@ -2749,6 +2905,33 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     } else if (family === "railgun") {
 
+      // A spinal mount spends this tick charging instead of firing until the
+      // accumulator is full. It only reaches here with a live, tracked, in-arc,
+      // in-range firing solution, which is exactly the condition the charge is
+      // meant to require.
+      if (spinalConfig) {
+
+        ship.weaponChargeIdle[i] = 0;
+
+        const chargeSeconds = Math.max(0.05, finiteOr(spinalConfig.chargeSeconds, 10));
+
+        ship.weaponCharge[i] = Math.min(chargeSeconds, (ship.weaponCharge[i] || 0) + dt);
+
+        const progress = clampNumber(ship.weaponCharge[i] / chargeSeconds, 0, 1);
+
+        // Charging is what makes the weapon expensive and hot, not firing it.
+        addComponentHeat(ship, i, Math.max(0, finiteOr(spinalConfig.chargeHeatPerSecond, 0)) * activityMultiplier * dt);
+
+        if (progress < 1) {
+
+          spinalTurnPenalty = Math.min(spinalTurnPenalty, spinalHullTurnScale(spinalConfig, progress));
+
+          return;
+
+        }
+
+      }
+
       const speed = effectiveWeapon.projectileSpeed || 1080;
 
       const rangeVal = effectiveWeapon.range;
@@ -2757,9 +2940,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
+      const penetrationProfile = spinalConfig?.penetrationProfile;
+
       TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
 
         type: "rail",
+
+        subtype: module.type,
 
         ownerId: ship.ownerId,
 
@@ -2781,6 +2968,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
 
+        ...impactPayload(effectiveWeapon),
+
+        ...(penetrationProfile ? { penetrationProfile } : {}),
+
         life: life,
 
         bornAt: now,
@@ -2793,15 +2984,58 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       ship.weaponCooldowns[i] = reload;
 
-      addComponentHeat(ship, i, Math.max(8, Math.sqrt(effectiveWeapon.damage || 1) * 1.8));
+      if (spinalConfig) {
+
+        clearSpinalCharge(ship, i);
+
+        addComponentHeat(ship, i, Math.max(0, finiteOr(spinalConfig.fireHeat, 0)));
+
+        room.effects.push({ type: "railhit", subtype: "spinal", x: muzzle.x, y: muzzle.y, at: now });
+
+      } else {
+
+        addComponentHeat(ship, i, Math.max(8, Math.sqrt(effectiveWeapon.damage || 1) * 1.8));
+
+      }
 
     }
 
   });
 
+  // Published for movementCapability: the hull's turn rate this tick is scaled
+  // by the most committed spinal mount aboard. 1 means no mount is charging.
+  ship.spinalTurnPenalty = spinalTurnPenalty;
+
 }
 
 
+
+// Projectiles per trigger pull. Anything below two is a single shot, so the
+// ordinary firing path never has to know about multi-pellet weapons.
+function pelletShotCount(weapon) {
+  const count = Math.round(Number(weapon?.pelletCount) || 0);
+  return Number.isFinite(count) && count >= 2 ? count : 1;
+}
+
+// Delivery properties a projectile carries beyond raw damage: Heat coupled into
+// whatever it strikes (Plasma Cannon) and an impact burst around the hit point
+// (Fragmentation Cannon). Returned as a spreadable payload so each firing branch
+// stays a flat bullet literal.
+function impactPayload(weapon) {
+  const payload = {};
+  const impactHeat = Number(weapon?.impactHeatPerDamage) || 0;
+  if (impactHeat > 0) payload.impactHeatPerDamage = impactHeat;
+  const blastRadius = Number(weapon?.blastRadius) || 0;
+  const blastDamage = Number(weapon?.blastDamage) || 0;
+  if (blastRadius > 0 && blastDamage > 0) {
+    payload.blastDamage = blastDamage;
+    payload.blastRadius = blastRadius;
+    payload.innerFullDamageRadius = Number(weapon.innerFullDamageRadius) || 0;
+    payload.falloffExponent = Number(weapon.falloffExponent) || 1;
+    payload.maximumExplosionTargets = Number(weapon.maximumExplosionTargets) || 0;
+  }
+  return payload;
+}
 
 function weaponReloadSeconds(effectiveWeapon, activityMultiplier) {
 
@@ -4225,7 +4459,11 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 
       applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY, {
 
-        armorInteractionSeconds: options.armorInteractionSeconds
+        armorInteractionSeconds: options.armorInteractionSeconds,
+
+        impactHeatPerDamage: options.impactHeatPerDamage,
+
+        penetrationProfile: options.penetrationProfile
 
       });
 
@@ -6446,6 +6684,10 @@ module.exports = {
   targetCoreAimWorldPosition,
 
   findBeamRayIntersections,
+  isInductionBlockedByHeatShield,
+  spinalChargeProgress,
+  spinalTraverseScale,
+  spinalHullTurnScale,
 
   applyBeamHullDamage,
 

@@ -37,7 +37,7 @@ export function roundRect(context, { x, y, width, height, radius }) {
 }
 
 export const STRUCTURAL_PARTS = new Set([
-  "frame", "armor", "compositeArmor", "ablativeArmor",
+  "frame", "armor", "compositeArmor", "ablativeArmor", "refractoryArmor",
   "halfFrameDiagonal", "halfArmorDiagonal", "halfCompositeArmorDiagonal",
   "wingFrame", "wingArmor", "wingCompositeArmor",
   "bevelFrame", "bevelArmor", "bevelCompositeArmor",
@@ -45,6 +45,8 @@ export const STRUCTURAL_PARTS = new Set([
   "longWedgeFrame", "longWedgeArmor", "longWedgeCompositeArmor",
   "halfAblativeArmorDiagonal", "wingAblativeArmor", "bevelAblativeArmor",
   "roundedAblativeArmor", "longWedgeAblativeArmor",
+  "halfRefractoryArmorDiagonal", "wingRefractoryArmor", "bevelRefractoryArmor",
+  "roundedRefractoryArmor", "longWedgeRefractoryArmor",
   "lightFrame", "heavyFrame"
 ]);
 
@@ -53,6 +55,25 @@ export const STRUCTURAL_PARTS = new Set([
 const ABLATIVE_PARTS = new Set([
   "ablativeArmor", "halfAblativeArmorDiagonal", "wingAblativeArmor",
   "bevelAblativeArmor", "roundedAblativeArmor", "longWedgeAblativeArmor"
+]);
+
+// Refractory ceramic is a third structural material alongside armour laminate
+// and ablative plating; the shared silhouette branches ask this the same way.
+const REFRACTORY_PARTS = new Set([
+  "refractoryArmor", "halfRefractoryArmorDiagonal", "wingRefractoryArmor",
+  "bevelRefractoryArmor", "roundedRefractoryArmor", "longWedgeRefractoryArmor"
+]);
+
+// Silhouettes that predate `shapeType` in the balance file, or that can arrive
+// from a saved blueprint with no catalogue entry at all. drawModule consults the
+// catalogue first and only falls back to this.
+const LEGACY_PARTIAL_SHAPE_PARTS = new Set([
+  "halfFrameDiagonal", "halfArmorDiagonal", "halfCompositeArmorDiagonal",
+  "wingFrame", "wingArmor", "wingCompositeArmor",
+  "bevelFrame", "bevelArmor", "bevelCompositeArmor",
+  "roundedFrame", "roundedArmor", "roundedCompositeArmor",
+  "halfAblativeArmorDiagonal", "wingAblativeArmor",
+  "bevelAblativeArmor", "roundedAblativeArmor"
 ]);
 
 function parseColor(color) {
@@ -91,6 +112,52 @@ function saturate(color, amount) {
   const grey = r * 0.299 + g * 0.587 + b * 0.114;
   const ch = (v) => Math.max(0, Math.min(255, Math.round(grey + (v - grey) * (1 + amount))));
   return `rgb(${ch(r)},${ch(g)},${ch(b)})`;
+}
+
+// Re-lights a colour to an explicit HSL lightness, keeping its own hue and
+// saturation. Every other tone here is derived by mixing toward white or black,
+// which works only while the colour has room left to travel: a channel already
+// near its ceiling barely moves, and the re-saturation that follows drags it
+// straight back. That is exactly how an amber round ended up the same colour as
+// the amber launcher it was sitting on. Setting lightness directly gives the
+// same visible step no matter where the component colour starts.
+function withLightness(color, lightness) {
+  const { r, g, b } = parseColor(color);
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = Math.min(1, Math.max(0, lightness));
+  const d = max - min;
+  if (d === 0) {
+    const v = Math.round(l * 255);
+    return `rgb(${v},${v},${v})`;
+  }
+  const l0 = (max + min) / 2;
+  const s = l0 > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+  else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+  else h = ((rn - gn) / d + 4) / 6;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const to255 = (v) => Math.round(Math.min(1, Math.max(0, v)) * 255);
+  return `rgb(${to255(channel(h + 1 / 3))},${to255(channel(h))},${to255(channel(h - 1 / 3))})`;
+}
+
+function colorLightness(color) {
+  const { r, g, b } = parseColor(color);
+  return (Math.max(r, g, b) + Math.min(r, g, b)) / 510;
 }
 
 // Module fill gradients are defined in local module space, so one gradient per
@@ -362,6 +429,67 @@ function drawAblativeHotEdge(size, describe) {
   ctx.stroke();
 }
 
+// Refractory counterpart to the laminate: a ceramic thermal-tile field. Callers
+// clip to their own silhouette first, exactly as they do for drawArmorLaminate
+// and drawAblativeSpallPlating, so a bevelled refractory plate reads as the same
+// material as a full one. Deliberately few, large tiles with a hairline grout:
+// at blueprint-icon size a finer mesh collapses into a dark cross.
+function drawRefractoryTiles(size, color, fine) {
+  ctx.fillStyle = "rgba(10,18,26,0.95)";
+  ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
+
+  const tile = size * 0.44;
+  const tileFill = mixColor(color, "#ffffff", 0.14);
+  ctx.strokeStyle = "rgba(3,8,14,0.75)";
+  ctx.lineWidth = Math.max(0.7, size * 0.028);
+  // Rows and columns deliberately overrun the cell on every side; the caller's
+  // clip trims them, which is what makes the tiling read as continuous material
+  // rather than as a motif centred in a box.
+  for (let row = -1; row <= 5; row += 1) {
+    const oy = -size * 0.5 + row * tile * 0.86;
+    const ox = (row % 2 === 0 ? 0 : tile * 0.5) - size * 0.5;
+    for (let col = 0; col <= 5; col += 1) {
+      const cx = ox + col * tile;
+      ctx.beginPath();
+      for (let corner = 0; corner < 6; corner += 1) {
+        const a = Math.PI / 6 + (Math.PI * corner) / 3;
+        const px = cx + Math.cos(a) * tile * 0.5;
+        const py = oy + Math.sin(a) * tile * 0.5;
+        if (corner === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = tileFill;
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  // Insulating grout, glowing faintly: the heat that gets in stays in the joints
+  // instead of reaching anything behind the plate.
+  ctx.save();
+  ctx.shadowColor = "#bae6fd";
+  ctx.shadowBlur = qualityShadowBlur(4);
+  ctx.strokeStyle = "rgba(186,230,253,0.35)";
+  ctx.lineWidth = Math.max(0.7, fine * 0.7);
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.5, -size * 0.06); ctx.lineTo(size * 0.5, -size * 0.06);
+  ctx.moveTo(-size * 0.5, size * 0.19); ctx.lineTo(size * 0.5, size * 0.19);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Cool cut face for refractory silhouettes. The ablative family lights its cut
+// edge orange because it is burning back; refractory ceramic is doing the
+// opposite — holding heat out — so its edge reads as a cold, glazed rim.
+function drawRefractoryColdEdge(size, describe) {
+  ctx.strokeStyle = "rgba(214,240,255,0.6)";
+  ctx.lineWidth = Math.max(1, size * 0.06);
+  ctx.beginPath();
+  describe();
+  ctx.stroke();
+}
+
 // Frame counterpart to the laminate: dark internal bracing with one lit chord.
 function drawFrameBracing(size, fine, reach = 0.34) {
   ctx.strokeStyle = "rgba(8,14,24,0.72)";
@@ -393,7 +521,6 @@ const COMPONENT_ART_ALIASES = Object.freeze({
   smallReactor: "reactor",
   heavyReactor: "reactor",
   microThruster: "maneuverThruster",
-  heavyEngine: "engine",
   lightShield: "shield",
   heavyShield: "shield",
   regenShield: "shield",
@@ -417,7 +544,8 @@ function componentArtType(type) {
 const WEAPON_ART_TYPES = new Set([
   "blaster", "autocannon", "pointDefense", "flakCannon", "missile",
   "railgun", "swarmMissile", "torpedo", "beamEmitter", "thermalInductionLance", "repairBeam",
-  "aegisProjector", "interceptorPod"
+  "aegisProjector", "interceptorPod",
+  "scatterCannon", "plasmaCannon", "fragmentationCannon", "spinalAccelerator"
 ]);
 
 // --- Shared weapon material system --------------------------------------------
@@ -439,6 +567,8 @@ const WEAPON_ART_TYPES = new Set([
 // trimLine  - hairline seams and rims on that structure
 // bore      - muzzles, apertures, nozzles, tube interiors
 // hot       - the single emissive accent per weapon
+// munition  - body of a round drawn straight onto the hull cube (see below)
+// munitionDeep - that round's warhead cone and casing bands
 function weaponMetals(color) {
   const { r, g, b } = parseColor(color);
   // Already-pale parts (the railgun's near-white, for one) have nowhere to go
@@ -446,16 +576,37 @@ function weaponMetals(color) {
   // mass on a grey tile. Those shade downward instead, keeping the same
   // light-body/dark-structure relationship the rest of the family has.
   const pale = (r * 0.299 + g * 0.587 + b * 0.114) / 255 > 0.9;
-  // Every tone here is re-saturated after its white/black mix (see saturate()):
-  // the ramp used to hand back near-greys, so a rack of violet rounds on a
-  // violet hull had almost no hue separation left to read against.
+  // A round drawn onto the bare hull cube needs more separation than `shell`
+  // gives it. `shell` is one small step off the component colour, which is
+  // plenty inside a recessed dark bay but vanishes against a full-strength hull
+  // face of the same colour — the missile's amber body on its amber launcher was
+  // invisible, leaving the round reading as a black line drawing. The munition
+  // ramp keeps the component hue and forces a fixed lightness step instead:
+  // upward for dark and mid hulls, downward for ones already too light to climb
+  // (a lighter lilac than the torpedo's would just wash out to white).
+  const lightness = colorLightness(color);
+  const bodyLight = lightness > 0.72 ? lightness - 0.19 : Math.min(0.78, lightness + 0.19);
+  // Re-saturated like the rest of the ramp: setting lightness alone squeezes the
+  // chroma out of a colour on its way up, which turned the swarm rack's teal
+  // rounds into pale mint.
+  const munition = saturate(withLightness(color, bodyLight), 0.35);
+  // Warhead cone and casing bands. Measured down from whichever of the hull and
+  // the body is darker, so the head separates from both — pinned to the body
+  // alone it landed back on the hull's own value on the parts whose round is the
+  // lighter of the two.
+  const munitionDeep = saturate(
+    withLightness(color, Math.max(0.16, Math.min(lightness, bodyLight) - 0.22)),
+    0.25
+  );
   return {
     shell: pale ? mixColor(color, "#5c6577", 0.4) : saturate(mixColor(color, "#f4f7ff", 0.16), 0.5),
     shellDeep: saturate(mixColor(color, "#05070c", pale ? 0.55 : 0.3), 0.4),
     housing: saturate(mixColor(color, "#05070c", pale ? 0.68 : 0.44), 0.3),
     trimLine: "rgba(226,232,240,0.28)",
     bore: "rgba(4,7,13,0.94)",
-    hot: pale ? mixColor(color, "#ffffff", 0.2) : saturate(mixColor(color, "#ffffff", 0.26), 0.75)
+    hot: pale ? mixColor(color, "#ffffff", 0.2) : saturate(mixColor(color, "#ffffff", 0.26), 0.75),
+    munition,
+    munitionDeep
   };
 }
 
@@ -720,14 +871,14 @@ function drawRackMissile(unit, mx, my, len, M) {
   }
 
   // Body.
-  ctx.fillStyle = weaponBodyFill(M);
+  ctx.fillStyle = M.munition;
   roundRect(ctx, { x: tail, y: -w, width: shoulder - tail, height: w * 2, radius: w * 0.4 });
   ctx.fill();
   ctx.stroke();
 
   // Nose cone: one flat tone a step darker than the body, so the warhead still
   // separates from it without the body reading as a shaded cylinder.
-  ctx.fillStyle = M.shellDeep;
+  ctx.fillStyle = M.munitionDeep;
   ctx.beginPath();
   ctx.moveTo(nose, 0);
   ctx.lineTo(shoulder, -w);
@@ -956,6 +1107,25 @@ export function drawStaticWeaponMount({ type, unit, tilesLong = 1, tilesCross = 
       // launcher read as a gun mount with a box sitting on top.
       drawFootprintPanel(unit, hl, hc, 0.96, 0.92, 0.08);
       drawFootprintSeams(unit, hl, hc, tilesLong);
+    } else if (artType === "spinalAccelerator") {
+      // A spinal mount is not a turret: it is a gun the ship is built around.
+      // The hull under it carries a long recessed race with heavy cross frames,
+      // and deliberately no bearing ring — a disc in the middle of a twelve-cell
+      // weapon reads as a decal, exactly as it did on the railgun.
+      drawFootprintPanel(unit, hl, hc, 0.96, 0.9, 0.08);
+      drawFootprintSeams(unit, hl, hc, tilesLong);
+      ctx.save();
+      ctx.strokeStyle = "rgba(3,6,12,0.6)";
+      ctx.lineWidth = Math.max(1, unit * 0.09);
+      ctx.lineCap = "butt";
+      for (let frame = 1; frame < tilesLong; frame += 1) {
+        const fx = -hl + (hl * 2 * frame) / tilesLong;
+        ctx.beginPath();
+        ctx.moveTo(fx, -hc * 0.86);
+        ctx.lineTo(fx, hc * 0.86);
+        ctx.stroke();
+      }
+      ctx.restore();
     } else if (artType === "beamEmitter" || artType === "repairBeam" || artType === "thermalInductionLance") {
       // The beam family pivots on a low collar, not the wide bearing ring: at
       // this footprint the ring drew a black circle right through the middle of
@@ -1007,7 +1177,7 @@ export function drawStaticWeaponMount({ type, unit, tilesLong = 1, tilesCross = 
     drawWeaponBase(size * 0.6);
   } else if (artType === "aegisProjector") {
     drawWeaponBase(size * 0.62);
-  } else if (artType === "autocannon") {
+  } else if (artType === "autocannon" || artType === "scatterCannon") {
     drawSimpleTurntable(size, color);
   } else {
     // blaster / pointDefense / beamEmitter / repairBeam / unknown
@@ -1076,7 +1246,7 @@ function drawAegisEmitterRing(unit, radius) {
 // transparent background. Barrel tips line up with TurretRules.MUZZLE_TIP_TILES
 // so projectiles emerge exactly at the visible muzzle. Never draws hull
 // blocks, sockets, or recessed panels — those are static mount artwork.
-export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 1, color }) {
+export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 1, color, chargeProgress = 0 }) {
   const artType = componentArtType(type);
   const size = unit;
   const hl = (Math.max(1, tilesLong) * unit) / 2;
@@ -1092,7 +1262,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
   ctx.strokeStyle = "rgba(3,6,12,0.72)";
 
   if (multi) {
-    drawMultiCellWeaponTop(artType, unit, hl, hc, color);
+    drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress);
     ctx.restore();
     return;
   }
@@ -1235,6 +1405,54 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
       ctx.fillRect(tip - size * 0.088, cy - half * 0.58, size * 0.062, Math.max(0.7, size * 0.026));
     }
     ctx.restore();
+  } else if (artType === "scatterCannon") {
+    // Three short, flared tubes splayed outward from a common breech. The splay
+    // is the identity: the autocannon's two parallel barrels say "rapid fire",
+    // three barrels pointing slightly apart say "one pull, several rounds, wide".
+    // Tips sit at TurretRules.MUZZLE_TIP_TILES.scatterCannon (0.54) and the
+    // lateral spacing mirrors TurretRules.BARRELS.scatterCannon.spreadTiles.
+    const back = -size * 0.16;
+    const tip = size * 0.54;
+    const half = size * 0.062;
+    const lanes = [-size * 0.15, 0, size * 0.15];
+    const splay = 0.19; // radians of outward cant on the two flanking tubes
+
+    ctx.save();
+    ctx.fillStyle = M.housing;
+    ctx.strokeStyle = "rgba(3,6,12,0.78)";
+    ctx.lineWidth = weaponFine(size);
+    roundRect(ctx, {
+      x: back - size * 0.03,
+      y: -size * 0.24,
+      width: size * 0.22,
+      height: size * 0.48,
+      radius: size * 0.05
+    });
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    lanes.forEach((cy, index) => {
+      const cant = (index - 1) * splay;
+      ctx.save();
+      ctx.translate(0, cy);
+      ctx.rotate(cant);
+      ctx.lineWidth = weaponLine(size) * 0.8;
+      ctx.fillStyle = weaponBodyFill(M);
+      roundRect(ctx, { x: back, y: -half, width: tip - back, height: half * 2, radius: size * 0.024 });
+      ctx.fill();
+      ctx.stroke();
+      // Flared choke at the mouth: a cluster gun throws its load, it does not
+      // aim it, and the widened tip is what says so at arena zoom.
+      ctx.fillStyle = M.shellDeep;
+      roundRect(ctx, { x: tip - size * 0.1, y: -half * 1.5, width: size * 0.1, height: half * 3, radius: size * 0.022 });
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = M.bore;
+      roundRect(ctx, { x: tip - size * 0.075, y: -half * 1.1, width: size * 0.06, height: half * 2.2, radius: size * 0.016 });
+      ctx.fill();
+      ctx.restore();
+    });
   } else if (artType === "pointDefense") {
     ctx.fillStyle = weaponBodyFill(M);
     roundRect(ctx, { x: 0, y: -size * 0.08, width: size * 0.62, height: size * 0.16, radius: size * 0.04 });
@@ -1322,7 +1540,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     // warhead so the body and the cone re-stroke stay the same weight.
     ctx.save();
     ctx.lineWidth = weaponLine(size);
-    ctx.fillStyle = weaponBodyFill(M);
+    ctx.fillStyle = M.munition;
     bodyPath();
     ctx.fill();
     ctx.stroke();
@@ -1330,7 +1548,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     // The whole warhead cone is tinted, not just its tip, so the head reads as
     // a separate section at a glance. A seam band marks where it joins the body.
     ctx.save();
-    ctx.fillStyle = M.shellDeep;
+    ctx.fillStyle = M.munitionDeep;
     ctx.beginPath();
     ctx.moveTo(nose, 0);
     ctx.lineTo(shoulder, -half);
@@ -1380,7 +1598,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
       }
     }
   } else if (artType === "torpedo") {
-    ctx.fillStyle = weaponBodyFill(M);
+    ctx.fillStyle = M.munition;
     ctx.beginPath();
     ctx.moveTo(-size * 0.12, -size * 0.24);
     ctx.lineTo(size * 0.46, -size * 0.24);
@@ -1390,7 +1608,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = M.shellDeep;
+    ctx.strokeStyle = M.munitionDeep;
     ctx.lineWidth = weaponFine(size);
     ctx.beginPath();
     ctx.moveTo(size * 0.08, -size * 0.24);
@@ -1506,7 +1724,139 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
 // Elongated rotating gun assemblies for multi-cell footprints. The whole
 // assembly (breech + barrel/rails + muzzle) rotates as one piece around the
 // footprint centre; the footprint slab and panel stay on the hull.
-function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
+// --- Spinal accelerator -------------------------------------------------------
+//
+// The Spinal Accelerator's whole balance case is its telegraph: the shot is
+// allowed to be enormous because an opponent gets ten seconds of unmistakable
+// warning on the hull itself, not in a UI panel. So the art is authored as a
+// function of charge progress rather than as one static picture:
+//
+//   * a rear capacitor chamber that lights first,
+//   * a run of accelerator coils that illuminate in sequence toward the muzzle,
+//   * a muzzle assembly that goes white-hot only in the last stage.
+//
+// Progress is quantised into SPINAL_CHARGE_STAGES so the renderer can bake one
+// texture per stage instead of per frame; the stage boundaries are the only
+// place that quantisation exists.
+export const SPINAL_CHARGE_STAGES = 8;
+
+export function spinalChargeStage(progress) {
+  const value = Number(progress);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(SPINAL_CHARGE_STAGES - 1, Math.round(Math.min(1, value) * (SPINAL_CHARGE_STAGES - 1)));
+}
+
+function drawSpinalAcceleratorTop(unit, hl, hc, color, M, fine, chargeProgress = 0) {
+  const progress = Math.max(0, Math.min(1, Number(chargeProgress) || 0));
+  const coils = 6;
+  const chamberBack = -hl * 0.97;
+  const chamberFront = -hl * 0.58;
+  const muzzleBack = hl * 0.7;
+  const railFrom = chamberFront;
+  const railTo = muzzleBack;
+
+  // Spine: the accelerator body itself, one continuous machined block.
+  ctx.fillStyle = M.housing;
+  roundRect(ctx, { x: chamberBack, y: -hc * 0.66, width: hl * 1.94, height: hc * 1.32, radius: unit * 0.1 });
+  ctx.fill();
+  ctx.stroke();
+
+  // Capacitor chamber at the rear. It fills first and stays lit: this is the
+  // energy the coils are pulling from.
+  const chamberFill = Math.min(1, progress / 0.25);
+  ctx.fillStyle = M.shellDeep;
+  roundRect(ctx, { x: chamberBack + unit * 0.06, y: -hc * 0.5, width: chamberFront - chamberBack - unit * 0.12, height: hc, radius: unit * 0.07 });
+  ctx.fill();
+  ctx.stroke();
+  if (chamberFill > 0) {
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = qualityShadowBlur(6 + 8 * chamberFill);
+    ctx.fillStyle = mixColor(color, "#ffffff", 0.25 + 0.5 * chamberFill);
+    const innerW = (chamberFront - chamberBack - unit * 0.26) * chamberFill;
+    ctx.fillRect(chamberBack + unit * 0.13, -hc * 0.3, Math.max(unit * 0.05, innerW), hc * 0.6);
+    ctx.restore();
+  }
+
+  // Twin accelerator rails running the length of the weapon, with the coils
+  // clamped across them.
+  const railY = hc * 0.42;
+  const railHalf = Math.max(0.9, unit * 0.05);
+  ctx.save();
+  ctx.fillStyle = weaponBodyFill(M);
+  for (const ry of [-railY, railY]) {
+    roundRect(ctx, { x: railFrom, y: ry - railHalf, width: railTo - railFrom, height: railHalf * 2, radius: railHalf * 0.6 });
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Coils illuminate in sequence. Each owns an equal slice of the 0.2..1.0 band
+  // so the travelling glow starts once the chamber has something to give.
+  for (let coil = 0; coil < coils; coil += 1) {
+    const cx = railFrom + ((railTo - railFrom) * (coil + 0.5)) / coils;
+    const bandFrom = 0.2 + (0.75 * coil) / coils;
+    const bandTo = 0.2 + (0.75 * (coil + 1)) / coils;
+    const lit = Math.max(0, Math.min(1, (progress - bandFrom) / Math.max(1e-6, bandTo - bandFrom)));
+
+    ctx.save();
+    ctx.fillStyle = M.shellDeep;
+    roundRect(ctx, { x: cx - unit * 0.07, y: -hc * 0.62, width: unit * 0.14, height: hc * 1.24, radius: unit * 0.035 });
+    ctx.fill();
+    ctx.stroke();
+    if (lit > 0) {
+      ctx.shadowColor = color;
+      ctx.shadowBlur = qualityShadowBlur(3 + 9 * lit);
+      // Coils that have already fired stay warm; the one currently charging is
+      // the brightest thing on the weapon, which is what the eye tracks.
+      ctx.fillStyle = mixColor(color, "#ffffff", 0.2 + 0.6 * lit);
+      ctx.fillRect(cx - unit * 0.035, -hc * 0.5, unit * 0.07, hc);
+    }
+    ctx.restore();
+  }
+
+  // Bore between the rails, brightening along its charged length.
+  if (progress > 0.2) {
+    ctx.save();
+    const boreReach = Math.min(1, (progress - 0.2) / 0.75);
+    ctx.shadowColor = color;
+    ctx.shadowBlur = qualityShadowBlur(4 + 10 * boreReach);
+    ctx.fillStyle = mixColor(color, "#ffffff", 0.35 + 0.5 * boreReach);
+    ctx.fillRect(railFrom, -unit * 0.04, (railTo - railFrom) * boreReach, unit * 0.08);
+    ctx.restore();
+  }
+
+  // Muzzle assembly: heavy shroud, then a white-hot mouth in the final stage.
+  ctx.fillStyle = M.shellDeep;
+  roundRect(ctx, { x: muzzleBack, y: -hc * 0.74, width: hl * 0.97 - muzzleBack, height: hc * 1.48, radius: unit * 0.06 });
+  ctx.fill();
+  ctx.stroke();
+  ctx.save();
+  ctx.strokeStyle = M.trimLine;
+  ctx.lineWidth = Math.max(fine, unit * 0.05);
+  for (const bx of [muzzleBack + unit * 0.12, muzzleBack + unit * 0.26]) {
+    ctx.beginPath();
+    ctx.moveTo(bx, -hc * 0.7);
+    ctx.lineTo(bx, hc * 0.7);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const muzzleHeat = Math.max(0, Math.min(1, (progress - 0.8) / 0.2));
+  ctx.save();
+  ctx.fillStyle = M.bore;
+  roundRect(ctx, { x: hl * 0.86, y: -hc * 0.34, width: unit * 0.16, height: hc * 0.68, radius: unit * 0.04 });
+  ctx.fill();
+  if (muzzleHeat > 0) {
+    ctx.shadowColor = "#ffffff";
+    ctx.shadowBlur = qualityShadowBlur(6 + 16 * muzzleHeat);
+    ctx.fillStyle = mixColor(color, "#ffffff", 0.4 + 0.6 * muzzleHeat);
+    ctx.fillRect(hl * 0.88, -hc * 0.26 * (0.4 + 0.6 * muzzleHeat), unit * 0.12, hc * 0.52 * (0.4 + 0.6 * muzzleHeat));
+  }
+  ctx.restore();
+}
+
+function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0) {
   const fine = weaponFine(unit);
   const M = weaponMetals(color);
 
@@ -1595,6 +1945,113 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
     ctx.stroke();
     ctx.fillStyle = M.bore;
     ctx.fillRect(hl - unit * 0.215, -railY * 0.5, unit * 0.08, railY);
+  } else if (artType === "plasmaCannon") {
+    // A containment weapon, not a gun: a bottle at the breech holding the charge,
+    // a short wide throat, and a flared magnetic nozzle. Deliberately built from
+    // the beam family's language (chamber -> channel -> aperture) rather than the
+    // ballistic one, because what leaves it is contained plasma, but it keeps a
+    // solid muzzle mouth so it never reads as an emitter.
+    const bottleFront = -hl * 0.18;
+
+    ctx.fillStyle = M.housing;
+    roundRect(ctx, { x: -hl * 0.96, y: -hc * 0.56, width: bottleFront + hl * 0.96, height: hc * 1.12, radius: unit * 0.1 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Charge visible through the bottle wall.
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = qualityShadowBlur(7);
+    ctx.fillStyle = M.hot;
+    roundRect(ctx, { x: -hl * 0.8, y: -hc * 0.28, width: (bottleFront + hl * 0.8) * 0.82, height: hc * 0.56, radius: unit * 0.06 });
+    ctx.fill();
+    ctx.restore();
+
+    // Containment rings clamped over the bottle.
+    ctx.save();
+    ctx.strokeStyle = M.shellDeep;
+    ctx.lineWidth = Math.max(fine, unit * 0.075);
+    for (const rx of [-hl * 0.62, -hl * 0.36]) {
+      ctx.beginPath();
+      ctx.moveTo(rx, -hc * 0.6);
+      ctx.lineTo(rx, hc * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Throat forward to the nozzle.
+    ctx.fillStyle = weaponBodyFill(M);
+    roundRect(ctx, { x: bottleFront, y: -hc * 0.24, width: hl * 0.82 - bottleFront, height: hc * 0.48, radius: unit * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Flared magnetic nozzle with a hot mouth.
+    ctx.fillStyle = M.shellDeep;
+    ctx.beginPath();
+    ctx.moveTo(hl * 0.7, -hc * 0.3);
+    ctx.lineTo(hl * 0.96, -hc * 0.56);
+    ctx.lineTo(hl * 0.96, hc * 0.56);
+    ctx.lineTo(hl * 0.7, hc * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = qualityShadowBlur(8);
+    ctx.fillStyle = M.hot;
+    ctx.fillRect(hl * 0.88, -hc * 0.34, unit * 0.09, hc * 0.68);
+    ctx.restore();
+  } else if (artType === "fragmentationCannon") {
+    // A shell gun: heavy squat barrel, a visible autoloader drum on one flank,
+    // and a stepped muzzle brake. The drum is what separates it from the plain
+    // blaster silhouette — you can see it feeds rounds rather than energy.
+    const back = -hl * 0.86;
+    const tip = hl * 0.92;
+
+    // Autoloader drum, drawn first so the barrel overlaps its root.
+    ctx.save();
+    ctx.fillStyle = M.housing;
+    ctx.strokeStyle = "rgba(3,6,12,0.75)";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    ctx.arc(-hl * 0.5, hc * 0.34, Math.min(hc * 0.5, unit * 0.36), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = M.munitionDeep;
+    for (let round = 0; round < 5; round += 1) {
+      const a = (Math.PI * 2 * round) / 5;
+      ctx.beginPath();
+      ctx.arc(-hl * 0.5 + Math.cos(a) * unit * 0.19, hc * 0.34 + Math.sin(a) * unit * 0.19, Math.max(0.9, unit * 0.055), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Breech block and barrel.
+    ctx.fillStyle = M.housing;
+    roundRect(ctx, { x: back, y: -hc * 0.52, width: hl * 0.44, height: hc * 1.04, radius: unit * 0.07 });
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = weaponBodyFill(M);
+    roundRect(ctx, { x: back + hl * 0.2, y: -hc * 0.26, width: tip - back - hl * 0.2, height: hc * 0.52, radius: unit * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Stepped muzzle brake: two vents cut through the barrel wall near the mouth.
+    ctx.save();
+    ctx.fillStyle = "rgba(4,7,13,0.7)";
+    for (const vx of [hl * 0.44, hl * 0.62]) {
+      ctx.fillRect(vx, -hc * 0.3, unit * 0.07, hc * 0.6);
+    }
+    ctx.restore();
+    ctx.fillStyle = M.shellDeep;
+    roundRect(ctx, { x: tip - unit * 0.16, y: -hc * 0.38, width: unit * 0.16, height: hc * 0.76, radius: unit * 0.04 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = M.bore;
+    ctx.fillRect(tip - unit * 0.12, -hc * 0.2, unit * 0.1, hc * 0.4);
+  } else if (artType === "spinalAccelerator") {
+    drawSpinalAcceleratorTop(unit, hl, hc, color, M, fine, chargeProgress);
   } else if (artType === "beamEmitter") {
     // The family baseline: compact chamber, one pair of focusing arms, a
     // straight channel and a narrow blue-white lens. Everything else in the
@@ -1662,7 +2119,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
     }
     ctx.restore();
 
-    ctx.fillStyle = weaponBodyFill(M);
+    ctx.fillStyle = M.munition;
     ctx.beginPath();
     ctx.moveTo(hl * 0.88, 0);
     ctx.lineTo(hl * 0.56, -hc * 0.34);
@@ -1680,7 +2137,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color) {
     // joint is the narrower of the two.
     ctx.save();
     for (const [bx, bw] of [[-hl * 0.32, unit * 0.13], [hl * 0.06, unit * 0.09]]) {
-      ctx.fillStyle = M.shellDeep;
+      ctx.fillStyle = M.munitionDeep;
       ctx.fillRect(bx - bw * 0.5, -hc * 0.34, bw, hc * 0.68);
       ctx.fillStyle = M.trimLine;
       ctx.fillRect(bx + bw * 0.5 - fine, -hc * 0.34, fine, hc * 0.68);
@@ -1840,7 +2297,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   }
 
   if (type === "halfFrameDiagonal" || type === "halfArmorDiagonal" || type === "halfCompositeArmorDiagonal"
-    || type === "halfAblativeArmorDiagonal") {
+    || type === "halfAblativeArmorDiagonal" || type === "halfRefractoryArmorDiagonal") {
     const outline = () => {
       ctx.beginPath();
       ctx.moveTo(-size * 0.5, -size * 0.5);
@@ -1848,7 +2305,14 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
       ctx.lineTo(-size * 0.5, size * 0.5);
       ctx.closePath();
     };
-    if (ABLATIVE_PARTS.has(type)) {
+    if (REFRACTORY_PARTS.has(type)) {
+      withRotatedShape(size, rotation, outline,
+        () => drawRefractoryTiles(size, color, fine),
+        () => drawRefractoryColdEdge(size, () => {
+          ctx.moveTo(size * 0.4, -size * 0.42);
+          ctx.lineTo(-size * 0.42, size * 0.4);
+        }));
+    } else if (ABLATIVE_PARTS.has(type)) {
       withRotatedShape(size, rotation, outline,
         () => drawAblativeSpallPlating(size, color, fine),
         () => drawAblativeHotEdge(size, () => {
@@ -1870,7 +2334,8 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
 
-  if (type === "wingFrame" || type === "wingArmor" || type === "wingCompositeArmor" || type === "wingAblativeArmor") {
+  if (type === "wingFrame" || type === "wingArmor" || type === "wingCompositeArmor" || type === "wingAblativeArmor"
+    || type === "wingRefractoryArmor") {
     const outline = () => {
       ctx.beginPath();
       ctx.moveTo(-size * 0.5, -size * 0.5);
@@ -1878,7 +2343,16 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
       ctx.lineTo(-size * 0.5, size * 0.5);
       ctx.closePath();
     };
-    if (ABLATIVE_PARTS.has(type)) {
+    if (REFRACTORY_PARTS.has(type)) {
+      withRotatedShape(size, rotation, outline,
+        () => drawRefractoryTiles(size, color, fine),
+        () => drawRefractoryColdEdge(size, () => {
+          ctx.moveTo(-size * 0.44, -size * 0.4);
+          ctx.lineTo(size * 0.38, -size * 0.03);
+          ctx.moveTo(-size * 0.44, size * 0.4);
+          ctx.lineTo(size * 0.38, size * 0.03);
+        }));
+    } else if (ABLATIVE_PARTS.has(type)) {
       withRotatedShape(size, rotation, outline,
         () => drawAblativeSpallPlating(size, color, fine),
         () => drawAblativeHotEdge(size, () => {
@@ -1902,6 +2376,21 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
 
+  if (type === "refractoryArmor") {
+    // Ceramic thermal tile, not a metal plate. A hexagonal tile field with wide
+    // insulating grout lines and a cool blue-white bloom in the joints: it reads
+    // as a material that absorbs heat rather than one that stops a shell, which
+    // is exactly the trade the component makes.
+    ctx.save();
+    roundRect(ctx, { x: -size * 0.47, y: -size * 0.47, width: size * 0.94, height: size * 0.94, radius: size * 0.06 });
+    ctx.clip();
+    drawRefractoryTiles(size, color, fine);
+    ctx.restore();
+
+    drawArmorRivets(size, color, [[-0.4, -0.36], [0.4, -0.36], [-0.4, 0.4], [0.4, 0.4]]);
+    return true;
+  }
+
   if (type === "ablativeArmor") {
     ctx.save();
     roundRect(ctx, { x: -size * 0.47, y: -size * 0.47, width: size * 0.94, height: size * 0.94, radius: size * 0.05 });
@@ -1913,7 +2402,8 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
 
-  if (type === "bevelFrame" || type === "bevelArmor" || type === "bevelCompositeArmor" || type === "bevelAblativeArmor") {
+  if (type === "bevelFrame" || type === "bevelArmor" || type === "bevelCompositeArmor" || type === "bevelAblativeArmor"
+    || type === "bevelRefractoryArmor") {
     // Cell block with the leading corner chamfered away. It carries the same
     // laminate/bracing as the full cube, clipped to the cut silhouette, plus a
     // lit chamfer face so the cut reads as machined rather than as a missing
@@ -1933,12 +2423,15 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     const drawMaterial = () => {
       if (isFrame) drawFrameBracing(size, fine, 0.3);
       else if (type === "bevelAblativeArmor") drawAblativeSpallPlating(size, color, fine);
+      else if (type === "bevelRefractoryArmor") drawRefractoryTiles(size, color, fine);
       else drawArmorLaminate(size, color, type === "bevelCompositeArmor", fine);
     };
     const drawEdge = () => {
       ctx.save();
       ctx.lineCap = "butt";
-      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)"
+        : REFRACTORY_PARTS.has(type) ? "rgba(214,240,255,0.6)"
+        : "rgba(255,240,214,0.62)";
       ctx.lineWidth = Math.max(1.4, size * 0.11);
       ctx.beginPath();
       ctx.moveTo(s - cut - size * 0.06, -s - size * 0.06);
@@ -1958,7 +2451,8 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
 
-  if (type === "roundedFrame" || type === "roundedArmor" || type === "roundedCompositeArmor" || type === "roundedAblativeArmor") {
+  if (type === "roundedFrame" || type === "roundedArmor" || type === "roundedCompositeArmor" || type === "roundedAblativeArmor"
+    || type === "roundedRefractoryArmor") {
     // Same block with a full quarter-round on the leading corner: a swept
     // shoulder that deflects fire instead of the barely visible fillet it used
     // to be.
@@ -1977,12 +2471,15 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     const drawMaterial = () => {
       if (isFrame) drawFrameBracing(size, fine, 0.3);
       else if (type === "roundedAblativeArmor") drawAblativeSpallPlating(size, color, fine);
+      else if (type === "roundedRefractoryArmor") drawRefractoryTiles(size, color, fine);
       else drawArmorLaminate(size, color, type === "roundedCompositeArmor", fine);
     };
     const drawEdge = () => {
       // Swept shoulder: a bright rim inside the arc with a darker shadow line
       // behind it, so the curve reads as a rolled surface.
-      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : "rgba(255,240,214,0.62)";
+      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)"
+        : REFRACTORY_PARTS.has(type) ? "rgba(214,240,255,0.6)"
+        : "rgba(255,240,214,0.62)";
       ctx.lineWidth = Math.max(1.4, size * 0.1);
       ctx.beginPath();
       ctx.arc(s - r, -s + r, r - size * 0.04, -Math.PI * 0.5, 0);
@@ -2539,22 +3036,13 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
   const bodyColor = trim && STRUCTURAL_PARTS.has(type) ? mixColor(color, trim, 0.24) : color;
   ctx.fillStyle = getModuleGradient(size, bodyColor);
 
-  const keepsPartialShape = type === "halfFrameDiagonal"
-    || type === "halfArmorDiagonal"
-    || type === "halfCompositeArmorDiagonal"
-    || type === "wingFrame"
-    || type === "wingArmor"
-    || type === "wingCompositeArmor"
-    || type === "bevelFrame"
-    || type === "bevelArmor"
-    || type === "bevelCompositeArmor"
-    || type === "roundedFrame"
-    || type === "roundedArmor"
-    || type === "roundedCompositeArmor"
-    || type === "halfAblativeArmorDiagonal"
-    || type === "wingAblativeArmor"
-    || type === "bevelAblativeArmor"
-    || type === "roundedAblativeArmor";
+  // A cut-away silhouette draws its own body clipped to its outline, so a full
+  // cube base behind it would fill the part of the cell the shape deliberately
+  // gives up. The catalogue's `shapeType` is the authority: this used to be a
+  // hand-listed set of every silhouette id, which silently reverted each new
+  // structural material to a square block until someone remembered to add its
+  // five variants.
+  const keepsPartialShape = Boolean(PART_STATS[type]?.shapeType) || LEGACY_PARTIAL_SHAPE_PARTS.has(type);
   if (!keepsPartialShape && drawBase) {
     drawComponentCubeBase(size, bodyColor);
     // The base helper owns its canvas state; restore the component's intended
@@ -3658,6 +4146,155 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     return true;
   }
 
+  if (type === "heavyEngine") {
+    // Same construction as the standard Engine — intake forward, cowled power
+    // section, exhaust manifold aft — scaled up to a six-cell block and given
+    // FOUR nozzle bells instead of two. The nozzle count is the whole read: a
+    // player glancing at the grid should see "that is several engines' worth of
+    // drive in one casing", which is exactly what the part is.
+    drawFootprintPanel(unit, hl, hc, 0.96, 0.92, 0.09);
+
+    // Cowling over the power section.
+    ctx.fillStyle = mixColor(color, "#ffffff", 0.1);
+    roundRect(ctx, { x: -hl + unit * 0.72, y: -hc * 0.8, width: hl * 2 - unit * 1.1, height: hc * 1.6, radius: unit * 0.12 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Exhaust manifold aft (-x) with four bells spread across the cross axis.
+    ctx.fillStyle = "rgba(2,7,13,0.92)";
+    roundRect(ctx, { x: -hl + unit * 0.04, y: -hc * 0.88, width: unit * 0.78, height: hc * 1.76, radius: unit * 0.1 });
+    ctx.fill();
+    // Hot throat hard against the rear face, then the four bells in front of it,
+    // so the glow reads as feeding the nozzles instead of sitting on top of them.
+    ctx.save();
+    ctx.shadowColor = "#89f7ff";
+    ctx.shadowBlur = qualityShadowBlur(7);
+    ctx.fillStyle = "#9ff6ff";
+    roundRect(ctx, { x: -hl + unit * 0.1, y: -hc * 0.74, width: unit * 0.14, height: hc * 1.48, radius: unit * 0.04 });
+    ctx.fill();
+    ctx.restore();
+    const rearX = -hl + unit * 0.48;
+    for (const cy of [-hc * 0.66, -hc * 0.22, hc * 0.22, hc * 0.66]) {
+      drawFootprintPort(unit, rearX, cy, unit * 0.18, cy < 0 ? "#d9fbff" : "#4dd8ff");
+    }
+
+    // Twin intake turbines forward.
+    const frontX = hl - unit * 0.44;
+    for (const cy of [-hc * 0.42, hc * 0.42]) {
+      ctx.fillStyle = "rgba(3,12,20,0.9)";
+      ctx.beginPath();
+      ctx.arc(frontX, cy, unit * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#bcefff";
+      ctx.lineWidth = Math.max(fine, unit * 0.06);
+      ctx.beginPath();
+      ctx.arc(frontX, cy, unit * 0.21, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#52d8ff";
+      ctx.beginPath();
+      ctx.arc(frontX, cy, unit * 0.075, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Illuminated fuel conduits tying manifold to turbines.
+    ctx.strokeStyle = "rgba(132,230,255,0.85)";
+    ctx.lineWidth = fine;
+    ctx.beginPath();
+    for (const cy of [-hc * 0.42, hc * 0.42]) {
+      ctx.moveTo(-hl + unit * 0.8, cy);
+      ctx.lineTo(frontX - unit * 0.32, cy);
+    }
+    ctx.stroke();
+    drawFootprintSeams(unit, hl, hc, tilesLong);
+    return true;
+  }
+
+  if (type === "burstCooler") {
+    // A cryogenic accumulator, not a radiator: a sealed pressure vessel with a
+    // frosted charge window down its length and one large relief valve at the
+    // top. Nothing on it is a fin, because it does not shed heat continuously —
+    // the valve is the entire mechanism and has to be the thing you notice.
+    drawFootprintPanel(unit, hl, hc, 0.94, 0.88, 0.1);
+
+    ctx.fillStyle = "rgba(8,22,34,0.92)";
+    roundRect(ctx, { x: -hl * 0.86, y: -hc * 0.58, width: hl * 1.72, height: hc * 1.16, radius: hc * 0.5 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Frosted charge window: how full the accumulator is.
+    ctx.save();
+    ctx.shadowColor = "#a5f3fc";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#cffafe";
+    roundRect(ctx, { x: -hl * 0.7, y: -hc * 0.2, width: hl * 1.4, height: hc * 0.4, radius: hc * 0.2 });
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.strokeStyle = "rgba(3,18,28,0.6)";
+    ctx.lineWidth = Math.max(0.7, unit * 0.035);
+    ctx.beginPath();
+    for (let tick = 1; tick < 4; tick += 1) {
+      const tx = -hl * 0.7 + (hl * 1.4 * tick) / 4;
+      ctx.moveTo(tx, -hc * 0.2);
+      ctx.lineTo(tx, hc * 0.2);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Relief valve and its vent stack.
+    ctx.fillStyle = mixColor(color, "#05070c", 0.35);
+    ctx.strokeStyle = "rgba(3,6,12,0.72)";
+    ctx.lineWidth = Math.max(0.8, unit * 0.05);
+    ctx.beginPath();
+    ctx.arc(hl * 0.4, -hc * 0.62, Math.min(hc * 0.42, unit * 0.3), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ecfeff";
+    ctx.beginPath();
+    ctx.arc(hl * 0.4, -hc * 0.62, Math.min(hc * 0.16, unit * 0.11), 0, Math.PI * 2);
+    ctx.fill();
+    drawFootprintPort(unit, -hl * 0.62, hc * 0.6, unit * 0.11, "#67e8f9");
+    return true;
+  }
+
+  if (type === "overclockedRepair") {
+    // The standard Repair module's cross, driven hard: a doubled emitter cross
+    // on a machined bed, flanked by two exposed heat-stressed drive stacks that
+    // say where all that Power goes and why the part cooks itself.
+    drawFootprintPanel(unit, hl, hc, 0.94, 0.9, 0.1);
+
+    ctx.save();
+    ctx.shadowColor = "#86efac";
+    ctx.shadowBlur = qualityShadowBlur(7);
+    ctx.fillStyle = "#d7ffe2";
+    const armLong = hl * 0.44;
+    const armCross = hc * 0.62;
+    const armHalf = Math.min(unit * 0.11, hc * 0.16);
+    ctx.fillRect(-armLong, -armHalf, armLong * 2, armHalf * 2);
+    ctx.fillRect(-armHalf, -armCross, armHalf * 2, armCross * 2);
+    ctx.restore();
+
+    // Drive stacks at both ends, running warm.
+    for (const sx of [-hl * 0.76, hl * 0.76]) {
+      ctx.fillStyle = mixColor(color, "#05070c", 0.42);
+      ctx.strokeStyle = "rgba(3,6,12,0.72)";
+      ctx.lineWidth = Math.max(0.8, unit * 0.05);
+      roundRect(ctx, { x: sx - unit * 0.16, y: -hc * 0.56, width: unit * 0.32, height: hc * 1.12, radius: unit * 0.05 });
+      ctx.fill();
+      ctx.stroke();
+      ctx.save();
+      ctx.shadowColor = "#fb923c";
+      ctx.shadowBlur = qualityShadowBlur(5);
+      ctx.fillStyle = "#fdba74";
+      for (const cy of [-hc * 0.3, 0, hc * 0.3]) {
+        ctx.fillRect(sx - unit * 0.1, cy - unit * 0.03, unit * 0.2, unit * 0.06);
+      }
+      ctx.restore();
+    }
+    drawFootprintSeams(unit, hl, hc, tilesLong);
+    return true;
+  }
+
   if (type === "reactor") {
     // A tall containment vessel holding one continuous plasma column, clamped by
     // two magnetic collars, capped by an injector at one end and a heavy power
@@ -3936,13 +4573,14 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   }
 
   if (type === "longWedgeFrame" || type === "longWedgeArmor" || type === "longWedgeCompositeArmor"
-    || type === "longWedgeAblativeArmor") {
+    || type === "longWedgeAblativeArmor" || type === "longWedgeRefractoryArmor") {
     // Two-cell prow: broad at the rear (-x), tapering to a blunt nose at +x.
     // The prow silhouette rotates with the part, but the armour courses / tile
     // rows stay in ship-local space so the prow still reads as the same belt.
     const isFrame = type === "longWedgeFrame";
     const composite = type === "longWedgeCompositeArmor";
     const ablative = type === "longWedgeAblativeArmor";
+    const refractory = type === "longWedgeRefractoryArmor";
     const outline = () => {
       ctx.beginPath();
       ctx.moveTo(-hl, -hc);
@@ -4005,6 +4643,18 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
         ctx.lineTo(hl * 0.6, hc * 0.42);
         ctx.closePath();
         ctx.fill();
+      } else if (refractory) {
+        // The tile field is authored around a single cell, so a two-cell prow
+        // draws it once per cell along the long axis. That keeps the tiles the
+        // same physical size here as on a 1x1 plate, which is what makes a
+        // refractory nose read as continuous with the belt behind it.
+        const cellSize = Math.min(hc * 2, hl);
+        for (let cell = 0; cell < Math.max(1, Math.round((hl * 2) / cellSize)); cell += 1) {
+          ctx.save();
+          ctx.translate(-hl + cellSize * (cell + 0.5), 0);
+          drawRefractoryTiles(cellSize, color, fine);
+          ctx.restore();
+        }
       } else if (!isFrame) {
         // Laminate courses stacked across the width, so the wedge reads as the
         // same plate material as the rest of the armour family.
@@ -4074,7 +4724,10 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
 
       // Lit leading edges along both angled flanks: the signature of a prow.
       ctx.lineCap = "butt";
-      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)" : ablative ? "rgba(255,168,96,0.6)" : "rgba(255,240,214,0.62)";
+      ctx.strokeStyle = isFrame ? "rgba(232,241,255,0.6)"
+        : ablative ? "rgba(255,168,96,0.6)"
+        : refractory ? "rgba(214,240,255,0.6)"
+        : "rgba(255,240,214,0.62)";
       ctx.lineWidth = Math.max(1.3, unit * 0.09);
       ctx.beginPath();
       ctx.moveTo(-hl, -hc);

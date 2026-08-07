@@ -169,7 +169,7 @@ function normalizePartRotation(type, x, rotation) {
 
 function isRotatablePart(type) {
   const part = PARTS[type] || {};
-  if (type === "engine" || type === "compactEngine" || type === "maneuverThruster" || type === "droneBay") return false;
+  if (type === "engine" || type === "compactEngine" || type === "heavyEngine" || type === "maneuverThruster" || type === "droneBay") return false;
   if (part.rotatable === false) return false;
   if (Array.isArray(part.allowedRotations) && part.allowedRotations.length) return true;
   if (part.category === "Engines") return part.thrust > 0 && part.rotationRequired === true;

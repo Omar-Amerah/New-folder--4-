@@ -403,16 +403,8 @@ const MOVEMENT_TOGGLE_DESCRIPTIONS = {
   autoTurn: "Turn the hull to face what the ship is fighting. Off, it never turns on its own: its heading is only ever what your move orders and the I / O keys leave it on."
 };
 
-function pendingMovementToggle(key) {
-  for (const pending of state.pendingMovementToggles.values()) {
-    if (pending.key === key) return pending;
-  }
-  return null;
-}
-
-// Four readouts, not two: a selection that disagrees and a change still in
-// flight are both states the player has to be able to see, and a checkbox can
-// show neither.
+// Three readouts, not two: a selection that disagrees is a state the player has
+// to be able to see, and a checkbox cannot show it.
 function renderMovementToggles(selectedShips) {
   if (!dom.movementToggleControls) return;
   const disabled = state.phase !== "active" || selectedShips.length === 0;
@@ -429,13 +421,13 @@ function renderMovementToggles(selectedShips) {
     const values = new Set(selectedShips.map((ship) => ship.movementToggles?.[key] !== false));
     const mixed = values.size > 1;
     const on = values.size === 1 ? [...values][0] : true;
-    const pending = pendingMovementToggle(key);
     row.setAttribute("aria-checked", mixed ? "mixed" : String(on));
-    if (pending) row.dataset.pending = "1";
-    else delete row.dataset.pending;
     const label = MOVEMENT_TOGGLE_LABELS[key] || key;
     const description = MOVEMENT_TOGGLE_DESCRIPTIONS[key];
-    const stateText = pending ? "Applying…" : mixed ? "Mixed" : on ? "On" : "Off";
+    // No in-flight readout: the change is optimistic and the server answers in
+    // a tick or two, so an "Applying…" step only ever reads as a flicker. A
+    // rejection still rolls the row back and raises a toast.
+    const stateText = mixed ? "Mixed" : on ? "On" : "Off";
     const readout = row.querySelector("[data-movement-toggle-state]");
     if (readout && readout.textContent !== stateText) readout.textContent = stateText;
     const title = mixed

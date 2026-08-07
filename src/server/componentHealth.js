@@ -189,8 +189,37 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
   let remaining = damage;
   let applied = 0;
 
+  // Penetrating rounds (the Spinal Accelerator) do not simply spend their damage
+  // component by component: each component they pass through also costs them a
+  // fixed fraction of what is left. `penetrationProfile[n]` is the share of the
+  // ORIGINAL damage still available at the nth component in the ray, so a
+  // [1, 0.7, 0.45, 0.25] lance punches a shrinking channel through a hull and
+  // stops once the profile runs out. Ordinary weapons pass no profile and keep
+  // the plain overflow behaviour.
+  const penetrationProfile = Array.isArray(options.penetrationProfile) && options.penetrationProfile.length
+    ? options.penetrationProfile
+    : null;
+  let penetrationStep = 0;
+
+  // Impact Heat (Plasma Cannon). Delivered as Heat into whichever components the
+  // round actually damaged, proportional to the damage each one took, so a slug
+  // stopped by armour heats the armour rather than the systems behind it. Beam
+  // weapons deliver their impact Heat through applyBeamHullDamage instead.
+  const impactHeatPerDamage = Math.max(0, Number(options.impactHeatPerDamage) || 0);
+  const addImpactHeat = impactHeatPerDamage > 0
+    ? (index, dealt) => require("./heat").addComponentHeat(ship, index, dealt * impactHeatPerDamage)
+    : null;
+
   for (const idx of chain) {
     if (remaining <= 0.0001) break;
+    if (penetrationProfile) {
+      if (penetrationStep >= penetrationProfile.length) break;
+      const share = Number(penetrationProfile[penetrationStep]) || 0;
+      if (share <= 0) break;
+      // Never hand a later component more than the round actually has left.
+      remaining = Math.min(remaining, damage * share);
+      penetrationStep += 1;
+    }
     // The core can be destroyed once a shot penetrates to it, but it takes damage
     // to its own pool (kept out of the hull sum) rather than to ship.hp, and the
     // shot always stops here. Destroying it flags coreDestroyed -> ship dies.
@@ -201,6 +230,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
         remaining -= dealt;
         applied += dealt;
         markComponentDamageChanged(ship, idx);
+        if (addImpactHeat) addImpactHeat(idx, dealt);
         if (ship.componentHp[idx] <= 0.0001) {
           ship.componentHp[idx] = 0;
           onComponentDestroyed(room, ship, idx, now);
@@ -232,6 +262,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
     remaining -= mult > 0 ? dealt / mult : remaining;
     applied += dealt;
     markComponentDamageChanged(ship, idx);
+    if (addImpactHeat) addImpactHeat(idx, dealt);
     if (ship.componentHp[idx] <= 0.0001) {
       ship.componentHp[idx] = 0;
       onComponentDestroyed(room, ship, idx, now);

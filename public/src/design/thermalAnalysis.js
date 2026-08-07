@@ -111,7 +111,7 @@ export function buildThermalModel(design, wiring = null) {
   const coolingFrames = [];
   for (let i = 0; i < design.length; i += 1) {
     if (!isFrame(design[i].type)) continue;
-    if ([...edgeMaps[i].keys()].some(j => design[j].type === "radiator" || design[j].type === "heatSink" || design[j].type === "closedCycleCooler")) {
+    if ([...edgeMaps[i].keys()].some(j => design[j].type === "radiator" || design[j].type === "heatSink" || design[j].type === "closedCycleCooler" || design[j].type === "burstCooler")) {
       frameCoolingDistance[i] = 0; coolingFrames.push(i);
     }
   }

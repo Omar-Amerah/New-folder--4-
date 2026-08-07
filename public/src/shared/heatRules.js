@@ -74,6 +74,18 @@
     if (part.weapon) {
       const damage = part.weapon.damage || 1;
       const fireRate = part.weapon.fireRate || 1;
+      // A spinal mount's Heat comes from holding the charge, not from the shot,
+      // so its sustained rate is the charge burn plus the firing spike averaged
+      // over one full charge-and-reload cycle. Using the plain railgun formula
+      // here would understate a Spinal Accelerator by more than half.
+      const spinal = part.weapon.spinalCharge;
+      if (spinal) {
+        const chargeSeconds = Math.max(0.05, Number(spinal.chargeSeconds) || 10);
+        const cycleSeconds = chargeSeconds + (fireRate > 0 ? 1 / fireRate : 0);
+        const chargeHeat = Math.max(0, Number(spinal.chargeHeatPerSecond) || 0);
+        const fireHeat = Math.max(0, Number(spinal.fireHeat) || 0);
+        return (chargeHeat * chargeSeconds + fireHeat) / cycleSeconds;
+      }
       if (part.weapon.type === "beam") return Math.max(3, Math.sqrt(damage));
       if (part.weapon.type === "railgun") return Math.max(8, Math.sqrt(damage) * 1.8) * fireRate;
       if (part.weapon.type === "pointDefense") return 4 * fireRate;

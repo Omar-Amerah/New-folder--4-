@@ -83,8 +83,56 @@ function makeWeapon(type, stats) {
     inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
     inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
     inductionSelfHeatMaxMultiplier: stats.inductionSelfHeatMaxMultiplier !== undefined ? Number(stats.inductionSelfHeatMaxMultiplier) : undefined,
-    beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined
+    beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
+    pelletCount: normalizePelletCount(stats.pelletCount),
+    pelletSpreadDegrees: stats.pelletSpreadDegrees !== undefined ? Number(stats.pelletSpreadDegrees) : undefined,
+    spinalCharge: normalizeSpinalCharge(stats.spinalCharge)
   };
+}
+
+// One trigger pull can produce several pellets. A count below 2 is the same as
+// no multi-pellet fire at all, so it normalizes away rather than making the
+// firing path branch on a degenerate value.
+function normalizePelletCount(value) {
+  const count = Math.round(Number(value));
+  return Number.isFinite(count) && count >= 2 ? count : undefined;
+}
+
+// Spinal charge cycle, defaulted so a partially specified balance block still
+// produces a weapon that charges, commits its aim and penetrates.
+function normalizeSpinalCharge(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return undefined;
+  const profile = Array.isArray(config.penetrationProfile)
+    ? config.penetrationProfile.map(Number).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  return Object.freeze({
+    chargeSeconds: Math.max(0.05, toNumber(config.chargeSeconds, 10)),
+    chargeHoldSeconds: Math.max(0, toNumber(config.chargeHoldSeconds, 1.5)),
+    chargeDecayMultiplier: Math.max(0, toNumber(config.chargeDecayMultiplier, 1.5)),
+    committedAimStartProgress: clamp01(toNumber(config.committedAimStartProgress, 0.5)),
+    committedAimTraverseFloor: clamp01(toNumber(config.committedAimTraverseFloor, 0.05)),
+    hullTurnPenaltyStartProgress: clamp01(toNumber(config.hullTurnPenaltyStartProgress, 0.8)),
+    hullTurnPenaltyMultiplier: clamp01(toNumber(config.hullTurnPenaltyMultiplier, 0.5)),
+    chargeHeatPerSecond: Math.max(0, toNumber(config.chargeHeatPerSecond, 0)),
+    fireHeat: Math.max(0, toNumber(config.fireHeat, 0)),
+    penetrationProfile: Object.freeze(profile.length ? profile : [1])
+  });
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+// Burst cooling profile. Defaults keep an under-specified block behaving like a
+// small, slow burst rather than an instant infinite heat sink.
+function normalizeBurstCooler(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return null;
+  return Object.freeze({
+    burstHeat: Math.max(0, toNumber(config.burstHeat, 150)),
+    triggerHeatRatio: clamp01(toNumber(config.triggerHeatRatio, 0.5)),
+    rechargeSeconds: Math.max(0.1, toNumber(config.rechargeSeconds, 8)),
+    rechargeCoolingFraction: clamp01(toNumber(config.rechargeCoolingFraction, 0.15))
+  });
 }
 
 const FALLBACK_PARTS = Object.freeze({});
@@ -175,6 +223,9 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     heatPassiveCooling: component.heatPassiveCooling !== undefined ? toNumber(component.heatPassiveCooling, 0) : undefined,
     heatConductivity: component.heatConductivity !== undefined ? toNumber(component.heatConductivity, 0) : undefined,
     heatRetention: component.heatRetention !== undefined ? toNumber(component.heatRetention, 0) : undefined,
+    burstCooler: normalizeBurstCooler(component.burstCooler),
+    // Structural material that induction Heat beams cannot couple through.
+    heatBeamShield: Boolean(component.heatBeamShield),
     decoyConfig: component.decoy && typeof component.decoy === "object"
       ? Object.freeze({ ...component.decoy })
       : null,

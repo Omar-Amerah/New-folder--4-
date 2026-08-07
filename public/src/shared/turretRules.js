@@ -53,6 +53,9 @@
     beamEmitter: 0.66,
     thermalInductionLance: 0.66,
     repairBeam: 0.66,
+    scatterCannon: 0.54,
+    plasmaCannon: 0.6,
+    fragmentationCannon: 0.6,
     pointDefense: 0.62,
     pointDefenseLaser: 0.62,
     flakCannon: 0.45,
@@ -73,7 +76,10 @@
   // autocannon pair mirrors the +/- size * 0.17 barrel centres drawn in
   // componentArt.js (drawProfessionalModuleDetail) — move both together.
   const BARRELS = Object.freeze({
-    autocannon: Object.freeze({ count: 2, spreadTiles: 0.17 })
+    autocannon: Object.freeze({ count: 2, spreadTiles: 0.17 }),
+    // Three visible muzzles across the cluster head drawn in componentArt.js
+    // (drawProfessionalModuleDetail, scatterCannon) — move both together.
+    scatterCannon: Object.freeze({ count: 3, spreadTiles: 0.15 })
   });
 
   function barrelCount(type) {

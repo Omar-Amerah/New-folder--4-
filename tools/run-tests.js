@@ -128,6 +128,7 @@ const GROUPS = {
     "tests/verify-balance-revision.js",
     "tests/verify-canvas-removal.js",
     "tests/verify-components.js",
+    "tests/verify-new-components.js",
     "tests/verify-burn-through-schema.js",
     "tests/verify-component-catalogue.js",
     "tests/verify-component-inspector.js",

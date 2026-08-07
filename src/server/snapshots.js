@@ -141,6 +141,24 @@ function buildStationWeaponAnglePairs(station) {
   return pairs;
 }
 
+// Spinal charge progress per weapon slot, 0..1, or null when the ship carries no
+// charging mount. Returning null keeps the field off every ordinary ship rather
+// than sending a design-length array of zeroes on every frame.
+function buildSpinalChargeProgress(ship) {
+  const charge = ship.weaponCharge;
+  if (!Array.isArray(charge) || !charge.length) return null;
+  let any = false;
+  const progress = charge.map((seconds, index) => {
+    const config = PARTS[ship.design?.[index]?.type]?.weapon?.spinalCharge;
+    if (!config) return 0;
+    const chargeSeconds = Math.max(0.05, Number(config.chargeSeconds) || 10);
+    const value = clampNumber((Number(seconds) || 0) / chargeSeconds, 0, 1);
+    if (value > 0) any = true;
+    return Math.round(value * 1000) / 1000;
+  });
+  return any ? progress : null;
+}
+
 function roundStationPoint(point) {
   if (!point) return undefined;
   return { x: round(point.x), y: round(point.y) };
@@ -338,6 +356,10 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       focusTargetId: ship.focusTargetId || ship.repairTargetId || null,
       combatTargetId: ship.combatTargetId || null,
       weaponAngles: (ship.weaponAngles || []).map(round),
+      // Spinal charge progress per weapon slot, 0..1. This is a public field on
+      // purpose: the telegraph is the balance justification for the shot, so an
+      // opponent must be able to see a capital gun coming up to full charge.
+      weaponCharge: buildSpinalChargeProgress(ship),
       commandState: ship.commandState || "mainCore",
       emergencyReserveUntil: ship.emergencyReserveUntil || null,
       alive: ship.alive,

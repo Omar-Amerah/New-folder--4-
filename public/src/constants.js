@@ -58,7 +58,6 @@ export const HIDDEN_PARTS = new Set([
   "smallReactor",
   "heavyReactor",
   "microThruster",
-  "heavyEngine",
   "lightShield",
   "heavyShield",
   "regenShield",

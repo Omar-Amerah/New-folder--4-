@@ -12,7 +12,8 @@
 //
 // What is checked: the explanation is on the page rather than hidden in a
 // tooltip, the whole row is the click target, and the readout distinguishes
-// On / Off / Mixed / Applying… and puts a rejected change back.
+// On / Off / Mixed, flips straight to the new value, and puts a rejected
+// change back.
 
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -113,7 +114,8 @@ const rowState = (page, key) => page.evaluate((k) => {
       const desc = page.locator(`[data-movement-toggle="${key}"] .movement-toggle-desc`);
       await desc.waitFor({ state: "visible" });
       const text = await desc.textContent();
-      assert(text.trim().length > 40, `${key} carries a permanently visible description`);
+      assert(text.trim().length > 25, `${key} carries a permanently visible description`);
+      assert(text.trim().length < 90, `${key} keeps that description short enough to scan`);
     }
     // ...and it says which targets it governs, since a player-issued attack
     // order overrides autoEngage entirely.
@@ -135,14 +137,15 @@ const rowState = (page, key) => page.evaluate((k) => {
     assert.deepEqual(sent[0].shipIds, ["s1", "s2"], "it names the selection");
     assert(sent[0].requestId, "and carries a request id to acknowledge");
 
-    // Optimistic, but visibly unconfirmed.
+    // Optimistic and final-looking: the row goes straight to its new value with
+    // no intermediate "Applying…" step, which only ever read as a flicker.
     const inFlight = await rowState(page, "pursue");
     assert.equal(inFlight.checked, "false", "the row answers immediately");
-    assert.equal(inFlight.readout, "Applying…", "...while saying it is not acknowledged yet");
-    assert.equal(inFlight.pending, "1");
+    assert.equal(inFlight.readout, "Off", "...with the new value, not an in-flight state");
+    assert.equal(inFlight.pending, null, "and no pending marker to flicker away");
 
     mkdirSync(artifactDir, { recursive: true });
-    await page.locator("#movementToggleControls").screenshot({ path: path.join(artifactDir, "pending.png") });
+    await page.locator("#movementToggleControls").screenshot({ path: path.join(artifactDir, "in-flight.png") });
 
     // --- Success settles it ---------------------------------------------------
     await page.evaluate(async (requestId) => {

@@ -34,6 +34,17 @@ export const PART_DEFS = {
   bevelAblativeArmor: { name: "Bevel Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
   roundedAblativeArmor: { name: "Rounded Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
   longWedgeAblativeArmor: { name: "Long Wedge Ablative Plating", color: "#cf4436", glyph: "linear-gradient(160deg, #ff9b7a, #7f1d1d)" },
+  // Cool ceramic blue-white, deliberately outside the orange armour / tan
+  // composite / crimson ablative range: Refractory Armour is a thermal material
+  // and must not read as "another hull plate" in the Structure palette. The
+  // whole family sits last in Structure — after the crimson ablative block — so
+  // the ceramic column does not split the existing material groups above it.
+  refractoryArmor: { name: "Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
+  halfRefractoryArmorDiagonal: { name: "Half Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
+  wingRefractoryArmor: { name: "Wing Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
+  bevelRefractoryArmor: { name: "Bevel Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
+  roundedRefractoryArmor: { name: "Rounded Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
+  longWedgeRefractoryArmor: { name: "Long Wedge Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
   engine:{ name: "Engine", color: "#54d7ff", glyph: "linear-gradient(180deg, #68efff, #225ed8 52%, #111827)" },
   compactEngine: { name: "Compact Engine", color: "#38bdf8", glyph: "linear-gradient(180deg, #a5f3fc, #0ea5e9 52%, #082f49)" },
   reactor: { name: "Reactor", color: "#ffdc5e", glyph: "radial-gradient(circle, #fff7b3 0 20%, #f4c145 26% 55%, #6b4b12 60%)" },
@@ -76,6 +87,10 @@ export const PART_DEFS = {
   heavyRailgun: { name: "Heavy Railgun", color: "#f8fafc", glyph: "linear-gradient(90deg, #020617 0 14%, #f8fafc 16% 70%, #3b82f6 74%)" },
   beamEmitter: { name: "Beam Emitter", color: "#bae6fd", glyph: "linear-gradient(90deg, #082f49 0 18%, #7dd3fc 20% 76%, #eff6ff 78%)" },
   thermalInductionLance: { name: "Thermal Induction Lance", color: "#d8b4fe", glyph: "linear-gradient(90deg, #2e1065 0 18%, #a855f7 20% 58%, #f3e8ff 60% 78%, #7c3aed 80%)" },
+  scatterCannon: { name: "Scatter Cannon", color: "#fbbf77", glyph: "radial-gradient(circle at 30% 50%, #431407 0 16%, #fb923c 20% 62%, #ffedd5 66%)" },
+  plasmaCannon: { name: "Plasma Cannon", color: "#5eead4", glyph: "linear-gradient(90deg, #042f2e 0 20%, #14b8a6 22% 56%, #ccfbf1 60% 78%, #0f766e 80%)" },
+  fragmentationCannon: { name: "Fragmentation Cannon", color: "#facc15", glyph: "linear-gradient(90deg, #422006 0 20%, #eab308 22% 62%, #fef9c3 66%)" },
+  spinalAccelerator: { name: "Spinal Accelerator", color: "#93c5fd", glyph: "linear-gradient(90deg, #020617 0 12%, #1d4ed8 14% 34%, #93c5fd 36% 74%, #ffffff 78%)" },
   aegisProjector: { name: "Aegis Projector", color: "#6ee7b7", glyph: "radial-gradient(circle, #ecfdf5 0 18%, #34d399 30% 56%, #064e3b 64%)" },
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
@@ -83,9 +98,11 @@ export const PART_DEFS = {
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
   radiator: { name: "Radiator", color: "#7dd3fc", glyph: "repeating-linear-gradient(90deg, #0c4a6e 0 12%, #bae6fd 13% 22%)" },
   closedCycleCooler: { name: "Closed-Cycle Cooler", color: "#22d3ee", glyph: "radial-gradient(circle, #cffafe 0 20%, #22d3ee 25% 55%, #0c4a6e 60%)" },
+  burstCooler: { name: "Burst Cooler", color: "#a5f3fc", glyph: "radial-gradient(circle at 50% 62%, #ffffff 0 14%, #a5f3fc 18% 42%, #0e7490 48% 66%, #052e3a 72%)" },
   signalAmplifier: { name: "Signal Amplifier", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 12%, #14b8a6 24% 42%, #134e4a 58%)" },
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
+  overclockedRepair: { name: "Overclocked Repair Unit", color: "#4ade80", glyph: "linear-gradient(45deg, #052e16 0 24%, #4ade80 26% 44%, #fdba74 46% 56%, #4ade80 58%)" },
   sensorArray: { name: "Long-Range Sensor Array", color: "#38bdf8", glyph: "radial-gradient(circle, #e0f2fe 0 12%, #38bdf8 18% 34%, #0c4a6e 42% 60%)" },
   smallSensor: { name: "Small Sensor", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 14%, #22d3ee 22% 42%, #164e63 52%)" },
   largeSensor: { name: "Large Sensor", color: "#38bdf8", glyph: "radial-gradient(circle, #e0f2fe 0 12%, #38bdf8 18% 34%, #0c4a6e 42% 60%)" },
@@ -125,10 +142,15 @@ const MARKERLESS_ROTATABLE_PARTS = new Set([
   "wingAblativeArmor",
   "bevelAblativeArmor",
   "roundedAblativeArmor",
-  "longWedgeAblativeArmor"
+  "longWedgeAblativeArmor",
+  "halfRefractoryArmorDiagonal",
+  "wingRefractoryArmor",
+  "bevelRefractoryArmor",
+  "roundedRefractoryArmor",
+  "longWedgeRefractoryArmor"
 ]);
 
-const FIXED_ORIENTATION_PARTS = new Set(["engine", "compactEngine", "maneuverThruster", "droneBay"]);
+const FIXED_ORIENTATION_PARTS = new Set(["engine", "compactEngine", "heavyEngine", "maneuverThruster", "droneBay"]);
 
 export const PART_DESCRIPTIONS = Object.freeze({
   core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
@@ -310,7 +332,19 @@ export function makeWeapon(type, stats) {
     inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
     inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
     inductionSelfHeatMaxMultiplier: stats.inductionSelfHeatMaxMultiplier !== undefined ? Number(stats.inductionSelfHeatMaxMultiplier) : undefined,
-    beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined
+    beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
+    // Multi-pellet fire and the spinal charge cycle are preview-only here: the
+    // server owns the firing simulation, the inspector only reports them.
+    pelletCount: Number.isFinite(Number(stats.pelletCount)) && Number(stats.pelletCount) >= 2 ? Math.round(Number(stats.pelletCount)) : undefined,
+    pelletSpreadDegrees: stats.pelletSpreadDegrees !== undefined ? Number(stats.pelletSpreadDegrees) : undefined,
+    blastDamage: stats.blastDamage !== undefined ? Number(stats.blastDamage) : undefined,
+    blastRadius: stats.blastRadius !== undefined ? Number(stats.blastRadius) : undefined,
+    innerFullDamageRadius: stats.innerFullDamageRadius !== undefined ? Number(stats.innerFullDamageRadius) : undefined,
+    falloffExponent: stats.falloffExponent !== undefined ? Number(stats.falloffExponent) : undefined,
+    directDamage: stats.directDamage !== undefined ? Number(stats.directDamage) : undefined,
+    spinalCharge: stats.spinalCharge && typeof stats.spinalCharge === "object" && !Array.isArray(stats.spinalCharge)
+      ? { ...stats.spinalCharge }
+      : undefined
   };
 }
 
@@ -449,6 +483,10 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     heatPassiveCooling: component.heatPassiveCooling !== undefined ? numberOr(component.heatPassiveCooling, 0) : undefined,
     heatConductivity: component.heatConductivity !== undefined ? numberOr(component.heatConductivity, 0) : undefined,
     heatRetention: component.heatRetention !== undefined ? numberOr(component.heatRetention, 0) : undefined,
+    burstCooler: component.burstCooler && typeof component.burstCooler === "object" && !Array.isArray(component.burstCooler)
+      ? { ...component.burstCooler }
+      : null,
+    heatBeamShield: Boolean(component.heatBeamShield),
     decoyConfig: component.decoy && typeof component.decoy === "object" ? { ...component.decoy } : null,
     propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object" ? Object.freeze({
       capacity: numberOr(component.propulsionCapacitor.capacity, 100),

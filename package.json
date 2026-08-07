@@ -57,6 +57,7 @@
     "check:components": "node tests/verify-components.js",
     "test:components": "node tests/verify-components.js",
     "test:component-catalogue": "node tests/verify-component-catalogue.js",
+    "test:new-components": "node tests/verify-new-components.js",
     "test:maps": "node tests/verify-maps-objectives.js && node tests/verify-map-size-relay-fairness.js",
     "test:map-invariants": "node tests/verify-maps-objectives.js",
     "test:map-size-relay-fairness": "node tests/verify-map-size-relay-fairness.js",

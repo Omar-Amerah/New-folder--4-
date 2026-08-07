@@ -33,7 +33,7 @@
     "componentDamageRevision", "chpVisual", "proximityChargeRevision", "combatStyle",
     "orbitDirection",
     "movementToggles", "hp", "maxHp", "shield", "maxShield", "radius", "cost",
-    "focusTargetId", "combatTargetId", "weaponAngles", "commandState",
+    "focusTargetId", "combatTargetId", "weaponAngles", "weaponCharge", "commandState",
     "emergencyReserveUntil", "alive", "commandAuraActive", "commandAuraReceived",
     "proximityChargeDetonated", "blasterRange", "missileRange", "railgunRange",
     "beamRange", "weaponRanges", "beamRadius", "sensorRange", "sensorCones",

@@ -35,7 +35,8 @@ import {
 import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache, swapTextureLease } from "./pixiBake.js";
 import {
   drawShipStructure,
-  drawRotatingWeaponTop
+  drawRotatingWeaponTop,
+  SPINAL_CHARGE_STAGES
 } from "../componentArt.js";
 import { footprintLocalPlacement, shipEngineNozzles, shipLocalBounds } from "../shipGeometry.js";
 import { drawPlacedStaticComponent } from "../staticComponentComposition.js";
@@ -64,8 +65,13 @@ function hullTextureKey(staticKey) {
 }
 // Turret art depends only on part type + bake scale + generation (the rotating
 // top uses the part's own colour, not the team colour).
-function turretTextureKey(partType, bakeScale) {
-  return `${partType}|${bakeScale}|${getPixiBakeGeneration()}`;
+// A charging spinal mount lights up section by section, so its top is not one
+// static picture. Baking per frame would be ruinous; the art quantises progress
+// into SPINAL_CHARGE_STAGES discrete stages instead, and each stage is one more
+// cached texture keyed here. Every other weapon only ever asks for stage 0, so
+// nothing else pays for this.
+function turretTextureKey(partType, bakeScale, chargeStage) {
+  return `${partType}|${bakeScale}|${chargeStage}|${getPixiBakeGeneration()}`;
 }
 function arrowTextureKey(bakeScale) {
   return `debug-arrow|${bakeScale}|${getPixiBakeGeneration()}`;
@@ -76,8 +82,12 @@ function arrowTextureKey(bakeScale) {
 export function acquireHullLease(env, design, color, radius, staticKey) {
   return hullTextureCache.acquire(hullTextureKey(staticKey), () => bakePixiHullTexture(env, design, color, radius));
 }
-export function acquireTurretLease(env, partType) {
-  return turretTextureCache.acquire(turretTextureKey(partType, env.bakeScale), () => bakePixiTurretTexture(env, partType));
+export function acquireTurretLease(env, partType, chargeStage = 0) {
+  const stage = Number.isFinite(chargeStage) ? Math.max(0, Math.trunc(chargeStage)) : 0;
+  return turretTextureCache.acquire(
+    turretTextureKey(partType, env.bakeScale, stage),
+    () => bakePixiTurretTexture(env, partType, stage)
+  );
 }
 export function acquireTurretArrowLease(env) {
   return arrowTextureCache.acquire(arrowTextureKey(env.bakeScale), () => bakePixiTurretArrowTexture(env));
@@ -124,7 +134,7 @@ export function bakePixiHullTexture(env, design, color, radius) {
 // --- Turret texture -----------------------------------------------------------
 // Only the rotating weapon top, on a transparent background, centred on the
 // pivot, with local +x as weapon-forward.
-export function bakePixiTurretTexture(env, partType) {
+export function bakePixiTurretTexture(env, partType, chargeStage = 0) {
   const def = PART_DEFS[partType] || PART_DEFS.frame;
   const footprint = PART_STATS[partType]?.footprint || { width: 1, height: 1 };
   const tilesLong = Math.max(footprint.width || 1, footprint.height || 1);
@@ -132,8 +142,11 @@ export function bakePixiTurretTexture(env, partType) {
   const multi = tilesLong > 1 || tilesCross > 1;
   // Extent must cover the elongated barrel (canonical art spans ±tilesLong/2).
   const halfExtent = SHIP_SCALE * (multi ? tilesLong * 0.62 + 1.0 : 2.1);
+  const chargeProgress = SPINAL_CHARGE_STAGES > 1
+    ? Math.max(0, Math.min(1, chargeStage / (SPINAL_CHARGE_STAGES - 1)))
+    : 0;
   return pixiBakeTexture(env, halfExtent * 2, halfExtent * 2, () => {
-    drawRotatingWeaponTop({ type: partType, unit: SHIP_SCALE, tilesLong, tilesCross, color: def.color });
+    drawRotatingWeaponTop({ type: partType, unit: SHIP_SCALE, tilesLong, tilesCross, color: def.color, chargeProgress });
   });
 }
 
@@ -448,6 +461,10 @@ export function rebuildPixiShipStatic(env, view, design, color, radius, staticKe
     sprite.__designIndex = i;
     sprite.__partType = part.type;
     sprite.__weaponStat = PART_STATS[part.type]?.weapon || null;
+    // Only a charging mount ever leaves stage 0, so this stays a no-op field for
+    // every other turret in the fleet.
+    sprite.__chargeStage = 0;
+    sprite.__charges = Boolean(PART_STATS[part.type]?.weapon?.spinalCharge);
     sprite.__lease = lease;
     sprite.__baseTexture = lease.texture;
     sprite.rotation = defaultTurretAngle(part);

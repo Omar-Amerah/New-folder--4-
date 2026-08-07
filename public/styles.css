@@ -2258,16 +2258,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   color: #ffca57;
 }
 
-/* Mixed and pending are their own readouts rather than a faint mark on a
-   checkbox: a selection that disagrees, and a change not yet acknowledged,
-   are both things the player has to be able to see. */
+/* Mixed is its own readout rather than a faint mark on a checkbox: a selection
+   that disagrees is something the player has to be able to see. */
 .movement-toggle-row[aria-checked="mixed"] .movement-toggle-state {
   border-color: rgba(174, 199, 231, 0.4);
   color: #cddaea;
-}
-
-.movement-toggle-row[data-pending="1"] .movement-toggle-state {
-  border-color: rgba(122, 189, 255, 0.5);
-  background: rgba(122, 189, 255, 0.14);
-  color: #7abdff;
 }

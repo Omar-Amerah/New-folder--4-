@@ -22,6 +22,7 @@ const NUMERIC_FIELDS = [
 const WEAPON_NUMERIC_FIELDS = [
   "damage", "fireRate", "range", "radius", "projectileSpeed", "projectileLifetime", "accuracy", "tracking",
   "trackTime", "trackingDelay", "aimSpeed", "arc", "missileHp", "shipDamageMultiplier",
+  "pelletCount", "pelletSpreadDegrees",
   "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage",
   "blastDamage", "blastRadius", "proximityFuseRadius", "innerFullDamageRadius",
   "falloffExponent", "armourPenetration", "cooldown", "maximumExplosionTargets",
@@ -31,6 +32,23 @@ const WEAPON_NUMERIC_FIELDS = [
   "inductionContactGraceSeconds", "inductionSelfHeatMaxMultiplier"
 ];
 const VALID_BEAM_STYLES = new Set(["induction"]);
+// Impact Heat is a projectile/beam delivery property, not a beam-only one: the
+// Plasma Cannon dumps Heat into whatever its slug lands on. Families that never
+// resolve a component impact (point defence, flak) are still rejected so the
+// field cannot be set where nothing would read it.
+const IMPACT_HEAT_WEAPON_FAMILIES = new Set(["beam", "blaster", "railgun", "missile"]);
+// Multi-pellet fire is only wired into the unguided ballistic firing paths.
+const PELLET_WEAPON_FAMILIES = new Set(["blaster", "railgun"]);
+// Offensive impact bursts reuse Flak's blast maths on a ship-targeting shell.
+const IMPACT_BLAST_WEAPON_FAMILIES = new Set(["blaster", "railgun", "flak"]);
+// Charge-then-fire spinal mounts are built on the railgun firing path.
+const SPINAL_CHARGE_WEAPON_FAMILIES = new Set(["railgun"]);
+const SPINAL_CHARGE_NUMERIC_FIELDS = [
+  "chargeSeconds", "chargeHoldSeconds", "chargeDecayMultiplier",
+  "committedAimStartProgress", "committedAimTraverseFloor",
+  "hullTurnPenaltyStartProgress", "hullTurnPenaltyMultiplier",
+  "chargeHeatPerSecond", "fireHeat"
+];
 
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -259,6 +277,113 @@ function validateComponentAura(aura, path, errors) {
   }
 }
 
+// Multi-pellet fire. `pelletCount` is the number of independent projectiles one
+// trigger pull produces; `pelletSpreadDegrees` is the extra half-cone they are
+// scattered across on top of the weapon's normal accuracy spread. Both are
+// optional, but a spread without a count (or the reverse) is a data mistake that
+// would silently do nothing, so it fails here.
+function validatePelletFire(weapon, family, path, errors) {
+  const count = weapon.pelletCount;
+  const spread = weapon.pelletSpreadDegrees;
+  if (count === undefined && spread === undefined) return;
+  if (typeof family === "string" && !PELLET_WEAPON_FAMILIES.has(family)) {
+    errors.push(`${path}.weapon.pelletCount is only supported for ${[...PELLET_WEAPON_FAMILIES].join(", ")} weapons.`);
+  }
+  if (!(Number.isInteger(count) && count >= 2)) {
+    errors.push(`${path}.weapon.pelletCount must be an integer >= 2 when multi-pellet fire is configured.`);
+  }
+  if (!(Number.isFinite(spread) && spread > 0 && spread < 180)) {
+    errors.push(`${path}.weapon.pelletSpreadDegrees must be a finite number greater than 0 and less than 180.`);
+  }
+}
+
+// Offensive impact burst (Fragmentation Cannon). Flak already validates these
+// fields implicitly through WEAPON_NUMERIC_FIELDS; this adds the ordering rules
+// that make a burst meaningful so a blast radius inside the full-damage radius
+// cannot ship silently.
+function validateImpactBlast(weapon, family, path, errors) {
+  const blastDamage = weapon.blastDamage;
+  const blastRadius = weapon.blastRadius;
+  if (blastDamage === undefined && blastRadius === undefined) return;
+  if (typeof family === "string" && !IMPACT_BLAST_WEAPON_FAMILIES.has(family)) {
+    errors.push(`${path}.weapon.blastDamage is only supported for ${[...IMPACT_BLAST_WEAPON_FAMILIES].join(", ")} weapons.`);
+    return;
+  }
+  if (!isFiniteNonNegative(blastDamage)) errors.push(`${path}.weapon.blastDamage must be a finite non-negative number when a blast is configured.`);
+  if (!(Number.isFinite(blastRadius) && blastRadius > 0)) errors.push(`${path}.weapon.blastRadius must be a finite number greater than zero when a blast is configured.`);
+  const inner = weapon.innerFullDamageRadius;
+  if (inner !== undefined && Number.isFinite(blastRadius) && Number.isFinite(inner) && inner > blastRadius) {
+    errors.push(`${path}.weapon.innerFullDamageRadius must not exceed blastRadius.`);
+  }
+  if (weapon.falloffExponent !== undefined && !(Number.isFinite(weapon.falloffExponent) && weapon.falloffExponent > 0)) {
+    errors.push(`${path}.weapon.falloffExponent must be a finite number greater than zero.`);
+  }
+}
+
+// Spinal charge cycle. Every value is a balance constant the runtime reads
+// directly, so a malformed block must fail at load rather than be repaired into
+// a weapon that charges forever or never commits its aim.
+function validateSpinalCharge(charge, family, path, errors) {
+  if (charge === undefined || charge === null) return;
+  const chargePath = `${path}.weapon.spinalCharge`;
+  if (typeof charge !== "object" || Array.isArray(charge)) {
+    errors.push(`${chargePath} must be an object when present.`);
+    return;
+  }
+  if (typeof family === "string" && !SPINAL_CHARGE_WEAPON_FAMILIES.has(family)) {
+    errors.push(`${chargePath} is only supported for ${[...SPINAL_CHARGE_WEAPON_FAMILIES].join(", ")} weapons.`);
+  }
+  for (const field of SPINAL_CHARGE_NUMERIC_FIELDS) {
+    if (charge[field] !== undefined && !isFiniteNonNegative(charge[field])) {
+      errors.push(`${chargePath}.${field} must be a finite non-negative number when present.`);
+    }
+  }
+  if (!(Number.isFinite(charge.chargeSeconds) && charge.chargeSeconds > 0)) {
+    errors.push(`${chargePath}.chargeSeconds must be a finite number greater than zero.`);
+  }
+  for (const field of ["committedAimStartProgress", "committedAimTraverseFloor", "hullTurnPenaltyStartProgress", "hullTurnPenaltyMultiplier"]) {
+    if (charge[field] !== undefined && isFiniteNonNegative(charge[field]) && charge[field] > 1) {
+      errors.push(`${chargePath}.${field} must be from 0 to 1.`);
+    }
+  }
+  if (charge.penetrationProfile !== undefined) {
+    if (!Array.isArray(charge.penetrationProfile) || charge.penetrationProfile.length === 0) {
+      errors.push(`${chargePath}.penetrationProfile must be a non-empty array when present.`);
+    } else {
+      let previous = Infinity;
+      charge.penetrationProfile.forEach((value, index) => {
+        if (!(Number.isFinite(value) && value > 0 && value <= 1)) {
+          errors.push(`${chargePath}.penetrationProfile[${index}] must be a number greater than 0 and no more than 1.`);
+          return;
+        }
+        if (value > previous) errors.push(`${chargePath}.penetrationProfile must not increase along the impact ray.`);
+        previous = value;
+      });
+    }
+  }
+}
+
+// Burst cooling (Burst Cooler). The component charges from the Heat network and
+// vents its whole store at once, then runs at a fraction of its rating while it
+// recharges.
+const BURST_COOLER_NUMERIC_FIELDS = ["burstHeat", "triggerHeatRatio", "rechargeSeconds", "rechargeCoolingFraction"];
+function validateBurstCooler(config, path, errors) {
+  if (config === undefined || config === null) return;
+  const coolerPath = `${path}.burstCooler`;
+  if (typeof config !== "object" || Array.isArray(config)) {
+    errors.push(`${coolerPath} must be an object when present.`);
+    return;
+  }
+  for (const field of BURST_COOLER_NUMERIC_FIELDS) {
+    if (!isFiniteNonNegative(config[field])) errors.push(`${coolerPath}.${field} must be a finite non-negative number.`);
+  }
+  if (isFiniteNonNegative(config.burstHeat) && config.burstHeat <= 0) errors.push(`${coolerPath}.burstHeat must be greater than zero.`);
+  if (isFiniteNonNegative(config.rechargeSeconds) && config.rechargeSeconds <= 0) errors.push(`${coolerPath}.rechargeSeconds must be greater than zero.`);
+  for (const field of ["triggerHeatRatio", "rechargeCoolingFraction"]) {
+    if (isFiniteNonNegative(config[field]) && config[field] > 1) errors.push(`${coolerPath}.${field} must be from 0 to 1.`);
+  }
+}
+
 function validateComponentBalance(balance, { filePath = "component-balance.json" } = {}) {
   const errors = [];
   if (!balance || typeof balance !== "object" || Array.isArray(balance)) {
@@ -326,8 +451,10 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     validateThermalProfile(component, path, errors);
     validateComponentAura(component.aura, path, errors);
     validatePropulsionCapacitor(component.propulsionCapacitor, path, errors);
+    validateBurstCooler(component.burstCooler, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);
+    validateBoolean(component.heatBeamShield, `${path}.heatBeamShield`, errors);
     if (component.proximityCharge !== undefined) {
       const charge = component.proximityCharge;
       const chargePath = `${path}.proximityCharge`;
@@ -403,11 +530,18 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
             errors.push(`${path}.weapon.burnThroughCarryMultiplier is only supported for ${[...BURN_THROUGH_WEAPON_FAMILIES].join(", ")} weapons.`);
           }
         }
-        for (const field of ["chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage"]) {
+        for (const field of ["chargeRampSeconds", "maxChargeDamageBonus"]) {
           if (component.weapon[field] !== undefined && family !== "beam") {
             errors.push(`${path}.weapon.${field} is only supported for beam weapons.`);
           }
         }
+        if (component.weapon.impactHeatPerDamage !== undefined && typeof family === "string"
+          && !IMPACT_HEAT_WEAPON_FAMILIES.has(family)) {
+          errors.push(`${path}.weapon.impactHeatPerDamage is only supported for ${[...IMPACT_HEAT_WEAPON_FAMILIES].join(", ")} weapons.`);
+        }
+        validatePelletFire(component.weapon, family, path, errors);
+        validateImpactBlast(component.weapon, family, path, errors);
+        validateSpinalCharge(component.weapon.spinalCharge, family, path, errors);
         if (component.weapon.chargeRampSeconds !== undefined && component.weapon.chargeRampSeconds < 0) {
           errors.push(`${path}.weapon.chargeRampSeconds must be zero or greater.`);
         }

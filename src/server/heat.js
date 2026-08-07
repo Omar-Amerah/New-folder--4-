@@ -606,8 +606,11 @@ function rebuildThermalNetworks(ship) {
     networks.push({ id, frameIndices: frames, heatPipeIndices, frameOnlyIndices, connectedFrameCells, attachedComponents: [...attached], generators, sinks, radiators, closedCycleCoolers, totalStoredHeat: 0, totalStorageCapacity: 0, totalCoolingCapacity: 0, totalCooling: 0, overloaded: false });
 
     // Cached distance-to-cooling field: used only as a mild conductivity boost,
-    // never as an instant/global heat drain.
-    const coolers = new Set([...sinks, ...radiators, ...closedCycleCoolers]);
+    // never as an instant/global heat drain. A Burst Cooler counts here even
+    // though it removes almost nothing continuously — a frame run has to reach
+    // it for the accumulator to have anything to vent.
+    const burstCoolers = [...attached].filter(i => PARTS[design[i].type]?.burstCooler);
+    const coolers = new Set([...sinks, ...radiators, ...closedCycleCoolers, ...burstCoolers]);
     const distanceQueue = [];
     for (const frame of frames) {
       const touchesCooling = topologyNeighbourIndices(topology, frame).some((neighbour) => coolers.has(neighbour));
@@ -1001,6 +1004,53 @@ function updateHeatNetworkDiagnostics(ship, elapsed) {
   if (ship._thermalRuntime) ship._thermalRuntime.networkDiagnosticsDirty = false;
 }
 
+// --- Burst cooling ------------------------------------------------------------
+//
+// Every other cooling component in the catalogue is either a sustained remover
+// (Radiator, Closed-Cycle Cooler) or a passive buffer (Heat Sink). A Burst
+// Cooler is neither: it charges from the Heat network like a buffer and then
+// dumps its whole store in a single tick, after which it is nearly useless for
+// several seconds. That gives a Blueprint an answer to alpha-strike Heat spikes
+// without giving it more sustained cooling, which is the behaviour the existing
+// parts could not express.
+//
+// The recharge window is counted in simulated seconds rather than against the
+// wall clock so the behaviour is identical under a fixed timestep, a replay and
+// a test harness that never supplies a timestamp.
+
+function burstCoolerConfig(ship, index) {
+  const config = PARTS[ship.design?.[index]?.type]?.burstCooler;
+  return config && config.burstHeat > 0 ? config : null;
+}
+
+function updateBurstCooler(ship, index, thermal, heat, runtime, elapsed) {
+  const config = burstCoolerConfig(ship, index);
+  if (!config) return;
+  if (!(ship.componentBurstCoolerRecharge instanceof Float64Array)
+    || ship.componentBurstCoolerRecharge.length !== ship.design.length) {
+    ship.componentBurstCoolerRecharge = new Float64Array(ship.design.length);
+  }
+  const recharge = ship.componentBurstCoolerRecharge;
+  if (recharge[index] > 0) {
+    recharge[index] = Math.max(0, recharge[index] - elapsed);
+    return;
+  }
+  const alive = (ship.componentHp?.[index] ?? 1) > 0;
+  if (!alive) return;
+  const { getComponentPowerMultiplier } = require("./componentPower");
+  const power = getComponentPowerMultiplier(ship, index);
+  if (power <= 0) return;
+  const stored = Math.max(0, heat[index] + runtime.delta[index]);
+  const capacity = Math.max(1, thermal.capacity);
+  if (stored / capacity < config.triggerHeatRatio) return;
+  const vented = Math.min(stored, config.burstHeat * power);
+  if (vented <= 0) return;
+  runtime.delta[index] -= vented;
+  ship.componentHeatRemoved[index] += vented;
+  ship.componentHeatCooled[index] += vented;
+  recharge[index] = config.rechargeSeconds;
+}
+
 function updateShipHeatCore(ship, dt, room, now) {
   const runtimeStart = performanceNow();
   if (!ship.alive || !ship.componentHeat) return;
@@ -1244,6 +1294,12 @@ function updateShipHeatCore(ship, dt, room, now) {
       const active = thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) * power;
       const passiveFloor = thermal.passiveCooling;
       coolingRate = Math.max(passiveFloor, active) * thermal.retention * heatDissipationMult;
+    } else if (burstCoolerConfig(ship, index)) {
+      // A Burst Cooler removes almost nothing continuously; its whole output is
+      // the vent below. While recharging it drops to a trickle of its rating.
+      const config = burstCoolerConfig(ship, index);
+      const recharging = (ship.componentBurstCoolerRecharge?.[index] || 0) > 0;
+      coolingRate = thermal.cooling * (recharging ? config.rechargeCoolingFraction : 1) * thermal.retention * heatDissipationMult;
     } else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
     const ratio = Math.max(0, (heat[index] + runtime.delta[index]) / Math.max(1, thermal.capacity));
     const tempFactor = 0.7 + 0.9 * ratio * ratio;
@@ -1255,6 +1311,7 @@ function updateShipHeatCore(ship, dt, room, now) {
     ship.componentHeatCooled[index] += removed;
     if (ship.design[index].type === "radiator") ship.componentHeatRadiated[index] = removed;
     runtime.delta[index] -= removed;
+    updateBurstCooler(ship, index, thermal, heat, runtime, elapsed);
   }
   recordDuration(room, "heatCoolingMs", coolingStart);
 
