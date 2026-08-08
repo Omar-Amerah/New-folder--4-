@@ -18,8 +18,8 @@
 //     WorldLabels            - HUD bars, names, core warning (screen-aligned)
 //
 // ShipRoot owns world position. HullContainer owns the hull world rotation, and
-// EVERYTHING anchored to the ship body is inside it — engine exhaust, the hull
-// sprite, turrets and overlays — so any ship-local drawing rotates with the
+// EVERYTHING anchored to the ship body is inside it : engine exhaust, the hull
+// sprite, turrets and overlays : so any ship-local drawing rotates with the
 // ship (a turned ship's exhaust points the right way; a turret at its
 // ship-relative angle ends up at hull+relative in world space). The shield ring
 // (radial) and world labels (screen-aligned HUD) deliberately stay at the root,
@@ -97,7 +97,7 @@ export function acquireTurretArrowLease(env) {
 // --- Static hull texture ------------------------------------------------------
 // The hull carries the structural spine plus every component's STATIC art:
 // non-weapon modules in full, and for rotating weapons only their occupied
-// block and non-directional mount. Rotating weapon tops are excluded — they
+// block and non-directional mount. Rotating weapon tops are excluded : they
 // live on their own turret sprites.
 export function bakePixiHullTexture(env, design, color, radius) {
   const hullBounds = shipLocalBounds(design, SHIP_SCALE);
@@ -223,7 +223,7 @@ export function createPixiShipView(env) {
   // damage/flash overlays, and any above-hull effects. Because they are all in
   // the hull frame, a ship-local drawing (an exhaust plume pointing along the
   // engine's local axis, a turret at its ship-relative angle) rotates with the
-  // ship automatically — no per-layer rotation bookkeeping.
+  // ship automatically : no per-layer rotation bookkeeping.
   dynamicComponents.addChild(turretContainer);
   dynamicComponents.addChild(otherAnimated);
   hullContainer.addChild(effectsBelow);      // engine exhaust / maneuver jets (behind hull)
@@ -261,7 +261,7 @@ export function createPixiShipView(env) {
 
   // ShipRoot owns world position. The shield ring is radial (rotation is
   // irrelevant) and world labels are screen-aligned HUD, so both stay at the
-  // root — outside the hull rotation.
+  // root : outside the hull rotation.
   root.addChild(shieldRing);
   root.addChild(hullContainer);
 
@@ -419,7 +419,7 @@ export function resetPixiShipView(view) {
 // Full teardown for pool destruction: release leases, then destroy every
 // display object (never its cache-owned textures) and detach the root.
 // (Re)build the static hull sprite and the persistent turret sprites for a
-// design. Called only when the static signature changes — never on ordinary
+// design. Called only when the static signature changes : never on ordinary
 // snapshot/position/angle/weaponAngle updates.
 export function rebuildPixiShipStatic(env, view, design, color, radius, staticKey) {
   // Static hull: acquire replacement lease FIRST, assign texture to staticHullSprite,

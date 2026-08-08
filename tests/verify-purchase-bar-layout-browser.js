@@ -81,6 +81,8 @@ function makeManyDesigns(count) {
         const options = document.getElementById("purchaseOptions");
         const firstCard = options?.querySelector(".purchase-option");
         const firstThumb = firstCard?.querySelector(".purchase-thumb");
+        const firstWeapons = firstCard?.querySelector(".purchase-weapons");
+        const firstSpeed = firstCard?.querySelector(".purchase-speed");
         const lastCard = options?.lastElementChild;
         const quantity = document.querySelector(".purchase-quantity");
         const quantityOne = document.getElementById("purchaseQuantityOne");
@@ -129,6 +131,8 @@ function makeManyDesigns(count) {
           firstCardLeft: firstCardRect?.left,
           firstCardWidth: firstCardRect?.width,
           firstThumbWidth: firstThumbRect?.width,
+          firstSpeedText: firstSpeed?.textContent || "",
+          speedFollowsDps: firstSpeed?.previousElementSibling === firstWeapons,
           firstCardTitleOverflow: firstCardTitleStyle.overflow,
           firstCardTitleTextOverflow: firstCardTitleStyle.textOverflow,
           firstCardTitleWhiteSpace: firstCardTitleStyle.whiteSpace,
@@ -182,6 +186,8 @@ function makeManyDesigns(count) {
         `purchase cards keep their compact 196px width (${desktopLayout.firstCardWidth})`);
       assert.ok(desktopLayout.firstThumbWidth >= 75,
         `purchase thumbnails are at least 75px wide (${desktopLayout.firstThumbWidth})`);
+      assert.match(desktopLayout.firstSpeedText, / m\/s$/, `purchase card shows speed (${desktopLayout.firstSpeedText})`);
+      assert.equal(desktopLayout.speedFollowsDps, true, "purchase speed is directly below DPS");
       assert.equal(desktopLayout.firstCardTitleOverflow, "hidden", "long purchase titles are clipped");
       assert.equal(desktopLayout.firstCardTitleTextOverflow, "ellipsis", "long purchase titles use an ellipsis");
       assert.equal(desktopLayout.firstCardTitleWhiteSpace, "nowrap", "purchase titles stay on one line");

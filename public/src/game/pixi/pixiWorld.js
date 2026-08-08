@@ -257,7 +257,7 @@ function updatePixiRelays(env, now, players, bounds) {
   // NOT the map point's radius) and its ownership label. Drawing the abstract
   // objective marker on top of it stacked two bodies, two rings of different
   // sizes and two owner labels on the same coordinates, so here only the ID
-  // badge survives — the one thing the objective HUD refers to by name.
+  // badge survives : the one thing the objective HUD refers to by name.
   const stationMode = Array.isArray(snap?.stations) && snap.stations.length > 0;
   if (snap && snap.points) {
     for (const point of snap.points) {

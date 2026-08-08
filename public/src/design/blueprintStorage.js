@@ -1,6 +1,6 @@
 // Handles localStorage persistence, blueprint validation wrappers, default designs, and versioned storage.
 // Schema v2 stores { modules, wiring } together; older storage versions/keys are
-// intentionally discarded (no migration) — stale data falls back to the default ship.
+// intentionally discarded (no migration) : stale data falls back to the default ship.
 
 import "../shared/componentTransform.js";
 import "../shared/dataSupportRules.js";
@@ -64,7 +64,7 @@ export function normalizeWiring(wiring, modules) {
 
 // If the shared engine script is unavailable (stale-cached index.html, a test
 // importing this module without the shim), preserve bounded v2 routes rather
-// than returning empty wiring — otherwise the next
+// than returning empty wiring : otherwise the next
 // persistDesign() would permanently wipe the user's saved wiring. Real
 // normalization happens once the engine is present again.
 const FALLBACK_POWER_TIERS = new Set(["light", "standard", "heavy"]);
@@ -250,7 +250,7 @@ export function migrateCommandFootprints(input) {
       for (const c of newCells) occupied.add(`${c.x},${c.y}`);
       return { ...part, x: best.x, y: best.y };
     }
-    // Could not relocate — leave in place; normalizeDesignDetailed will report it.
+    // Could not relocate : leave in place; normalizeDesignDetailed will report it.
     for (const c of cells) occupied.add(`${c.x},${c.y}`);
     return part;
   });
@@ -476,7 +476,7 @@ function backupPreMigrationDesign(original) {
     if (s.getItem(LOCAL_DESIGN_PREMIGRATION_KEY) == null) {
       s.setItem(LOCAL_DESIGN_PREMIGRATION_KEY, JSON.stringify(original));
     }
-  } catch { /* storage full/unavailable — best effort */ }
+  } catch { /* storage full/unavailable : best effort */ }
 }
 export function designEnvelope(design, wiring, dataLinks, combatStyle = "hold", timestamps = {}) {
   const modules = normalizeDesign(design, { allowEmpty: true });

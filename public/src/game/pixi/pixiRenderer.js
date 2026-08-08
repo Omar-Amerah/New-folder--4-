@@ -1,4 +1,4 @@
-// PixiJS (WebGL) arena renderer — the one and only arena backend. Initialized on
+// PixiJS (WebGL) arena renderer : the one and only arena backend. Initialized on
 // demand by renderController. Drives interpolation/camera/state each frame and
 // renders through a GPU scene graph with baked textures and pooled sprites.
 
@@ -498,7 +498,7 @@ export function destroyPixiRenderer() {
   destroyPixiScreenUi(env);
   // 7. Now that no lease remains, destroy every cache-owned texture exactly once.
   flushAllPixiTextureCaches();
-  // 8. Destroy the Application. texture:false — textures are cache-owned and
+  // 8. Destroy the Application. texture:false : textures are cache-owned and
   // already destroyed above; letting Pixi destroy shared sprite textures would
   // double-destroy them.
   env.app.destroy({ removeView: false }, { children: true, texture: false, textureSource: false });

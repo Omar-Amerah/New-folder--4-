@@ -233,11 +233,19 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
       : null,
     proximityCharge: component.proximityCharge && typeof component.proximityCharge === "object"
       ? Object.freeze({
+          triggerRadius: toNumber(component.proximityCharge.triggerRadius, 50),
+          triggerConfirmationSeconds: toNumber(component.proximityCharge.triggerConfirmationSeconds, 0.2),
           blastRadius: toNumber(component.proximityCharge.blastRadius, 280),
           splashCentreDamage: toNumber(component.proximityCharge.centreDamage ?? component.proximityCharge.splashCentreDamage, 1000),
           falloffExponent: toNumber(component.proximityCharge.falloffExponent, 2),
           directContactMultiplier: toNumber(component.proximityCharge.directContactMultiplier, 1.5),
-          directContactHullDamage: toNumber(component.proximityCharge.directContactHullDamage, null),
+          directContactHullDamage: Number.isFinite(Number(component.proximityCharge.directContactHullDamage))
+            ? Number(component.proximityCharge.directContactHullDamage)
+            : toNumber(component.proximityCharge.centreDamage ?? component.proximityCharge.splashCentreDamage, 1000)
+              * toNumber(component.proximityCharge.directContactMultiplier, 1.5),
+          maxAffectedComponents: component.proximityCharge.maxAffectedComponents === null
+            ? null
+            : normalizeAffectedComponentLimit(component.proximityCharge.maxAffectedComponents, null, 6),
           contactMaxAffectedComponents: normalizeAffectedComponentLimit(
             component.proximityCharge.contactMaxAffectedComponents,
             component.proximityCharge.maxAffectedComponents,

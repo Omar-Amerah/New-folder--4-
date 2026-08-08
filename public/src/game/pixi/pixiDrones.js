@@ -18,7 +18,7 @@ let renderedRangeRings = [];
 const DRONE_SIZE = 16;
 
 // Cached body gradients keyed by role colour (persist across renderer lifetimes,
-// like the ship gradient cache — a handful of entries at most).
+// like the ship gradient cache : a handful of entries at most).
 const bodyGradients = new Map();
 
 function droneColors(type) {
@@ -67,8 +67,8 @@ function bodyGradient(env, color) {
 }
 
 // Silhouette paths, local +x = forward (matches ship/weapon convention).
-// Deliberately chunky, faceted hulls — blunt fronts, rectangular cores and
-// hard-edged wings — so each drone reads as a small blocky craft.
+// Deliberately chunky, faceted hulls : blunt fronts, rectangular cores and
+// hard-edged wings : so each drone reads as a small blocky craft.
 function buildDronePath(gfx, type, s) {
   if (type === "defence") {
     // Blocky guardian bastion: a blunt vertical prow and a hexagonal body.
@@ -134,14 +134,14 @@ function drawDrone(env, view, drone, player) {
   gfx.fill(bodyGradient(env, colors.body));
   gfx.stroke({ width: Math.max(1, s * 0.09), color: 0x05070c, alpha: 0.85 });
 
-  // Thin team-colour rim light for friend/foe identity — an edge, not a ring.
+  // Thin team-colour rim light for friend/foe identity : an edge, not a ring.
   buildDronePath(gfx, drone.type, s);
   gfx.stroke({ width: Math.max(0.8, s * 0.05), color: teamColor, alpha: 0.85 });
 
   drawDroneHighlight(gfx, drone.type, s);
 
   // Signature accent per role: defence carries a forward shield arc. Seed the
-  // arc with a moveTo to its start point — otherwise Pixi connects it to the
+  // arc with a moveTo to its start point : otherwise Pixi connects it to the
   // leftover current point (the highlight endpoint) with a stray line.
   if (drone.type === "defence") {
     const arcX = s * 0.04;

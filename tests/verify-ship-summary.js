@@ -314,6 +314,24 @@ const at = (type, x, y, rotation = 0) => ({ type, x, y, rotation });
     }
   });
 
+  check("status messages are stably ordered green, yellow, then red", () => {
+    const stats = { ...computeStats(DESIGNS.underpowered), maxShield: 0 };
+    const model = buildShipSummaryModel(stats, {
+      design: [{ type: "backupCore" }],
+      disconnectedComponentCount: 2
+    });
+    const ranks = { good: 0, warning: 1, bad: 2, neutral: 3 };
+    assert.deepEqual(model.status.map((message) => ranks[message.level]),
+      [...model.status.map((message) => ranks[message.level])].sort((a, b) => a - b));
+    assert.ok(model.status.findIndex((message) => message.id === "backup-command")
+      < model.status.findIndex((message) => message.id === "no-shield"), "green precedes yellow");
+    assert.ok(model.status.findIndex((message) => message.id === "no-shield")
+      < model.status.findIndex((message) => message.id === "power-short"), "yellow precedes red");
+    const disconnected = model.status.find((message) => message.id === "disconnected-components");
+    assert.equal(disconnected.level, "bad");
+    assert.match(disconnected.text, /^Unconnected components .*2 components disconnected from the ship/);
+  });
+
   check("backup command is reported as a healthy state, not a warning", () => {
     const design = [at("core", 7, 7), at("reactor", 7, 8), at("backupCore", 5, 7)];
     const model = buildShipSummaryModel(computeStats(design), { design });

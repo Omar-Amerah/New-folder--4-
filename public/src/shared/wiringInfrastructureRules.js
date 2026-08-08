@@ -17,8 +17,8 @@
     return Number.isFinite(number) ? number : fallback;
   }
 
-  // The single authoritative occupancy map. Every host lookup — cost, thermal
-  // displacement and runtime host availability — resolves cells through this.
+  // The single authoritative occupancy map. Every host lookup : cost, thermal
+  // displacement and runtime host availability : resolves cells through this.
   function occupancy(design, catalogue) {
     const map = new Map();
     (Array.isArray(design) ? design : []).forEach((module, index) => {
@@ -81,7 +81,7 @@
   }
 
   // Unique hosted-cell accounting. Cost and static displacement are charged per
-  // unique occupied host cell — never per raw section — so shared trunks and
+  // unique occupied host cell : never per raw section : so shared trunks and
   // junctions are counted exactly once. Power uses the installed (highest) tier
   // per cell; Data is single-tier. Power and Data occupy cells independently.
   function accountInfrastructure(design, wiring, catalogue, infrastructure) {
@@ -162,7 +162,7 @@
   // calculated normally, then raw Power and Data infrastructure cost is added on
   // top. Infrastructure is NEVER multiplied by hull/mass/weapon premiums.
   // preInfrastructureShipCost is the ENTIRE existing ship price (base, parts,
-  // mass, hull, shield, repair, weapon premium and size tax) before wiring — not
+  // mass, hull, shield, repair, weapon premium and size tax) before wiring : not
   // merely component cost. It is named explicitly so UI labels do not mislead.
   function infrastructureCostPresentation(preInfrastructureShipCost, powerWiring, dataWiring) {
     const preInfrastructure = numberOr(preInfrastructureShipCost, 0);

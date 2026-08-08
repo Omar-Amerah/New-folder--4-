@@ -2,17 +2,17 @@
 //
 // A station is an authoritative component structure, so every layer here is
 // measured from the design the server actually built its collision geometry
-// from — never from hand-tuned multiples of some radius:
+// from : never from hand-tuned multiples of some radius:
 //
 //   shellGfx     the structure itself, drawn as vector art traced around the
 //                measured footprint (see stationLocalBounds), including the
 //                three hangar recesses cut into a home station's shell
 //   turrets      one rotating sprite per weapon module, sitting on that
-//                module's own hardpoint — the same point the server fires from
+//                module's own hardpoint : the same point the server fires from
 //   shieldGfx    the shield envelope, in the same visual language as a ship's
 //   auraGfx      the gameplay radii: a home station's repair envelope, a
-//                relay's capture ring and progress sweep, and — for the station
-//                being inspected — its weapon range
+//                relay's capture ring and progress sweep, and : for the station
+//                being inspected : its weapon range
 //   hudGfx/Text  health, shield, the launch build bar, the state badge and the
 //                selection bracket
 //
@@ -117,7 +117,7 @@ export function stationStateLabel(station) {
 
 // Whether the structure should be drawn lit. A station whose condition the
 // sensor snapshot withheld is still a live installation to look at, so it is
-// drawn powered — only its readouts are unknown.
+// drawn powered : only its readouts are unknown.
 function stationIsPowered(state) {
   return state === "operational" || state === "unknown" || state === "controlled";
 }
@@ -138,7 +138,7 @@ function stationScaleRatio(station) {
 // Everything drawn for a station is anchored to this. The previous shell was a
 // hand-authored silhouette scaled off `apertureHalfWidth`, which put a home
 // station's drawn front face at local x=113 and its stern at x=-479 while the
-// solid structure actually spans x=-270..270 — so ships bounced off empty space
+// solid structure actually spans x=-270..270 : so ships bounced off empty space
 // ahead of the art and flew straight through the drawn stern.
 function stationLocalBounds(station) {
   const design = station.design;
@@ -405,7 +405,7 @@ function rebuildStationAura(view, station, color, zoom, debug, captureStep, sele
   if (progress > 0) {
     // moveTo the arc's start point first. Pixi's arc() continues the CURRENT
     // path, so without this it draws a straight line from the graphics origin
-    // out to the start of the sweep — a stray spoke from the relay's centre to
+    // out to the start of the sweep : a stray spoke from the relay's centre to
     // the top of its ring.
     const start = -Math.PI / 2;
     gfx.moveTo(Math.cos(start) * captureRadius, Math.sin(start) * captureRadius);
@@ -435,9 +435,9 @@ function stationShieldRadius(bounds, station) {
   return corner * 1.06;
 }
 
-// The station's shield envelope. Same visual language as a ship's — a faint
+// The station's shield envelope. Same visual language as a ship's : a faint
 // field, a continuous ring whose opacity and thickness carry strength, and a
-// fixed highlight arc for dimensionality — just wrapped around a structure.
+// fixed highlight arc for dimensionality : just wrapped around a structure.
 function rebuildStationShield(view, station, bounds) {
   const gfx = view.shieldGfx;
   gfx.clear();
@@ -460,7 +460,7 @@ function rebuildStationShield(view, station, bounds) {
   gfx.circle(0, 0, radius);
   gfx.stroke({ width: lineWidth, color, alpha: ringAlpha });
 
-  // Fixed highlight arc — a station never rotates, so a stable bearing reads
+  // Fixed highlight arc : a station never rotates, so a stable bearing reads
   // as a facet of the field rather than as flicker.
   const phase = -Math.PI * 0.75;
   gfx.moveTo(Math.cos(phase) * radius, Math.sin(phase) * radius);
@@ -470,7 +470,7 @@ function rebuildStationShield(view, station, bounds) {
 
 // The station's engagement envelope, drawn with the same dashed ring ships use
 // for their maximum weapon range so the two read as the same piece of
-// information. Only shown for the station being inspected — seven of these on
+// information. Only shown for the station being inspected : seven of these on
 // screen at once would be unreadable.
 function drawStationRangeRing(gfx, station, zoom) {
   const range = Number(station.weaponRange) || 0;
@@ -496,11 +496,11 @@ function drawStationRangeRing(gfx, station, zoom) {
 //
 // The baked component grid is deliberately NOT drawn. 176 designer-coloured
 // module tiles blown up to 2.8x read as an enormous blueprint rather than a
-// building, and none of that interior detail is actionable — a station is not
+// building, and none of that interior detail is actionable : a station is not
 // a ship you refit. Only the weapons keep their real component art, on their
 // real hardpoints, because those are the parts a player has to read and shoot.
 
-const HULL_BASE = "#0e131a";      // sealed interior decking — the darkest mass
+const HULL_BASE = "#0e131a";      // sealed interior decking : the darkest mass
 const BELT_FILL = "#232c39";      // outer armour belt, a clear step lighter
 const PLATE_FILL = "#323d4c";     // raised plating: bastions, housings, doors
 const METAL = "#4a5769";          // exposed structure: ribs, radiator fins
@@ -657,7 +657,7 @@ function drawHomeShell(gfx, station, bounds, accent, state) {
   const beltWidth = scale * 1.5;
   const lit = trimAlpha(state, 1);
 
-  // 1. Hull silhouette — the armour belt colour, since the belt is the edge.
+  // 1. Hull silhouette : the armour belt colour, since the belt is the edge.
   const outline = shellOutline(bounds, bays, chamfer);
   tracePolygon(gfx, outline);
   gfx.fill(BELT_FILL);
@@ -756,7 +756,7 @@ function drawHomeShell(gfx, station, bounds, accent, state) {
   }
 
   // 7. Reactor housing over the authored core, at the rear centreline: an
-  //    armoured drum with cooling vanes and a small lit aperture. Kept modest —
+  //    armoured drum with cooling vanes and a small lit aperture. Kept modest :
   //    a big saturated disc here reads as a bullseye from across the arena.
   const reactorX = bounds.minX * 0.4;
   const reactorR = scale * 1.35;
@@ -969,7 +969,7 @@ function rebuildStationHud(env, view, station, color, zoom, selected, barY, prog
 
 // The launch build bar.
 //
-// Builds are short — a light hull is out of the door in well under a second —
+// Builds are short : a light hull is out of the door in well under a second :
 // so the bar has to read as motion rather than as a number that happens to
 // change. It gets a proper recessed track, segment ticks that the fill sweeps
 // past, and a bright leading edge with a soft run-up behind it, which is what
@@ -1140,7 +1140,7 @@ export function updatePixiStations(env, now, players, bounds) {
       view.turretContainer.rotation = Number(station.angle) || 0;
 
       // Weapon art only. The station's interior components are never baked or
-      // drawn — see the shell section — so the only sprites here are the turrets,
+      // drawn : see the shell section : so the only sprites here are the turrets,
       // on the hardpoints the server fires from. Absent design (a compact
       // snapshot received before any full one) leaves the view empty rather than
       // inventing a placeholder.
@@ -1151,8 +1151,8 @@ export function updatePixiStations(env, now, players, bounds) {
           view.turretSignature = turretSignature;
           rebuildStationTurrets(env, view, station);
         }
-        // A destroyed battery keeps its barrel on the structure — it is wreckage,
-        // not a hole — but stops tracking and goes dark. `componentHp` is rounded
+        // A destroyed battery keeps its barrel on the structure : it is wreckage,
+        // not a hole : but stops tracking and goes dark. `componentHp` is rounded
         // to a tenth in the snapshot, so only a true zero counts as destroyed.
         for (const sprite of view.turretSprites) {
           const hp = station.componentHp?.[sprite.__designIndex];
@@ -1227,9 +1227,9 @@ export function updatePixiStations(env, now, players, bounds) {
       let stateLabel = stationStateLabel(station);
       if (station.ownerId && station.ownerId !== state.myId) {
         const owner = players?.get?.(station.ownerId);
-        if (owner) stateLabel += ` — ${owner.name || owner.team || ""}`;
+        if (owner) stateLabel += ` : ${owner.name || owner.team || ""}`;
       } else if (station.team) {
-        stateLabel += ` — ${station.team === "blue" ? "Blue" : station.team === "red" ? "Red" : station.team}`;
+        stateLabel += ` : ${station.team === "blue" ? "Blue" : station.team === "red" ? "Red" : station.team}`;
       }
       if (station.stationType === "relay" && !selected && (station.captureProgress || 0) > 0) {
         stateLabel += ` (${Math.round((station.captureProgress || 0) * 100)}%)`;

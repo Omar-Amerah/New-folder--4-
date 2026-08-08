@@ -74,7 +74,7 @@ export async function requestCloseBlueprintDesigner() {
     return true;
   }
 
-  // Nothing was touched since the designer opened — never interrupt the close.
+  // Nothing was touched since the designer opened : never interrupt the close.
   if (!isEditorDirty()) {
     closeBlueprintDesigner();
     return true;

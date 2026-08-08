@@ -101,7 +101,7 @@ export const GENERATED_BALANCE = {
     "requiresThrust": true,
     "noEngineMaxSpeed": "0 m/s",
     "noEngineAcceleration": "0 m/s^2",
-    "effectiveThrust": "Engine thrust stacks with gentler diminishing returns: 100%, 94%, 88%, 83%, 79%, 75%, etc. (falloff 0.94 per engine).",
+    "effectiveThrust": "Engine thrust stacks with gentler diminishing returns: 100%, 96%, 92%, 88%, 85%, 82%, etc. (falloff 0.96 per engine).",
     "effectiveTurn": "Positive turn modules stack with softer diminishing returns: 100%, 92%, 85%, etc.",
     "powerEfficiency": "Power displays as use/generated. If underpowered, movement is multiplied by pow(powerGeneration / max(powerUse, 1), 1.8), clamped to a minimum 18%, so deficits become severe quickly. Shield/system efficiency also drops with pow(ratio, 1.35).",
     "massClasses": [
@@ -288,7 +288,7 @@ export const GENERATED_BALANCE = {
       "turn": 0,
       "energy": 80,
       "repair": 0,
-      "description": "Required command core with light built-in power."
+      "description": "Required primary command core with strong durability and light built-in Power generation."
     },
     {
       "id": "backupCore",
@@ -308,7 +308,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "rotatable": true,
       "maxPerShip": 1,
-      "description": "Redundant command centre that automatically takes control if the main Core is destroyed, keeping the ship operational with reduced combat efficiency. Also projects a command aura that improves weapon accuracy, turret tracking, and target acquisition for allied ships within range.",
+      "description": "Redundant command centre that takes control if the main Core is destroyed, keeping the ship operational at reduced weapon effectiveness. Also projects a command aura that improves nearby allied targeting.",
       "footprint": {
         "width": 2,
         "height": 1
@@ -336,7 +336,7 @@ export const GENERATED_BALANCE = {
       "turn": -0.06,
       "energy": 0,
       "repair": 0,
-      "description": "Heavy passive protection that adds strong hull but slows the ship."
+      "description": "Heavy armour with high hull durability and strong flat damage reduction, at the cost of mass and turn rate."
     },
     {
       "id": "compositeArmor",
@@ -354,7 +354,7 @@ export const GENERATED_BALANCE = {
       "turn": -0.02,
       "energy": 0,
       "repair": 0,
-      "description": "Lighter armor that gives efficient hull with less mass."
+      "description": "Lighter armour with good hull durability and moderate flat damage reduction, trading protection for lower mass and turn penalty."
     },
     {
       "id": "frame",
@@ -432,7 +432,7 @@ export const GENERATED_BALANCE = {
       "turn": 0,
       "energy": 0,
       "repair": 0,
-      "description": "Triangular frame piece for tapered ship edges. Occupies one cell and provides 50% of the standard frame block's stats.",
+      "description": "Triangular structural piece for tapered ship edges. Occupies one cell with reduced durability and mass compared with a full Frame.",
       "shapeType": "halfDiagonal",
       "flippable": true,
       "statScale": 0.5,
@@ -859,7 +859,7 @@ export const GENERATED_BALANCE = {
       "heatConductivity": 0.9,
       "heatRetention": 1.2,
       "heatBeamShield": true,
-      "description": "Ceramic-laminate plating with far less hull than standard Armor but an enormous thermal mass, so it soaks Heat instead of overheating and sheds it slightly faster. It also stops induction Heat beams outright: a lance that has to burn through Refractory Armour to reach an internal subsystem couples no Heat at all."
+      "description": "Heat-resistant armour with high thermal capacity and moderate physical protection. It absorbs large amounts of Heat and completely blocks Thermal Induction Lance coupling through the plate."
     },
     {
       "id": "halfRefractoryArmorDiagonal",
@@ -1037,7 +1037,7 @@ export const GENERATED_BALANCE = {
       "dischargeEfficiency": 0.9,
       "dischargeHeatAtMax": 0.6,
       "repair": 0,
-      "description": "Efficient emergency Power reserve. Charges from spare reactor output and automatically supports its connected network during shortages."
+      "description": "Efficient emergency Power reserve. Charges from spare generation and automatically supports the ship during Power shortages."
     },
     {
       "id": "capacitor",
@@ -1130,7 +1130,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "rotatable": false,
-      "description": "Main propulsion module that adds thrust for speed and acceleration. Always faces forward (fires backwards); vectors a little thrust for modest turning — add maneuver thrusters to turn faster.",
+      "description": "Main propulsion module that provides thrust for speed and acceleration. Always faces forward and exhausts rearward. Provides modest turning assistance; add Maneuver Thrusters for stronger control.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1375,7 +1375,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "rotatable": true,
-      "description": "Powerful lateral thruster that provides directional torque. A correctly positioned pair turns substantially faster than a Gyroscope, but costs more space, Power and money.",
+      "description": "Directional control thruster that provides strong turning torque and lateral thrust. Turning effectiveness increases when placed farther from the ship's centre of mass.",
       "lateralThrust": 162,
       "brakingThrust": 0,
       "reverseThrust": 0,
@@ -1401,7 +1401,7 @@ export const GENERATED_BALANCE = {
       "turn": -0.04,
       "energy": 0,
       "repair": 0,
-      "description": "High-power defensive projector. Shields absorb 95% of damage they block. 5% leaks through to hull. Different weapons may deal more or less damage to shields and hull.",
+      "description": "High-Power shield projector built around rapid regeneration. Provides a strong defensive field and restores it far faster than a standard Shield, but consumes much more Power and space.",
       "footprint": {
         "width": 2,
         "height": 2
@@ -1454,7 +1454,7 @@ export const GENERATED_BALANCE = {
         "hullDamageMultiplier": 1.2
       },
       "rotatable": true,
-      "description": "Rapid-fire close weapon with high spread."
+      "description": "Rapid-fire close-range kinetic weapon. High fire rate and spread make it effective against exposed hull and light targets, but it performs poorly against shields."
     },
     {
       "id": "beamEmitter",
@@ -1490,7 +1490,7 @@ export const GENERATED_BALANCE = {
         "impactHeatPerDamage": 0.35
       },
       "rotatable": true,
-      "description": "Sustained shield-breaking beam that heats struck components and ramps to 50% bonus damage after 15 seconds of continuous contact. It aims toward the enemy Core and can carry part of its excess damage into one component behind a destroyed module.",
+      "description": "Sustained beam that excels against shields and heats the component it strikes. Continuous contact ramps its damage, and excess damage can carry through one destroyed component.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1539,7 +1539,7 @@ export const GENERATED_BALANCE = {
         "beamStyle": "induction"
       },
       "rotatable": true,
-      "description": "Zero-damage induction beam that bypasses armour and couples Heat into one internal subsystem. Sustained contact increases Heat transfer, while active shields reduce its efficiency.",
+      "description": "Zero-damage induction beam that injects Heat into an internal target and nearby components. Sustained contact increases Heat transfer; shields reduce coupling, while Refractory Armour can block the beam.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1608,7 +1608,7 @@ export const GENERATED_BALANCE = {
         "hullDamageMultiplier": 1
       },
       "rotatable": true,
-      "description": "Tracking burst weapon with long reach and slow reload."
+      "description": "Guided missile launcher with long reach, moderate tracking and a slow reload. Missiles can be intercepted before impact."
     },
     {
       "id": "railgun",
@@ -1639,7 +1639,7 @@ export const GENERATED_BALANCE = {
         "hullDamageMultiplier": 1.55
       },
       "rotatable": true,
-      "description": "Long-range precision weapon with high damage and narrow arc.",
+      "description": "Long-range precision kinetic weapon with heavy hull damage, excellent accuracy and a narrow firing arc.",
       "footprint": {
         "width": 1,
         "height": 3
@@ -1675,7 +1675,7 @@ export const GENERATED_BALANCE = {
         "impactHeatPerDamage": 0.9
       },
       "rotatable": true,
-      "description": "Fires a slow magnetically bottled plasma slug. Ordinary damage on impact, but it dumps a large amount of Heat straight into the component it strikes, so sustained fire overheats subsystems long before it breaks them. Its slow round is easy to dodge at range.",
+      "description": "Fires a slow plasma projectile that deals direct damage and injects substantial Heat into the component it strikes. Powerful against thermal-sensitive systems, but easier to dodge at long range.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1716,7 +1716,7 @@ export const GENERATED_BALANCE = {
         "maximumExplosionTargets": 6
       },
       "rotatable": true,
-      "description": "Offensive shell that bursts on impact. The direct hit is modest, but the fragmentation cloud rakes everything within the blast, so it excels against exposed components and tightly packed light ships. Shields shrug most of it off.",
+      "description": "Impact shell that combines a modest direct hit with an area fragmentation burst. Effective against exposed components and clustered light ships, but weak against shields.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1753,7 +1753,7 @@ export const GENERATED_BALANCE = {
         "hullDamageMultiplier": 1.15
       },
       "rotatable": true,
-      "description": "Short-range multi-barrel cluster gun. Every trigger pull throws six weak pellets across a wide cone, shredding lightly protected hulls but wasting almost all of its damage against armour, whose flat reduction applies to every pellet separately."
+      "description": "Short-range spread weapon that fires six low-damage pellets per shot. Strong against lightly protected hull, but flat armour reduction applies separately to every pellet."
     },
     {
       "id": "spinalAccelerator",
@@ -1798,7 +1798,7 @@ export const GENERATED_BALANCE = {
         }
       },
       "rotatable": true,
-      "description": "Capital spinal mount, one per ship. It spends ten seconds visibly charging along its length before launching a single hypervelocity lance that punches through component after component at 100%, 70%, 45% and 25% of its remaining damage. Traverse locks up as the charge nears full and the hull turns sluggishly in the last stage, so the shot must be committed early — and the charge glow warns the target the whole time.",
+      "description": "Capital-scale spinal kinetic weapon limited to one per ship. Charges visibly before firing a devastating penetrating shot, while gradually restricting weapon traverse and hull turning.",
       "footprint": {
         "width": 2,
         "height": 6
@@ -1836,7 +1836,7 @@ export const GENERATED_BALANCE = {
         "hullDamageMultiplier": 0.85
       },
       "rotatable": true,
-      "description": "Tracking missile pod that applies frequent pressure.",
+      "description": "Rapid guided-missile pod that fires frequent lightweight missiles with strong tracking. Pressures point defence through sustained volume rather than heavy individual hits.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1874,7 +1874,7 @@ export const GENERATED_BALANCE = {
         "hullDamageMultiplier": 1.65
       },
       "rotatable": true,
-      "description": "Heavy slow missile for cracking large ships.",
+      "description": "Heavy long-range missile with poor tracking and very high hull damage. Slow and vulnerable to interception, but dangerous against large or sluggish ships.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1918,7 +1918,7 @@ export const GENERATED_BALANCE = {
       "utility": "heatTransfer",
       "heatCapacity": 10,
       "heatCooling": 0,
-      "description": "Transfers heat rapidly between components connected to the same coolant network. Does not remove heat itself. Pipes join automatically to orthogonally adjacent pipes and components — no rotation needed — but they store almost no heat and are structurally weak, so use frames for hull support and heat pipes for dedicated thermal runs."
+      "description": "Rapidly transfers Heat between components on the same coolant network. It provides no cooling and stores almost no Heat. Pipes connect automatically to orthogonal neighbours and need no rotation."
     },
     {
       "id": "heatSink",
@@ -1936,7 +1936,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "Stores large amounts of heat. Connect it to hot systems with Heat Pipes to absorb thermal spikes. Its capacity is its own — neighbouring components gain nothing from sitting beside it — and it removes very little heat, so pair it with a Radiator to shed what it has stored."
+      "description": "Stores large amounts of Heat for buffering thermal spikes. It provides very little cooling, and its capacity belongs only to the sink itself. Connect it to hot systems with Heat Pipes."
     },
     {
       "id": "heatVent",
@@ -1957,7 +1957,7 @@ export const GENERATED_BALANCE = {
       "heatCapacity": 45,
       "heatCooling": 4,
       "heatConductivity": 1,
-      "description": "Cheap passive heat rejection. Must be exposed to space and connected to hot systems directly or through Heat Pipes. One exposed edge is enough; fully enclosed it vents almost nothing. Far weaker than a Radiator, but small, cheap and free of Power draw."
+      "description": "Cheap passive Heat rejection that requires an exposed edge. Much weaker than a Radiator, but compact, lightweight and requires no Power."
     },
     {
       "id": "radiator",
@@ -1976,7 +1976,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "The ship's strongest sustained heat rejection. Needs an exposed exterior edge for full output and drops to 25% when fully enclosed. Feed it from hot systems directly or through Heat Pipes."
+      "description": "Strong sustained external Heat rejection. Requires an exposed edge for full output and falls to 25% cooling when fully enclosed."
     },
     {
       "id": "closedCycleCooler",
@@ -1999,7 +1999,7 @@ export const GENERATED_BALANCE = {
       "heatCooling": 9,
       "heatPassiveCooling": 1,
       "heatConductivity": 1.6,
-      "description": "Powered internal cooling loop that removes Heat without requiring hull exposure. It provides reliable cooling anywhere in the ship, but consumes substantial Power and cannot match a fully exposed Radiator."
+      "description": "Powered internal cooling that removes Heat without requiring hull exposure. Reliable anywhere in the ship, but Power-hungry and weaker than a fully exposed Radiator."
     },
     {
       "id": "burstCooler",
@@ -2027,7 +2027,7 @@ export const GENERATED_BALANCE = {
         "rechargeSeconds": 9,
         "rechargeCoolingFraction": 0.15
       },
-      "description": "Cryogenic accumulator that charges from the Heat network and then vents its whole store at once. It removes nothing while recharging, so it is a burst answer to alpha-strike Heat spikes rather than a substitute for sustained Radiator or Closed-Cycle cooling.",
+      "description": "Cryogenic accumulator for sudden Heat spikes. Automatically dumps stored Heat when it reaches its trigger threshold, then provides only weak cooling while it recharges.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -2093,7 +2093,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "rotatable": false,
-      "description": "Launches and rebuilds a configurable squad of three Fighter, Defence, or Repair drones after leaving spawn. Drones carry 15 seconds of fuel and dock for 2 seconds to refuel. Requires one completely exposed two-cell launch edge.",
+      "description": "Launches and rebuilds a selected squad of Fighter, Defence or Repair drones. Squad size, fuel duration and rebuild time depend on the selected drone type. Requires one completely exposed two-cell launch edge.",
       "footprint": {
         "width": 2,
         "height": 2
@@ -2116,7 +2116,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 16,
       "rotatable": true,
-      "description": "Heavy repair beam. Aim it toward a friendly ship to project a hull-recovery beam from the emitter.",
+      "description": "Directional support beam that projects hull repair onto a damaged allied ship in range.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -2480,7 +2480,7 @@ export const GENERATED_BALANCE = {
         "accelerationMultiplier": 1.08,
         "turnRateMultiplier": 1.08
       },
-      "description": "Improves nearby allied acceleration and turning without raising top speed enough to invalidate engine balance."
+      "description": "Improves the acceleration and turn rate of nearby allied ships. Does not increase top speed."
     },
     {
       "id": "proximityDemolitionCharge",
@@ -2550,7 +2550,7 @@ export const GENERATED_BALANCE = {
         "directContactMultiplier": 2.5,
         "damagesFriendlyShips": false
       },
-      "description": "Kamikaze proximity charge for small attack swarms. Armed by default, it detonates when an enemy ship enters the trigger radius, damages at most 12 components per ship, and does not damage friendly ships."
+      "description": "Compact kamikaze charge for attack swarms. Armed by default, it detonates when an enemy enters its trigger radius, damages a limited number of components and does not damage friendly ships."
     },
     {
       "id": "electronicWarfareCommandCentre",
@@ -2579,7 +2579,7 @@ export const GENERATED_BALANCE = {
         "missileTrackingResistanceMultiplier": 1.12,
         "componentAimRetentionMultiplier": 1.1
       },
-      "description": "Improves nearby allied sensor range, missile tracking resistance and component-aim retention quality."
+      "description": "Improves nearby allied sensor range, resistance to missile tracking and the ability of weapons to retain precise component targeting."
     }
   ],
   "metadata": {

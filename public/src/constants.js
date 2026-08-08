@@ -28,7 +28,7 @@ if (typeof globalThis !== "undefined") globalThis.__mfaFrontendBuild = FRONTEND_
 // Whether development/test-only global handles (arbitrary protocol send, state
 // inspection, renderer failure injection) may be exposed. Enabled on local dev
 // hosts (localhost / 127.0.0.1 / file), or explicitly via ?diagnostics=1 /
-// ?debug=1 / window.__mfaEnableDiagnostics — automated browser tests run on
+// ?debug=1 / window.__mfaEnableDiagnostics : automated browser tests run on
 // 127.0.0.1 and so keep their handles. Normal production deploys do not expose
 // these functions.
 export const DIAGNOSTICS_ENABLED = (() => {

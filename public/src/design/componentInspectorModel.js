@@ -1,8 +1,8 @@
 // Data-driven presentation model for the Blueprint "Selected Component" inspector.
 //
 // This module owns the *information architecture* of the inspector: which facts a
-// component shows, in what order, and under which heading. It renders no markup —
-// partInspectorUi.js turns the model into DOM — so the whole hierarchy stays
+// component shows, in what order, and under which heading. It renders no markup :
+// partInspectorUi.js turns the model into DOM : so the whole hierarchy stays
 // unit-testable without a browser.
 //
 // Two rules are enforced centrally rather than per component:
@@ -10,8 +10,8 @@
 //   1. Every fact carries a canonical stat id. A StatLedger records which ids have
 //      already been emitted, so the same statistic can never appear twice (for
 //      example DPS in both Primary capability and Weapon details).
-//   2. Meaningless values — zero bonuses, 100% "modifiers", None/Not applicable,
-//      empty strings — are dropped at construction time instead of being rendered
+//   2. Meaningless values : zero bonuses, 100% "modifiers", None/Not applicable,
+//      empty strings : are dropped at construction time instead of being rendered
 //      as noise.
 //
 // All numbers come from the authoritative component catalogue (PART_STATS, itself
@@ -20,12 +20,13 @@
 
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatDistance, formatSpeed, formatDamage, formatPercent } from "./statFormatting.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { sortComponentCallouts } from "./statusCalloutOrder.js";
 
 // ---------------------------------------------------------------------------
 // Value hygiene
 // ---------------------------------------------------------------------------
 
-const EMPTY_VALUES = new Set(["", "none", "n/a", "na", "not applicable", "unavailable", "-", "—"]);
+const EMPTY_VALUES = new Set(["", "none", "n/a", "na", "not applicable", "unavailable", "-", String.fromCharCode(0x2014)]);
 
 /** A value is worth rendering when it is non-empty and not an "absent" placeholder. */
 export function isMeaningfulValue(value) {
@@ -38,9 +39,9 @@ export function isMeaningfulValue(value) {
  * Build a row, or return null when the row carries no information.
  *
  * kind:
- *   "modifier" — a ×multiplier; hidden when it equals the 100% no-op.
- *   "bonus"    — an additive bonus; hidden when it is zero.
- *   "value"    — shown whenever the formatted text is meaningful (default).
+ *   "modifier" : a ×multiplier; hidden when it equals the 100% no-op.
+ *   "bonus"    : an additive bonus; hidden when it is zero.
+ *   "value"    : shown whenever the formatted text is meaningful (default).
  */
 export function statRow(id, label, value, { kind = "value", raw = null, tone = null, hint = null } = {}) {
   if (kind === "modifier" && (raw === null || Math.abs(Number(raw) - 1) < 1e-9)) return null;
@@ -98,7 +99,7 @@ const CATEGORY_BADGES = {
   "Power Infrastructure": "POWER INFRA"
 };
 
-/** `WEAPON · 1×1` — category and footprint in one compact badge. */
+/** `WEAPON · 1×1` : category and footprint in one compact badge. */
 export function categoryBadge(category, footprint = { width: 1, height: 1 }) {
   const label = CATEGORY_BADGES[category] || String(category || "COMPONENT").toUpperCase();
   return `${label} · ${footprint.width || 1}×${footprint.height || 1}`;
@@ -144,7 +145,24 @@ export function heatProfileFor(type, stat) {
   return { generation, cadence, capacity: profile.capacity, cooling: profile.cooling, passiveCooling: profile.passiveCooling };
 }
 
-const THERMAL_ROLE_TYPES = new Set(["radiator", "heatVent", "heatSink", "heatPipe"]);
+const THERMAL_ROLE_TYPES = new Set(["radiator", "heatVent", "closedCycleCooler", "heatSink", "heatPipe"]);
+
+const CONCISE_INSPECTOR_DESCRIPTIONS = Object.freeze({
+  reactor: "Primary Power source for weapons, shields, engines and support systems.",
+  nuclearReactor: "Capital-scale Power source for high-demand ships.",
+  backupCore: "Secondary command centre for resilient ship designs.",
+  heatPipe: "Coolant-network conduit.",
+  heatSink: "High-capacity Heat storage component.",
+  heatVent: "Compact passive exterior cooling component.",
+  radiator: "Exterior cooling component for connected Heat networks.",
+  closedCycleCooler: "Powered cooling component that operates inside the hull.",
+  burstCooler: "Automatic thermal buffer with a recovery cycle.",
+  droneBay: "Launches and rebuilds configurable Fighter, Defence or Repair drone squads."
+});
+
+export function inspectorDescription(type, fallback = "") {
+  return CONCISE_INSPECTOR_DESCRIPTIONS[type] || fallback;
+}
 
 /**
  * All components now show heat details, so the thermal section is always
@@ -166,7 +184,7 @@ function buildCore(type, stat, ledger, effectiveCost) {
     statRow("durability", "Durability", formatHull(stat.hp))
   ];
   // Power is stated by direction rather than by an ambiguous +/- sign, and only
-  // once — the ledger stops it reappearing in any later grid.
+  // once : the ledger stops it reappearing in any later grid.
   const generation = stat.powerGeneration || 0;
   const use = stat.powerUse || 0;
   if (generation > 0) rows.push(statRow("power", "Power output", `${generation} MW`, { tone: "supply" }));
@@ -175,7 +193,7 @@ function buildCore(type, stat, ledger, effectiveCost) {
 }
 
 // ---------------------------------------------------------------------------
-// Primary capability — per family
+// Primary capability : per family
 // ---------------------------------------------------------------------------
 
 function weaponCapability(stat) {
@@ -202,7 +220,7 @@ function capabilityRows(type, stat, family, context = {}) {
   if (stat.proximityCharge) {
     const cfg = stat.proximityCharge;
     return [
-      statRow("proximityCharge.trigger", "Trigger", "Enemy within 50 m"),
+      statRow("proximityCharge.trigger", "Trigger", `Enemy within ${formatDistance(cfg.triggerRadius)}`),
       statRow("proximityCharge.directDamage", "Direct contact damage", formatDamage(cfg.directContactHullDamage)),
       statRow("proximityCharge.splashDamage", "Splash centre damage", formatDamage(cfg.splashCentreDamage)),
       statRow("proximityCharge.blastRadius", "Blast radius", formatDistance(cfg.blastRadius)),
@@ -326,12 +344,29 @@ function capabilityRows(type, stat, family, context = {}) {
 }
 
 function thermalRoleText(type) {
-  if (type === "radiator") return "Strong external cooling — the ship's best sustained heat rejection, needs an exposed edge";
-  if (type === "heatVent") return "Weak external cooling — cheap passive rejection, needs at least one edge exposed to space";
-  if (type === "closedCycleCooler") return "Powered internal cooling loop — removes heat without requiring hull exposure";
-  if (type === "heatSink") return "Storage — holds a large amount of heat in itself; heat must be transferred into it";
-  if (type === "heatPipe") return "Transport — moves heat rapidly between everything on the same coolant network, and removes none itself";
+  if (type === "radiator") return "Strong sustained external heat rejection.";
+  if (type === "heatVent") return "Cheap low-output external cooling for compact ships.";
+  if (type === "closedCycleCooler") return "Sustained internal cooling where hull exposure is unavailable.";
+  if (type === "heatSink") return "Buffers temporary Heat spikes; it does not remove Heat.";
+  if (type === "heatPipe") return "Routes Heat between separated systems; it provides no storage or cooling.";
   return "Thermal support";
+}
+
+function exteriorCoolingCondition(type, rules) {
+  if (type === "radiator") {
+    const enclosedPercent = Math.round((Number(rules.RADIATOR_ENCLOSED_MULTIPLIER) || 0) * 100);
+    return {
+      ...statRow("heat.exposure", "Needs an exposed edge", `Fully enclosed radiators operate at ${enclosedPercent}% of rated cooling output.`, { tone: "condition" }),
+      calloutCategory: "condition"
+    };
+  }
+  if (type === "heatVent") {
+    return {
+      ...statRow("heat.exposure", "Needs an exposed edge", "Fully enclosed vents provide very little cooling.", { tone: "condition" }),
+      calloutCategory: "condition"
+    };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,43 +377,50 @@ function thermalSummaryRows(type, stat, ledger) {
   if (!hasThermalRelevance(type, stat)) return [];
   const profile = heatProfileFor(type, stat);
   const rows = [];
-  if (profile.generation > 0.05) {
-    rows.push(statRow("heat.production", "Heat", `Produces ${heatRate(profile.generation)} ${profile.cadence}`, { tone: "hot" }));
+  if (type === "heatSink") {
+    rows.push({ ...statRow("heat.storage", "Heat storage", `Stores ${profile.capacity} H`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push({
+      ...statRow("heat.coolantPath", "Needs a coolant path", "Heat must reach the sink directly or through Heat Pipes; adjacent components do not share its capacity.", { tone: "condition" }),
+      calloutCategory: "condition"
+    });
   }
-  if (type === "heatSink") rows.push(statRow("heat.storage", "Heat", `Stores ${profile.capacity} H`));
-  if (type === "radiator") rows.push(statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
+  if (type === "radiator") {
+    rows.push({ ...statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push(exteriorCoolingCondition(type, heatRules()));
+  }
   if (type === "heatVent") {
-    rows.push(statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)} while exposed`, { tone: "cool" }));
-    rows.push(statRow("heat.exposure", "Exposure", "Needs one edge open to space; enclosed it vents almost nothing"));
+    rows.push({ ...statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)} while exposed`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push(exteriorCoolingCondition(type, heatRules()));
   }
   if (type === "closedCycleCooler") {
-    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} H`));
-    rows.push(statRow("heat.cooling", "Active Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
-    rows.push(statRow("heat.passiveCooling", "Passive Emergency Cooling", `${heatRate(profile.passiveCooling)} minimum`, { tone: "cool" }));
+    rows.push({ ...statRow("heat.cooling", "Active cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push({ ...statRow("heat.passiveCooling", "Passive emergency cooling", `Removes at least ${heatRate(profile.passiveCooling)} without Power`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push({ ...statRow("heat.capacity", "Heat storage", `Stores ${profile.capacity} H`, { tone: "cool" }), calloutCategory: "capability" });
   }
   // Burst cooling is not a rate, so quoting only "Removes N H/s" would
   // describe the wrong component entirely. The store, the trigger and the dead
   // window are the three numbers a player actually plans around.
   const burst = stat.burstCooler;
   if (burst) {
-    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} H`));
-    rows.push(statRow("heat.burstVent", "Burst Vent", `Dumps ${Math.round(Number(burst.burstHeat) || 0)} H at once`, { tone: "cool" }));
-    rows.push(statRow("heat.burstTrigger", "Vents At", `${Math.round((Number(burst.triggerHeatRatio) || 0) * 100)}% of its own capacity`));
-    rows.push(statRow("heat.burstRecharge", "Recharge", `${Number(burst.rechargeSeconds) || 0}s at ${Math.round((Number(burst.rechargeCoolingFraction) || 0) * 100)}% cooling`, { tone: "hot" }));
+    rows.push({ ...statRow("heat.burstVent", "Burst vent", `Dumps ${Math.round(Number(burst.burstHeat) || 0)} H at once`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push({ ...statRow("heat.capacity", "Heat storage", `Stores ${profile.capacity} H`, { tone: "cool" }), calloutCategory: "capability" });
+    rows.push({ ...statRow("heat.burstTrigger", "Vents at", `${Math.round((Number(burst.triggerHeatRatio) || 0) * 100)}% of its own capacity`, { tone: "condition" }), calloutCategory: "condition" });
+    rows.push({ ...statRow("heat.burstRecharge", "Recharge", `${Number(burst.rechargeSeconds) || 0}s at ${Math.round((Number(burst.rechargeCoolingFraction) || 0) * 100)}% cooling`, { tone: "condition" }), calloutCategory: "condition" });
   }
   if (stat.heatBeamShield) {
-    rows.push(statRow("heat.beamShield", "Heat Beams", "Blocks induction Heat beams passing through it", { tone: "cool" }));
+    rows.push({ ...statRow("heat.beamShield", "Heat beams", "Blocks induction Heat beams passing through it", { tone: "cool" }), calloutCategory: "capability" });
   }
-  // Heat Vent's role is useful context, but the cooling and exposure rows are
-  // the actionable overview. Keep the explanation in the collapsed details.
-  if (THERMAL_ROLE_TYPES.has(type) && type !== "heatVent") {
-    rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
+  if (profile.generation > 0.05) {
+    rows.push({ ...statRow("heat.production", "Heat", `Produces ${heatRate(profile.generation)} ${profile.cadence}`, { tone: "hot" }), calloutCategory: "cost" });
+  }
+  if (THERMAL_ROLE_TYPES.has(type)) {
+    rows.push({ ...statRow("heat.role", "Thermal role", thermalRoleText(type), { tone: "role" }), calloutCategory: "role" });
   }
   return ledger.take(rows);
 }
 
 // ---------------------------------------------------------------------------
-// Warnings — risks and restrictions never live in ordinary stat cards
+// Warnings : risks and restrictions never live in ordinary stat cards
 // ---------------------------------------------------------------------------
 
 function warningsFor(type, stat, family, context = {}) {
@@ -391,7 +433,9 @@ function warningsFor(type, stat, family, context = {}) {
     warnings.push({
       id: "meltdown",
       title: "Meltdown risk",
-      body: `Explodes after ${rules.REACTOR_MELTDOWN_SECONDS} seconds continuously overheated, dealing ${meltdownDamage} damage within ${meltdownRadius} tiles.`
+      body: `Explodes after ${rules.REACTOR_MELTDOWN_SECONDS} seconds continuously overheated, dealing ${meltdownDamage} damage within ${meltdownRadius} tiles.`,
+      tone: "bad",
+      calloutCategory: "severe"
     });
   }
 
@@ -399,7 +443,9 @@ function warningsFor(type, stat, family, context = {}) {
     warnings.push({
       id: "command-loss",
       title: "Command loss",
-      body: "Destroying this component destroys the ship unless a Backup Command Core is installed and powered."
+      body: "Destroying this component destroys the ship unless a Backup Command Core is installed and powered.",
+      tone: "bad",
+      calloutCategory: "severe"
     });
   }
 
@@ -407,20 +453,21 @@ function warningsFor(type, stat, family, context = {}) {
     warnings.push({
       id: "backup-command",
       title: "Backup command",
-      body: "Takes over when the main Core is destroyed, at reduced weapon accuracy. It must stay powered or the ship is lost shortly after."
+      body: "Takes over when the main Core is destroyed, with reduced weapon accuracy.",
+      tone: "ok",
+      calloutCategory: "capability"
+    });
+    warnings.push({
+      id: "backup-power-loss",
+      title: "Command power loss",
+      body: "If this component loses Power after the main Core is destroyed, the ship is lost shortly after.",
+      tone: "bad",
+      calloutCategory: "severe"
     });
   }
 
   if (Number(stat.maxPerShip) === 1) {
-    warnings.push({ id: "one-per-ship", title: "One per ship", body: "Only one of this component may be installed on a ship." });
-  }
-
-  if (type === "radiator") {
-    warnings.push({
-      id: "exposure",
-      title: "Needs an exposed edge",
-      body: "Cooling drops to a fraction of its rated output when the radiator is fully enclosed by other components."
-    });
+    warnings.push({ id: "one-per-ship", title: "One per ship", body: "Only one of this component may be installed on a ship.", tone: "warning", calloutCategory: "condition" });
   }
 
   if (type === "droneBay") {
@@ -443,20 +490,42 @@ function warningsFor(type, stat, family, context = {}) {
       id: "launch-edge",
       title: launchLabel,
       body: launchBody,
-      tone: launch ? "ok" : "warning"
+      tone: launch ? "ok" : "warning",
+      calloutCategory: launch ? "capability" : "condition"
     });
   }
 
   // Power and Data dependencies are not warnings. They are ordinary, extremely
   // common requirements, so they render as a compact requirements row instead of
-  // full-width callouts (see requirementsFor). Only exceptional behaviour —
-  // meltdown, command loss, placement restrictions — earns a warning panel.
+  // full-width callouts (see requirementsFor). Only exceptional behaviour :
+  // meltdown, command loss, placement restrictions : earns a warning panel.
 
   return warnings;
 }
 
+export function componentCallouts({ thermalSummary = [], requirements = [], warnings = [] } = {}) {
+  const callouts = thermalSummary.map((row) => ({
+    id: row.id,
+    category: row.calloutCategory || (row.tone === "hot" ? "cost" : row.tone === "cool" ? "capability" : "role"),
+    renderType: "thermal",
+    row
+  }));
+  if (requirements.length) {
+    callouts.push({ id: "requirements", category: "condition", renderType: "requirements", requirements });
+  }
+  for (const warning of warnings) {
+    callouts.push({
+      id: warning.id,
+      category: warning.calloutCategory || (warning.tone === "bad" ? "severe" : warning.tone === "ok" ? "capability" : "condition"),
+      renderType: "warning",
+      warning
+    });
+  }
+  return sortComponentCallouts(callouts);
+}
+
 // ---------------------------------------------------------------------------
-// Requirements — compact, always-grouped resource dependencies
+// Requirements : compact, always-grouped resource dependencies
 // ---------------------------------------------------------------------------
 
 /** Requirement is unmet for the currently selected placed component. */
@@ -532,7 +601,7 @@ export function dataRequirementState(source) {
 }
 
 // ---------------------------------------------------------------------------
-// Advanced sections — context-specific headings, collapsed by default
+// Advanced sections : context-specific headings, collapsed by default
 // ---------------------------------------------------------------------------
 
 const TARGET_PRIORITY_LABELS = {
@@ -572,7 +641,7 @@ function weaponDetailRows(type, stat) {
     } else {
       rows.push(statRow("weapon.damage", "Damage per Shot", formatDamage(weapon.damage)));
     }
-    // Fire rate and reload are the same fact twice — only fire rate is shown.
+    // Fire rate and reload are the same fact twice : only fire rate is shown.
     rows.push(statRow("weapon.fireRate", "Fire Rate", `${weapon.fireRate} shots/s`));
     rows.push(statRow("weapon.projectileSpeed", "Projectile Speed", (Number(weapon.projectileSpeed) || 0) > 0 ? formatSpeed(weapon.projectileSpeed) : "Hitscan"));
   }
@@ -611,7 +680,7 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.inductionSelfHeat", "Self-Heat at max ramp", `×${weapon.inductionSelfHeatMaxMultiplier || 1.5}`));
     rows.push(statRow("weapon.burnThrough", "Burn-Through", "None"));
     rows.push(statRow("weapon.charge", "Conventional beam charge", "None"));
-    rows.push(statRow("weapon.inductionDescription", "Effect", "Deals no structural damage. Sustained contact couples increasing Heat into one internal subsystem and its local thermal region. Active shields reduce the Heat transfer to 40%."));
+    rows.push(statRow("weapon.inductionDescription", "Effect", "Deals no structural damage. Sustained contact couples increasing Heat into the selected subsystem, its first-hop neighbours and second-hop neighbours. Active shields reduce coupling to 40%."));
   }
   // Offensive impact burst. Anti-missile mounts already report their blast
   // through the defensive rows above, so this only covers ship-killing shells.
@@ -634,7 +703,7 @@ function weaponDetailRows(type, stat) {
     const chargeSeconds = Number(charge.chargeSeconds) || 0;
     const reloadSeconds = weapon.fireRate > 0 ? 1 / weapon.fireRate : 0;
     rows.push(statRow("weapon.spinalCharge", "Charge Time", `${chargeSeconds}s holding a firing solution`));
-    rows.push(statRow("weapon.spinalCycle", "Full Cycle", `${(chargeSeconds + reloadSeconds).toFixed(1)}s — about ${((weapon.damage || 0) / Math.max(0.01, chargeSeconds + reloadSeconds)).toFixed(0)} damage/s sustained`));
+    rows.push(statRow("weapon.spinalCycle", "Full Cycle", `${(chargeSeconds + reloadSeconds).toFixed(1)}s; about ${((weapon.damage || 0) / Math.max(0.01, chargeSeconds + reloadSeconds)).toFixed(0)} damage/s sustained`));
     rows.push(statRow("weapon.spinalHold", "Charge Retention", `${Number(charge.chargeHoldSeconds) || 0}s after losing the target, then bleeds away`));
     rows.push(statRow("weapon.spinalCommit", "Committed Aim", `Traverse falls to ${Math.round((Number(charge.committedAimTraverseFloor) || 0) * 100)}% past ${Math.round((Number(charge.committedAimStartProgress) || 0) * 100)}% charge`));
     rows.push(statRow("weapon.spinalHull", "Hull Commitment", `Ship turns at ${Math.round((Number(charge.hullTurnPenaltyMultiplier) || 1) * 100)}% past ${Math.round((Number(charge.hullTurnPenaltyStartProgress) || 0) * 100)}% charge`));
@@ -646,13 +715,13 @@ function weaponDetailRows(type, stat) {
   if (weapon.antiMissile) {
     rows.push(statRow("weapon.antiMissile", "Anti-Missile", "Yes"));
     if (type === "pointDefense" || (Number(weapon.projectileSpeed) || 0) === 0) {
-      rows.push(statRow("weapon.firingMode", "Firing Mode", "Hitscan — cannot miss once aligned"));
+      rows.push(statRow("weapon.firingMode", "Firing Mode", "Hitscan: cannot miss once aligned"));
     }
     if (weapon.targetPriority?.length) {
       const formattedPriority = weapon.targetPriority.map(formatTargetPriority).join(", ");
       rows.push(statRow("weapon.targetPriority", "Target Priority", formattedPriority));
     }
-    rows.push(statRow("weapon.vsShips", "Ship Damage", `${Math.round((weapon.shipDamageMultiplier ?? 0.04) * 100)}% — Negligible against ships`));
+    rows.push(statRow("weapon.vsShips", "Ship Damage", `${Math.round((weapon.shipDamageMultiplier ?? 0.04) * 100)}%`));
   }
   return rows;
 }
@@ -872,7 +941,7 @@ export function commandAuraSection(stat, ledger, context = {}) {
     title: `${typeLabel} Aura`,
     rows: kept,
     inactive,
-    note: inactive ? "Aura is inactive — component is unpowered, disconnected, or overheated." : null
+    note: inactive ? "Aura is inactive: component is unpowered, disconnected, or overheated." : null
   };
 }
 
@@ -972,7 +1041,7 @@ export function buildComponentInspectorModel(type, stat, context = {}) {
     family,
     header: {
       name: context.name || type,
-      description: context.description || "",
+      description: inspectorDescription(type, context.description || ""),
       badge: categoryBadge(context.category, footprint),
       category: context.category,
       footprint
@@ -983,6 +1052,7 @@ export function buildComponentInspectorModel(type, stat, context = {}) {
     requirements,
     thermalSummary,
     warnings,
+    callouts: componentCallouts({ thermalSummary, requirements, warnings }),
     sections,
     ledger
   };

@@ -5,9 +5,9 @@
 //
 // Playing (rather than starting/stopping) the combat stem is what keeps the two
 // layers phase-aligned; starting it on demand would drop it in at an arbitrary
-// bar. That alone is not enough — two <audio> elements run on independent
+// bar. That alone is not enough : two <audio> elements run on independent
 // clocks, start at whatever moment autoplay lets them, and wrap their loops
-// separately — so syncStems() below holds the combat stem on the ambient stem's
+// separately : so syncStems() below holds the combat stem on the ambient stem's
 // clock every tick: snapped exactly while it is silent, and nudged by a tiny
 // playbackRate trim while it can be heard.
 
@@ -29,7 +29,7 @@ const TICK_MS = 50;
 //
 // Within the deadband the stems are tight enough that no correction is worth
 // the disturbance. Past it the combat stem's playbackRate is trimmed so it
-// slides back into phase without an audible seek — but only while the stem can
+// slides back into phase without an audible seek : but only while the stem can
 // actually be heard. Whenever the combat stem is silent (out of combat, or
 // music muted) a seek costs nothing, so it is snapped to an exact match; that
 // is what guarantees every combat entrance starts perfectly aligned.
@@ -42,7 +42,7 @@ const AUDIBLE_RESEEK_SECONDS = 0.35;
 // Drift the rate trim is expected to swallow on its own; larger errors just
 // clamp to the maximum trim.
 const RATE_TRIM_RANGE_SECONDS = 0.3;
-// 1.5% is roughly 26 cents of pitch — inaudible on a sustained bed, and closes
+// 1.5% is roughly 26 cents of pitch : inaudible on a sustained bed, and closes
 // the deadband in a couple of seconds.
 const MAX_RATE_TRIM = 0.015;
 // Smoothing for the drift estimate: currentTime only advances when the element
@@ -54,7 +54,7 @@ const INAUDIBLE_GAIN = 0.03;
 
 // Effects the server emits that mean "something is shooting or being shot".
 // Support and logistics effects (repair beams, drone launches, warps, floating
-// status text) are deliberately excluded — they happen constantly out of
+// status text) are deliberately excluded : they happen constantly out of
 // combat and would pin the combat stem on forever.
 const COMBAT_EFFECT_TYPES = new Set([
   "beam",
@@ -106,7 +106,7 @@ function createLoop(src) {
 
 function applyVolumes() {
   if (ambientAudio) ambientAudio.volume = musicEnabled ? musicVolume : 0;
-  // The combat stem never gets louder than the ambient stem — at full gain the
+  // The combat stem never gets louder than the ambient stem : at full gain the
   // two sit at exactly the same level, which is what makes them read as one
   // piece of music rather than a second track layered on top.
   if (combatAudio) combatAudio.volume = musicEnabled ? musicVolume * combatGain : 0;
@@ -153,8 +153,8 @@ function seekCombatToAmbient(now) {
 }
 
 // Holds the combat stem on the ambient stem's clock. The two elements drift
-// apart over a session — they start at slightly different moments when autoplay
-// unlocks, decode on independent clocks, and wrap their loops independently —
+// apart over a session : they start at slightly different moments when autoplay
+// unlocks, decode on independent clocks, and wrap their loops independently :
 // so this runs every tick rather than waiting for the gap to become audible.
 //
 // Drift is compared modulo the loop length so a wrap-around does not read as a

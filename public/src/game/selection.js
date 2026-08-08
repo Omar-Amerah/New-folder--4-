@@ -22,7 +22,7 @@ export function selectAt(world, additive) {
   if (ship) { if (state.selectedShipIds.has(ship.id) && additive) state.selectedShipIds.delete(ship.id); else state.selectedShipIds.add(ship.id); state.camera.follow = true; }
   // A click that hit one of your own ships always means the ship. Only an
   // otherwise-empty click can land on a station, and stations are inspection
-  // targets only — they never join the commandable selection.
+  // targets only : they never join the commandable selection.
   selectStationAt(ship ? null : world, additive);
   synchronizeTelemetryFocus();
   invalidatePresentation("selection");
@@ -34,7 +34,7 @@ export function stations() {
 export function stationHitRadius(station) { return Math.max(24, Number(station?.radius) || 60); }
 // The station's real half-extents in structure-local space. `station.radius` is
 // the broad-phase circle around a SQUARE structure, so on a home station it
-// reaches ~40% past the corners — clicking well clear of the hull used to
+// reaches ~40% past the corners : clicking well clear of the hull used to
 // select it, and clicks meant for a ship parked alongside were swallowed.
 function stationHalfExtent(station) {
   const design = station?.design;

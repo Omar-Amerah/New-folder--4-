@@ -124,7 +124,7 @@ export function isEditorDirty() {
     return current !== savedEditorKey(existing);
   }
   // No saved blueprint backs the editor. The working design is written to
-  // localStorage on every edit, so closing the designer cannot lose it — only
+  // localStorage on every edit, so closing the designer cannot lose it : only
   // loading another blueprint over it can. Treat it as dirty solely when it has
   // actually changed since the designer was opened (or since the last save/load).
   if (editorBaselineKey === null) editorBaselineKey = current;
@@ -132,7 +132,7 @@ export function isEditorDirty() {
 }
 
 // True only when a saved blueprint is loaded and the editor has diverged from
-// it — i.e. when discarding the editor would actually lose work that is not
+// it : i.e. when discarding the editor would actually lose work that is not
 // recoverable from the auto-persisted current design.
 export function isLoadedBlueprintDirty() {
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
@@ -173,7 +173,7 @@ export function renderSavedDesigns() {
   if (!state.savedDesigns.length) {
     const empty = document.createElement("div");
     empty.className = "saved-design-empty";
-    empty.textContent = "No saved blueprints yet — build a ship and press Save Blueprint.";
+    empty.textContent = "No saved blueprints yet : build a ship and press Save Blueprint.";
     dom.savedDesignList.appendChild(empty);
     renderLoadoutManager();
     return;

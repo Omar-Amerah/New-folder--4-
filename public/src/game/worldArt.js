@@ -182,7 +182,7 @@ export function bulletArtExtent(bullet) {
 
 // Draws a bullet's art around the origin (translation/rotation already applied
 // by the caller). Used by the Pixi renderer to bake per-type projectile
-// textures into the shared offscreen ctx. Sizes are constant world units — the
+// textures into the shared offscreen ctx. Sizes are constant world units : the
 // art is baked once, so nothing here may depend on the live camera zoom.
 export function drawBulletVisual(bullet, color) {
   if (bullet.type === "rail") {

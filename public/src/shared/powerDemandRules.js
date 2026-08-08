@@ -5,7 +5,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function makePowerDemandRules() {
   "use strict";
 
-  // Section 7D-2 — activity-driven Power demand.
+  // Section 7D-2 : activity-driven Power demand.
   //
   // Pure, dependency-light rules that convert a component's nominal powerUse and
   // a per-component activity level (0..1) into authoritative requested MW:

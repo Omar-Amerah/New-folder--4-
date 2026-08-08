@@ -11,9 +11,9 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function structuralConnectivityFactory() {
   "use strict";
 
-  function isConnected(parts, catalogue, getOccupiedCells) {
+  function disconnectedPartIndices(parts, catalogue, getOccupiedCells) {
     const core = parts.find((part) => part.type === "core");
-    if (!core) return false;
+    if (!core) return parts.map((_, index) => index);
 
     // Cell -> owning part index so each neighbour lookup is O(1). This runs on
     // every hover preview client-side. Assumes parts don't overlap.
@@ -54,15 +54,19 @@
     };
 
     const physicallyConnected = traverse(() => true);
-    if (physicallyConnected.size !== parts.length) return false;
-
     const structurallyConnected = traverse((index) => parts[index].type !== "heatPipe");
+    const disconnected = [];
     for (let i = 0; i < parts.length; i += 1) {
-      if (parts[i].type !== "heatPipe" && !structurallyConnected.has(i)) return false;
+      if (!physicallyConnected.has(i) || (parts[i].type !== "heatPipe" && !structurallyConnected.has(i))) {
+        disconnected.push(i);
+      }
     }
-
-    return true;
+    return disconnected;
   }
 
-  return Object.freeze({ isConnected });
+  function isConnected(parts, catalogue, getOccupiedCells) {
+    return disconnectedPartIndices(parts, catalogue, getOccupiedCells).length === 0;
+  }
+
+  return Object.freeze({ isConnected, disconnectedPartIndices });
 }));

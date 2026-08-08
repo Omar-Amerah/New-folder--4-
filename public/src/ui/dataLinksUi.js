@@ -1,5 +1,5 @@
 // Data Links view: connects Data-support sources to weapons as logical links,
-// drawn as dashed lines. There is no cable and no routing — a link is just a
+// drawn as dashed lines. There is no cable and no routing : a link is just a
 // (source, weapon) pair, so this owns no wiring state or wiring DOM.
 //
 // Two ways to connect, both hit-testing the component's whole footprint:
@@ -41,7 +41,7 @@ function componentCells(index) {
 }
 
 // A component's footprint is always rectangular, so its cells collapse to one
-// box in grid units — the box the player sees on the grid, and the only shape
+// box in grid units : the box the player sees on the grid, and the only shape
 // Data Links hit-tests or highlights.
 function componentBox(index) {
   const cells = componentCells(index);
@@ -63,7 +63,7 @@ function componentCenter(index) {
 // Build-grid geometry in CSS pixels. The grid is a CSS grid with a border,
 // padding and 2px gaps, so a cell is NOT a plain fifteenth of the host box.
 // Drawing the overlay as an even 15x15 division puts its presentational boxes a few pixels off
-// the component it belongs to — worst at the far edges — which is what made the
+// the component it belongs to : worst at the far edges : which is what made the
 // hit areas feel wrong. Pointer hit-testing deliberately does not depend on it.
 function gridMetrics() {
   const grid = dom.grid;
@@ -89,8 +89,8 @@ function gridMetrics() {
   };
 }
 
-// Overlay coordinates stay in cell units — one unit is one cell, so the CSS
-// stroke widths and radii keep their meaning — but cells are pushed apart by
+// Overlay coordinates stay in cell units : one unit is one cell, so the CSS
+// stroke widths and radii keep their meaning : but cells are pushed apart by
 // the grid's gap so pad n lands exactly on component cell n.
 function overlayProjection() {
   const metrics = gridMetrics();
@@ -631,7 +631,7 @@ function allDataLinkPairs() {
 }
 
 // Auto-link: connect every Data source to every weapon. This is the maximum
-// coverage a design can have, not the strongest per-weapon bonus — each source
+// coverage a design can have, not the strongest per-weapon bonus : each source
 // still divides one fixed budget across everything it feeds.
 export function linkAllDataSourcesToWeapons() {
   const pairs = allDataLinkPairs();

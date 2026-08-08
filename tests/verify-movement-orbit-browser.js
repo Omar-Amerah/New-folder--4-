@@ -138,7 +138,7 @@ async function clearSent(page) {
     ], ["s1", "s2"]);
     assert.equal(await orbitButton(page).textContent(), "Orbit C");
     assert.equal(await orbitButton(page).evaluate((el) => el.classList.contains("active")), true);
-    assert.equal(await orbitButton(page).getAttribute("title"), "Orbit Clockwise — click to reverse",
+    assert.equal(await orbitButton(page).getAttribute("title"), "Orbit Clockwise: click to reverse",
       "the full direction is spelled out in the tooltip, not just the abbreviation");
 
     // --- clicking it again is a DIRECTION change, not a stance change ------
@@ -152,7 +152,7 @@ async function clearSent(page) {
     assert.deepEqual(messages[0].shipIds, ["s1", "s2"]);
     // Optimistic, so the button answers on the click rather than a round trip.
     assert.equal(await orbitButton(page).textContent(), "Orbit AC");
-    assert.equal(await orbitButton(page).getAttribute("title"), "Orbit Anticlockwise — click to reverse");
+    assert.equal(await orbitButton(page).getAttribute("title"), "Orbit Anticlockwise: click to reverse");
 
     // --- and back again ---------------------------------------------------
     await applyShips(page, [
@@ -173,7 +173,7 @@ async function clearSent(page) {
       { id: "s2", combatStyle: "orbit", orbitDirection: -1 },
       { id: "s3", combatStyle: "hold", orbitDirection: 1 }
     ], ["s1", "s2"]);
-    assert.equal(await orbitButton(page).textContent(), "Orbit —",
+    assert.equal(await orbitButton(page).textContent(), "Orbit",
       "a mixed selection says so rather than picking a side");
     await clearSent(page);
     await orbitButton(page).click();

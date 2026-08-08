@@ -103,7 +103,7 @@
 .drone-bay-type-badge.drone-repair  { background: #14532d; border-color: rgba(134, 239, 172, .6); color: #dcfce7; }
 .drone-bay-type-badge.drone-unconfigured { border-color: #fda4af; background: #4c0519; color: #fecdd3; }
 
-/* drone-launch-inspecting grid overlay removed — placement feedback is shown in the inspector panel. */
+/* drone-launch-inspecting grid overlay removed : placement feedback is shown in the inspector panel. */
 
 .build-cell.core {
   cursor: default;
@@ -224,7 +224,7 @@
 .blueprint-thermal-hud em { color:#fff; font-style:normal; font-weight:900; text-align:right; }
 /* Heat hover card. The card is narrow and sits over the build grid, so the
    label column gets a sensible minimum width and values are never broken
-   mid-word — the old `overflow-wrap:anywhere` on both columns produced labels
+   mid-word : the old `overflow-wrap:anywhere` on both columns produced labels
    stacked one character per line ("Heat / capacit / y"). */
 .heat-context-card { position:absolute; z-index:32; min-width:210px; max-width:min(280px,calc(100% - 16px)); padding:9px 10px; border:1px solid rgba(255,209,102,.5); border-radius:10px; background:rgba(4,10,18,.94); color:#dcefff; font-size:11px; line-height:1.25; box-shadow:0 10px 28px rgba(0,0,0,.45); pointer-events:none; backdrop-filter:blur(5px); }
 .heat-context-card.heat-card-hot { border-color:rgba(249,115,22,.6); }

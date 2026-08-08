@@ -2,7 +2,7 @@
 //
 // This module answers one question: "what does the player need to know about
 // this component's heat, right now, to make the next design decision?" It is
-// deliberately NOT a diagnostics dump — engineering detail (capacities,
+// deliberately NOT a diagnostics dump : engineering detail (capacities,
 // displacement, Power allocation, accumulated simulation totals) belongs in the
 // detailed Heat analysis panel, not in a card that appears under the cursor.
 //
@@ -76,7 +76,7 @@ function neighbourIndices(design, index, partStats) {
 /**
  * How this component reaches the rest of the thermal system. Heat Pipes form the
  * dedicated coolant network; everything else can still conduct directly to a
- * touching component, which is a weaker but real answer — so it gets its own
+ * touching component, which is a weaker but real answer : so it gets its own
  * wording instead of being reported as "Disconnected".
  */
 function connectionStatus(design, index, partStats, role) {
@@ -99,7 +99,7 @@ function connectionStatus(design, index, partStats, role) {
 
 /**
  * The one performance penalty worth surfacing: heat is actually reducing what
- * this component does. Never rendered at 100% — that is the normal state.
+ * this component does. Never rendered at 100% : that is the normal state.
  */
 function performancePenalty(type, stat, state, rules) {
   const active = rules.activeOutputForState(state);
@@ -142,7 +142,7 @@ export function buildHeatCardModel(options = {}) {
   const role = heatCardRole(part.type, rules);
   // The card reads the SETTLED end-of-simulation state, because that is the
   // instant the rate rows below describe. The transient peak is a separate,
-  // clearly-labelled figure — pairing a peak temperature with a final-state heat
+  // clearly-labelled figure : pairing a peak temperature with a final-state heat
   // rate is what made an equilibrium reactor look like it was reading wrong.
   const capacity = Math.max(1, Number(prediction.capacity) || 1);
   const peakRatio = Math.max(0, Number(prediction.peakRatio ?? prediction.ratio) || 0);
@@ -175,7 +175,7 @@ export function buildHeatCardModel(options = {}) {
       const multiplier = Number(prediction.exposureCoolingMultiplier ?? 1);
       rows.push(exposed
         ? { label: "Exposure", value: "Full" }
-        : { label: "Exposure", value: `${WARNING} Enclosed — ${percentText(multiplier)}`, tone: "warn" });
+        : { label: "Exposure", value: `${WARNING} Enclosed : ${percentText(multiplier)}`, tone: "warn" });
     }
     rows.push({ label: "Coolant", value: connection.label, tone: connection.tone });
   } else if (role === "heatPipe") {

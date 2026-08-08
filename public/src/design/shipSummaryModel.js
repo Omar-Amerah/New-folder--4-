@@ -3,7 +3,7 @@
 // This module owns the information architecture of the summary: which nine
 // headline values answer "what have I built?", which conditions deserve a status
 // message, and which engineering calculations belong in a collapsed section.
-// It renders no markup — designerUi.js turns the model into DOM.
+// It renders no markup : designerUi.js turns the model into DOM.
 //
 // Every number is read from values already computed by computeStats() and the
 // authoritative Power analysis. No balance constant or gameplay formula is
@@ -17,6 +17,7 @@
 import { statRow, StatLedger, isMeaningfulValue } from "./componentInspectorModel.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatRepair, formatSpeed, formatPercent, round2 } from "./statFormatting.js";
 import { PART_STATS } from "./parts.js";
+import { sortStatusCallouts } from "./statusCalloutOrder.js";
 
 export { statRow, StatLedger, isMeaningfulValue };
 
@@ -145,7 +146,7 @@ function joinList(items) {
 }
 
 // ---------------------------------------------------------------------------
-// Overview — approximately nine headline values
+// Overview : approximately nine headline values
 // ---------------------------------------------------------------------------
 
 function overviewRows(stats, power, ledger, includePower = true) {
@@ -175,7 +176,7 @@ function overviewRows(stats, power, ledger, includePower = true) {
 }
 
 // ---------------------------------------------------------------------------
-// Status messages — actual conditions, consistent colour, never bare numbers
+// Status messages : actual conditions, consistent colour, never bare numbers
 // ---------------------------------------------------------------------------
 
 const LEVELS = { good: "good", warning: "warning", bad: "bad", neutral: "neutral" };
@@ -185,6 +186,11 @@ function statusMessages(stats, power, context) {
   const design = Array.isArray(context.design) ? context.design : [];
   const includePower = context.includePower !== false;
   const add = (id, level, text) => { if (isMeaningfulValue(text)) messages.push({ id, level: LEVELS[level] || "neutral", text }); };
+
+  if (Number(context.disconnectedComponentCount || 0) > 0) {
+    const count = Number(context.disconnectedComponentCount);
+    add("disconnected-components", "bad", `Unconnected components \u00b7 ${count} component${count === 1 ? "" : "s"} disconnected from the ship`);
+  }
 
   // Power
   if (includePower && power.loadShedActive) {
@@ -224,7 +230,7 @@ function statusMessages(stats, power, context) {
     add("backup-command", "good", "Backup command available");
   }
 
-  // Thermal — reported by the authoritative thermal analysis, not recomputed.
+  // Thermal : reported by the authoritative thermal analysis, not recomputed.
   if (context.overheatingCount > 0) {
     add("cooling", "warning", `Insufficient cooling for sustained combat · ${context.overheatingCount} component${context.overheatingCount === 1 ? "" : "s"} overheat`);
   }
@@ -234,7 +240,7 @@ function statusMessages(stats, power, context) {
     add("cable-overload", "warning", `${power.overloadedSections} Power cable section${power.overloadedSections === 1 ? "" : "s"} over its sustained rating`);
   }
 
-  return messages;
+  return sortStatusCallouts(messages);
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +312,7 @@ function powerSection(stats, power, ledger) {
     statRow("power.stranded", "Stranded Generation", power.stranded > 0 ? mw(power.stranded) : null, { tone: "warning" }),
     statRow("power.unmet", "Unmet", power.unmet > 0 ? mw(power.unmet) : null, { tone: "bad" }),
     statRow("power.efficiency", "Efficiency", formatPercent(power.efficiency)),
-    // A zero penalty is not rendered at all — no "Power Penalty: None".
+    // A zero penalty is not rendered at all : no "Power Penalty: None".
     statRow("power.penalty", "Power Penalty", power.penalty > 0 ? `-${formatPercent(power.penalty)}` : null, { tone: "bad" }),
     statRow("power.shed", "Load Shed", power.loadShedActive ? (power.shedDetail || (power.loadShedCategories.length ? power.loadShedCategories.map(c => globalThis.PowerDiagnostics ? globalThis.PowerDiagnostics.categoryLabel(c) : c).join(", ") : null)) : null, { tone: "warning" }),
     statRow("power.overloaded", "Overloaded Sections", power.overloadedSections > 0 ? `${power.overloadedSections}` : null, { tone: "warning" }),
@@ -346,7 +352,7 @@ function combatSection(stats, ledger, context = {}) {
 
 function supportSection(stats, ledger) {
   const rows = [
-    // Zero-value capabilities are omitted entirely — never "Repair: 0 HP/s".
+    // Zero-value capabilities are omitted entirely : never "Repair: 0 HP/s".
     statRow("repair", "Repair Rate", Number(stats.repairRate || 0) > 0 ? formatRepair(stats.repairRate) : null),
     statRow("drones", "Drone Capacity", Number(stats.droneCapacity || 0) > 0 ? `${stats.droneCapacity}` : null),
     statRow("dronesByType", "Drone Squads", droneSquadText(stats)),

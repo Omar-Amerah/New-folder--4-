@@ -43,8 +43,8 @@ export function getRenderQualityDprCap() {
 }
 
 // Multiplier for non-essential particle density (engine smoke, trails, sparks,
-// heat pulses). Essential feedback — projectiles, warnings, selection, damage
-// numbers — is never gated by this. Low graphics thins particles heavily.
+// heat pulses). Essential feedback : projectiles, warnings, selection, damage
+// numbers : is never gated by this. Low graphics thins particles heavily.
 export function getEffectDensity() {
   const q = getRenderQuality();
   return renderQualityProfile(q).effectDensity;

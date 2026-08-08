@@ -8,7 +8,7 @@ const initialDesign = loadDesign();
 
 // Backdrop star field. Two depth layers, each defined in its own repeating tile
 // so the renderer can bake them once and draw each layer as a single tiling
-// sprite (see pixiScreenUi.js) — no per-star work at render time. `drift` is the
+// sprite (see pixiScreenUi.js) : no per-star work at render time. `drift` is the
 // parallax factor against camera position; the far layer moves least.
 const STAR_LAYER_SPECS = [
   { tile: 1024, count: 190, drift: 0.010 },

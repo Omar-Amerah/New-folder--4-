@@ -26,7 +26,7 @@
     if (typeof weapon === "string") return TURN_RATES[weapon] ?? TURN_RATES.default;
     // Overrides must be positive finite numbers. A zero/null aimSpeed (e.g.
     // from a serialization round trip that turned undefined into null/0) must
-    // never freeze the traverse — fall through to the family table instead.
+    // never freeze the traverse : fall through to the family table instead.
     if (Number.isFinite(weapon.aimSpeed) && weapon.aimSpeed > 0) return weapon.aimSpeed;
     if (Number.isFinite(weapon.turretTurnRate) && weapon.turretTurnRate > 0) return weapon.turretTurnRate;
     const family = weapon.type || weapon.family;
@@ -74,11 +74,11 @@
   // measured perpendicular to the barrel axis in tiles, so rounds leave the
   // tube the player is looking at instead of the pivot between them. The
   // autocannon pair mirrors the +/- size * 0.17 barrel centres drawn in
-  // componentArt.js (drawProfessionalModuleDetail) — move both together.
+  // componentArt.js (drawProfessionalModuleDetail) : move both together.
   const BARRELS = Object.freeze({
     autocannon: Object.freeze({ count: 2, spreadTiles: 0.17 }),
     // Three visible muzzles across the cluster head drawn in componentArt.js
-    // (drawProfessionalModuleDetail, scatterCannon) — move both together.
+    // (drawProfessionalModuleDetail, scatterCannon) : move both together.
     scatterCannon: Object.freeze({ count: 3, spreadTiles: 0.15 })
   });
 

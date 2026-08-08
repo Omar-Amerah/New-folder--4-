@@ -16,7 +16,7 @@ export async function initArenaRenderer() {
     return activeBackend;
   } catch (err) {
     // No silent fallback: WebGL is required. Surface a clear fatal message and
-    // stop — do not start any alternative renderer or partial game loop.
+    // stop : do not start any alternative renderer or partial game loop.
     console.error("[render] PixiJS/WebGL initialization failed:", err);
     showWebGlFatalMessage();
     throw err;

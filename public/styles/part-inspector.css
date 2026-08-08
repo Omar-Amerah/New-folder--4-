@@ -99,7 +99,7 @@
   gap: 5px;
 }
 
-/* Every cell carries a 1px border — transparent by default — so the Power cell's
+/* Every cell carries a 1px border : transparent by default : so the Power cell's
    coloured border is a complete, continuous, evenly rounded rectangle on all four
    sides and every cell keeps identical height and alignment. */
 .part-spec-cell {
@@ -211,7 +211,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-height: 22px;
+  /* Remains at least 22px after the designer's 95% density scale. */
+  min-height: 24px;
   padding: 2px 6px;
   border: 1px solid rgba(251, 191, 36, 0.34);
   border-radius: 999px;
@@ -228,6 +229,17 @@
 .part-requirement:hover {
   border-color: rgba(251, 191, 36, 0.62);
   background: rgba(120, 53, 15, 0.26);
+}
+
+.part-requirement.is-met {
+  border-color: rgba(74, 222, 128, 0.38);
+  background: rgba(20, 83, 45, 0.16);
+  color: #86efac;
+}
+
+.part-requirement.is-met:hover {
+  border-color: rgba(74, 222, 128, 0.68);
+  background: rgba(20, 83, 45, 0.28);
 }
 
 .part-requirement:focus-visible {
@@ -345,7 +357,26 @@
 .part-thermal-line.is-cool { background: rgba(134, 239, 172, 0.08); }
 .part-thermal-line.is-cool .part-thermal-label { color: #86efac; }
 
+.part-thermal-line.is-condition { background: rgba(120, 53, 15, 0.16); }
+.part-thermal-line.is-condition .part-thermal-label { color: #fcd34d; }
+
+.part-thermal-line.is-role { background: rgba(92, 55, 24, 0.16); }
+.part-thermal-line.is-role .part-thermal-label { color: #d6a875; }
+
 /* --- Warnings ------------------------------------------------------------ */
+
+.part-callout-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.part-callout-group,
+.part-callout-item {
+  display: grid;
+  gap: 3px;
+}
+
+.part-callout-group + .part-callout-group { margin-top: 3px; }
 
 .part-warning {
   display: flex;
@@ -405,6 +436,19 @@
 .part-warning.is-ok .part-warning-text {
   color: #c9f7d4;
 }
+
+.part-warning.is-bad {
+  border-color: rgba(248, 113, 113, 0.42);
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.part-warning.is-bad .part-warning-icon {
+  background: rgba(248, 113, 113, 0.92);
+  color: #2b0707;
+}
+
+.part-warning.is-bad .part-warning-title { color: #fca5a5; }
+.part-warning.is-bad .part-warning-text { color: #f3cccc; }
 
 /* --- Accordions ---------------------------------------------------------- */
 

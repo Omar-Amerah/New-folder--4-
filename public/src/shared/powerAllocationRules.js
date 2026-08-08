@@ -9,7 +9,7 @@
 
   // 1 MW = 1000 internal fixed-point units. All allocation arithmetic runs on
   // non-negative integers so results are deterministic and never accumulate
-  // floating-point error. Foundation only — no gameplay reads this yet.
+  // floating-point error. Foundation only : no gameplay reads this yet.
   const POWER_FLOW_SCALE = 1000;
 
   // MW -> integer units. Invalid, negative or non-finite input becomes zero.
@@ -132,7 +132,7 @@
   // Optional orchestration: process priority bands high-to-low against a single
   // shared Power pool, allocating each band proportionally and passing only the
   // remaining Power down. No topology, networks, section capacity or stranded
-  // generation — a single pool by design.
+  // generation : a single pool by design.
   function allocatePriorityBands(input) {
     const options = input && typeof input === "object" ? input : {};
     const bands = PowerPolicyRules.resolvePriorityBands(options.policy);

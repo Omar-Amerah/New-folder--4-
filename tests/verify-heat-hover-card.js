@@ -225,7 +225,7 @@ function text(model, markup) { return `${JSON.stringify(model)}\n${markup}`; }
       prediction: prediction({ generation: 0, cooling: 2.9, exposedEdges: 0, exposureCoolingMultiplier: HeatRules.RADIATOR_ENCLOSED_MULTIPLIER })
     });
     const row = enclosed.rows.find((entry) => entry.label === "Exposure");
-    assert.strictEqual(row.value, "⚠ Enclosed — 25%");
+    assert.strictEqual(row.value, "⚠ Enclosed : 25%");
     assert.strictEqual(row.tone, "warn", "enclosed exposure must be visually obvious");
   });
 
@@ -274,7 +274,7 @@ function text(model, markup) { return `${JSON.stringify(model)}\n${markup}`; }
       assert.ok(markup.includes("heat-card-grid"), markup);
       assert.ok(!/\d{3,}\.\d H\b/.test(markup), `accumulated simulation totals must not leak into the card: ${markup}`);
       assert.ok(!markup.includes("undefined") && !markup.includes("NaN"), markup);
-      for (const row of model.rows) assert.ok(row.value && row.value !== "—", `${row.label} needs a value`);
+      for (const row of model.rows) assert.ok(row.value && row.value !== "N/A", `${row.label} needs a value`);
     }
     // The accumulated total still exists for the detailed panel / parity tests.
     assert.ok(Number.isFinite(result.powerThermal.components[indexOf("reactor")].componentActivityHeat));

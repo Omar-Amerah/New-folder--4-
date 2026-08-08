@@ -2,7 +2,7 @@
 // conditional, and hidden gameplay rules that cannot be inferred from base
 // component stats alone.
 //
-// Numeric values are NOT hardcoded here — they reference the authoritative
+// Numeric values are NOT hardcoded here : they reference the authoritative
 // shared rule sources (heatRules.js, generatedBalance.js, etc.) via the
 // `resolve()` pattern so that a single rule change propagates everywhere.
 //
@@ -17,12 +17,55 @@
 // shown to players.
 
 import { formatPercent } from "../design/statFormatting.js";
+import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { ENGINE_FALLOFF } from "../shared/movementStats.js";
 
 function getHeatRules() {
   return (typeof globalThis !== "undefined" && globalThis.HeatRules) || {};
 }
 
 function fmtPct(v) { return formatPercent(v); }
+
+function balanceComponent(id) {
+  return GENERATED_BALANCE.components?.find((component) => component?.id === id) || {};
+}
+
+function balanceWeapon(id) {
+  return balanceComponent(id).weapon || {};
+}
+
+function shipDamageSummary(id) {
+  const weapon = balanceWeapon(id);
+  const multiplier = Number.isFinite(Number(weapon.shipDamageMultiplier)) ? Number(weapon.shipDamageMultiplier) : 1;
+  const damage = Number.isFinite(Number(weapon.damage)) ? Number(weapon.damage) : 0;
+  return `${multiplier}× ship damage multiplier; ${damage} base damage per direct hit`;
+}
+
+function stackingSummary(falloff, label) {
+  const percentages = [0, 1, 2, 3].map((index) => fmtPct(Math.pow(falloff, index)));
+  return {
+    value: `${fmtPct(falloff)} per additional ${label}`,
+    detail: `Each additional ${label} contributes ${fmtPct(falloff)} of the previous one (${percentages.join(", ")}, etc.).`
+  };
+}
+
+function reactorMeltdownValue(id, field, fallback) {
+  const value = Number(balanceComponent(id)[field]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function droneTypeSummary(field, suffix = "") {
+  const types = GENERATED_BALANCE.drones?.types || {};
+  const entries = Object.values(types)
+    .filter((type) => type && type.label && Number.isFinite(Number(type[field])))
+    .map((type) => `${type.label} ${type[field]}${suffix}`);
+  return entries.join(", ") || `${GENERATED_BALANCE.drones?.[field] ?? 0}${suffix}`;
+}
+
+const ENGINE_STACKING = stackingSummary(ENGINE_FALLOFF, "engine");
+const REPAIR_STACKING_MULTIPLIER = Number(GENERATED_BALANCE.repair?.stackingMultiplier ?? 0.8);
+const NUCLEAR_MELTDOWN_DAMAGE = reactorMeltdownValue("nuclearReactor", "meltdownDamage", getHeatRules().REACTOR_EXPLOSION_DAMAGE ?? 60);
+const NUCLEAR_MELTDOWN_RADIUS = reactorMeltdownValue("nuclearReactor", "meltdownRadius", getHeatRules().REACTOR_EXPLOSION_RADIUS ?? 1.9);
 
 // ---------------------------------------------------------------------------
 // Documentation coverage manifest: every component that has at least one
@@ -83,7 +126,7 @@ export const SPECIAL_MECHANICS_COMPONENTS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Radiator conditional performance — derived from heatRules.js
+// Radiator conditional performance : derived from heatRules.js
 // ---------------------------------------------------------------------------
 
 function radiatorConditionalPerformance() {
@@ -98,12 +141,12 @@ function radiatorConditionalPerformance() {
       sourceKey: "heatRules.profile.radiator.cooling"
     },
     {
-      label: "Exposure — Exposed",
+      label: "Exposure : Exposed",
       value: fmtPct(r.RADIATOR_EXPOSED_MULTIPLIER ?? 1),
       sourceKey: "heatRules.RADIATOR_EXPOSED_MULTIPLIER"
     },
     {
-      label: "Exposure — Enclosed",
+      label: "Exposure : Enclosed",
       value: fmtPct(r.RADIATOR_ENCLOSED_MULTIPLIER ?? 0.25),
       detail: "A Radiator with no exterior edge still cools, but its cooling is multiplied by the enclosed multiplier.",
       warning: true,
@@ -119,7 +162,7 @@ function radiatorConditionalPerformance() {
       const keys = ["normal", "warm", "hot", "critical", "overheated"];
       const mult = coolingTable[keys[idx]] ?? 1;
       return {
-        label: `Thermal State — ${label}`,
+        label: `Thermal State : ${label}`,
         value: fmtPct(mult),
         detail: idx === 4 ? "Overheated radiators lose all active cooling but retain the passive floor." : undefined,
         warning: idx >= 3,
@@ -164,7 +207,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Connection", value: "Automatic, orthogonal adjacency", detail: "A Heat Pipe joins every orthogonally adjacent Heat Pipe and every adjacent living component. There is no rotation, port or flow direction to configure, and diagonals never connect." }
     ],
     specialMechanics: [
-      { label: "Transport Only", value: "0 H/s cooling", detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves — the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
+      { label: "Transport Only", value: "0 H/s cooling", detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves : the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
       { label: "Negligible Storage", value: "10 H capacity", detail: "Pipes are conduits, not buffers: heat entering the network moves on to whatever is attached rather than being banked.", sourceKey: "heatRules.profile.heatPipe.capacity" },
       { label: "Finite Throughput", value: "40 H/s per shared edge", detail: "Each attachment can move at most this much heat per second, so a coolant network transports quickly but never equalises attached components instantly.", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
       { label: "Automatic Flow Direction", value: "Hotter to colder", detail: "The coolant settles at the conductance-weighted mean of the attached components' heat ratios; anything hotter than that gives heat up, anything colder takes it." },
@@ -180,20 +223,20 @@ export const COMPONENT_MECHANICS = {
 
   heatSink: {
     specialMechanics: [
-      { label: "Thermal Mass", value: "340 H capacity", detail: "Heat Sinks have large heat capacity for their size. That capacity is their own — heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
+      { label: "Thermal Mass", value: "340 H capacity", detail: "Heat Sinks have large heat capacity for their size. That capacity is their own : heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
       { label: "Low Cooling", value: "1.5 H/s", detail: "Heat Sinks store heat but remove very little themselves. They work best paired with a Radiator on the same coolant network.", sourceKey: "heatRules.profile.heatSink.cooling" },
       { label: "No Adjacency Bonus", value: "Neighbours gain no capacity", detail: "Sitting next to a Heat Sink does not raise a component's own heat capacity. Connect hot systems to the sink with Heat Pipes so the heat actually reaches it." },
       { label: "Destroyed Behaviour", value: "Excluded from aggregate capacity but retains stored heat", detail: "A destroyed Heat Sink stops counting toward the ship's heat capacity, but any heat already stored remains until transferred away.", warning: true }
     ],
     interactions: [
       { label: "Radiator", value: "Works best paired with a Radiator to dissipate stored heat" },
-      { label: "Heat Pipes", value: "The intended way to fill a sink: WEAPON — PIPE — HEAT SINK — PIPE — RADIATOR" }
+      { label: "Heat Pipes", value: "The intended way to fill a sink: WEAPON : PIPE : HEAT SINK : PIPE : RADIATOR" }
     ]
   },
 
   heatVent: {
     requirements: [
-      { label: "Enclosed Output", value: fmtPct(getHeatRules().HEAT_VENT_ENCLOSED_MULTIPLIER ?? 0.05), detail: "A Heat Vent rejects heat through the hull, so fully enclosed it produces almost nothing. One exposed edge is enough — extra exposed edges add no further cooling.", warning: true, sourceKey: "heatRules.HEAT_VENT_ENCLOSED_MULTIPLIER" },
+      { label: "Enclosed Output", value: fmtPct(getHeatRules().HEAT_VENT_ENCLOSED_MULTIPLIER ?? 0.05), detail: "A Heat Vent rejects heat through the hull, so fully enclosed it produces almost nothing. One exposed edge is enough : extra exposed edges add no further cooling.", warning: true, sourceKey: "heatRules.HEAT_VENT_ENCLOSED_MULTIPLIER" },
       { label: "Connection", value: "Attaches from any side", detail: "Adjacency-based like every thermal part: a Heat Vent takes heat from components it touches, or from a Heat Pipe network on any orthogonal side. No rotation needed." }
     ],
     specialMechanics: [
@@ -215,19 +258,19 @@ export const COMPONENT_MECHANICS = {
       { label: "Activity Heat", value: "2 + powerGeneration × 0.42 H/s", detail: "Reactors generate heat proportional to their power output." }
     ],
     interactions: [
-      { label: "Radiators", value: "Essential — an overheated reactor will melt down without adequate cooling" },
+      { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" },
       { label: "Power Network", value: "Primary power source for the ship" }
     ]
   },
 
   nuclearReactor: {
     specialMechanics: [
-      { label: "Meltdown", value: "Explodes after 3s in Overheated state", warning: true, sourceKey: "heatRules.REACTOR_MELTDOWN_SECONDS" },
-      { label: "Meltdown Damage", value: "60 damage", sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" },
-      { label: "Meltdown Radius", value: "1.9 tiles", sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" }
+      { label: "Meltdown", value: `Explodes after ${getHeatRules().REACTOR_MELTDOWN_SECONDS ?? 3}s in Overheated state`, warning: true, sourceKey: "heatRules.REACTOR_MELTDOWN_SECONDS" },
+      { label: "Meltdown Damage", value: `${NUCLEAR_MELTDOWN_DAMAGE} damage` },
+      { label: "Meltdown Radius", value: `${NUCLEAR_MELTDOWN_RADIUS} tiles` }
     ],
     interactions: [
-      { label: "Radiators", value: "Essential — an overheated reactor will melt down without adequate cooling" }
+      { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" }
     ]
   },
 
@@ -237,7 +280,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Meltdown Damage", value: "60 damage", sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" }
     ],
     interactions: [
-      { label: "Radiators", value: "Essential — an overheated reactor will melt down without adequate cooling" }
+      { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" }
     ]
   },
 
@@ -248,7 +291,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Meltdown Radius", value: "1.9 tiles", sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" }
     ],
     interactions: [
-      { label: "Radiators", value: "Essential — an overheated reactor will melt down without adequate cooling" }
+      { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" }
     ]
   },
 
@@ -288,7 +331,7 @@ export const COMPONENT_MECHANICS = {
     ],
     specialMechanics: [
       { label: "Blocked Engine", value: "Zero thrust", detail: "Blocked engines still consume mass and cost but provide no movement.", warning: true },
-      { label: "Stacking Falloff", value: "90% per additional engine", detail: "Each additional engine contributes 90% of the previous one's thrust (100%, 90%, 81%, 73%, etc.)." },
+      { label: "Stacking Falloff", value: ENGINE_STACKING.value, detail: ENGINE_STACKING.detail },
       { label: "Power Scaling", value: "Movement scales with pow(powerGen / max(powerUse, 1), 1.8)", detail: "Underpowered ships suffer reduced movement, clamped to a minimum 18%." },
       { label: "Heat-State Scaling", value: "Active output follows the shared active-output table", detail: "Cool/Warm: 100%, Hot: 70%, Critical: 40%, Overheated: 0%." },
       { label: "Activity Heat", value: "2 + thrust × 0.018 H/s" }
@@ -306,7 +349,7 @@ export const COMPONENT_MECHANICS = {
     ],
     specialMechanics: [
       { label: "Blocked Engine", value: "Zero thrust", warning: true },
-      { label: "Stacking Falloff", value: "90% per additional engine" },
+      { label: "Stacking Falloff", value: ENGINE_STACKING.value, detail: ENGINE_STACKING.detail },
       { label: "Heat-State Scaling", value: "Active output follows the shared active-output table" }
     ],
     interactions: [
@@ -320,7 +363,7 @@ export const COMPONENT_MECHANICS = {
     ],
     specialMechanics: [
       { label: "Blocked", value: "Zero thrust if exhaust is blocked", warning: true },
-      { label: "Stacking Falloff", value: "90% per additional engine" }
+      { label: "Stacking Falloff", value: ENGINE_STACKING.value, detail: ENGINE_STACKING.detail }
     ],
     interactions: [
       { label: "Power", value: "Power deficit reduces thrust" }
@@ -354,13 +397,13 @@ export const COMPONENT_MECHANICS = {
 
   droneBay: {
     requirements: [
-      { label: "Launch Edge", value: "Requires one fully exposed two-cell launch edge", detail: "The launch edge must be on the ship's exterior — an internal pocket does not count.", warning: true },
+      { label: "Launch Edge", value: "Requires one fully exposed two-cell launch edge", detail: "The launch edge must be on the ship's exterior : an internal pocket does not count.", warning: true },
       { label: "Max Per Ship", value: "4 bays maximum" },
       { label: "Drone Type", value: "Must configure a drone type (Fighter, Defence, or Repair) before deployment" }
     ],
     specialMechanics: [
-      { label: "Squad Size", value: "3 drones per squad" },
-      { label: "Fuel", value: "Limited fuel — drones must return to refuel" },
+      { label: "Squad Size", value: droneTypeSummary("squadSize", " drones per squad") },
+      { label: "Fuel", value: `${droneTypeSummary("fuelSeconds", "s")} fuel; drones must return to refuel` },
       { label: "Rebuild", value: "Destroyed drones are rebuilt over time" },
       { label: "Parent Destruction", value: "Orphaned drones survive briefly then are lost", warning: true }
     ],
@@ -396,7 +439,7 @@ export const COMPONENT_MECHANICS = {
   flakCannon: {
     specialMechanics: [
       { label: "Anti-Missile & Anti-Swarm", value: "Short-range area interception", detail: "Flak provides burst-area defence against missiles and drone swarms." },
-      { label: "Negligible Ship Damage", value: "Very low damage to ships" }
+      { label: "Ship Damage", value: shipDamageSummary("flakCannon"), detail: "Flak is weak against ships because its base damage is low and its blast is designed for fragile targets, not because it applies a separate ship-damage penalty." }
     ],
     interactions: [
       { label: "Point Defence", value: "Overlapping coverage improves missile defence" },
@@ -463,7 +506,7 @@ export const COMPONENT_MECHANICS = {
       { label: "High Power Demand", value: "Requires substantial power to maintain", warning: true }
     ],
     interactions: [
-      { label: "Power", value: "High power cost — ensure adequate generation" }
+      { label: "Power", value: "High power cost : ensure adequate generation" }
     ]
   },
 
@@ -483,7 +526,7 @@ export const COMPONENT_MECHANICS = {
   armor: {
     specialMechanics: [
       { label: "Flat Damage Reduction", value: "Reduces incoming damage by a flat amount per hit", detail: "Armor reduces each incoming hit by its flat reduction value before hull damage is applied." },
-      { label: "Heat Retention", value: "0.9 retention multiplier", detail: "Armor retains 90% of its cooling efficiency — it dissipates heat slightly slower than standard components.", sourceKey: "heatRules.profile.armor.retention" },
+      { label: "Heat Retention", value: "0.9 retention multiplier", detail: "Armor retains 90% of its cooling efficiency : it dissipates heat slightly slower than standard components.", sourceKey: "heatRules.profile.armor.retention" },
       { label: "Heat Capacity", value: "125 H", sourceKey: "heatRules.profile.armor.capacity" }
     ],
     interactions: [
@@ -494,7 +537,7 @@ export const COMPONENT_MECHANICS = {
   compositeArmor: {
     specialMechanics: [
       { label: "Flat Damage Reduction", value: "Reduces incoming damage by a flat amount per hit" },
-      { label: "Heat Retention", value: "0.82 retention multiplier", detail: "Composite armor retains 82% of cooling efficiency — it dissipates heat slower than standard armor.", sourceKey: "heatRules.profile.compositeArmor.retention" },
+      { label: "Heat Retention", value: "0.82 retention multiplier", detail: "Composite armor retains 82% of cooling efficiency : it dissipates heat slower than standard armor.", sourceKey: "heatRules.profile.compositeArmor.retention" },
       { label: "Heat Capacity", value: "140 H", sourceKey: "heatRules.profile.compositeArmor.capacity" }
     ],
     interactions: [
@@ -544,7 +587,7 @@ export const COMPONENT_MECHANICS = {
 
   repair: {
     specialMechanics: [
-      { label: "Stacking", value: "62% efficiency per additional source", detail: "Multiple repair sources on the same ship stack with diminishing returns." },
+      { label: "Stacking", value: `${fmtPct(REPAIR_STACKING_MULTIPLIER)} efficiency per additional source`, detail: `Each additional repair source contributes ${fmtPct(REPAIR_STACKING_MULTIPLIER)} of the previous source.` },
       { label: "Repair Range", value: "410 m", detail: "Repair modules restore hull HP to the parent ship and nearby allies within range." },
       { label: "Activity Heat", value: "1.5 + repairRate × 0.35 H/s" }
     ],
@@ -556,7 +599,7 @@ export const COMPONENT_MECHANICS = {
 
   repairBeam: {
     specialMechanics: [
-      { label: "Directional", value: "Projects a repair beam toward friendly ships", detail: "Repair beams are directional — aim them at the ship you want to heal." },
+      { label: "Directional", value: "Projects a repair beam toward friendly ships", detail: "Repair beams are directional : aim them at the ship you want to heal." },
       { label: "Range", value: "410 m range" }
     ],
     interactions: [
@@ -571,7 +614,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Heat", value: "Generates heat proportional to sqrt(damage) while firing" }
     ],
     interactions: [
-      { label: "Heat", value: "Sustained firing generates significant heat — ensure cooling" },
+      { label: "Heat", value: "Sustained firing generates significant heat : ensure cooling" },
       { label: "Power", value: "Requires continuous power supply" }
     ]
   },
@@ -620,8 +663,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Tracking", value: "Tracks target with weapon's tracking stat squared", detail: "Missile turn rate scales with tracking². Higher tracking weapons turn harder." },
       { label: "Arming", value: "Reduced turn rate during arming phase", detail: "Missiles arm with a reduced turn rate, then switch to full tracking." },
       { label: "Interceptible", value: "Can be destroyed by point defence and flak", warning: true },
-      { label: "Missile HP", value: "Missiles have HP and can be shot down" },
-      { label: "Splash Damage", value: "Explosive area damage on impact" }
+      { label: "Missile HP", value: "Missiles have HP and can be shot down" }
     ],
     interactions: [
       { label: "Point Defence", value: "Enemy point defence can intercept missiles" },
@@ -633,7 +675,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Tracking", value: "Tracks target" },
       { label: "Interceptible", value: "Can be destroyed by point defence", warning: true },
-      { label: "Missile HP", value: "Has HP — can be shot down" }
+      { label: "Missile HP", value: "Has HP : can be shot down" }
     ],
     interactions: [
       { label: "Point Defence", value: "Enemy point defence can intercept" }
@@ -642,7 +684,7 @@ export const COMPONENT_MECHANICS = {
 
   torpedo: {
     specialMechanics: [
-      { label: "Low Tracking", value: "Low tracking value — best against slow or stationary targets", warning: true },
+      { label: "Low Tracking", value: "Low tracking value : best against slow or stationary targets", warning: true },
       { label: "High Damage", value: "High alpha damage" },
       { label: "Interceptible", value: "Can be destroyed by point defence", warning: true }
     ],
@@ -666,7 +708,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Long Range", value: "Very long range with high alpha damage" },
       { label: "Narrow Arc", value: "Narrow firing arc requires careful positioning", warning: true },
-      { label: "Slow Fire Rate", value: "Low fire rate — high per-shot damage" },
+      { label: "Slow Fire Rate", value: "Low fire rate : high per-shot damage" },
       { label: "Heat", value: "Generates heat proportional to sqrt(damage) × 1.8 × fireRate" }
     ],
     interactions: [

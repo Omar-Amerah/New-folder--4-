@@ -13,7 +13,7 @@ export const CAMERA_PAN_RANGE_SCALE = 2;
 function finite(value, fallback = 0) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
 
 // getBoundingClientRect forces layout, and the render loop needs the canvas
-// rect every frame — right after snapshot handlers may have dirtied the DOM.
+// rect every frame : right after snapshot handlers may have dirtied the DOM.
 // Cache the measurement per canvas element with a short TTL and explicit
 // invalidation on resize, so steady-state frames never trigger a reflow.
 const RECT_CACHE_TTL_MS = 250;

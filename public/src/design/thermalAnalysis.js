@@ -487,7 +487,7 @@ export function summariseThermalResult(model, load, simulation) {
     const activityHeat = simulation.generatedHeat?.[i] ?? 0;
     const cableHeat = simulation.cableGeneratedHeat?.[i] ?? 0;
     // Two distinct instants, deliberately kept apart. `heat`/`ratio`/`state` are
-    // the transient PEAK the run reached — the grid overlay and its percentage
+    // the transient PEAK the run reached : the grid overlay and its percentage
     // badges are coloured from them. `final*` is where the component actually
     // settled, which is the instant the received/transferredOut/cooling rates
     // below describe. Presenting a peak temperature next to a final-state rate
@@ -646,7 +646,7 @@ export function findThermalProblems(model, simulation, load) {
 export function generateThermalAdvice(problems, model) {
   const { design } = model;
   const actionItems = [];
-  if (problems.unroutedHot.length) actionItems.push(`${describeThermalComponent(problems.unroutedHot[0], design)} reaches no Radiator, Heat Vent, Heat Sink or cooler — run a Heat Pipe coolant network to one.`);
+  if (problems.unroutedHot.length) actionItems.push(`${describeThermalComponent(problems.unroutedHot[0], design)} reaches no Radiator, Heat Vent, Heat Sink or cooler : run a Heat Pipe coolant network to one.`);
   if (problems.overloadedNetworks.length) {
     const network = problems.overloadedNetworks[0];
     actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed Radiators or Heat Vents, or split the coolant network.`);

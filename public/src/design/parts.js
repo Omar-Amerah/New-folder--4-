@@ -40,7 +40,7 @@ export const PART_DEFS = {
   // Cool ceramic blue-white, deliberately outside the orange armour / tan
   // composite / crimson ablative range: Refractory Armour is a thermal material
   // and must not read as "another hull plate" in the Structure palette. The
-  // whole family sits last in Structure — after the crimson ablative block — so
+  // whole family sits last in Structure : after the crimson ablative block : so
   // the ceramic column does not split the existing material groups above it.
   refractoryArmor: { name: "Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
   halfRefractoryArmorDiagonal: { name: "Half Refractory Armour", color: "#9dd7e8", glyph: "linear-gradient(160deg, #e0f7ff, #3f6b7d)" },
@@ -160,48 +160,7 @@ const MARKERLESS_ROTATABLE_PARTS = new Set([
 const FIXED_ORIENTATION_PARTS = new Set(["engine", "compactEngine", "heavyEngine", "maneuverThruster", "droneBay"]);
 
 export const PART_DESCRIPTIONS = Object.freeze({
-  core: "Command heart of the ship. Provides basic hull, power, shielding, and the required connection point.",
-  frame: "Cheap structure used to expand the ship shape and connect other modules.",
-  armor: "Heavy passive protection. Adds strong hull but increases mass and slows turning.",
-  engine: "Main propulsion module. Adds thrust for speed and acceleration.",
-  compactEngine: "Compact one-cell main engine for small hulls and distributed propulsion. Easier to place and protect separately, but less efficient than the standard Engine in thrust, Power, mass and cost.",
-  reactor: "Primary power source for weapons, shields, engines, and support systems. Generates heat with load and melts down (explodes) if kept overheated.",
-  nuclearReactor: "Six-tile capital reactor with enormous Power output and extreme Heat generation. It needs a dedicated Heat network and can melt down if left overheated.",
-  backupCore: "Secondary command centre that automatically takes over if the main Core is destroyed. Requires Power and runs the ship at reduced effectiveness.",
-  battery: "Energy reserve with a small shield buffer. Helps survivability without generating power.",
-  shield: "Active defensive barrier. Adds shield capacity and recharge at a power cost.",
-  blaster: "General-purpose gun with medium range, steady damage, and a forward firing arc.",
-  missile: "Tracking burst weapon with long reach, high impact, and slow reload.",
-  railgun: "Long-range precision weapon with heavy damage, narrow arc, and high power draw.",
-  repair: "Support module that slowly repairs hull damage during battle.",
-  compositeArmor: "Lighter armor plate that gives efficient hull without as much mass as standard armor.",
-  capacitor: "Large energy bank with extra shield capacity but no power generation.",
-  auxGenerator: "Small backup generator for light power deficits and compact ship builds. Like all generators, it melts down if kept overheated.",
-  maneuverThruster: "Side-control engine that improves turning more than straight-line speed.",
-  gyroscope: "Stabilization module that improves turn rate without adding thrust.",
-  pointDefense: "High-Power defensive laser designed to destroy hostile drones and light incoming ordnance. Its hitscan beam cannot miss once aligned, but it deals negligible damage to ships.",
-  decoyLauncher: "Defensive support launcher with a limited, slowly rebuilt decoy supply. Its visible false targets may pull guided missiles away but cannot affect unguided fire.",
-
-  flakCannon: "Short-range anti-missile and anti-swarm defence. Poor range and weak direct damage.",
-  interceptorPod: "Longer-range missile interception. Expensive and weak against ships.",
-  autocannon: "Rapid-fire weapon with high spread. Best against nearby light targets.",
-  torpedo: "Slow heavy missile with major burst damage against large ships.",
-  swarmMissile: "Missile pod that fires frequent tracking shots for pressure and pursuit.",
-  beamEmitter: "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.",
-  thermalInductionLance: "Zero-damage induction beam that bypasses armour and couples Heat into one internal subsystem. Sustained contact increases Heat transfer, while active shields reduce its efficiency.",
-  aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
-  targetingComputer: "Support computer that improves weapon accuracy.",
-  fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
-  heatPipe: "Transfers heat rapidly between components connected to the same coolant network. Does not remove heat itself. Pipes link automatically to orthogonally adjacent pipes and components, and a destroyed pipe splits the network.",
-  heatSink: "Stores large amounts of heat. Connect it to hot systems with Heat Pipes to absorb thermal spikes. Neighbouring components gain no capacity from it — the heat has to reach the sink.",
-  heatVent: "Cheap passive heat rejection. Must be exposed to space and connected to hot systems directly or through Heat Pipes. Much weaker than a Radiator, but small, cheap and free of Power draw.",
-  radiator: "The strongest sustained heat rejection available. Works best with an exposed exterior edge; only 25% effective when fully enclosed.",
-  signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
-  stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
-  repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
-  droneBay: "Weapon module that launches and rebuilds a squad of three configurable Fighter, Defence, or Repair drones. One complete two-cell edge must remain exposed.",
-  proximityDemolitionCharge: "Armed by default, this charge detonates when an enemy ship comes within 50 m. The blast bypasses shields, destroys the carrier, and damages all nearby entities regardless of team. Safe mode can prevent accidental detonation.",
-  demolitionCharge: "A compact 1×1 kamikaze charge. Armed by default, it detonates when an enemy ship comes within 50 m, bypassing shields, destroying the carrier, and damaging all nearby entities regardless of team."
+  default: "General-purpose ship component."
 });
 
 export const FALLBACK_PART_STATS = {};
@@ -281,7 +240,7 @@ export function partCategory(type) {
 }
 
 export function partDescription(type, stat) {
-  return stat.description || PART_DESCRIPTIONS[type] || "General-purpose ship component.";
+  return stat?.description || PART_DESCRIPTIONS.default;
 }
 
 export function partIconMarkup(type, extraClass = "", rotationDeg = 0, flipped = false, connectionMask = 0) {
@@ -508,6 +467,24 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
       : null,
     heatBeamShield: Boolean(component.heatBeamShield),
     decoyConfig: component.decoy && typeof component.decoy === "object" ? { ...component.decoy } : null,
+    proximityCharge: component.proximityCharge && typeof component.proximityCharge === "object" && !Array.isArray(component.proximityCharge)
+      ? {
+          triggerRadius: numberOr(component.proximityCharge.triggerRadius, 50),
+          triggerConfirmationSeconds: numberOr(component.proximityCharge.triggerConfirmationSeconds, 0.2),
+          blastRadius: numberOr(component.proximityCharge.blastRadius, 280),
+          splashCentreDamage: numberOr(component.proximityCharge.centreDamage ?? component.proximityCharge.splashCentreDamage, 1000),
+          falloffExponent: numberOr(component.proximityCharge.falloffExponent, 2),
+          directContactMultiplier: numberOr(component.proximityCharge.directContactMultiplier, 1.5),
+          directContactHullDamage: Number.isFinite(Number(component.proximityCharge.directContactHullDamage))
+            ? Number(component.proximityCharge.directContactHullDamage)
+            : numberOr(component.proximityCharge.centreDamage ?? component.proximityCharge.splashCentreDamage, 1000)
+              * numberOr(component.proximityCharge.directContactMultiplier, 1.5),
+          maxAffectedComponents: component.proximityCharge.maxAffectedComponents === null
+            ? null
+            : numberOr(component.proximityCharge.maxAffectedComponents, 6),
+          damagesFriendlyShips: component.proximityCharge.damagesFriendlyShips !== false
+        }
+      : null,
     propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object" ? Object.freeze({
       capacity: numberOr(component.propulsionCapacitor.capacity, 100),
       maxDischargeRate: numberOr(component.propulsionCapacitor.maxDischargeRate, 40),

@@ -21,7 +21,7 @@
   // The canonical Balanced ordering. Presets are stored as an explicit category
   // order so a future allocator can read a single deterministic list regardless
   // of the chosen preset. These names are persisted in saved Blueprints and are
-  // locked — renaming one later would require another migration.
+  // locked : renaming one later would require another migration.
   const BALANCED_ORDER = Object.freeze([
     "propulsion",
     "shields",
@@ -31,7 +31,7 @@
     "coolingSupport"
   ]);
   // Visible, deterministic preset display orders. These are for presentation and
-  // deterministic listing only — PRESET_BANDS below is the authority for which
+  // deterministic listing only : PRESET_BANDS below is the authority for which
   // categories are tied during allocation. The two are kept consistent: a
   // preset's order is its bands flattened in band order.
   const POWER_PRESETS = Object.freeze({
@@ -45,7 +45,7 @@
     // systems, shedding weapons last.
     mobility: Object.freeze(["command", "propulsion", "coolingSupport", "shields", "pointDefence", "weapons"])
   });
-  // "custom" has no fixed order — it honours the Blueprint's own customOrder.
+  // "custom" has no fixed order : it honours the Blueprint's own customOrder.
   const CUSTOM_PRESET = "custom";
   const ACCEPTED_PRESETS = Object.freeze([...Object.keys(POWER_PRESETS), CUSTOM_PRESET]);
   const PRESET_NAMES = ACCEPTED_PRESETS;

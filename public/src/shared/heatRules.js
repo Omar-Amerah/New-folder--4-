@@ -25,14 +25,14 @@
   //
   // Every connected group of living Heat Pipes is one coolant network. Pipes are
   // transport only: they remove no heat and store almost none. Attachment is
-  // automatic — any living component sharing an orthogonal tile edge with a pipe
+  // automatic : any living component sharing an orthogonal tile edge with a pipe
   // in the network exchanges heat with that network's coolant. There is no
   // rotation, port or direction to configure; flow direction falls out of the
   // participants' relative heat ratios.
   //
   // The network deliberately does NOT behave as one averaged body holding every
-  // attached component's heat capacity. Each participant — every attachment plus
-  // the pipe tiles themselves as a single node — is coupled to the coolant by a
+  // attached component's heat capacity. Each participant : every attachment plus
+  // the pipe tiles themselves as a single node : is coupled to the coolant by a
   // conductance derived from how many tile edges it shares with the network. The
   // coolant settles at the conductance-weighted mean of the participants' heat
   // ratios and each participant moves toward it, so the flows sum to zero and
@@ -138,7 +138,7 @@
   const RADIATOR_PASSIVE_COOLING_FRACTION = 0.12;
   // Heat Vent exposure. A Vent is a bare hull grille: with no opening to space
   // it has nowhere to reject heat, so an enclosed Vent is very nearly inert.
-  // Exposure is binary on purpose — extra exposed edges add nothing, so there is
+  // Exposure is binary on purpose : extra exposed edges add nothing, so there is
   // no reward for carving a checkerboard hull.
   const HEAT_VENT_EXPOSED_MULTIPLIER = 1;
   const HEAT_VENT_ENCLOSED_MULTIPLIER = 0.05;

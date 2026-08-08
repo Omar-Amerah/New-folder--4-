@@ -21,7 +21,7 @@
   // Deterministic infrastructure snapshot for one wiring value: Power/Data cost,
   // total infrastructure and total static Heat displacement, plus per-cell and
   // per-component detail used to diff two wiring states. All numbers come from
-  // the shared 7A accounting authority — never estimated from raw section count.
+  // the shared 7A accounting authority : never estimated from raw section count.
   function infrastructureSnapshot(design, wiring, catalogue, infrastructure) {
     const accounting = accountInfrastructure(design, wiring, catalogue, infrastructure);
     const powerCost = accounting.power.cost;
@@ -123,7 +123,7 @@
     }
 
     // Actual total Heat-capacity change after heat-sink bonuses and the minimum
-    // clamp — this, not the nominal infrastructure displacement, is what the UI
+    // clamp : this, not the nominal infrastructure displacement, is what the UI
     // should show. delta.displacement remains the raw infrastructure value.
     delta.actualHeatCapacity = affectedComponents.reduce((sum, component) => sum + component.heatCapacityDelta, 0);
 

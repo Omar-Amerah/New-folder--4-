@@ -49,7 +49,7 @@ function coreIndexFor(design) {
   return -1;
 }
 
-// True when the destroyed component sits directly against a core cell — losing
+// True when the destroyed component sits directly against a core cell : losing
 // it opens a shot path to the core from that side.
 function destroyedComponentAdjacentToCore(design, destroyedIndex, coreIndex) {
   if (coreIndex < 0 || destroyedIndex === coreIndex) return false;
@@ -87,7 +87,7 @@ export function recordComponentHpChanges(ship, oldChp, newChp) {
   if (!damagedIndices.length) return;
 
   // A full-wreck sync (ship killed: every pool zeroed at once) reads as an
-  // explosion, not per-component hits — the boom effect already covers it.
+  // explosion, not per-component hits : the boom effect already covers it.
   const wholeShipZeroed = !ship.alive && damagedIndices.every((d) => d.destroyed);
 
   damagedIndices.forEach((hit, order) => {
@@ -103,7 +103,7 @@ export function recordComponentHpChanges(ship, oldChp, newChp) {
       });
       const name = partDisplayName(part?.type);
       if (hit.destroyed) pushFeed(entry, `${name} destroyed`, "destroyed", now);
-      else pushFeed(entry, `${name} — ${Math.round(hit.damage)} damage`, layer, now);
+      else pushFeed(entry, `${name} : ${Math.round(hit.damage)} damage`, layer, now);
     }
 
     if (hit.index === coreIndex && !hit.destroyed) {

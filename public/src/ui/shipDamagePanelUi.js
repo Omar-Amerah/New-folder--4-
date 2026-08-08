@@ -2,7 +2,7 @@
 // component art via the shared drawModule pipeline, blueprint-up orientation)
 // with live status tints, per-component hp bars, hover/tap highlight + readout,
 // the recent-damage feed, and core warnings. Everything renders from the
-// client-side ship/component state already received — no extra server traffic.
+// client-side ship/component state already received : no extra server traffic.
 
 import { dom, withCanvasContext } from "./dom.js";
 import { state } from "../state.js";
@@ -229,7 +229,7 @@ function tierStrokeWidth(tier, cellSize) {
   return Math.max(1.5, cellSize * 0.09 * scaled);
 }
 // Status colour of a section from its runtime protection state / flow. Colour
-// is a secondary cue only — every state is also spelled out in the legend and
+// is a secondary cue only : every state is also spelled out in the legend and
 // the section readout text.
 function sectionStatusStyle(section) {
   if (section.operational === false || (section.kind === "switchgear" && !section.runtime)) {
@@ -327,7 +327,7 @@ function renderComponentPowerReadout(ship, index) {
     const reasons = (diag?.reductionReasons || []).join(", ");
     const restriction = reasons ? ` · reduced by ${reasons}` : (!alive ? " · destroyed: generating no Power" : "");
     const netId = power && power[1] != null ? ` · network ${power[1]}` : "";
-    dom.shipDamageHover.textContent = `${name} — generator · Rated: ${mwOrUnavailable(ratedGen)} · Available: ${mwOrUnavailable(availableGen)} · Delivered: ${mwOrUnavailable(deliveredGen)} · Unused: ${mwOrUnavailable(unusedGen)}${netId}${restriction}`;
+    dom.shipDamageHover.textContent = `${name} : generator · Rated: ${mwOrUnavailable(ratedGen)} · Available: ${mwOrUnavailable(availableGen)} · Delivered: ${mwOrUnavailable(deliveredGen)} · Unused: ${mwOrUnavailable(unusedGen)}${netId}${restriction}`;
     return;
   }
   if (diag && (Number(diag.requestedMw) > 0 || Number(diag.allocatedMw) > 0)) {
@@ -340,13 +340,13 @@ function renderComponentPowerReadout(ship, index) {
     const netId = power && power[1] != null ? ` · network ${power[1]}` : "";
     const sections = (diag.hostedActiveSectionIds || []).join(", ") || "None";
     const cableHeat = `${formatHeatAmount(diag.powerCableHeatRate || 0)} H/s`;
-    dom.shipDamageHover.textContent = `${name} — ${mw(requested)} requested / ${mw(allocated)} allocated · ${pct}% · ${supplyWord}${category ? ` · ${category}` : ""}${netId} · hosted sections ${sections} · cable Heat ${cableHeat}`;
+    dom.shipDamageHover.textContent = `${name} : ${mw(requested)} requested / ${mw(allocated)} allocated · ${pct}% · ${supplyWord}${category ? ` · ${category}` : ""}${netId} · hosted sections ${sections} · cable Heat ${cableHeat}`;
     return;
   }
   // No direct Power demand or generation.
   const hosted = (diag?.hostedActiveSectionIds || []);
   const hostedText = hosted.length ? ` · hosts Power sections ${hosted.join(", ")}` : "";
-  dom.shipDamageHover.textContent = `${name} — No direct Power demand or generation.${hostedText}`;
+  dom.shipDamageHover.textContent = `${name} : No direct Power demand or generation.${hostedText}`;
 }
 
 // Selected/hovered Power-section readout with a plain-language interpretation.
@@ -359,11 +359,11 @@ function renderPowerSectionReadout(ship, sectionId) {
   const tierName = WIRING_INFRASTRUCTURE?.powerTiers?.[view.tier]?.inspectionLabel || view.tier;
   const kindLabel = view.kind === "switchgear" ? "protected internal connection" : "cable";
   if (view.operational === false) {
-    dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) — Disabled because a host component is destroyed. Hosts: ${hosts}.`;
+    dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) : Disabled because a host component is destroyed. Hosts: ${hosts}.`;
     return;
   }
   if (!runtime) {
-    dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) — No live flow on this section. Hosts: ${hosts}.`;
+    dom.shipDamageHover.textContent = `${view.id} (${tierName} ${kindLabel}) : No live flow on this section. Hosts: ${hosts}.`;
     return;
   }
   const flow = Number(runtime.absoluteFlowMw) || 0;
@@ -389,7 +389,7 @@ function renderPowerSectionReadout(ship, sectionId) {
   const heat = sectionHeat ? `${formatHeatAmount(sectionHeat.total)} H/s (base ${formatHeatAmount(sectionHeat.base)}, overload ${formatHeatAmount(sectionHeat.overload)})` : "Unavailable";
   const secondsText = secondsAbove > 0 ? ` · ${formatHeatAmount(secondsAbove)}s above sustained` : "";
   const stressedText = isMostStressed ? " · most-stressed section" : "";
-  dom.shipDamageHover.textContent = `${view.id} (${tierName}) — ${mw(flow)} · ${mw(sustained)}/${mw(peak)} · ${sustainedUtil}% sustained, ${peakUtil}% peak · stress ${stress}%${secondsText} · Heat ${heat} · ${POWER_SECTION_STATE_LABEL[runtime.state] || "Working"} · network ${safeText(runtime.networkId, "—")} · hosts ${hosts}${stressedText} — ${sentences.join(" ")}`;
+  dom.shipDamageHover.textContent = `${view.id} (${tierName}) : ${mw(flow)} · ${mw(sustained)}/${mw(peak)} · ${sustainedUtil}% sustained, ${peakUtil}% peak · stress ${stress}%${secondsText} · Heat ${heat} · ${POWER_SECTION_STATE_LABEL[runtime.state] || "Working"} · network ${safeText(runtime.networkId, "N/A")} · hosts ${hosts}${stressedText} : ${sentences.join(" ")}`;
 }
 
 // Cable Heat contribution for a section is read from the authoritative
@@ -458,7 +458,7 @@ function renderHeatSummary(ship) {
   // The total / net Heat rate remains here because it is the authoritative
   // whole-ship thermal total (it legitimately includes cable Heat).
   summary.innerHTML = `
-    <div><span title="Aggregate stored heat across the whole ship — individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
+    <div><span title="Aggregate stored heat across the whole ship : individual components may run hotter or cooler">Overall heat</span><strong>${percentText}</strong></div>
     <div><span>Stored</span><strong>${formatHeatAmount(heatNow)} / ${formatHeatAmount(heatMax)} H</strong></div>
     <div><span>Component Heat rate</span><strong>${readout.rateText(readout.componentHeatRate)}</strong></div>
     <div><span title="Whole-ship total; includes cable Heat because it is the authoritative thermal total">Total / net Heat rate</span><strong>${readout.rateText(readout.totalHeatRate)} / ${readout.rateText(readout.netHeatRate)}</strong></div>
@@ -545,7 +545,7 @@ function renderComponentHeatReadout(ship, index) {
   const hp = Number(ship.chp?.[index]) || 0;
   if (hp <= 0) {
     const retained = thermal.heat > 0 ? ` · retained ${formatHeatAmount(thermal.heat)} H` : "";
-    dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — Inactive / destroyed${retained}`;
+    dom.shipDamageHover.textContent = `${partDisplayName(part.type)} : Inactive / destroyed${retained}`;
     return;
   }
   const percentText = formatHeatPercent(Math.min(125, thermal.ratio * 100));
@@ -558,9 +558,9 @@ function renderComponentHeatReadout(ship, index) {
     ? ` · ${Math.round(passivePerf * 100)}% protection`
     : activePerf != null && activePerf < 1 ? ` · ${Math.round(activePerf * 100)}% output` : "";
   const trend = componentHeatTrend(index);
-  const trendText = trend.direction === "warming" ? ` — Warming ${formatHeatRate(trend.smoothedRate)}`
-    : trend.direction === "cooling" ? ` — Cooling ${formatHeatRate(trend.smoothedRate)}`
-    : trend.direction === "stable" ? " — Stable" : "";
+  const trendText = trend.direction === "warming" ? ` : Warming ${formatHeatRate(trend.smoothedRate)}`
+    : trend.direction === "cooling" ? ` : Cooling ${formatHeatRate(trend.smoothedRate)}`
+    : trend.direction === "stable" ? " : Stable" : "";
   const heatRate = finitePowerValue(ship.powerThermal?.components?.[index]?.componentHeatRate);
   const activityText = heatRate !== null && heatRate > 0
     ? part.type === "gyroscope" || part.type === "maneuverThruster"
@@ -571,7 +571,7 @@ function renderComponentHeatReadout(ship, index) {
     : "";
   // Thermal-only: Power requested/allocated, cable Heat and hosted-section
   // protection detail now live in the Power tab, not this Heat readout.
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${formatHeatAmount(thermal.heat)}${capacityText} — ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${activityText}${perfText}`;
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} : ${formatHeatAmount(thermal.heat)}${capacityText} : ${HEAT_LABELS[thermal.state] || "Cool"}${trendText}${activityText}${perfText}`;
 }
 
 function renderComponentDamageReadout(ship, index) {
@@ -582,7 +582,7 @@ function renderComponentDamageReadout(ship, index) {
   const status = statusFor(max > 0 ? hp / max : 0);
   const effectiveRange = Number(ship.weaponRanges?.[index]);
   const rangeText = Number.isFinite(effectiveRange) && effectiveRange > 0 ? ` · Range ${Math.round(effectiveRange)}` : "";
-  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} — ${Math.max(0, Math.round(hp))}/${Math.round(max)} — ${statusLabel(status)}${rangeText}`;
+  dom.shipDamageHover.textContent = `${partDisplayName(part.type)} : ${Math.max(0, Math.round(hp))}/${Math.round(max)} : ${statusLabel(status)}${rangeText}`;
 }
 
 // Re-renders the component readout from the latest ship snapshot object. Used
@@ -1271,7 +1271,7 @@ function drawDiagram(ship) {
   }
 }
 
-// Maps a design-grid cell (cx,cy) to the diagram's screen-space centre — the
+// Maps a design-grid cell (cx,cy) to the diagram's screen-space centre : the
 // same mapping componentScreenRect uses, so wire lines align with component art.
 function cellCenterScreen(cx, cy, cellSize, originX, originY) {
   return { x: originX + (cx - SHIP_DAMAGE_GRID_CENTER) * cellSize, y: originY + (cy - SHIP_DAMAGE_GRID_CENTER) * cellSize };

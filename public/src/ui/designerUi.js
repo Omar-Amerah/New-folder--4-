@@ -8,7 +8,7 @@ import {
 import { PART_DEFS, PART_STATS, isRotatablePart, isFlippablePart, partIconMarkup } from "../design/parts.js";
 import { createPlacementCandidate, findPartAtCell } from "../design/placementCandidate.js";
 import { normalizeRotation, nextRotation } from "../design/rotation.js";
-import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
+import { isConnected, disconnectedComponentIndices, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { coolantConnectionMasks, coolantNetworkAt } from "../design/coolantLayout.js";
 import { computeStats } from "../design/componentStats.js";
@@ -19,12 +19,13 @@ import { notify } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedBlueprintPresentation } from "./savedBlueprintsUi.js";
 import { formatThrust, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
+import { GENERATED_BALANCE } from "../generatedBalance.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { buildHeatCardModel, heatCardMarkup } from "../design/heatCardModel.js";
 import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, dataLinksHintText, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
-import { calculateCenterOfMass } from "../shared/movementStats.js";
+import { calculateCenterOfMass, ENGINE_FALLOFF } from "../shared/movementStats.js";
 import {
   refreshWiringPresentation,
   refreshWiringAnalysisPresentation,
@@ -209,7 +210,7 @@ function currentHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOA
 function blueprintCellTitle(part, partIndex, exhaustAnalysis = null) {
   if (!part) return "Empty";
   const blocked = exhaustAnalysis?.blockedEngineIndices?.has(partIndex);
-  if (blocked) return "Blocked exhaust — engine provides no thrust.";
+  if (blocked) return "Blocked exhaust : engine provides no thrust.";
   const flipHint = isFlippablePart(part.type) ? `${part.flipped === true ? " | mirrored" : ""} | press F to mirror` : "";
   return `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate${flipHint}` : ""}`;
 }
@@ -318,7 +319,7 @@ function refreshBlueprintControls() {
   }
   if (dom.thermalScenarioLabel) {
     dom.thermalScenarioLabel.hidden = !heatView;
-    dom.thermalScenarioLabel.textContent = `Predicted component heat — ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE]}`;
+    dom.thermalScenarioLabel.textContent = `Predicted component heat : ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE]}`;
   }
   if (dom.buildInteractionGuide) {
     dom.buildInteractionGuide.hidden = wiringView;
@@ -411,7 +412,7 @@ export function renderBaseBlueprintGrid() {
       if (part) {
         const blockedExhaust = exhaustAnalysis.blockedEngineIndices.has(partIndex);
         const rotation = normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x);
-        const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
+        const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust : engine provides no thrust." aria-label="Blocked exhaust : engine provides no thrust.">!</span>` : "";
         const droneBadge = part.type === "droneBay" ? `<span class="drone-bay-type-badge drone-${part.droneType || "unconfigured"}" aria-label="${part.droneType ? `${part.droneType} drones` : "Drone type not configured"}">${part.droneType ? part.droneType.charAt(0).toUpperCase() + part.droneType.slice(1) : "!"}</span>` : "";
         cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation, part.flipped === true, coolantMasks[partIndex])}${droneBadge}${exhaustWarning}`;
         cell.dataset.partIndex = String(partIndex);
@@ -538,7 +539,7 @@ function applyHeatPresentation(heatAnalysis) {
       <small class="heat-badge-percent">%</small>
     </span>`;
     const heatWarning = meltdown
-      ? `<span class="component-overheat-warning" title="Reactor meltdown predicted — will explode at sustained load" aria-label="Reactor meltdown predicted">☢</span>`
+      ? `<span class="component-overheat-warning" title="Reactor meltdown predicted : will explode at sustained load" aria-label="Reactor meltdown predicted">☢</span>`
       : overheated
       ? `<span class="component-overheat-warning" title="Overheated" aria-label="Overheated">▲</span>`
       : critical ? `<span class="component-critical-warning" title="Critical heat" aria-label="Critical heat">▲</span>` : "";
@@ -595,7 +596,7 @@ function blueprintHeatSummaryMarkup(result) {
   const totalCapacity = (result.powerThermal?.components || []).reduce((sum, c) => sum + (Number(c.finalHeatCapacity) || 0), 0);
   const row = (l, v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(String(v))}</strong>`;
   return `<div class="heat-design-summary power-thermal-summary" aria-label="Blueprint Heat and Power summary">
-    <strong>${escapeHtml(THERMAL_SCENARIO_NAMES[a.mode] || a.mode)} — ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[a.mode] || "")}</strong>
+    <strong>${escapeHtml(THERMAL_SCENARIO_NAMES[a.mode] || a.mode)} : ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[a.mode] || "")}</strong>
     ${row("State", blueprintThermalStateLabel(result))}
     ${row("Final total Heat capacity", `${Math.round(totalCapacity)} H`)}
     ${row("Component Heat generation", fmtHeat(a.generation - (cable.totalPowerCableHeatPerSecond || 0)))}
@@ -1332,7 +1333,7 @@ export function rotateFocusedPart() {
 }
 
 // F: mirror the hovered/selected placed component, or the pending placement when
-// the cursor is not over one. A component that is not flippable is left alone —
+// the cursor is not over one. A component that is not flippable is left alone :
 // no error, no toast.
 export function flipFocusedPart() {
   if (!isBlueprintRotationMode()) return false;
@@ -1451,6 +1452,7 @@ function renderShipSummary(stats, heat) {
     powerSummary: flow,
     partNames: PART_DEFS,
     overheatingCount: overheatingComponentCount(heat),
+    disconnectedComponentCount: disconnectedComponentIndices(state.design).length,
     includePower: true
   });
   const open = shipSummaryOpenSections();
@@ -1747,7 +1749,7 @@ function renderAnalysisPanels(stats, heat) {
     if (v <= 0) return "0";
     return v >= 1 ? `${Math.round(v)} m/s²` : `${v.toFixed(1)} m/s²`;
   };
-  let marginalDelta = "—";
+  let marginalDelta = "N/A";
   if (state?.design && Array.isArray(state.design)) {
     try {
       const testStats = computeStats([...state.design, { x: -1, y: -1, type: "engine", rotation: 0 }]);
@@ -1763,23 +1765,80 @@ function renderAnalysisPanels(stats, heat) {
     ? (stats.speedCap + (stats.maxSpeed - stats.speedCap) / 0.25)
     : stats.maxSpeed;
   const postCapEfficiency = speedCapped ? "25%" : "100%";
-  const movementNote = speedCapped
-    ? `Mass drag soft-cap begins at ${formatSpeed(stats.speedCap)}. Additional thrust above this point is only ${postCapEfficiency} effective.`
-    : `Top speed is set by available thrust and total mass. The soft-cap onset is ${formatSpeed(stats.speedCap)}.`;
-  const movementRows = [
-    ["Actual maximum speed", formatSpeed(Math.round(stats.maxSpeed || 0))],
-    ["Unrestricted thrust speed", formatSpeed(Math.round(unrestrictedSpeed || 0))],
-    ["Soft-cap onset", formatSpeed(Math.round(stats.speedCap || 0))],
-    ["Post-cap efficiency", postCapEfficiency],
-    ["Acceleration", accelText(stats.accel)],
-    ["+1 engine delta", marginalDelta],
-    ["Turn rate", turnText(stats)],
-    ["Effective thrust", formatThrust(stats.effectiveThrust)],
-    ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`],
-    ["Engine efficiency", formatPercent(stats.engineEfficiency)]
+  const marginalImpact = marginalDelta.startsWith("max ")
+    ? marginalDelta.replace(/^max /, "Top speed ").replace(", accel ", " / acceleration ")
+    : marginalDelta;
+  const maxSpeed = Math.round(stats.maxSpeed || 0);
+  const thrustPotential = Math.round(unrestrictedSpeed || 0);
+  const dragThreshold = Math.round(stats.speedCap || 0);
+  const speedScale = Math.max(1, maxSpeed, thrustPotential, dragThreshold);
+  const actualSpeedPosition = Math.max(0, Math.min(100, maxSpeed / speedScale * 100));
+  const dragThresholdPosition = Math.max(0, Math.min(100, dragThreshold / speedScale * 100));
+  const hasEffectiveThrust = maxSpeed > 0 && Number(stats.effectiveThrust || 0) > 0;
+  const movementStatus = !hasEffectiveThrust ? "No thrust" : speedCapped ? "Drag limited" : "Thrust limited";
+  const movementStatusTone = !hasEffectiveThrust ? " is-warning" : speedCapped ? " is-capped" : "";
+  const movementNote = !hasEffectiveThrust
+    ? "This design has no effective thrust. Add a powered engine to give it combat mobility."
+    : speedCapped
+      ? `Mass drag begins at ${formatSpeed(dragThreshold)}. Thrust above that threshold contributes at ${postCapEfficiency} efficiency, reducing the unrestricted ${formatSpeed(thrustPotential)} potential to ${formatSpeed(maxSpeed)}.`
+      : `Available thrust and total mass set this ship's top speed. Mass drag begins at ${formatSpeed(dragThreshold)}, so it is not reducing this design's speed.`;
+  const movementMetrics = [
+    ["Acceleration", accelText(stats.accel), "Forward speed gain"],
+    ["Turn rate", turnText(stats), "Hull rotation"],
+    ["Effective thrust", formatThrust(stats.effectiveThrust), "After engine losses"],
+    ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`, "Thrust per tonne"]
   ];
+  const movementMetricMarkup = movementMetrics.map(([label, value, hint]) => `<div>
+    <span>${escapeHtml(label)}</span>
+    <strong>${escapeHtml(String(value))}</strong>
+    <small>${escapeHtml(hint)}</small>
+  </div>`).join("");
   if (dom.analysisMovementPanel) {
-    dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card combat-movement-card"><h3>Combat movement</h3>${analysisGridMarkup(movementRows)}<p class="analysis-note">${escapeHtml(movementNote)}</p></section>${sensorCoverageMarkup(stats)}`;
+    dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card combat-movement-card">
+      <div class="combat-movement-heading">
+        <div>
+          <h3>Combat movement</h3>
+          <p>Speed, handling and propulsion at full power.</p>
+        </div>
+        <span class="combat-movement-status${movementStatusTone}">${escapeHtml(movementStatus)}</span>
+      </div>
+      <div class="movement-speed-hero">
+        <div class="movement-speed-primary">
+          <span>Top speed</span>
+          <strong>${escapeHtml(formatSpeed(maxSpeed))}</strong>
+          <small>${speedCapped ? "After the mass-drag penalty" : "Available in combat"}</small>
+        </div>
+        <div class="movement-speed-visual">
+          <div class="movement-speed-track" role="img" aria-label="${escapeHtml(`Top speed ${formatSpeed(maxSpeed)}. Mass drag begins at ${formatSpeed(dragThreshold)}.`)}">
+            <i style="width:${actualSpeedPosition.toFixed(2)}%"></i>
+            <b style="left:${dragThresholdPosition.toFixed(2)}%" aria-hidden="true"></b>
+            <em style="left:${actualSpeedPosition.toFixed(2)}%" aria-hidden="true"></em>
+          </div>
+          <div class="movement-speed-comparison">
+            <div><span>Thrust potential</span><strong>${escapeHtml(formatSpeed(thrustPotential))}</strong></div>
+            <div><span>Mass drag begins</span><strong>${escapeHtml(formatSpeed(dragThreshold))}</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="movement-section-heading">Handling &amp; propulsion</div>
+      <div class="movement-metric-grid">${movementMetricMarkup}</div>
+      <div class="movement-efficiency-grid">
+        <div><span>Engine efficiency</span><strong>${escapeHtml(formatPercent(stats.engineEfficiency))}</strong></div>
+        <div><span>Thrust efficiency at top speed</span><strong>${escapeHtml(postCapEfficiency)}</strong></div>
+      </div>
+      <div class="movement-engine-impact">
+        <span class="movement-engine-impact-icon" aria-hidden="true">+</span>
+        <div>
+          <span>Adding one engine</span>
+          <strong>${escapeHtml(marginalImpact)}</strong>
+          <small>Includes the added engine's mass.</small>
+        </div>
+      </div>
+      <div class="movement-limit-note">
+        <strong>What sets top speed?</strong>
+        <span>${escapeHtml(movementNote)}</span>
+      </div>
+    </section>${sensorCoverageMarkup(stats)}`;
   }
 
   renderFullLoadThermalPanel(heat);
@@ -1797,9 +1856,9 @@ function thermalRoleMarkup(part, prediction, result, index) {
   }
   if (part.type === "heatVent") {
     const exposed = result.exteriorDirections?.[index]?.size > 0;
-    pieces.push(`<span class="thermal-role-indicator heat-vent-role" title="Weak external cooling: removing ${prediction.cooling.toFixed(1)} H/s; ${exposed ? "exposed to space" : "enclosed — almost no cooling"}" aria-label="Heat Vent removing ${prediction.cooling.toFixed(1)} H/s">≡</span>`);
+    pieces.push(`<span class="thermal-role-indicator heat-vent-role" title="Weak external cooling: removing ${prediction.cooling.toFixed(1)} H/s; ${exposed ? "exposed to space" : "enclosed : almost no cooling"}" aria-label="Heat Vent removing ${prediction.cooling.toFixed(1)} H/s">≡</span>`);
   }
-  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Coolant transport — moves heat between everything on this network, removes none itself" aria-label="Heat Pipe coolant transport, removes no heat">┄</span>`);
+  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Coolant transport : moves heat between everything on this network, removes none itself" aria-label="Heat Pipe coolant transport, removes no heat">┄</span>`);
   return pieces.join("");
 }
 
@@ -1870,7 +1929,7 @@ function thermalHoverText(prediction) {
   if (!prediction) return "";
   const labels = globalThis.HeatRules.STATE_LABELS;
   const overheat = prediction.timeToOverheat === null ? "Time until overheat: never" : `Time until overheat: ${prediction.timeToOverheat.toFixed(1)}s`;
-  const meltdown = prediction.meltdownTime != null ? `\nREACTOR MELTDOWN predicted at ${prediction.meltdownTime.toFixed(1)}s — explodes, damaging nearby components` : "";
+  const meltdown = prediction.meltdownTime != null ? `\nREACTOR MELTDOWN predicted at ${prediction.meltdownTime.toFixed(1)}s : explodes, damaging nearby components` : "";
   return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generated: +${prediction.generation.toFixed(1)} H/s\nDirect heat received: +${prediction.received.toFixed(1)} H/s\nDirect heat transferred out: -${prediction.transferredOut.toFixed(1)} H/s\nHeat removed: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
 }
 
@@ -1898,7 +1957,7 @@ function renderFullLoadThermalPanel(fullLoadResult) {
   }, 0);
   // Expected peak Heat state derived from the shared authoritative thresholds,
   // so the label matches the runtime Warm/Hot/Critical/Overheated bands. This is
-  // a simulated peak, not current combat Heat — the wording says so explicitly.
+  // a simulated peak, not current combat Heat : the wording says so explicitly.
   const HeatRules = globalThis.HeatRules;
   const peakPercent = Math.round(analysis.peakPredictedHeat * 100);
   const peakState = HeatRules.STATE_LABELS[HeatRules.stateFor(analysis.peakPredictedHeat, HeatRules.STATE.NORMAL)] || "Cool";
@@ -1907,7 +1966,7 @@ function renderFullLoadThermalPanel(fullLoadResult) {
     : `Predicted to overheat after ${analysis.firstOverheatTime.toFixed(0)} seconds`;
   panel.innerHTML = `
     <h3>Heat analysis</h3>
-    <p>${escapeHtml(THERMAL_SCENARIO_NAMES[analysis.mode] || analysis.mode)} — ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[analysis.mode] || "")}</p>
+    <p>${escapeHtml(THERMAL_SCENARIO_NAMES[analysis.mode] || analysis.mode)} : ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[analysis.mode] || "")}</p>
     <div class="thermal-analysis-status ${tone}">${escapeHtml(statusText)}</div>
     <div class="thermal-key-stats">
       <div><span>${spareCooling ? "Removal reserve" : "Net heat"}</span><strong class="${spareCooling ? "thermal-good" : "thermal-bad"}">${spareCooling ? `${analysis.reserve.toFixed(1)} H/s` : `+${analysis.net.toFixed(1)} H/s`}</strong></div>
@@ -2475,7 +2534,7 @@ Final Hull HP: ${stats.maxHp} HP`
     case "shield":
       return {
         label: "Shield Buffers",
-        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this. Blocked damage also heats the shield generators, and recharging generates heat — hot shield modules recharge slower.",
+        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this. Blocked damage also heats the shield generators, and recharging generates heat : hot shield modules recharge slower.",
         formula: "EffectiveMaxShield = Round(BaseShield × component-local predicted Power)",
         breakdown: `Base Shield: ${stats.baseMaxShield ?? stats.maxShield} SP
 Effective Shield SP: ${stats.maxShield} SP
@@ -2553,7 +2612,7 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
       return {
         label: "Effective Engine Thrust",
         desc: "Total usable thrust generated by propulsion systems. Stacks with soft caps to prevent excessive acceleration.",
-        formula: "Diminishing Returns (99% stack factor)",
+        formula: `Diminishing Returns (${formatPercent(ENGINE_FALLOFF)} stack factor)`,
         breakdown: `Raw Engine Sum: ${stats.thrust} kN
 Effective Stacked Thrust: ${stats.effectiveThrust} kN`
       };
@@ -2600,7 +2659,7 @@ Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
         label: "Power Penalty",
         desc: deficit
           ? "Reactor output is below demand, so power-hungry systems run under-powered and lose effectiveness. Add reactors/batteries or cut power use to clear it."
-          : "Power supply meets demand — no systems are being throttled.",
+          : "Power supply meets demand : no systems are being throttled.",
         formula: "Under-power scales each system down toward the generation / demand ratio.",
         breakdown: deficit
           ? `Available generation: ${fmtMw(gen)} vs Active demand: ${fmtMw(demand)}
@@ -2658,7 +2717,7 @@ Total DPS: ${stats.weaponDps} DPS`
       return {
         label: "Hull Repair Rate",
         desc: "Active repair rate of hull integrity per second. Does not restore shield capacity.",
-        formula: "Diminishing Returns (62% stack factor)",
+        formula: `Diminishing Returns (${formatPercent(GENERATED_BALANCE?.repair?.stackingMultiplier ?? 0.8)} stack factor)`,
         breakdown: `Repair Rate: ${stats.repairRate.toFixed(1)} HP/s`
       };
 

@@ -1,7 +1,7 @@
 // Renderer-neutral turret aiming math: which parts are rotating weapons, the
 // authoritative ship-relative weapon angle for a design slot, relative/world
 // angle conversion, and the shared traverse-rate lookup. No Canvas, no Pixi,
-// no DOM — the Pixi arena renderer (and tests) import these.
+// no DOM : the Pixi arena renderer (and tests) import these.
 
 import { PART_STATS, isRotatablePart } from "../design/parts.js";
 import { moduleRotationToRadians, normalizeRotation } from "../design/rotation.js";
@@ -47,7 +47,7 @@ function warnMissingWeaponAngle(ship, index, part) {
   console.warn(
     `[mfa] Missing authoritative weapon angle: shipId=${ship?.id} designIndex=${index} partType=${part?.type} ` +
     `weaponAnglesLength=${length} frontendBuild=${globalThis.__mfaFrontendBuild || "dev"} ` +
-    `backendBuild=${backend.buildSha || "unknown"} backendProtocol=${backend.protocolVersion ?? "unknown"} — ` +
+    `backendBuild=${backend.buildSha || "unknown"} backendProtocol=${backend.protocolVersion ?? "unknown"} : ` +
     `falling back to the blueprint angle; if this is a live server the WebSocket backend is stale and needs redeploying.`
   );
 }

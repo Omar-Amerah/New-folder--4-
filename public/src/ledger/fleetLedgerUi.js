@@ -66,7 +66,7 @@ function renderArticleContent(article) {
         return `<div class="ledger-stat-row${cls}"><span class="ledger-stat-label">${escapeHtml(s.label)}</span><span class="ledger-stat-value">${escapeHtml(s.value)}</span>${detail}</div>`;
       })
       .join("");
-    parts.push(`<section class="ledger-section" id="ledger-sec-conditional-performance"><h3 class="ledger-section-heading">Conditional Performance</h3><div class="ledger-stat-grid">${rows}</div><p class="ledger-section-note">Values vary by condition — these are not base stats.</p></section>`);
+    parts.push(`<section class="ledger-section" id="ledger-sec-conditional-performance"><h3 class="ledger-section-heading">Conditional Performance</h3><div class="ledger-stat-grid">${rows}</div><p class="ledger-section-note">Values vary by condition : these are not base stats.</p></section>`);
   }
 
   if (article.specialMechanics && article.specialMechanics.length) {

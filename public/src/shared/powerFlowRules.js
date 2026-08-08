@@ -178,7 +178,7 @@
 
     // Section-connectivity islands (union-find over section endpoints), computed
     // up front and by canonical root order so grouping never depends on section
-    // order. Used both for network attribution and — Section 7D-2 — to attach a
+    // order. Used both for network attribution and : Section 7D-2 : to attach a
     // component to exactly one terminal cell per island, so a multi-cell source
     // or consumer can no longer bypass its own first/last cable section while
     // still reaching genuinely separate islands.
@@ -713,7 +713,7 @@
     }
 
     // Spare usable generation: surplus left on networks that fully powered their
-    // own real demand — headroom that could serve more load. Isolated generation
+    // own real demand : headroom that could serve more load. Isolated generation
     // with no reachable demand is not "spare"; it stays in strandedGenerationMw.
     let spareGenUnits = 0;
     networks.forEach((networkValue) => {

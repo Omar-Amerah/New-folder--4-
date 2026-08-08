@@ -203,7 +203,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   const invalid = purchaseUi.getPurchaseOptionState(invalidOption, 1);
   assert.equal(invalid.canBuy, false);
   assert.ok(invalid.reason, "authoritative invalid reason is preserved");
-  assert.match(purchaseUi.purchaseStatusText(invalid), /^⚠ /);
+  assert.equal(purchaseUi.purchaseStatusText(invalid), "Invalid");
 
   state.pendingPurchases.set("req-1", { optionId: option.id, requestId: "req-1" });
   const pending = purchaseUi.getPurchaseOptionState(option, 1);
@@ -216,7 +216,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   const failed = purchaseUi.getPurchaseOptionState(option, 1);
   assert.equal(failed.canBuy, false);
   assert.equal(failed.reason, "Server said no");
-  assert.equal(purchaseUi.purchaseStatusText(failed), "Purchase failed — Server said no");
+  assert.equal(purchaseUi.purchaseStatusText(failed), "Purchase failed : Server said no");
 
   const html = fs.readFileSync("public/index.html", "utf8");
   const controlsCss = fs.readFileSync("public/styles/blueprint-controls.css", "utf8");

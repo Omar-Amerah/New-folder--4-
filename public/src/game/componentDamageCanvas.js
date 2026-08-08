@@ -1,6 +1,6 @@
 // Offscreen/UI Canvas helpers for per-component damage tints and hit flashes.
 // These paint into whatever 2D context the caller is drawing to (the ship
-// damage panel canvas, or an offscreen bake surface) — they are UI artwork
+// damage panel canvas, or an offscreen bake surface) : they are UI artwork
 // helpers, not an arena renderer. No arena render loop lives here.
 
 import { state } from "../state.js";

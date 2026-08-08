@@ -187,7 +187,7 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
 // frontend (e.g. Netlify) and the WebSocket backend deploy separately, so a
 // stale backend is a real failure mode: it must be called out instead of being
 // silently masked by client fallbacks. Differing build SHAs alone never block
-// play — only an actually incompatible (newer-than-supported) protocol is
+// play : only an actually incompatible (newer-than-supported) protocol is
 // rejected. Returns "ok", "stale", or "incompatible".
 const protocolReportedFor = new Set();
 export function checkServerProtocol(info) {
@@ -214,7 +214,7 @@ export function checkServerProtocol(info) {
     if (!alreadyReported) {
       console.warn(
         `[mfa] Stale WebSocket backend detected: protocolVersion=${version ?? "missing"} (authoritative weapon ` +
-        `angles require v${anglesMin}). Turret verification cannot be claimed against this backend — the ` +
+        `angles require v${anglesMin}). Turret verification cannot be claimed against this backend : the ` +
         `WebSocket server needs redeploying/restarting from the current main commit. ` +
         `frontend=${FRONTEND_BUILD} backend=${backendSha}`
       );
@@ -238,7 +238,7 @@ function recordServerBuild(message) {
   info.balanceCompatibility = balanceCompatibility;
   if (balanceCompatibility === "mismatch" && !balanceMismatchReported) {
     balanceMismatchReported = true;
-    notify.error("Game balance is out of date — refresh the page (or redeploy the server) before playing.", { key: "balance-mismatch", keyTtl: 15000 });
+    notify.error("Game balance is out of date : refresh the page (or redeploy the server) before playing.", { key: "balance-mismatch", keyTtl: 15000 });
   } else if (balanceCompatibility === "ok") {
     balanceMismatchReported = false;
   }
@@ -264,7 +264,7 @@ function noticeTone(text, team) {
 
 function isInlineOnlyNotice(text) {
   // These are reflected directly by the deploy button, blueprint status, or lobby UI.
-  return /^(Ready confirmed —|Design saved — you are ready|Editor blueprint saved\.)/i.test(text);
+  return /^(Ready confirmed :|Design saved : you are ready|Editor blueprint saved\.)/i.test(text);
 }
 
 function isUrgentNotice(text) {
@@ -297,7 +297,7 @@ export function handleServerMessage(message) {
   if (message.type === "hello") {
     recordServerBuild(message);
     if (state.server?.compatibility === "incompatible") {
-      notify.error("Server protocol is newer than this client build — refresh the page.", { key: "protocol-mismatch", keyTtl: 15000 });
+      notify.error("Server protocol is newer than this client build : refresh the page.", { key: "protocol-mismatch", keyTtl: 15000 });
     }
     state.connectionId = message.connectionId || message.id;
     applyServerParts(message.parts || {});

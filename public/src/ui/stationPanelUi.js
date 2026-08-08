@@ -84,7 +84,7 @@ function renderMeter(label, value, max, kind) {
 
 function renderProductionQueue(station) {
   const queue = Array.isArray(station.productionQueue) ? station.productionQueue : [];
-  if (queue.length === 0) return `<p class="station-empty">Launch hangars idle — nothing in production.</p>`;
+  if (queue.length === 0) return `<p class="station-empty">Launch hangars idle : nothing in production.</p>`;
   const rows = queue.map((item, index) => {
     const stateLabel = QUEUE_STATE_LABELS[item.state] || item.state;
     const progress = Math.round(Math.max(0, Math.min(1, Number(item.progress) || 0)) * 100);

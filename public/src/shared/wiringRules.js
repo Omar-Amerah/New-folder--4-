@@ -192,7 +192,7 @@
 
   function normalizeWiring(wiring, modules, catalogue) {
     const list = Array.isArray(modules) ? modules : [];
-    // Migrate first, then validate against the current version — never empty a
+    // Migrate first, then validate against the current version : never empty a
     // save just because it predates Wiring v3.
     const source = migrateWiringToCurrentVersion(wiring);
     const occupiedMap = occupancy(list, catalogue);

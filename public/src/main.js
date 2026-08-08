@@ -318,7 +318,7 @@ async function loadComponentBalance() {
   }
 
   // Validate the downloaded payload before applying anything. A malformed
-  // response must never be partially applied or coerced to zeros — keep the last
+  // response must never be partially applied or coerced to zeros : keep the last
   // known good balance and record a diagnostic.
   const result = acceptDownloadedBalance(balance);
   if (!result.ok) {

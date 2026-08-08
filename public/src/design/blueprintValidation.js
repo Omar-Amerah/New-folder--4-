@@ -20,10 +20,12 @@ export function isConnected(parts) {
   return globalThis.StructuralConnectivity.isConnected(parts, PART_STATS, getOccupiedCells);
 }
 
-// Connectivity check that assumes the caller has already verified there are no
-// overlaps. Used by validateBlueprint to avoid scanning overlaps twice.
-function isConnectedAssumingNoOverlap(parts) {
-  return globalThis.StructuralConnectivity.isConnected(parts, PART_STATS, getOccupiedCells);
+// Connectivity detail from the same shared traversal used by client and server
+// validation. Callers can explain an invalid design without recreating BFS rules.
+export function disconnectedComponentIndices(parts, { assumeNoOverlap = false } = {}) {
+  if (!Array.isArray(parts) || coreCount(parts) !== 1) return [];
+  if (!assumeNoOverlap && isOverlapping(parts)) return [];
+  return globalThis.StructuralConnectivity.disconnectedPartIndices(parts, PART_STATS, getOccupiedCells);
 }
 
 export function validateBlueprint(parts, { requireThrust = true, stats = null, normalizationIssues = [] } = {}) {
@@ -38,9 +40,12 @@ export function validateBlueprint(parts, { requireThrust = true, stats = null, n
   if (backupCores > 1) errors.push("Invalid design: maximum one Backup Command Core is allowed.");
   const outOfBounds = Array.isArray(parts) && isOutOfBounds(parts);
   const overlapping = Array.isArray(parts) && isOverlapping(parts);
+  const disconnectedIndices = Array.isArray(parts) && cores === 1 && !overlapping
+    ? disconnectedComponentIndices(parts, { assumeNoOverlap: true })
+    : [];
   if (outOfBounds) errors.push("Invalid design: modules outside build grid.");
   if (overlapping) errors.push("Invalid design: overlapping modules.");
-  if (Array.isArray(parts) && cores === 1 && !overlapping && !isConnectedAssumingNoOverlap(parts)) errors.push("Invalid design: disconnected parts.");
+  if (disconnectedIndices.length) errors.push("Invalid design: disconnected parts.");
   if (Array.isArray(parts)) {
     const droneValidation = globalThis.DroneBayRules?.validateDroneBays(parts, PART_STATS, { maximum: PART_STATS.droneBay?.droneConfig?.maxBaysPerShip });
     if (droneValidation && !droneValidation.ok) errors.push(...droneValidation.errors.map((error) => error.message));
@@ -49,7 +54,7 @@ export function validateBlueprint(parts, { requireThrust = true, stats = null, n
     const computedStats = stats || (Array.isArray(parts) ? computeStats(parts) : null);
     if (computedStats && computedStats.thrust <= 0) errors.push("Invalid design: add at least one engine.");
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, disconnectedComponentIndices: disconnectedIndices };
 }
 
 export function isOverlapping(parts) {
@@ -105,7 +110,7 @@ export function explainConnectionProblem(existingParts, partType, x, y, rotation
   }
 
   if (!sideNeighbor && cornerNeighbor) {
-    return "Not connected: modules must share a full side — corner contact does not count";
+    return "Not connected: modules must share a full side : corner contact does not count";
   }
 
   if (!sideNeighbor) {

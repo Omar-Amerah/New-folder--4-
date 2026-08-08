@@ -10,7 +10,7 @@
 // `accel` by the controller; see movementTuning.js.
 
 function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
-const ENGINE_FALLOFF = 0.96;
+export const ENGINE_FALLOFF = 0.96;
 const BASE_SPEED = 60;
 const SPEED_PER_THRUST = 1.05; // legacy, unused
 const THRUST_SPEED_SQRT_SCALE = 28.8;
@@ -124,4 +124,4 @@ export function softCap(value,cap,softness=0.35){ return value<=cap?value:cap+(v
 export function massClassForMass(mass){ if(mass<55)return 'Light'; if(mass<125)return 'Medium'; if(mass<230)return 'Heavy'; return 'Capital'; }
 export function speedCapForMass(mass){ return Math.max(SOFT_CAP_MIN, SOFT_CAP_BASE - Number(mass || 0) * SOFT_CAP_MASS_SLOPE); }
 export function turnCapForMass(mass){ if(mass<55)return 3.42; if(mass<125)return 2.46; if(mass<230)return 1.34; return 0.86; }
-if (typeof module !== "undefined" && module.exports) { module.exports = { calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, effectiveStackedValue, softCap, massClassForMass, speedCapForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }
+if (typeof module !== "undefined" && module.exports) { module.exports = { ENGINE_FALLOFF, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, effectiveStackedValue, softCap, massClassForMass, speedCapForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }

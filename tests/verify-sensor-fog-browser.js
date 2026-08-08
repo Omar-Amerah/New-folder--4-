@@ -125,6 +125,16 @@ try {
       await page.locator("#analysisMovementPanel .combat-movement-card h3").textContent(),
       "Combat movement"
     );
+    assert.match(
+      await page.locator("#analysisMovementPanel .combat-movement-card").textContent(),
+      /Top speed[\s\S]*Thrust potential[\s\S]*Mass drag begins[\s\S]*Handling & propulsion[\s\S]*Adding one engine[\s\S]*What sets top speed\?/,
+      "Combat movement leads with the outcome, then explains the supporting engineering values"
+    );
+    assert.match(
+      await page.locator("#analysisMovementPanel .combat-movement-status").textContent(),
+      /^(?:No thrust|Drag limited|Thrust limited)$/,
+      "Combat movement names the active speed constraint"
+    );
     assert.strictEqual(await page.locator("#analysisMovementPanel .sensor-coverage-plot").isVisible(), true,
       "Combat analysis renders the sensor coverage graphic below movement");
     assert.strictEqual(await page.locator("#analysisMovementPanel .sensor-coverage-cone").count(), 2,
@@ -142,17 +152,19 @@ try {
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileCombatGeometry = await page.evaluate(() => {
       const panel = document.querySelector("#analysisMovementPanel");
+      const movementCard = document.querySelector(".combat-movement-card");
       const card = document.querySelector(".sensor-coverage-card");
       const plot = document.querySelector(".sensor-coverage-plot");
       return {
         panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
+        movementCardOverflow: movementCard.scrollWidth > movementCard.clientWidth + 1,
         cardOverflow: card.scrollWidth > card.clientWidth + 1,
         plotFitsCard: plot.getBoundingClientRect().width <= card.getBoundingClientRect().width + 1
       };
     });
     assert.deepStrictEqual(
       mobileCombatGeometry,
-      { panelOverflow: false, cardOverflow: false, plotFitsCard: true },
+      { panelOverflow: false, movementCardOverflow: false, cardOverflow: false, plotFitsCard: true },
       "Combat sensor analysis fits a 390px mobile viewport"
     );
     await page.screenshot({ path: `${artifactDir}/combat-sensor-analysis-mobile.png`, fullPage: true });

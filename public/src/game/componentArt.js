@@ -107,8 +107,8 @@ export function mixColor(a, b, t) {
   return `rgb(${r},${g},${bl})`;
 }
 
-// Pushes a colour away from its own grey. Mixing toward white or black — which
-// is how every tone in the weapon ramp is derived — bleeds chroma out with it,
+// Pushes a colour away from its own grey. Mixing toward white or black : which
+// is how every tone in the weapon ramp is derived : bleeds chroma out with it,
 // so a violet launcher and a blue emitter both drift toward the same pale
 // lavender. Re-saturating after the mix keeps each weapon's own colour reading
 // as a colour at small sizes instead of as tinted grey.
@@ -194,8 +194,8 @@ function getModuleGradient(size, color) {
 }
 
 // Weapon bodies (barrels, rounds, rails, emitter shells) used to take a
-// cylindrical cross-axis gradient — dark at both edges, bright just above centre
-// — which rendered them as modelled tubes sitting on a grid of flat system
+// cylindrical cross-axis gradient : dark at both edges, bright just above centre
+// : which rendered them as modelled tubes sitting on a grid of flat system
 // modules. They now take one flat tone and let the dark outline do the
 // separating, the same way a capacitor's plates or a heat sink's fins do. The
 // gradient caches went with it: a flat fill is a string, so there is nothing to
@@ -273,7 +273,7 @@ function drawComponentCubeBase(size, color) {
 // Pixi and blueprint views bake the same art into cached textures/icons.
 function drawRecessedPanel(size, width = 0.68, height = 0.68, radius = 0.08) {
   ctx.save();
-  // Kept translucent so the coloured cube beneath still shows through — a
+  // Kept translucent so the coloured cube beneath still shows through : a
   // heavier fill here made every component read nearly black.
   ctx.fillStyle = "rgba(5,10,18,0.38)";
   ctx.strokeStyle = "rgba(225,238,255,0.24)";
@@ -400,7 +400,7 @@ function drawCapacitorPlatePair(unit, centerX, gapHalf, halfHeight, fine, plateT
 
 // --- Shared structural material -------------------------------------------------
 // The armour family (full cube, bevel, rounded corner, long wedge) is one
-// material: three overlapping plate bands, a lit top bevel and — for composite —
+// material: three overlapping plate bands, a lit top bevel and : for composite :
 // an amber laminate weave. Cut-away silhouettes clip these same strokes to their
 // own outline so a bevelled plate reads as the same steel as a full one.
 function drawArmorLaminate(size, color, composite, fine) {
@@ -435,7 +435,7 @@ function drawArmorLaminate(size, color, composite, fine) {
 // Ablative counterpart to the laminate: sacrificial spall plating. The same three
 // courses as the armour family, but each course is broken into staggered tiles on
 // a charred substrate whose seams glow through, with one tile already burned away
-// at the leading edge — it ablates instead of stopping a shell, and the art has to
+// at the leading edge : it ablates instead of stopping a shell, and the art has to
 // say so at a glance. Callers clip to their own silhouette first, exactly as they
 // do for drawArmorLaminate, so a bevelled ablative plate reads as the same
 // material as a full one.
@@ -579,7 +579,7 @@ function drawRefractoryTiles(size, color, fine) {
 
 // Cool cut face for refractory silhouettes. The ablative family lights its cut
 // edge orange because it is burning back; refractory ceramic is doing the
-// opposite — holding heat out — so its edge reads as a cold, glazed rim.
+// opposite : holding heat out : so its edge reads as a cold, glazed rim.
 function drawRefractoryColdEdge(size, describe) {
   ctx.strokeStyle = "rgba(214,240,255,0.6)";
   ctx.lineWidth = Math.max(1, size * 0.06);
@@ -677,7 +677,7 @@ function weaponMetals(color) {
   // A round drawn onto the bare hull cube needs more separation than `shell`
   // gives it. `shell` is one small step off the component colour, which is
   // plenty inside a recessed dark bay but vanishes against a full-strength hull
-  // face of the same colour — the missile's amber body on its amber launcher was
+  // face of the same colour : the missile's amber body on its amber launcher was
   // invisible, leaving the round reading as a black line drawing. The munition
   // ramp keeps the component hue and forces a fixed lightness step instead:
   // upward for dark and mid hulls, downward for ones already too light to climb
@@ -689,7 +689,7 @@ function weaponMetals(color) {
   // rounds into pale mint.
   const munition = saturate(withLightness(color, bodyLight), 0.35);
   // Warhead cone and casing bands. Measured down from whichever of the hull and
-  // the body is darker, so the head separates from both — pinned to the body
+  // the body is darker, so the head separates from both : pinned to the body
   // alone it landed back on the hull's own value on the parts whose round is the
   // lighter of the two.
   const munitionDeep = saturate(
@@ -724,7 +724,7 @@ function weaponFine(unit) {
 // stacked two levels of relief under every gun and was the main reason weapons
 // read as modelled objects next to flat system tiles. One hairline rim replaces
 // it: enough to separate ring from socket, not enough to dish the mount.
-// Fully radially symmetric — it belongs to the STATIC hull, never to the top.
+// Fully radially symmetric : it belongs to the STATIC hull, never to the top.
 export function drawWeaponBase(size) {
   ctx.save();
   ctx.fillStyle = "rgba(6,10,16,0.88)";
@@ -752,7 +752,7 @@ export function drawWeaponBase(size) {
 }
 
 // Autocannon mount: one flat turntable, nothing more. Deliberately simpler
-// than drawWeaponBase() — no dark outer socket, no rim, no inner hub — because
+// than drawWeaponBase() : no dark outer socket, no rim, no inner hub : because
 // the twin barrels already carry the weapon's identity and a layered housing
 // under them turns a basic rapid-fire gun into a boss turret. The octagon is the
 // only kinetic cue it needs against the blaster's round socket. Flat-filled: the
@@ -785,7 +785,7 @@ function drawSimpleTurntable(size, color) {
 // Each weapon varies the same four parts (chamber size, arm count and sweep,
 // channel width, lens shape) instead of recolouring one icon. Two rules hold
 // the family together: nothing draws a closed ring around the weapon, and no
-// bar crosses the full width of it — both read as UI symbols laid over the
+// bar crosses the full width of it : both read as UI symbols laid over the
 // hull rather than hardware bolted to it.
 
 // One pair of focusing arms: curved brackets hugging the channel, open fore and
@@ -922,7 +922,7 @@ function drawBeamFamilyTop(unit, hl, hc, color, opts) {
 }
 
 // One miniature round on a swarm rack, nose toward +x. Deliberately a whole
-// little missile — purple body, warm nose, tail fins — because the Swarm Pod
+// little missile : purple body, warm nose, tail fins : because the Swarm Pod
 // reads as "carries many small missiles" only if you can actually see the
 // missiles. Launch holes, however deep, always read as a panel of dots.
 function drawRackMissile(unit, mx, my, len, M) {
@@ -930,7 +930,7 @@ function drawRackMissile(unit, mx, my, len, M) {
   // Drawn around the origin and translated into place. This matters: the shared
   // tube/cone gradients are built in local space around y=0, so a round drawn
   // directly at y = ±lane sampled past both ends of its own shading and filled
-  // flat — which is exactly why a rack of them read as printed-on decals.
+  // flat : which is exactly why a rack of them read as printed-on decals.
   const tail = -len * 0.5;
   const nose = len * 0.5;
   const shoulder = len * 0.18;
@@ -1001,7 +1001,7 @@ function drawRackMissile(unit, mx, my, len, M) {
 
 // The open frame both swarm footprints hang their rounds on: a hollow trough,
 // two side rails and one cross bracket per station. The recess is one flat dark
-// tone and the rails one flat metal tone — the rounds read against the trough by
+// tone and the rails one flat metal tone : the rounds read against the trough by
 // value alone, which is what the system modules do with their recessed bays.
 function drawMissileRack(unit, { halfLong, railY, rail, troughHalf, stations, bracketWidth }, M) {
   ctx.save();
@@ -1047,7 +1047,7 @@ function drawMissileRack(unit, { halfLong, railY, rail, troughHalf, stations, br
 // Torpedo cradle: the clamp the round is strapped into, in place of the plain
 // bearing ring. The ring is heavy along the cross axis (where a clamp would
 // actually grip) and thin through the middle, where the torpedo body covers it
-// anyway — a full-weight circle there just read as a painted-on decoration.
+// anyway : a full-weight circle there just read as a painted-on decoration.
 // Static hull art, so the clamp blocks stay in the footprint frame.
 function drawTorpedoCradle(unit, hl, hc) {
   const r = Math.min(hl, hc) * 0.72;
@@ -1192,7 +1192,7 @@ export function drawStaticWeaponMount({ type, unit, tilesLong = 1, tilesCross = 
       // Same recessed bay as the rest of the catalogue. This used to be a
       // bright machined plate, which left an open-frame weapon sitting on a
       // flat silver slab with nothing behind it to read against. It still gets
-      // no bearing ring — an open frame has nowhere to hide one, and a disc in
+      // no bearing ring : an open frame has nowhere to hide one, and a disc in
       // the middle of the bore just reads as a stray circle.
       drawFootprintPanel(unit, hl, hc, 0.94, 0.88, 0.09);
       drawFootprintSeams(unit, hl, hc, tilesLong);
@@ -1208,7 +1208,7 @@ export function drawStaticWeaponMount({ type, unit, tilesLong = 1, tilesCross = 
     } else if (artType === "spinalAccelerator") {
       // A spinal mount is not a turret: it is a gun the ship is built around.
       // The hull under it carries a long recessed race with heavy cross frames,
-      // and deliberately no bearing ring — a disc in the middle of a twelve-cell
+      // and deliberately no bearing ring : a disc in the middle of a twelve-cell
       // weapon reads as a decal, exactly as it did on the railgun.
       drawFootprintPanel(unit, hl, hc, 0.96, 0.9, 0.08);
       drawFootprintSeams(unit, hl, hc, tilesLong);
@@ -1305,7 +1305,7 @@ function drawTurretCap(size, color, r = 0.16) {
 }
 
 // Aegis projector head: a continuous emitter ring instead of a barrel, so the
-// module never reads as a turret. Deliberately rotationally symmetric — the
+// module never reads as a turret. Deliberately rotationally symmetric : the
 // projector puts out a field in every direction, it does not aim.
 function drawAegisEmitterRing(unit, radius) {
   ctx.save();
@@ -1343,7 +1343,7 @@ function drawAegisEmitterRing(unit, radius) {
 // Drawn around the pivot (origin) with local +x as weapon-forward, on a
 // transparent background. Barrel tips line up with TurretRules.MUZZLE_TIP_TILES
 // so projectiles emerge exactly at the visible muzzle. Never draws hull
-// blocks, sockets, or recessed panels — those are static mount artwork.
+// blocks, sockets, or recessed panels : those are static mount artwork.
 export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 1, color, chargeProgress = 0 }) {
   const artType = componentArtType(type);
   const size = unit;
@@ -1369,7 +1369,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     // Short, wide straight-sided barrel. Its breech end runs back over the
     // pivot cap so the barrel visibly bolts into the hub instead of ending at
     // the socket ring. Tip sits at TurretRules.MUZZLE_TIP_TILES.blaster.
-    // `half` is the only width control here — the muzzle and bore below are all
+    // `half` is the only width control here : the muzzle and bore below are all
     // expressed as fractions of it, so the barrel narrows as one piece. `tip` is
     // pinned to TurretRules.MUZZLE_TIP_TILES.blaster and must not move with it.
     const back = -size * 0.15;
@@ -1423,18 +1423,18 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     ctx.fillRect(tip - size * 0.08, -half * 0.48, size * 0.04, half * 0.96);
     ctx.restore();
   } else if (artType === "autocannon") {
-    // Two chunky gun tubes on a compact mount — the identity is the pair of
+    // Two chunky gun tubes on a compact mount : the identity is the pair of
     // barrels and their muzzles, so everything else stays out of their way.
     // A short breech bar behind them is the only structure: casings, collars
     // and layered housings turned this into an armoured weapons platform.
-    // Tips sit at TurretRules.MUZZLE_TIP_TILES.autocannon (0.62) — shortening
+    // Tips sit at TurretRules.MUZZLE_TIP_TILES.autocannon (0.62) : shortening
     // the barrels means moving that constant too, or rounds stop leaving the
     // visible muzzle.
     const back = -size * 0.18;
     const tip = size * 0.62;
     const half = size * 0.09;
     const spread = size * 0.17;
-    // roundRect() starts a new path, so each barrel must be filled on its own —
+    // roundRect() starts a new path, so each barrel must be filled on its own :
     // a single shared fill() would only render the last one.
     const barrelPath = (cy, dy = 0, grow = 0) => {
       roundRect(ctx, {
@@ -1595,7 +1595,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     // about the pivot: `back` and `nose` are equal and opposite (give or take
     // the fin overhang) so the round's own midpoint lands on the component
     // centre instead of riding forward in the cell. The nose sits at
-    // TurretRules.MUZZLE_TIP_TILES.missile (0.4) — keep the two in sync.
+    // TurretRules.MUZZLE_TIP_TILES.missile (0.4) : keep the two in sync.
     const back = -size * 0.36;
     const shoulder = size * 0.2;
     const nose = size * 0.4;
@@ -1675,7 +1675,7 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
   } else if (artType === "swarmMissile") {
     // Same exposed rack as the multi-cell pod, squeezed into one tile: an open
     // frame carrying four visible miniature missiles in two pairs. No launch
-    // holes and no turret ring — the rounds are the identity.
+    // holes and no turret ring : the rounds are the identity.
     const lane = size * 0.2;
     const len = size * 0.42;
     const rail = Math.max(1, size * 0.05);
@@ -2003,7 +2003,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
     ctx.restore();
 
     // 3. The rails: two continuous bars running almost the full length. Drawn
-    //    as shaded tubes with a contact shadow rather than flat strokes — flat
+    //    as shaded tubes with a contact shadow rather than flat strokes : flat
     //    bars on a flat bed plate were what made this weapon read as a decal.
     const railHalf = Math.max(0.8, unit * 0.055);
     ctx.save();
@@ -2108,7 +2108,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
   } else if (artType === "fragmentationCannon") {
     // A shell gun: heavy squat barrel, a visible autoloader drum on one flank,
     // and a stepped muzzle brake. The drum is what separates it from the plain
-    // blaster silhouette — you can see it feeds rounds rather than energy.
+    // blaster silhouette : you can see it feeds rounds rather than energy.
     const back = -hl * 0.86;
     const tip = hl * 0.92;
 
@@ -2183,7 +2183,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
     // Heavy variant: a longer heat chamber, two pairs of containment arms with
     // a tighter sweep, and containment bands over a white-hot shroud. Clearly
     // the same construction as the Beam Emitter, built for something less
-    // stable — it couples heat rather than cutting.
+    // stable : it couples heat rather than cutting.
     drawBeamFamilyTop(unit, hl, hc, color, {
       chamberFront: 0.16,
       channelHalf: 0.22,
@@ -2202,7 +2202,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
     // The loaded torpedo (finned tail, banded body, glowing warhead) rotates;
     // the launch trough stays on the hull as part of the mount. The stern is
     // cut flat around an engine nozzle so the tail can never be misread as a
-    // second nose — front and rear have to be unambiguous on a round this long.
+    // second nose : front and rear have to be unambiguous on a round this long.
     const stern = -hl * 0.72;
 
     // Fins first, so the body overlaps their roots and they read as structure
@@ -2250,7 +2250,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
     }
     ctx.restore();
 
-    // Engine nozzle in the flat stern, with a contained warm glow — heat in the
+    // Engine nozzle in the flat stern, with a contained warm glow : heat in the
     // bell, deliberately no exhaust plume (the round is sitting in its cradle).
     ctx.save();
     ctx.fillStyle = M.bore;
@@ -2288,7 +2288,7 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
     // Exposed rack, not an enclosed pod: a light open frame carrying four
     // visible miniature missiles in two separated pairs. The rounds themselves
     // are the identity, so the structure stays to two rails and two cross
-    // brackets — anything heavier starts hiding the ammunition it carries.
+    // brackets : anything heavier starts hiding the ammunition it carries.
     const pairs = Math.max(2, Math.round((hl * 2) / unit));
     const lane = hc * 0.4;
     const len = Math.min(unit * 0.62, (hl * 1.8) / pairs * 0.92);
@@ -2372,7 +2372,7 @@ function withRotatedShape(size, rotation, outline, drawMaterial, drawEdge, flipp
 // Every part in the Engines category is built from these four pieces so the whole
 // group reads as one manufacturer's hardware: a dark gunmetal casing, a ribbed
 // thrust chamber, a bell nozzle, and mount hardware. Cyan is reserved for the
-// things that are actually hot — the throat and the feed spine — because when the
+// things that are actually hot : the throat and the feed spine : because when the
 // body itself was cyan the colour did all the identifying work and the shapes
 // could just as easily have been sensors or reactors.
 //
@@ -2463,7 +2463,7 @@ function drawThrustChamber(unit, fromX, toX, halfCross, color, ribs = 3) {
 
 // Bell nozzle opening toward -x: dark cone interior, a lit mouth lip, and a hot
 // throat wedge behind it. This is the single shape that has to survive at icon
-// size — if a propulsion part is unreadable, it is because this is missing.
+// size : if a propulsion part is unreadable, it is because this is missing.
 function drawNozzleBell(unit, { throatX, mouthX, throatHalf, mouthHalf, glow = true }) {
   const bell = () => {
     ctx.beginPath();
@@ -2482,7 +2482,7 @@ function drawNozzleBell(unit, { throatX, mouthX, throatHalf, mouthHalf, glow = t
   ctx.stroke();
 
   // Cone walls: two lit flanks converging on the throat. These do the work of
-  // making the bell read hollow, so the hot core can stay small — a bell filled
+  // making the bell read hollow, so the hot core can stay small : a bell filled
   // edge to edge with glow is just a bright wedge again.
   ctx.save();
   bell();
@@ -2960,7 +2960,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
 
   if (type === "compactEngine") {
     // The main engine compressed into one cell: the same mount / chamber / bell
-    // sequence, but overbuilt — thicker casing, a stubbier two-rib chamber, and a
+    // sequence, but overbuilt : thicker casing, a stubbier two-rib chamber, and a
     // bell that gives up length rather than width. It should read as the small
     // dense member of the family; the old centred intake disc sitting between two
     // flank conduits read as a face.
@@ -3052,7 +3052,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   }
   if (type === "capacitor") {
     // Plate pair across a dielectric gap with the stored charge arcing in it.
-    // The two flat blue slabs it replaces carried no sense of a gap at all —
+    // The two flat blue slabs it replaces carried no sense of a gap at all :
     // the arc is what separates this from the Battery's chemical cells.
     drawRecessedPanel(size, 0.86, 0.8, 0.09);
     drawCapacitorPlatePair(size, 0, size * 0.115, size * 0.3, fine);
@@ -3070,7 +3070,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   if (type === "auxGenerator") {
     // Compact genset: a driven turbine rotor geared to an alternator can, with
     // the output bus leaving on the far face and a capped exhaust on the near
-    // one. Deliberately machinery, not a containment ring — the Reactor owns
+    // one. Deliberately machinery, not a containment ring : the Reactor owns
     // that read, and this used to be two amber slabs with a chevron on them.
     drawRecessedPanel(size, 0.86, 0.84, 0.1);
 
@@ -3127,7 +3127,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     // empty panel gave no clue where the field was coming from.
     drawRecessedPanel(size, 0.82, 0.82, 0.18);
 
-    // Field arcs, faintest outermost — the projected barrier.
+    // Field arcs, faintest outermost : the projected barrier.
     const arcs = [[0.4, 0.3], [0.32, 0.52], [0.24, 0.82]];
     for (const [r, alpha] of arcs) {
       ctx.strokeStyle = `rgba(167,243,208,${alpha})`;
@@ -3183,7 +3183,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
   if (type === "smallDirectedSensor" || type === "largeDirectedSensor") {
-    // Directional aperture pointing along local +x — the same facing the
+    // Directional aperture pointing along local +x : the same facing the
     // in-game sensor cone uses.
     const directed = type === "largeDirectedSensor";
     drawRecessedPanel(size, 0.88, 0.82, 0.11);
@@ -3195,8 +3195,8 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   }
 
   if (type === "proximityDemolitionCharge" || type === "demolitionCharge") {
-    // Same housing language as every other system module — recessed panel,
-    // centred assembly, corner telltales — with the shared warhead face at
+    // Same housing language as every other system module : recessed panel,
+    // centred assembly, corner telltales : with the shared warhead face at
     // its centre so it matches the multi-cell charge instead of reading as a
     // cartoon bomb.
     const armed = visualState === "armed" || visualState === "active";
@@ -3300,7 +3300,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   }
   if (type === "gyroscope") {
     // Propulsion SUPPORT hardware, not a thruster: it wears the family's casing
-    // and cyan energy, but has no nozzle and no thrust axis — it is radially
+    // and cyan energy, but has no nozzle and no thrust axis : it is radially
     // symmetric on purpose. The read is a gimballed rotor: an outer housing ring,
     // a tilted inner gimbal journalled on two trunnion pins, and a lit flywheel.
     // The old crosshair-through-a-circle was a targeting reticle, and shared both
@@ -3367,13 +3367,13 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   if (type === "maneuverThruster") {
     // Attitude control, so the whole point is that it pushes SIDEWAYS: a gimbal
     // yoke bolted at +x carrying a bell canted off the thrust axis, plus one small
-    // vernier firing the other way. Deliberately asymmetric — the old symmetric
+    // vernier firing the other way. Deliberately asymmetric : the old symmetric
     // wedge-and-dot read as a UI arrow rather than a piece of hardware.
     drawPropulsionCasing(size, size * 0.46, size * 0.44, color, size * 0.07);
 
     // Mounting block along the +x edge, with the gimbal yoke reaching off it. One
     // bracket, one pivot, one bell: at 40px there is no room for more, and the
-    // first pass — yoke plus canted bell plus an opposed vernier — turned to
+    // first pass : yoke plus canted bell plus an opposed vernier : turned to
     // scribble at icon size.
     ctx.save();
     ctx.fillStyle = mixColor(color, "#05070c", 0.4);
@@ -3509,7 +3509,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     ctx.moveTo(-size * 0.255, -size * 0.26);
     ctx.lineTo(-size * 0.255, size * 0.26);
     ctx.stroke();
-    // Fin roots tapping the manifold — the bond that makes this one mass.
+    // Fin roots tapping the manifold : the bond that makes this one mass.
     ctx.strokeStyle = COOLANT_HIGHLIGHT;
     ctx.lineWidth = Math.max(0.6, size * 0.028);
     ctx.beginPath();
@@ -3526,7 +3526,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   if (type === "closedCycleCooler") {
     // Sealed refrigeration loop: a dark machinery bay holding a closed circuit
     // of coolant pipe that runs from a capped inlet, round a driven compressor,
-    // out through a capped outlet. Reads as plumbing under pressure — nothing
+    // out through a capped outlet. Reads as plumbing under pressure : nothing
     // like the heat sink's open fin stack or the radiator's bare fan.
     drawRecessedPanel(size, 0.88, 0.88, 0.12);
 
@@ -3560,7 +3560,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     ctx.stroke();
     drawComponentPort(size, 0, 0, 0.055, "#ecfeff", 0.55);
 
-    // Capped inlet and outlet on opposite faces — a sealed cycle, not an
+    // Capped inlet and outlet on opposite faces : a sealed cycle, not an
     // exhaust: the stubs stop at the housing wall.
     ctx.strokeStyle = "rgba(4,26,38,0.92)";
     ctx.lineWidth = Math.max(1.6, size * 0.13);
@@ -3571,7 +3571,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     drawComponentPort(size, -0.42, -0.19, 0.075, "#a5f3fc", 0.5);
     drawComponentPort(size, 0.42, 0.19, 0.075, "#a5f3fc", 0.5);
 
-    // Accumulator bottle on the return leg — the sealed charge this loop carries.
+    // Accumulator bottle on the return leg : the sealed charge this loop carries.
     ctx.fillStyle = "rgba(4,26,38,0.92)";
     ctx.strokeStyle = "rgba(165,243,252,0.5)";
     ctx.lineWidth = Math.max(0.7, size * 0.03);
@@ -4369,7 +4369,7 @@ function drawDemolitionChargeAssembly(unit, tilesLong, hl, hc, color, visualStat
   drawFootprintPanel(unit, hl, hc, 0.9, 0.86, 0.14);
 
   // Firing bus down the long axis, ending at the two trigger heads, with the
-  // charge racks along both flanks — the same deck layout the other multi-cell
+  // charge racks along both flanks : the same deck layout the other multi-cell
   // machines use, rather than a bomb sitting in the middle of a frame.
   const headX = hl - unit * 0.32;
   ctx.save();
@@ -4404,7 +4404,7 @@ function drawDemolitionChargeAssembly(unit, tilesLong, hl, hc, color, visualStat
 
 function drawNuclearReactorAssembly(unit, tilesLong, hl, hc, color) {
   // The capital-scale sibling of `reactor`: same panel, containment ring and
-  // lit core, built out into an actual plant — a shielded core well feeding a
+  // lit core, built out into an actual plant : a shielded core well feeding a
   // coolant loop that runs out to a heat-exchanger drum at each end. The plain
   // reactor's flat coolant bar disappeared against the bright gold body, so the
   // detail here is dark-on-gold machinery instead of yellow-on-yellow.
@@ -4560,7 +4560,7 @@ function drawBackupCoreAssembly(unit, tilesLong, hl, hc, color) {
 // nodes the aura is broadcast from, flanking workstations, and one command
 // ring carrying a single role glyph. Only the accent colour and the glyph
 // differ, so a command block reads as command at a glance and as its specific
-// role on inspection — the same way the backup core badge is built.
+// role on inspection : the same way the backup core badge is built.
 const COMMAND_ROLE_ART = Object.freeze({
   fireControlCommandCentre: { accent: "#fdba74", glyph: "targetLock" },
   fleetDefenceCoordinator: { accent: "#fca5a5", glyph: "escort" },
@@ -4799,7 +4799,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
 
   if (type === "heavyEngine") {
     // The capital drive: the standard Engine's construction, reinforced and given
-    // a nozzle CLUSTER — one oversized centre bell with two outboard bells — fed
+    // a nozzle CLUSTER : one oversized centre bell with two outboard bells : fed
     // from a common manifold. The cluster is the whole read. The previous art was
     // a flat panel carrying two discs and a row of ports, which said "control
     // console" at every size; three flared mouths across the stern say "this is
@@ -4885,7 +4885,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   if (type === "burstCooler") {
     // A cryogenic accumulator, not a radiator: a sealed pressure vessel with a
     // frosted charge window down its length and one large relief valve at the
-    // top. Nothing on it is a fin, because it does not shed heat continuously —
+    // top. Nothing on it is a fin, because it does not shed heat continuously :
     // the valve is the entire mechanism and has to be the thing you notice.
     drawFootprintPanel(unit, hl, hc, 0.94, 0.88, 0.1);
 
@@ -5170,7 +5170,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     // Launch deck: a translucent bay opening (keeps the lit hull cube showing
     // through, like every other multi-tile module) with three recessed docking
     // cradles for the squad and a bright central launch rail. One signature
-    // accent — cyan — instead of the former flat crosshair on an opaque box.
+    // accent : cyan : instead of the former flat crosshair on an opaque box.
     drawFootprintPanel(unit, hl, hc, 0.9, 0.9, 0.14);
 
     const accent = "#67e8f9";

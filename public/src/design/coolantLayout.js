@@ -7,7 +7,7 @@
 // network as the one under the cursor.
 //
 // A Heat Pipe is 1x1 and non-rotatable, so the mask is derived entirely from
-// orthogonal adjacency — the player never configures ports or direction.
+// orthogonal adjacency : the player never configures ports or direction.
 
 import { getOccupiedCells } from "./footprint.js";
 

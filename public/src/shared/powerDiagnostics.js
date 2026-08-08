@@ -195,7 +195,7 @@
     const unmetNetworks = networks.filter((n) => Number(n.unmetMw) > EPSILON);
 
     // Every consumer that did not get what it asked for is classified, including
-    // consumers attached to no network at all — a Blueprint with no cables has no
+    // consumers attached to no network at all : a Blueprint with no cables has no
     // "unmet network" to iterate, and its shortfall must still be explained.
     const causes = new Set();
     (flow.byComponentIndex || [])
@@ -308,7 +308,7 @@
     // Cause comes from the same per-consumer classification the hover card uses,
     // so the card, the summary and the tooltip name one reason. "Generation
     // deficit" is claimed only when the ship genuinely generates less than the
-    // demand it carries — an unrouted or bottlenecked grid is a different fault
+    // demand it carries : an unrouted or bottlenecked grid is a different fault
     // even though its arithmetic also looks short.
     const classified = hasShortfall ? classifyShipPowerSummary(flow, options.stats || {}) : null;
     const generationDeficit = hasShortfall
@@ -340,8 +340,8 @@
     // Genuine priority load shedding is a decision taken INSIDE one network: a
     // lower-priority consumer went unmet while a higher-priority consumer
     // drawing on the same generation was supplied in full. Demand that is unmet
-    // because it has no route to any generation — a disconnected component, or a
-    // network whose generator is isolated — is a wiring fault, not a policy
+    // because it has no route to any generation : a disconnected component, or a
+    // network whose generator is isolated : is a wiring fault, not a policy
     // decision, and reporting it as load shedding is what made the warning
     // appear on ships whose connected components were all powered.
     //
@@ -402,7 +402,7 @@
     // Category / component attribution for Power details.
     const loadShedLabels = shedCategoryOrder.map((cat) => categoryLabel(cat));
     const shedDetail = lowestShedComponents.length
-      ? `${categoryLabel(lowestShedCategory)} — ${joinNames(lowestShedComponents.map((entry) => entry.label))}`
+      ? `${categoryLabel(lowestShedCategory)} : ${joinNames(lowestShedComponents.map((entry) => entry.label))}`
       : (loadShedLabels.join(", ") || null);
 
     // Ship-summary wording. "Fully powered" is reachable only with no unmet

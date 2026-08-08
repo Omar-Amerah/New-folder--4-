@@ -82,7 +82,7 @@ export function drawPlacedStaticComponent(ctx, { part, place, unit, color, trim,
       // material routine is interleaved with frame bracing. Keep rotating the full
       // canvas for now to avoid a visual regression while the single-cell fix lands.
       // The canvas already carries the rotation, so the mirror passed below is
-      // applied inside it — still mirror first, rotation second.
+      // applied inside it : still mirror first, rotation second.
       ctx.rotate(artAngle);
       drawFootprintComponent({ type: part.type, unit, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: bodyColor, trim, visualState, flipped });
     } else if (STRUCTURAL_PARTS.has(part.type)) {

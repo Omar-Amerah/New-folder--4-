@@ -151,7 +151,7 @@
     const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
     const range = finite(base.range) + finite(support?.rangeBonus);
     // Support may sharpen accuracy up to the shared 0.99 ceiling, but never below
-    // a weapon's own base accuracy — a "cannot miss" weapon (base 1.0) keeps its
+    // a weapon's own base accuracy : a "cannot miss" weapon (base 1.0) keeps its
     // perfect aim rather than being clamped down to 0.99 by the support pass.
     const accuracyCeiling = Math.max(0.99, finite(base.accuracy));
     const accuracy = Math.max(0, Math.min(accuracyCeiling, finite(base.accuracy) + finite(support?.accuracyBonus)));

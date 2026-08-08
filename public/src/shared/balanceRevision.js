@@ -37,7 +37,7 @@
     return h.toString(16).padStart(8, "0");
   }
 
-  // Only gameplay-affecting sections drive the revision — cosmetic notes or
+  // Only gameplay-affecting sections drive the revision : cosmetic notes or
   // metadata must not force a spurious incompatibility. Missing sections are
   // serialized as null so absence still contributes deterministically.
   const REVISION_SECTIONS = [
@@ -80,7 +80,7 @@
 
   // Compare the client's balance revision against the server's advertised one.
   // "unknown" is returned when either side has not provided a revision (older
-  // build) — the caller decides how strict to be, but it is never treated as a
+  // build) : the caller decides how strict to be, but it is never treated as a
   // confirmed match.
   function evaluateBalanceCompatibility(clientRevision, serverRevision) {
     if (!clientRevision || !serverRevision) return "unknown";

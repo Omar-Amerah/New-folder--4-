@@ -7,7 +7,7 @@
 // bounds or bake generation change); ordinary snapshot updates only move and
 // re-angle existing display objects. Turret sprites carry the authoritative
 // ship-relative weapon angle, so their world direction is (hull rotation +
-// turret local rotation) — the visible barrel tracks exactly what the server
+// turret local rotation) : the visible barrel tracks exactly what the server
 // aims.
 
 import { state } from "../../state.js";
@@ -550,12 +550,12 @@ function updatePixiEngineExhaust(view, ship, now) {
 // Drives the persistent turret sprites toward the authoritative ship-relative
 // weapon angle (ship.weaponAngles[designIndex]). Each turret sprite lives in the
 // hull frame, so setting sprite.rotation to the ship-relative angle places the
-// barrel at (hull rotation + relative) in world space — the hull angle is never
+// barrel at (hull rotation + relative) in world space : the hull angle is never
 // added here. The angle is smoothed toward the target at the shared traverse
 // rate with shortest-angle interpolation; it snaps on (re)bind, and destroyed
 // turrets freeze and dim.
 // Last received authoritative angle per "shipId:designIndex", with the time it
-// last changed — read-only diagnostics for __mfaLiveTurretDiagnostics. Bounded:
+// last changed : read-only diagnostics for __mfaLiveTurretDiagnostics. Bounded:
 // cleared wholesale when it grows past a sane fleet size.
 const liveTurretAngleTrace = new Map();
 const LIVE_TURRET_TRACE_LIMIT = 2048;
@@ -1245,7 +1245,7 @@ export function updatePixiShips(env, now, players, bounds) {
       const view = pixiShipPool.acquire(ship.id);
       const design = ship.design || player.design || [];
       const staticKey = pixiStaticSignature(pixiDesignSignature(design), player.color, ship.radius || 0, env.bakeScale);
-      // Static content is rebuilt ONLY when the signature changes — never on a
+      // Static content is rebuilt ONLY when the signature changes : never on a
       // position/angle/weaponAngle/hp/shield/heat update.
       if (view.staticKey !== staticKey) {
         rebuildPixiShipStatic(env, view, design, player.color, ship.radius || 0, staticKey);
@@ -1458,7 +1458,7 @@ export function __pixiTurretDebugInfo(shipId) {
 
 // Read-only live turret diagnostics for a ship id: per rotating weapon, what
 // authoritative angle was received, what is actually rendered, and whether the
-// angle is present/changing. For debugging live tracking issues only — reads
+// angle is present/changing. For debugging live tracking issues only : reads
 // snapshot + view state and never mutates anything.
 export function __pixiLiveTurretDiagnostics(shipId) {
   const ship = state.snapshot?.ships?.find((candidate) => candidate.id === shipId);
@@ -1487,7 +1487,7 @@ export function __pixiLiveTurretDiagnostics(shipId) {
 
 // Read-only Pixi texture diagnostics: cache generation, per-cache entry/ref
 // counts, created/destroyed texture totals, and ship-view counts. Returns plain
-// data — no mutable cache objects are exposed.
+// data : no mutable cache objects are exposed.
 export function pixiTextureDiagnosticsSnapshot() {
   const base = pixiTextureDiagnostics();
   const counts = pixiShipViewCounts();

@@ -6,7 +6,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function makePowerProtectionRules() {
   "use strict";
 
-  // Section 7G — runtime Power overload protection rules.
+  // Section 7G : runtime Power overload protection rules.
   //
   // Pure, dependency-light rules that turn solved Power-section flow into
   // deterministic time-based overload stress, hysteretic recovery, and
@@ -103,7 +103,7 @@
   // flow. Large deltas are processed through bounded substeps of at most
   // maximumProtectionDeltaSeconds so a paused server or an unusually large
   // frame can never create several seconds of overload in a hidden single
-  // step. Simulation-delta only — never wall-clock time. Returns the new
+  // step. Simulation-delta only : never wall-clock time. Returns the new
   // { stress, secondsAboveSustained }; inputs are never mutated.
   function advanceStress(previous, edge, deltaSeconds, rawConfig) {
     const config = rawConfig && typeof rawConfig.maximumProtectionDeltaSeconds === "number" ? rawConfig : normalizeConfig(rawConfig);
@@ -151,7 +151,7 @@
     return "normal";
   }
 
-  // Ship-level derived protection state (diagnostics only — allocation
+  // Ship-level derived protection state (diagnostics only : allocation
   // semantics stay entirely inside PowerFlowRules).
   function shipProtectionState({ trippedSwitchgearCount, shedConsumerCount, partialConsumerCount, overloadedSectionCount }) {
     if (sanitizeNumber(trippedSwitchgearCount, 0) > 0) return "protection-trip";

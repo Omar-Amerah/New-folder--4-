@@ -5,7 +5,7 @@
 //   rotation : 0 / 90 / 180 / 270 (degrees, clockwise on the blueprint grid)
 //   flipped  : false / true       (horizontal mirror in LOCAL component space)
 //
-// TRANSFORM ORDER — every system must apply these in exactly this order:
+// TRANSFORM ORDER : every system must apply these in exactly this order:
 //
 //   BASE COMPONENT  ->  HORIZONTAL MIRROR (local component space)  ->  ROTATION
 //
@@ -18,7 +18,7 @@
 // the anchor tile: a mirrored component covers exactly the cells it covered
 // before, so pressing Flip can never move a component or change its footprint.
 // Because every catalogue footprint is a full W x H rectangle, the mirror is
-// cell-set invariant today — occupancy, connectivity, wiring and heat adjacency
+// cell-set invariant today : occupancy, connectivity, wiring and heat adjacency
 // therefore read the same cells whether or not they pass the flag. That is a
 // property of rectangular footprints, not a licence to skip the flag: any future
 // non-rectangular shape mask must be mirrored through transformLocalOffset()
@@ -36,8 +36,8 @@
 
   const TRANSFORM_ORDER = "mirror-then-rotate";
 
-  // Only an explicit true is a flip. Absent/undefined/null — every blueprint
-  // saved before mirroring existed — is false.
+  // Only an explicit true is a flip. Absent/undefined/null : every blueprint
+  // saved before mirroring existed : is false.
   function normalizeFlipped(value) {
     return value === true;
   }

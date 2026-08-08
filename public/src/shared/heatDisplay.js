@@ -32,7 +32,7 @@ export function formatHeatPercent(value) {
 // stored total come from the same server simulation, so they must agree within
 // network rounding tolerance. A larger gap means a display-staleness bug (old
 // component tuples shown against a new summary) or a snapshot bug. This only
-// reports — it never overwrites the authoritative snapshot data.
+// reports : it never overwrites the authoritative snapshot data.
 const consistencyWarnedAt = new Map();
 const CONSISTENCY_WARN_INTERVAL_MS = 5000;
 
@@ -73,7 +73,7 @@ export function checkShipHeatConsistency(ship, warn = true) {
       consistencyWarnedAt.set(ship?.id, now);
       console.warn(
         `[heat] ship ${ship?.id}: summary stored heat ${summaryTotal} H does not match component total ` +
-        `${componentTotal} H (tolerance ${tolerance} H) — heat readout may be stale`
+        `${componentTotal} H (tolerance ${tolerance} H) : heat readout may be stale`
       );
     }
   }

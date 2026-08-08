@@ -9,7 +9,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function makePowerCableThermalRules(WiringInfrastructureRules) {
   "use strict";
 
-  // Section 7D-1 — authoritative runtime Power-cable Heat.
+  // Section 7D-1 : authoritative runtime Power-cable Heat.
   //
   // Pure, dependency-light rules that turn solved Power-section flow
   // (PowerFlowRules.solvePowerFlow(...).sectionFlows) into dynamic Heat generated
@@ -17,7 +17,7 @@
   // attributed to the components hosting each Power section's endpoint cells.
   // No server, DOM or UI dependencies; Data wiring produces no dynamic Heat.
 
-  // Lexical (UTF-16), locale-independent id comparison — matches the solver's
+  // Lexical (UTF-16), locale-independent id comparison : matches the solver's
   // canonical section ordering without importing the allocation module.
   function compareIds(a, b) {
     const sa = String(a); const sb = String(b);
@@ -99,7 +99,7 @@
     for (const flow of sectionFlows) {
       if (!flow || flow.operational === false) continue;
       const sectionId = flow.sectionId;
-      // Fail closed: every operational section — even one currently at zero flow —
+      // Fail closed: every operational section : even one currently at zero flow :
       // must have finite flow and exactly two valid hosted endpoints. A malformed
       // physical section must never silently vanish from Heat accounting.
       const signed = Number(flow.signedFlowMw);
@@ -113,7 +113,7 @@
         // that supply a plain hostMap will simply skip their Heat; callers that
         // augment the hostMap (runtime) include it.
         if (flow.internal) continue;
-        // No physical wiring host cells — no cable heat to account.
+        // No physical wiring host cells : no cable heat to account.
         continue;
       }
       const rawCells = Array.isArray(hostEntry.hostCells) ? hostEntry.hostCells : [];

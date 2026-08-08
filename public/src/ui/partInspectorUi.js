@@ -1,9 +1,9 @@
 // Renders the Blueprint "Selected Component" inspector.
 //
 // The information architecture lives in design/componentInspectorModel.js; this
-// module only turns that model into DOM. Layout is deliberately flat — one outer
+// module only turns that model into DOM. Layout is deliberately flat : one outer
 // panel, lightweight specification cells, one capability group, warning panels
-// where warranted, and accordion dividers — rather than boxes nested in boxes.
+// where warranted, and accordion dividers : rather than boxes nested in boxes.
 
 import { dom } from "./dom.js";
 import { state, DEFAULT_THERMAL_LOAD_MODE } from "../state.js";
@@ -19,6 +19,7 @@ import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { getCachedDesignDataSupport, getDesignSourceAllocation } from "../design/dataSupportAnalysis.js";
 import { buildComponentInspectorModel, powerRequirementState, dataRequirementState } from "../design/componentInspectorModel.js";
 import { WIRING_ENABLED } from "../featureFlags.js";
+import { sortStatusCallouts } from "../design/statusCalloutOrder.js";
 
 export function renderPartInspector() {
   const type = state.selectedPart || selectedPlacedPart()?.type;
@@ -40,7 +41,7 @@ export function renderPartInspector() {
   }
   const model = buildComponentInspectorModel(type, stat, {
     name: def.name,
-    description: enrichDescription(type, partDescription(type, stat)),
+    description: partDescription(type, stat),
     category: partCategory(type),
     effectiveCost: `$${estimatePartEffectiveCost(type, state.design).toLocaleString()}`,
     prediction: thermalPredictionFor(type),
@@ -64,8 +65,7 @@ export function renderPartInspector() {
     ${coreSpecMarkup(model)}
     ${capabilityMarkup(model)}
     ${commandAuraMarkup(model)}
-    ${operationalOverviewMarkup(type, model)}
-    ${warningsMarkup(model)}
+    ${calloutStackMarkup(model)}
     ${droneBayControlsMarkup(type)}
     ${model.sections.map((section) => accordionMarkup(section, openState)).join("")}
     ${isRotatablePart(type) ? `<p class="part-inspector-tip">Hover a placed matching part and press R to rotate.</p>` : ""}
@@ -136,17 +136,22 @@ function capabilityMarkup(model) {
 
 // One consistent requirements area. Icons never sit beside individual stat
 // values, and every chip is a real button that discloses a compact explanation.
-// A currently-failing dependency is stated visibly on the row itself — never
+// A currently-failing dependency is stated visibly on the row itself : never
 // hidden behind the tooltip.
 function requirementsMarkup(model) {
   if (!model.requirements.length) return "";
-  const chips = model.requirements.map((requirement) => {
+  const orderedRequirements = sortStatusCallouts(model.requirements.map((requirement) => ({
+    ...requirement,
+    level: requirement.status === "met" ? "good" : requirement.status === "unmet" ? "bad" : "warning"
+  })));
+  const chips = orderedRequirements.map((requirement) => {
     const tipId = `partRequirementTip-${requirement.id}`;
     const unmet = requirement.status === "unmet";
+    const met = requirement.status === "met";
     const stateText = unmet ? "not met" : "met";
     const ariaLabel = `${requirement.label} requirement ${stateText}: ${requirement.summary}. ${requirement.failureText || ""}`.trim();
     return `
-      <button type="button" class="part-requirement${unmet ? " is-unmet" : ""}"
+      <button type="button" class="part-requirement${met ? " is-met" : ""}${unmet ? " is-unmet" : ""}"
               data-requirement="${escapeHtml(requirement.id)}"
               aria-expanded="false" aria-controls="${tipId}"
               aria-label="${escapeHtml(ariaLabel)}">
@@ -157,14 +162,14 @@ function requirementsMarkup(model) {
 
 
 
-  const tips = model.requirements.map((requirement) => `
+  const tips = orderedRequirements.map((requirement) => `
     <div class="part-requirement-tip" id="partRequirementTip-${escapeHtml(requirement.id)}" role="region"
          data-requirement-tip="${escapeHtml(requirement.id)}" hidden>
-      <strong>${escapeHtml(requirement.label)} — ${escapeHtml(requirement.summary)}</strong>
+      <strong>${escapeHtml(requirement.label)} : ${escapeHtml(requirement.summary)}</strong>
       <span>${escapeHtml(requirement.detail)}</span>
     </div>`).join("");
 
-  const failures = model.requirements
+  const failures = orderedRequirements
     .filter((requirement) => requirement.status === "unmet" && requirement.failureText)
     .map((requirement) => `
     <span class="part-requirement-failure" data-requirement-failure="${escapeHtml(requirement.id)}">
@@ -180,10 +185,6 @@ function requirementsMarkup(model) {
       ${failures ? `<div class="part-requirement-failures">${failures}</div>` : ""}
       ${tips}
     </section>`;
-}
-
-function operationalOverviewMarkup(type, model) {
-  return `${requirementsMarkup(model)}${thermalSummaryMarkup(model)}`;
 }
 
 // Resolve whether the selected *placed* component currently meets its Power and
@@ -289,10 +290,11 @@ function installGlobalRequirementDismissal() {
 }
 
 function thermalSummaryMarkup(model) {
-  if (!model.thermalSummary.length) return "";
+  const rows = model.thermalSummary;
+  if (!rows.length) return "";
   return `
     <div class="part-thermal-summary" aria-label="Thermal summary">
-      ${model.thermalSummary.map((row) => `
+      ${rows.map((row) => `
         <p class="part-thermal-line${row.tone ? ` is-${row.tone}` : ""}">
           <span class="part-thermal-label">${escapeHtml(row.label)}</span>
           <span class="part-thermal-value">${escapeHtml(row.value)}</span>
@@ -303,13 +305,36 @@ function thermalSummaryMarkup(model) {
 function warningsMarkup(model) {
   if (!model.warnings.length) return "";
   return model.warnings.map((warning) => `
-    <div class="part-warning" role="note" data-warning="${escapeHtml(warning.id)}">
-      <span class="part-warning-icon" aria-hidden="true">!</span>
+    <div class="part-warning is-${escapeHtml(warning.tone || "warning")}" role="note" data-warning="${escapeHtml(warning.id)}">
+      <span class="part-warning-icon" aria-hidden="true">${warning.tone === "ok" ? "\u2713" : "!"}</span>
       <div class="part-warning-body">
         <strong class="part-warning-title">${escapeHtml(warning.title)}</strong>
         <span class="part-warning-text">${escapeHtml(warning.body)}</span>
       </div>
     </div>`).join("");
+}
+
+function calloutStackMarkup(model) {
+  if (!model.callouts.length) return "";
+  const groups = [];
+  for (const callout of model.callouts) {
+    let group = groups[groups.length - 1];
+    if (!group || group.category !== callout.category) {
+      group = { category: callout.category, callouts: [] };
+      groups.push(group);
+    }
+    group.callouts.push(callout);
+  }
+  const markup = (callout) => {
+    if (callout.renderType === "thermal") return thermalSummaryMarkup({ thermalSummary: [callout.row] });
+    if (callout.renderType === "requirements") return requirementsMarkup({ requirements: callout.requirements });
+    return warningsMarkup({ warnings: [callout.warning] });
+  };
+  return `<div class="part-callout-stack" data-callout-stack>
+    ${groups.map((group) => `<div class="part-callout-group is-${escapeHtml(group.category)}" data-callout-category="${escapeHtml(group.category)}">
+      ${group.callouts.map((callout) => `<div class="part-callout-item" data-callout-id="${escapeHtml(callout.id)}" data-callout-category="${escapeHtml(callout.category)}">${markup(callout)}</div>`).join("")}
+    </div>`).join("")}
+  </div>`;
 }
 
 function commandAuraMarkup(model) {
@@ -355,7 +380,7 @@ function accordionMarkup(section, openState) {
 }
 
 // ---------------------------------------------------------------------------
-// Accordion state — remembered per selected component, reset on change
+// Accordion state : remembered per selected component, reset on change
 // ---------------------------------------------------------------------------
 
 function openSectionsFor(type) {
@@ -399,7 +424,7 @@ function thermalPredictionFor(type) {
 
 function thermalNoteFor(type) {
   const placed = state.design.filter((part) => part.type === type);
-  if (!placed.length) return "Not placed in this design yet — predictions use the catalogue profile.";
+  if (!placed.length) return "Not placed in this design yet : predictions use the catalogue profile.";
   if (placed.length > 1) return `Showing the hottest of ${placed.length} placed ${PART_DEFS[type]?.name || type} components.`;
   return null;
 }
@@ -489,30 +514,4 @@ function attachDroneBayControlHandlers() {
       document.dispatchEvent(new CustomEvent("blueprint-drone-config", { detail: { droneType: button.dataset.droneType } }));
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// Description enrichment (unchanged gameplay copy)
-// ---------------------------------------------------------------------------
-
-function enrichDescription(type, baseDescription) {
-  if (type === "railgun" || type === "lightRailgun" || type === "heavyRailgun") {
-    return `${baseDescription} Long-range kinetic weapon. Weak into shields, strong against exposed hull. Narrow arc and slow fire rate.`;
-  }
-  if (type === "beamEmitter") {
-    return "Sustained shield-breaking beam that aims towards the enemy Core. It strikes the first obstruction and can carry part of its excess damage into one component directly behind a destroyed module.";
-  }
-  if (type === "autocannon") {
-    return `${baseDescription} Rapid kinetic weapon. Poor against shields, better against exposed hull and light ships.`;
-  }
-  if (type === "torpedo") {
-    return `${baseDescription} Heavy explosive missile. Devastating to hull but vulnerable to point defence.`;
-  }
-  if (type === "swarmMissile") {
-    return `${baseDescription} Fires many lighter missiles. Good at overwhelming defences but weaker per hit.`;
-  }
-  if (type === "pointDefense" || type === "flakCannon" || type === "interceptorPod") {
-    return `${baseDescription} Defensive weapon that intercepts incoming missiles and torpedoes. Weak against ships.`;
-  }
-  return baseDescription;
 }

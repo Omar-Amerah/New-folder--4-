@@ -597,7 +597,7 @@ export function inspectSnapshotEnvelope(networkState, message) {
 // message plus reference-shared static data from the previous snapshot. Deep
 // cloning here (formerly structuredClone) ran 15x/second over the full map and
 // caused GC hitches; merged snapshots are immutable by contract, so sharing is
-// safe — merges always produce new ship/player objects for changed entries.
+// safe : merges always produce new ship/player objects for changed entries.
 export function mergeFullSnapshot(message, renderNow = null) {
   const full = { ...message };
   full.players = Array.isArray(full.players) ? full.players : [];

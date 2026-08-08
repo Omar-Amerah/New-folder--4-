@@ -39,7 +39,7 @@ export function getBalanceStatus() {
 
 // Combat (deploy / purchase) is blocked ONLY on a confirmed revision mismatch.
 // An unconfirmed live balance (fetch failure) still allows play with the
-// packaged copy — it only warns.
+// packaged copy : it only warns.
 export function isBalanceIncompatible() {
   return status.compatibility === "mismatch";
 }
@@ -69,7 +69,7 @@ export function recordServerBalanceRevision(serverRevision) {
 
 // Validate and (if valid) accept a downloaded live balance payload. Returns
 // { ok, applied, errors }. On any structural problem it does NOT apply the
-// payload and keeps the last known good balance — it never zero-fills.
+// payload and keeps the last known good balance : it never zero-fills.
 export function acceptDownloadedBalance(payload) {
   const r = rules();
   if (!r) return { ok: false, applied: false, errors: ["Balance revision helper unavailable."] };

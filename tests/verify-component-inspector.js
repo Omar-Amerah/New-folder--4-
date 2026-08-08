@@ -208,25 +208,59 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     // Every thermal part states its role, so transport/storage/rejection cannot
     // be confused with one another in the inspector.
     assert.deepEqual(summaryOf("heatSink"), [
-      `Heat — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} H`,
-      "Thermal role — Storage — holds a large amount of heat in itself; heat must be transferred into it"
+      `Heat storage — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} H`,
+      "Needs a coolant path — Heat must reach the sink directly or through Heat Pipes; adjacent components do not share its capacity.",
+      "Thermal role — Buffers temporary Heat spikes; it does not remove Heat."
     ]);
     assert.deepEqual(summaryOf("radiator"), [
       `Cooling — Removes ${HeatRules.profile("radiator", PART_STATS.radiator).cooling.toFixed(1)} H/s`,
-      "Thermal role — Strong external cooling — the ship's best sustained heat rejection, needs an exposed edge"
+      `Needs an exposed edge — Fully enclosed radiators operate at ${Math.round(HeatRules.RADIATOR_ENCLOSED_MULTIPLIER * 100)}% of rated cooling output.`,
+      "Thermal role — Strong sustained external heat rejection."
     ]);
     assert.deepEqual(summaryOf("heatVent"), [
       `Cooling — Removes ${HeatRules.profile("heatVent", PART_STATS.heatVent).cooling.toFixed(1)} H/s while exposed`,
-      "Exposure — Needs one edge open to space; enclosed it vents almost nothing"
+      "Needs an exposed edge — Fully enclosed vents provide very little cooling.",
+      "Thermal role — Cheap low-output external cooling for compact ships."
     ]);
-    const heatVentDetails = build("heatVent").sections.find((section) => section.id === "thermal");
-    assert.ok(heatVentDetails, "Heat Vent keeps deeper thermal details collapsed");
-    assert.ok(heatVentDetails.rows.some((row) => row.id === "heat.role" && /Weak external cooling/.test(row.value)),
-      "Heat Vent thermal role moves into Thermal Details");
     assert.deepEqual(summaryOf("heatPipe"), [
-      "Thermal role — Transport — moves heat rapidly between everything on the same coolant network, and removes none itself"
+      "Thermal role — Routes Heat between separated systems; it provides no storage or cooling."
     ]);
     assert.match(summaryOf("reactor")[0], /^Heat — Produces [\d.]+ H\/s at power load$/);
+  });
+
+  check("component callouts follow capability, condition, cost, role, severe hierarchy", () => {
+    const rank = { capability: 0, condition: 1, cost: 2, role: 3, severe: 4 };
+    for (const type of Object.keys(PART_STATS)) {
+      const model = build(type, { droneType: "fighter" });
+      const actual = model.callouts.map((callout) => rank[callout.category]);
+      assert.deepEqual(actual, [...actual].sort((a, b) => a - b), `${type} callouts follow semantic order`);
+      assert.ok(model.callouts.every((callout) => Number.isInteger(rank[callout.category])), `${type} uses known categories`);
+    }
+    assert.deepEqual(build("radiator").callouts.map((callout) => callout.category),
+      ["capability", "condition", "condition", "role"]);
+    assert.deepEqual(build("reactor").callouts.map((callout) => callout.category), ["cost", "severe"]);
+    assert.deepEqual(build("backupCore").callouts.map((callout) => callout.category),
+      ["capability", "condition", "condition", "severe"]);
+  });
+
+  check("thermal callouts use H and H/s terminology and avoid duplicate role requirements", () => {
+    for (const type of Object.keys(PART_STATS)) {
+      const model = build(type, { droneType: "fighter" });
+      for (const row of model.thermalSummary) {
+        assert.doesNotMatch(`${row.label} ${row.value}`, /\bHeat\/s\b/i, `${type}/${row.id} avoids Heat/s`);
+      }
+    }
+    for (const type of ["radiator", "heatVent"]) {
+      const model = build(type);
+      const role = model.thermalSummary.find((row) => row.id === "heat.role");
+      assert.doesNotMatch(role.value, /expos|enclos/i, `${type} role does not repeat its exposure condition`);
+      assert.doesNotMatch(model.header.description, /expos|enclos/i, `${type} description does not repeat its exposure condition`);
+      assert.equal(model.callouts.filter((callout) => callout.id === "exposure" || callout.id === "heat.exposure").length, 1,
+        `${type} presents exposure once as a condition`);
+    }
+    for (const type of ["reactor", "nuclearReactor"]) {
+      assert.doesNotMatch(build(type).header.description, /melt|explod/i, `${type} description leaves danger to the severe warning`);
+    }
   });
 
   check("reactors omit non-storage energy capacity from the inspector", () => {
@@ -260,14 +294,16 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     }
   });
 
-  check("command and placement restrictions are warnings", () => {
+  check("command capability, placement conditions and severe risks remain distinct", () => {
     const backup = build("backupCore");
     const ids = backup.warnings.map((warning) => warning.id);
-    assert.ok(ids.includes("backup-command"), "backup command activation is a warning");
-    assert.ok(ids.includes("one-per-ship"), "the one-per-ship restriction is a warning");
+    assert.equal(backup.warnings.find((warning) => warning.id === "backup-command").calloutCategory, "capability");
+    assert.equal(backup.warnings.find((warning) => warning.id === "one-per-ship").calloutCategory, "condition");
+    assert.equal(backup.warnings.find((warning) => warning.id === "backup-power-loss").calloutCategory, "severe");
     assert.equal(PART_STATS.backupCore.maxPerShip, 1, "restriction comes from the authoritative catalogue");
     assert.ok(build("core").warnings.some((warning) => warning.id === "command-loss"), "Main Core warns about command loss");
-    assert.ok(build("radiator").warnings.some((warning) => warning.id === "exposure"), "Radiator warns about enclosure");
+    assert.ok(build("radiator").callouts.some((callout) => callout.id === "heat.exposure" && callout.category === "condition"),
+      "Radiator presents enclosure as a normal condition");
     assert.ok(build("droneBay").warnings.some((warning) => warning.id === "launch-edge"), "Drone Bay warns about its launch edge");
     assert.equal(build("frame").warnings.length, 0, "a Frame raises no warnings");
   });

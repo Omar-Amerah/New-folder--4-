@@ -13,7 +13,7 @@
 //   their sprites with { texture:false, textureSource:false }.
 // - A cache entry is reference counted. acquire() increments; release() is
 //   idempotent and decrements exactly once. A texture is destroyed exactly once
-//   — when its refcount reaches zero AND it is stale (older generation), or when
+//   : when its refcount reaches zero AND it is stale (older generation), or when
 //   the cache is flushed, or when it is evicted past the soft cap.
 // - Quality changes advance the bake generation. New generation → new cache
 //   keys → new textures; old textures are marked stale and destroyed only after

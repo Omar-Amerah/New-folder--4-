@@ -6,7 +6,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringClarityRules() {
   "use strict";
 
-  // Wiring cost/benefit clarity rules — presentation-layer interpretation of
+  // Wiring cost/benefit clarity rules : presentation-layer interpretation of
   // AUTHORITATIVE inputs only. Every capacity, cost, displacement, Heat and
   // flow number is read from the balance configuration or solver results the
   // caller passes in; this module holds guidance prose and comparison logic,
@@ -162,7 +162,7 @@
     const warnings = [];
     if (!isData) {
       const config = tierConfig(infrastructure, tier);
-      lines.push(`Route tier: ${tierName(infrastructure, tier)} — ${capacityText(infrastructure, tier)} sustained / peak (new sections only)`);
+      lines.push(`Route tier: ${tierName(infrastructure, tier)} : ${capacityText(infrastructure, tier)} sustained / peak (new sections only)`);
       const load = predictedRouteLoadMw;
       if (load != null && Number.isFinite(Number(load))) {
         const sustained = sanitize(config.sustainedCapacityMw);
@@ -223,7 +223,7 @@
       else if (flowMw !== null && current.sustainedMw > 0 && flowMw <= current.sustainedMw * 0.9) verdict = `Likely unnecessary: predicted sustained load is only ${mw(flowMw)}.`;
       else verdict = "Adds headroom for future demand under this activity.";
     } else {
-      if (flowMw !== null && proposed.peakMw > 0 && flowMw > proposed.peakMw) verdict = `Downgrade would cap delivery at ${mw(proposed.peakMw)} — current load is ${mw(flowMw)}.`;
+      if (flowMw !== null && proposed.peakMw > 0 && flowMw > proposed.peakMw) verdict = `Downgrade would cap delivery at ${mw(proposed.peakMw)} : current load is ${mw(flowMw)}.`;
       else if (flowMw !== null && proposed.sustainedMw > 0 && flowMw > proposed.sustainedMw) verdict = "Downgrade would overload this route during current activity.";
       else verdict = `Saves $${Math.abs(delta.costPerCell)} and ${Math.abs(delta.displacementPerCell)} displacement per affected cell.`;
     }
@@ -324,7 +324,7 @@
     const standardSustained = sanitize(tierConfig(infrastructure, "standard").sustainedCapacityMw);
     const lightHeavy = heavyFlows.filter((f) => standardSustained > 0 && sanitize(f.absoluteFlowMw) <= standardSustained * 0.9);
     if (heavyFlows.length && lightHeavy.length === heavyFlows.length) {
-      warnings.push(`Heavy cable appears lightly loaded (current estimate ${mw(Math.max(...lightHeavy.map((f) => sanitize(f.absoluteFlowMw))))} peak section load) — a lower tier may suffice.`);
+      warnings.push(`Heavy cable appears lightly loaded (current estimate ${mw(Math.max(...lightHeavy.map((f) => sanitize(f.absoluteFlowMw))))} peak section load) : a lower tier may suffice.`);
     } else if (heavyFlows.length) {
       positives.push("Heavy tier is carrying a genuinely high-load trunk under this activity.");
     }
@@ -362,8 +362,8 @@
 
     // Infrastructure share guidance (advisory only, never validation).
     const pct = sanitize(input.infrastructurePercentage) * 100;
-    if (pct > 10) warnings.push(`Infrastructure cost is ${round2(pct)}% of total ship cost — high, but can be justified by Heavy trunks or ring routes.`);
-    else if (pct > 0 && pct < 5) positives.push(`Infrastructure cost is ${round2(pct)}% of total ship cost — lower is cheaper but may indicate limited capacity or redundancy.`);
+    if (pct > 10) warnings.push(`Infrastructure cost is ${round2(pct)}% of total ship cost : high, but can be justified by Heavy trunks or ring routes.`);
+    else if (pct > 0 && pct < 5) positives.push(`Infrastructure cost is ${round2(pct)}% of total ship cost : lower is cheaper but may indicate limited capacity or redundancy.`);
 
     // Branch isolation: tree branches only affect their own consumers.
     if (networks.length && !multiConsumerTrees.length && alternate > 0) {

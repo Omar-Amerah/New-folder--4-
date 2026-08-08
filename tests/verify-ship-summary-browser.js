@@ -28,7 +28,8 @@ const DESIGNS = {
   bare: [["core", 7, 7], ["frame", 7, 8]],
   underpowered: [["core", 7, 7], ["shield", 7, 6], ["shield", 7, 8], ["beamEmitter", 6, 7], ["beamEmitter", 8, 7]],
   support: [["core", 7, 7], ["reactor", 7, 8], ["repair", 7, 6], ["droneBay", 4, 4]],
-  asymmetric: [["core", 7, 7], ["reactor", 7, 8], ["maneuverThruster", 5, 7, 90]]
+  asymmetric: [["core", 7, 7], ["reactor", 7, 8], ["maneuverThruster", 5, 7, 90]],
+  disconnected: [["core", 7, 7], ["engine", 7, 8], ["blaster", 7, 6], ["frame", 0, 0]]
 };
 
 async function applyDesign(page, key) {
@@ -197,6 +198,22 @@ async function readSummary(page) {
       assert.ok(short, "underpowered design reports the shortfall");
       assert.equal(short.level, "bad");
       assert.match(short.text, /MW short ·/);
+    });
+
+    check("status stacks are ordered green, yellow, red and disconnected parts are critical", () => {
+      const ranks = { good: 0, warning: 1, bad: 2, neutral: 3 };
+      for (const [key, view] of Object.entries(snapshots)) {
+        const actual = view.status.map((message) => ranks[message.level]);
+        assert.deepEqual(actual, [...actual].sort((a, b) => a - b), `${key} follows severity order`);
+      }
+      const disconnected = snapshots.disconnected.status.find((message) => message.id === "disconnected-components");
+      assert.ok(disconnected, "disconnected design has a dedicated status");
+      assert.equal(disconnected.level, "bad");
+      assert.match(disconnected.text, /^Unconnected components .*1 component disconnected from the ship/);
+      assert.ok(snapshots.disconnected.status.findIndex((message) => message.id === "power-ok")
+        < snapshots.disconnected.status.findIndex((message) => message.id === "no-shield"), "positive state precedes caution");
+      assert.ok(snapshots.disconnected.status.findIndex((message) => message.id === "no-shield")
+        < snapshots.disconnected.status.findIndex((message) => message.id === "disconnected-components"), "caution precedes critical issue");
     });
 
     // -- Mobility --------------------------------------------------------------

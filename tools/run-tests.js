@@ -137,6 +137,7 @@ const GROUPS = {
     "tests/verify-new-components.js",
     "tests/verify-burn-through-schema.js",
     "tests/verify-component-catalogue.js",
+    "tests/verify-component-copy.js",
     "tests/verify-component-inspector.js",
     "tests/verify-ship-summary.js",
     "tests/verify-section13b-ui.js",

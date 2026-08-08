@@ -29,7 +29,7 @@ function bakeStarTile(env, layer) {
 
 // A single static overlay: transparent through the middle, easing to a slight
 // darkening at the corners. Baked once at a small fixed size and stretched over
-// the viewport — bilinear filtering keeps the ramp smooth and it never re-bakes.
+// the viewport : bilinear filtering keeps the ramp smooth and it never re-bakes.
 function bakeVignette(env) {
   const size = 256;
   return pixiBakeScreenTexture(env, size, size, (bctx) => {
@@ -281,7 +281,7 @@ export function updatePixiScreenUi(env, now, players, rect) {
 }
 
 // Tears down screen-UI display objects and their view-owned (non-cache)
-// textures — the per-size backdrop and the minimap static layer — then clears
+// textures : the per-size backdrop and the minimap static layer : then clears
 // module-global state so a re-initialized renderer starts fresh.
 export function destroyPixiScreenUi(env) {
   if (screenUiViews) {

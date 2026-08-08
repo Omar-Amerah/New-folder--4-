@@ -1850,7 +1850,7 @@ h2 {
   background: linear-gradient(90deg, #b45309, #fbbf24);
   box-shadow: none;
 }
-/* Underpowered: still building, only slowly — amber like a warning but keeps a
+/* Underpowered: still building, only slowly : amber like a warning but keeps a
    soft glow and a gentle pulse so it reads as active, not stalled. */
 .ship-drone-production.is-slowed {
   border-color: rgba(251, 191, 36, .42);

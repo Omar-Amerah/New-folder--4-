@@ -1,6 +1,6 @@
 // Renderer-neutral ship-local geometry: where each blueprint part sits on a
 // ship, footprint centres/dimensions, component pivots, and engine nozzle
-// placement. Pure math over the design data — no Canvas, no Pixi, no DOM —
+// placement. Pure math over the design data : no Canvas, no Pixi, no DOM :
 // so the Pixi arena renderer and the blueprint/UI bakers share one source of truth.
 
 import { PART_STATS } from "../design/parts.js";

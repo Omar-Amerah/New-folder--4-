@@ -439,7 +439,7 @@
   color: #cdd9eb;
 }
 
-/* Content-sized pills that wrap — they can never clip a value regardless of the
+/* Content-sized pills that wrap : they can never clip a value regardless of the
    panel width. */
 .bp-inspector-stats {
   display: flex;

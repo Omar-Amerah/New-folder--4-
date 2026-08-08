@@ -302,7 +302,7 @@ function isValidDestination(mode, sourceType, destinationType) { return mode ===
 function pushUndo() { const stack = ui().undoStack; stack.push(rules().cloneWiring(state.wiring)); if (stack.length > MAX_UNDO) stack.shift(); }
 // Every committed wiring edit changes infrastructure cost, so the designer-derived
 // presentation (build cost, funds remaining, ship status, analysis) must refresh
-// alongside the wiring panel — not just refreshWiringPresentation().
+// alongside the wiring panel : not just refreshWiringPresentation().
 function commitWiring(next) { state.wiring = next; invalidatePreviewCache(); setTransientReason(null); persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle); refreshWiringPresentation(); renderLocalStats(); invalidatePresentation("wiring-edit"); }
 
 function clearLocateHighlight() {
@@ -551,12 +551,12 @@ function finishDraggedConnection(cell) {
 }
 // Overlays that answer hover but never own a pointer action. A Power terminal is
 // painted above the cable hit layer so a cable crossing a component cannot
-// swallow its hover card — but it is not a drawing control, and must not stop a
+// swallow its hover card : but it is not a drawing control, and must not stop a
 // drag branching off that cable or a click selecting that section.
 const PASSTHROUGH_OVERLAY_SELECTOR = ".wire-power-terminal-hit";
 
 // The overlay element a pointer action means, looking past those informational
-// overlays. Everything else — ports, cable hit strokes, Data terminals — still
+// overlays. Everything else : ports, cable hit strokes, Data terminals : still
 // resolves exactly as the topmost element under the pointer, so a source port
 // keeps its click where it overlaps a cable. This is why the terminal layer no
 // longer has to be traded against the hit layer: hover follows paint order,
@@ -699,8 +699,8 @@ export function bindWiringControls() {
     const tierButton = event.target?.closest?.("[data-wiring-tier]");
     if (tierButton) setTier(tierButton.dataset.wiringTier);
   });
-  // Hover updates only the preview panel and a cheap highlight class — never a
-  // full overlay rebuild — so pointer movement does not re-run infrastructure
+  // Hover updates only the preview panel and a cheap highlight class : never a
+  // full overlay rebuild : so pointer movement does not re-run infrastructure
   // analysis for every frame.
   dom.wiringOverlayHost?.addEventListener("mouseover", (event) => {
     const hit = wiringHitTest(event);
@@ -980,7 +980,7 @@ const TOOL_HINTS = Object.freeze({
 // Wiring cost/benefit clarity. All displayed capacity, cost, displacement and
 // Heat values come from the authoritative balance (WIRING_INFRASTRUCTURE) and
 // shared solver/accounting results; WiringClarityRules only holds guidance
-// prose and comparison logic. Rendered once — the values never change while
+// prose and comparison logic. Rendered once : the values never change while
 // the designer is open.
 // ---------------------------------------------------------------------------
 let staticClarityRendered = false;
@@ -1004,7 +1004,7 @@ function renderStaticClarity() {
         <h5>${escapeHtml(card.label)}</h5>
         ${card.kind === "power"
           ? `<div class="wiring-summary-line">Capacity: <strong>${card.sustainedMw} MW sustained / ${card.peakMw} MW peak</strong></div>`
-          : `<div class="wiring-summary-line">Carries Data only — no capacity, Heat or overload mechanics.</div>`}
+          : `<div class="wiring-summary-line">Carries Data only : no capacity, Heat or overload mechanics.</div>`}
         <div class="wiring-summary-line">Cost: <strong>$${card.costPerCell}</strong> per unique cell · Displacement: <strong>${card.displacementPerCell}</strong> Heat capacity per cell</div>
         <div class="wiring-summary-line">Heat: ${escapeHtml(card.heatNote)}</div>
         <div class="wiring-summary-line">Best for: ${escapeHtml(card.bestFor)}</div>
@@ -1088,7 +1088,7 @@ function refreshToolbar() {
 }
 
 // ---------------------------------------------------------------------------
-// Section 7C-4 — Power Priority controls and authoritative solver diagnostics.
+// Section 7C-4 : Power Priority controls and authoritative solver diagnostics.
 // The compact preset control lives with the other Blueprint-wide settings in
 // the left column. Solver diagnostics remain in the Power Wiring analysis.
 // All changes go through the single authoritative policy edit path.
@@ -1139,8 +1139,8 @@ function designerPowerFlowFor(wiring) {
 }
 
 // One solve per (design, wiring) pair. Every designer surface that reports Power
-// — the Ship summary, Power details, the Power-balance tooltip, the wiring
-// overlay, the hover card and the allocation panel — reads this same result, so
+// : the Ship summary, Power details, the Power-balance tooltip, the wiring
+// overlay, the hover card and the allocation panel : reads this same result, so
 // they cannot disagree. Cached on object identity: a Blueprint edit replaces the
 // design array or the wiring object, which invalidates the entry.
 let cachedDesignerFlow = null;
@@ -1360,7 +1360,7 @@ function sectionHeatRate(flowRecord, tier) {
 }
 
 // Enrich a cached edit preview with clarity data (computed once per hover
-// signature — includes one authoritative solve of the proposed wiring).
+// signature : includes one authoritative solve of the proposed wiring).
 function attachPreviewClarity(preview, kind, sectionId) {
   const clarity = clarityRules();
   if (!clarity || !preview || !preview.valid || ui().mode !== "power") return preview;
@@ -1404,7 +1404,7 @@ function renderPowerPriorityDiagnostics() {
   const summary = flow.summary; const labels = pr.POWER_CATEGORY_LABELS;
   // Categories read as a priority ladder, so order by the band the solver actually
   // used (declaration order is meaningless to the player). Every category is still
-  // listed — zero-demand ones stay, muted, so the ladder has no gaps.
+  // listed : zero-demand ones stay, muted, so the ladder has no gaps.
   const entries = pr.POWER_CATEGORIES.map((cat) => ({
     cat, c: summary.byCategory?.[cat] || { demandMw: 0, allocatedMw: 0, unmetMw: 0, priorityBand: null }
   })).sort((a, b) => {
@@ -1421,10 +1421,10 @@ function renderPowerPriorityDiagnostics() {
     const shed = unmet > 0 ? " power-priority-shed" : "";
     const idle = demand <= 0 ? " power-priority-idle" : "";
     // The bar is decorative for AT; the aria-label carries the same numbers.
-    // A zero-demand category gets no track at all — an empty bar is a mark that
+    // A zero-demand category gets no track at all : an empty bar is a mark that
     // states nothing and costs a row of height.
     const bar = demand > 0
-      ? `<span class="power-alloc-track" role="img" title="${escapeHtml(labels[cat])} — ${mwText(demand)} demand · ${mwText(delivered)} delivered · ${mwText(unmet)} unmet" aria-label="${escapeHtml(labels[cat])}: ${mwText(delivered)} delivered of ${mwText(demand)} demand, ${mwText(unmet)} unmet.">
+      ? `<span class="power-alloc-track" role="img" title="${escapeHtml(labels[cat])} : ${mwText(demand)} demand · ${mwText(delivered)} delivered · ${mwText(unmet)} unmet" aria-label="${escapeHtml(labels[cat])}: ${mwText(delivered)} delivered of ${mwText(demand)} demand, ${mwText(unmet)} unmet.">
           ${delivered > 0 ? `<span class="power-alloc-fill power-alloc-delivered" style="width:${pct(delivered)}"></span>` : ""}
           ${unmet > 0 ? `<span class="power-alloc-fill power-alloc-unmet" style="width:${pct(unmet)}"></span>` : ""}
         </span>`
@@ -1561,13 +1561,13 @@ function renderPreviewPanel() {
     rows.push(`<div class="wiring-preview-comparison" data-tier-comparison>
       <div class="wiring-preview-line">Cells upgraded: ${counts.upgraded} · downgraded: ${counts.downgraded}</div>
       <div class="wiring-preview-compare-grid">
-        <div data-comparison-current><strong>Current — ${escapeHtml(comparison.current.label)}</strong>
+        <div data-comparison-current><strong>Current : ${escapeHtml(comparison.current.label)}</strong>
           <span>${comparison.current.sustainedMw} / ${comparison.current.peakMw} MW</span>
           <span>$${comparison.current.costPerCell} · ${comparison.current.displacementPerCell} displacement per cell</span>
           <span>${escapeHtml(utilText(comparison.current.utilisation))}</span>
           <span>${escapeHtml(heatText(comparison.current.cableHeatRate))}</span>
         </div>
-        <div data-comparison-proposed><strong>Proposed — ${escapeHtml(comparison.proposed.label)}</strong>
+        <div data-comparison-proposed><strong>Proposed : ${escapeHtml(comparison.proposed.label)}</strong>
           <span>${comparison.proposed.sustainedMw} / ${comparison.proposed.peakMw} MW (${escapeHtml(clarity.signedText(comparison.delta.sustainedMw))} / ${escapeHtml(clarity.signedText(comparison.delta.peakMw))})</span>
           <span>$${comparison.proposed.costPerCell} · ${comparison.proposed.displacementPerCell} displacement per cell</span>
           <span>${escapeHtml(utilText(comparison.proposed.utilisation))}</span>
@@ -1786,7 +1786,7 @@ function renderWiringOverlay() {
     }
   }
   rules().junctionCells(bucket()).forEach((cell) => markerLayer.appendChild(svgEl("circle", { cx: cell.x + .5, cy: cell.y + .5, r: .09, "data-junction-degree": cell.degree }, "wire-junction")));
-  // Terminals mark the components a network actually *uses* for the active mode —
+  // Terminals mark the components a network actually *uses* for the active mode :
   // sources plus consumers for Power, sources plus compatible weapons for Data.
   // A cable may route across any occupied cell, but those pass-through hosts
   // (network.hostIndices) are not terminals and must not be marked as such.
@@ -1800,7 +1800,7 @@ function renderWiringOverlay() {
       const entry = powerComponentByIndex.get(index);
       const marker = powerTerminalVisual(index, entry, selectedTerminalIndices.has(index));
       // Power terminals carry the component's own hover/focus target, so they go
-      // in the marker layer — above the cable hit layer. In the indicator layer
+      // in the marker layer : above the cable hit layer. In the indicator layer
       // a cable running through a component's centre painted over its terminal
       // and swallowed the hover, which is why single-cell components stopped
       // answering while a reactor or engine (whose centre sits off the cable
@@ -1825,7 +1825,7 @@ function renderWiringOverlay() {
   }
   if (view.mode === "power") {
     // Underpowered networks are surfaced through the source (reactor) terminal
-    // hover card and the per-consumer supply rings — not a floating badge that
+    // hover card and the per-consumer supply rings : not a floating badge that
     // covers the grid. The source module keeps a subtle amber highlight.
     for (const network of generationShortageNetworks(powerFlow)) {
       for (const sourceIndex of network.sourceIndices) {
@@ -2117,7 +2117,7 @@ function renderDataInspectionPanel(panel, section, fullAnalysis) {
     if (selectedHost) {
       body += `<div class="wiring-summary-subsection data-subcard" data-data-inspector="host-vulnerability">
         <h5>SELECTED HOST</h5>
-        <div class="wiring-summary-line">${escapeHtml(moduleLabel(selectedHost.componentIndex))} — Failure impact: <strong>${escapeHtml(selectedHost.severity)}</strong></div>
+        <div class="wiring-summary-line">${escapeHtml(moduleLabel(selectedHost.componentIndex))} : Failure impact: <strong>${escapeHtml(selectedHost.severity)}</strong></div>
         ${selectedHost.summary ? `<div class="wiring-summary-line">${escapeHtml(selectedHost.summary)}</div>` : ""}
       </div>`;
     }
@@ -2297,7 +2297,7 @@ function renderDataInspectionPanel(panel, section, fullAnalysis) {
 }
 
 // Non-destructive Power cable inspection. Capacity is labelled a static "Cable
-// rating" — no flow/utilisation/overload is implied — and the net design impact
+// rating" : no flow/utilisation/overload is implied : and the net design impact
 // is the real shared accounting difference of removing the section, never a
 // "2 x costPerHostedCell" estimate.
 function powerSectionInspectionHtml(section) {
@@ -2307,7 +2307,7 @@ function powerSectionInspectionHtml(section) {
   const endpointHtml = rules().sectionCells(section).map((cell) => {
     const index = partIndexAt(cell.x, cell.y);
     const installed = acc.maps.power.byCellKey.get(rules().cellKey(cell.x, cell.y))?.tier || section.tier;
-    return `${index >= 0 ? escapeHtml(moduleLabel(index)) : `cell (${cell.x},${cell.y})`} — installed ${escapeHtml(tierLabel(installed))}`;
+    return `${index >= 0 ? escapeHtml(moduleLabel(index)) : `cell (${cell.x},${cell.y})`} : installed ${escapeHtml(tierLabel(installed))}`;
   }).join("<br>");
   const network = rules().networkForSection(currentAnalysis(), "power", section.id);
   let impact = "";
@@ -2317,7 +2317,7 @@ function powerSectionInspectionHtml(section) {
   } catch (_) { impact = ""; }
   // Clarity: solved flow, utilisation, cell cost/displacement, cable Heat,
   // design-time protection state, bottleneck/alternate-route context and a
-  // plain-language interpretation — all from authoritative shared rules.
+  // plain-language interpretation : all from authoritative shared rules.
   let clarityHtml = "";
   const clarity = clarityRules();
   if (clarity) {
@@ -2359,7 +2359,7 @@ function powerSectionInspectionHtml(section) {
     <div class="wiring-summary-line">Cable rating: ${Number(tier.sustainedCapacityMw) || 0} MW sustained / ${Number(tier.peakCapacityMw) || 0} MW peak</div>
     <div class="wiring-summary-line">Section (${section.x1},${section.y1}) ↔ (${section.x2},${section.y2})</div>
     <div class="wiring-summary-line">Hosts: ${endpointHtml}</div>
-    <div class="wiring-summary-line">Network type: Power · ${network ? `Network ID: ${escapeHtml(network.id)} (${escapeHtml(network.label)})` : "Network ID: unavailable — not part of a sourced network"}</div>
+    <div class="wiring-summary-line">Network type: Power · ${network ? `Network ID: ${escapeHtml(network.id)} (${escapeHtml(network.label)})` : "Network ID: unavailable : not part of a sourced network"}</div>
     ${clarityHtml}
     ${impact}</div>`;
 }
@@ -2378,9 +2378,9 @@ function infrastructureSummaryHtml() {
   const pct = Math.round(presentation.infrastructurePercentage * 1000) / 10;
   return `<section class="wiring-summary-section" data-wiring-panel="infrastructure-summary"><h4>Infrastructure</h4>
     <div class="wiring-summary-line" data-infra-costs>Power wiring $${acc.power.cost} · Data wiring $${acc.data.cost}</div>
-    <div class="wiring-summary-line" data-infra-total>Total infrastructure $${presentation.totalInfrastructure} — ${pct}% of the $${presentation.totalShipCost} ship cost</div>
+    <div class="wiring-summary-line" data-infra-total>Total infrastructure $${presentation.totalInfrastructure} : ${pct}% of the $${presentation.totalShipCost} ship cost</div>
     <div class="wiring-summary-line" data-infra-displacement>Displacement: Power ${acc.power.displacement} · Data ${acc.data.displacement} · total ${acc.power.displacement + acc.data.displacement} Heat capacity</div>
-    <div class="wiring-summary-line" data-infra-cells>Unique Power cells — Light ${acc.power.cellsByTier.light.length} · Standard ${acc.power.cellsByTier.standard.length} · Heavy ${acc.power.cellsByTier.heavy.length} · Data cells ${acc.data.uniqueHostedCellCount}</div>
+    <div class="wiring-summary-line" data-infra-cells>Unique Power cells : Light ${acc.power.cellsByTier.light.length} · Standard ${acc.power.cellsByTier.standard.length} · Heavy ${acc.power.cellsByTier.heavy.length} · Data cells ${acc.data.uniqueHostedCellCount}</div>
     <div class="wiring-summary-line" data-infra-networks>Power networks ${analysis.power.networks.length} · Data networks ${analysis.data.networks.length}</div>
     <div class="wiring-summary-line wiring-guidance" data-infra-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy. Higher can be justified by Heavy trunks or ring routes.</div>
   </section>`;
@@ -2682,7 +2682,7 @@ function dataInspectionDetailsHtml(section) {
 function selectedPowerDetailsHtml(section, network, status, junctionCount, labels, mw) {
   const sectionHtml = section ? powerSectionInspectionHtml(section) : "";
   if (!network) return sectionHtml;
-  return `${sectionHtml}<section class="wiring-summary-section"><h4>${escapeHtml(network.label)} — ${escapeHtml(status)}</h4>
+  return `${sectionHtml}<section class="wiring-summary-section"><h4>${escapeHtml(network.label)} : ${escapeHtml(status)}</h4>
     <div class="wiring-summary-line">${network.sections.length} sections · ${junctionCount} junctions · ${network.sourceIndices.length ? "contains a source" : "source-less"}</div>
     <div class="wiring-summary-line">Sources: ${labels(network.sourceIndices)}</div>
     <div class="wiring-summary-line">Consumers: ${labels(network.consumerIndices)}<br>${mw(network.generationMw)} generation / ${mw(network.demandMw)} demand · ${network.surplusMw >= 0 ? `${mw(network.surplusMw)} surplus` : `${mw(network.deficitMw)} deficit`} · ${Math.round(network.availableEfficiency * 100)}% available</div>
@@ -2690,7 +2690,7 @@ function selectedPowerDetailsHtml(section, network, status, junctionCount, label
 }
 
 function wiringStatusHeaderHtml(status, message) {
-  const icon = status === "healthy" ? "&#10003;" : status === "no-wiring" ? "—" : status === "unavailable" ? "?" : status === "critical" ? "!" : "&#9888;";
+  const icon = status === "healthy" ? "&#10003;" : status === "no-wiring" ? "-" : status === "unavailable" ? "?" : status === "critical" ? "!" : "&#9888;";
   return `<header class="wiring-analysis-status ${status}" data-wiring-status="${status}">
     <span class="wiring-status-icon" aria-hidden="true">${icon}</span>
     <div><h3>${escapeHtml(status.replace("-", " "))}</h3><p>${escapeHtml(message)}</p></div>

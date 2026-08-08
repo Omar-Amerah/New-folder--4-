@@ -1,10 +1,11 @@
 // Fleet Ledger content module: owns the article catalogue, categories, manual
 // prose, and data-driven article generation from authoritative balance sources.
-// Pure data + pure functions — no DOM, no side effects, unit-testable.
+// Pure data + pure functions : no DOM, no side effects, unit-testable.
 
 import { PART_STATS, PART_DEFS, partCategory, partDescription } from "../design/parts.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
+import { ENGINE_FALLOFF } from "../shared/movementStats.js";
 import { getMechanics, getMechanicsSearchText, SPECIAL_MECHANICS_COMPONENTS, LEDGER_RULE_CONTRACTS } from "./componentMechanics.js";
 
 // Re-export for test access
@@ -32,6 +33,15 @@ const CAPTURE = GENERATED_BALANCE.capture || {};
 const DRONES = GENERATED_BALANCE.drones || {};
 const WIRING = GENERATED_BALANCE.wiringInfrastructure || {};
 const MOVEMENT = GENERATED_BALANCE.movement || {};
+const REPAIR_STACKING_MULTIPLIER = Number(GENERATED_BALANCE.repair?.stackingMultiplier ?? 0.8);
+
+function droneTypeSummary(field, suffix = "") {
+  const types = DRONES.types || {};
+  const entries = Object.values(types)
+    .filter((type) => type && type.label && Number.isFinite(Number(type[field])))
+    .map((type) => `${type.label} ${type[field]}${suffix}`);
+  return entries.join(", ") || `${DRONES[field] ?? 0}${suffix}`;
+}
 
 // ---------------------------------------------------------------------------
 // Manual articles (part 1: overview, construction, power, heat, movement)
@@ -44,7 +54,7 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Fleet Ledger Overview",
     summary: "A reference guide to every system in Modular Fleet Arena.",
     keywords: ["guide", "help", "reference", "encyclopedia", "manual"],
-    howItWorks: "The Fleet Ledger is an in-game encyclopaedia that explains game systems, components, weapons, and rules. It is available from the main menu and the blueprint designer. Opening the ledger pauses nothing — your game state is preserved behind the overlay. Use the category list to browse, or type in the search bar to find any article by title, keyword, or component name.",
+    howItWorks: "The Fleet Ledger is an in-game encyclopaedia that explains game systems, components, weapons, and rules. It is available from the main menu and the blueprint designer. Opening the ledger pauses nothing : your game state is preserved behind the overlay. Use the category list to browse, or type in the search bar to find any article by title, keyword, or component name.",
     practicalUse: "New players should start with Ship Construction and Power to understand the core build loop. Experienced players can jump to specific weapon or defence articles for exact stats.",
     commonProblems: [],
     related: ["blueprint-designer", "power", "heat", "movement", "combat-styles"]
@@ -55,7 +65,7 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Blueprint Designer Interface",
     summary: "The Designer Interface, Component Palette, Build Grid, Placement, Removal, Undo, And Reset.",
     keywords: ["blueprint", "designer", "interface", "palette", "grid", "place", "remove", "undo", "reset", "clear"],
-    howItWorks: "Open The Blueprint Designer From The Side Panel Or Main Menu. The Build Grid Is 15×15 Cells (Coordinates 0–14 On Each Axis). Select A Component From The Palette On The Left, Then Click A Grid Cell To Place It. Right-Click A Placed Part To Remove It — The Core Cannot Be Removed. Press R To Rotate Rotatable Components. Undo (Ctrl+Z) Reverses The Last Physical Edit. Reset Design Restores The Starter Ship; Clear All Removes Everything Except The Core. The Ship Summary Panel Updates Live As You Build. The Wiring Tab Lets You Draw Power And Data Cable Networks.",
+    howItWorks: "Open The Blueprint Designer From The Side Panel Or Main Menu. The Build Grid Is 15×15 Cells (Coordinates 0–14 On Each Axis). Select A Component From The Palette On The Left, Then Click A Grid Cell To Place It. Right-Click A Placed Part To Remove It : The Core Cannot Be Removed. Press R To Rotate Rotatable Components. Undo (Ctrl+Z) Reverses The Last Physical Edit. Reset Design Restores The Starter Ship; Clear All Removes Everything Except The Core. The Ship Summary Panel Updates Live As You Build. The Wiring Tab Lets You Draw Power And Data Cable Networks.",
     importantStats: [
       { label: "Grid Size", value: "15×15" },
       { label: "Grid Coordinate Range", value: "0–14" },
@@ -67,7 +77,7 @@ const MANUAL_ARTICLES_PART_1 = [
     practicalUse: "Start With The Default Design And Modify It. Use Clear All For A Blank Slate. Keep The Ship Summary Panel Visible To Catch Issues Early. Use The Wiring Tab To Route Power And Data Cables After Placing Components.",
     commonProblems: [
       "Can't Place A Part? Check For Overlap Or Out-Of-Bounds Footprint Cells.",
-      "Can't Remove The Core? The Core Is Permanent — Use Clear All To Reset To A Bare Core.",
+      "Can't Remove The Core? The Core Is Permanent : Use Clear All To Reset To A Bare Core.",
       "Changes Not Saving? Use The Save Button To Persist The Blueprint."
     ],
     related: ["placement-rules", "structural-connectivity", "ship-validation", "ship-cost-formula", "ship-summary", "wiring-infrastructure", "power", "heat"]
@@ -86,7 +96,7 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Default Rotation", value: "0°" },
       { label: "Non-Rotatable Types", value: "Engine, Maneuver Thruster, Drone Bay" }
     ],
-    practicalUse: "Weapons On The Ship's Edges Can Be Rotated To Face Forward, Sideways, Or Backward. Maneuver Thrusters Auto-Face Outward — Place Them On The Correct Side. Drone Bays Cannot Be Rotated — Their Launch Edge Depends On Placement.",
+    practicalUse: "Weapons On The Ship's Edges Can Be Rotated To Face Forward, Sideways, Or Backward. Maneuver Thrusters Auto-Face Outward : Place Them On The Correct Side. Drone Bays Cannot Be Rotated : Their Launch Edge Depends On Placement.",
     commonProblems: [
       "Part Facing The Wrong Way? Press R To Cycle Rotations.",
       "Maneuver Thruster Won't Rotate? It Auto-Rotates Based On Position.",
@@ -100,17 +110,17 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Structural Connectivity",
     summary: "All Parts Must Connect To The Core Through Side-Adjacent Cells.",
     keywords: ["connectivity", "connected", "disconnected", "adjacent", "core", "heat pipe", "structure", "BFS"],
-    howItWorks: "A Blueprint Is Valid Only If Every Part Is Structurally Connected To The Core. Connectivity Is Checked Via Breadth-First Search From The Core Through Side-Adjacent (4-Neighbour) Cells. Two Passes Are Performed: Physical Connectivity (All Parts Reachable) And Structural Connectivity (Non-Heat-Pipe Parts Must Not Rely On Heat Pipe Chains As Their Only Path). Heat Pipes Can Be Reached Through Other Heat Pipes, But A Non-Heat-Pipe Part Cannot Use A Heat-Pipe Chain As Its Only Path Back To The Core. Diagonal Adjacency Does NOT Count — Only Up, Down, Left, And Right. Overlapping Parts Are Filtered Before The Connectivity Check.",
+    howItWorks: "A Blueprint Is Valid Only If Every Part Is Structurally Connected To The Core. Connectivity Is Checked Via Breadth-First Search From The Core Through Side-Adjacent (4-Neighbour) Cells. Two Passes Are Performed: Physical Connectivity (All Parts Reachable) And Structural Connectivity (Non-Heat-Pipe Parts Must Not Rely On Heat Pipe Chains As Their Only Path). Heat Pipes Can Be Reached Through Other Heat Pipes, But A Non-Heat-Pipe Part Cannot Use A Heat-Pipe Chain As Its Only Path Back To The Core. Diagonal Adjacency Does NOT Count : Only Up, Down, Left, And Right. Overlapping Parts Are Filtered Before The Connectivity Check.",
     importantStats: [
       { label: "Adjacency Type", value: "4-Neighbour (Orthogonal)" },
       { label: "Heat Pipe Rule", value: "Non-Heat-Pipe Parts Cannot Depend On Heat Pipe Chains" },
       { label: "Core Required", value: "Exactly 1" },
       { label: "Diagonal Counts", value: "No" }
     ],
-    practicalUse: "Build Outward From The Core In A Connected Shape. Avoid Diagonal Gaps — Parts Touching Only At Corners Are Disconnected. Heat Pipes Can Bridge To Radiators But Cannot Be The Structural Spine Of The Ship.",
+    practicalUse: "Build Outward From The Core In A Connected Shape. Avoid Diagonal Gaps : Parts Touching Only At Corners Are Disconnected. Heat Pipes Can Bridge To Radiators But Cannot Be The Structural Spine Of The Ship.",
     commonProblems: [
       "Disconnected Parts Error? Check For Diagonal-Only Connections Or Gaps.",
-      "Heat Pipe Causing Issues? A Non-Heat-Pipe Part Behind A Heat Pipe Chain Is Structurally Invalid — Add A Frame Or Armor Path."
+      "Heat Pipe Causing Issues? A Non-Heat-Pipe Part Behind A Heat Pipe Chain Is Structurally Invalid : Add A Frame Or Armor Path."
     ],
     related: ["blueprint-designer", "placement-rules", "ship-validation", "heat"]
   },
@@ -133,7 +143,7 @@ const MANUAL_ARTICLES_PART_1 = [
     practicalUse: "Place Engines On The Ship's Rear Edge (Bottom Row) Facing Backward (0° Rotation). Ensure No Components Are Behind The Engine Within Its Exhaust Channel. Maneuver Thrusters On The Side Edges Auto-Rotate Outward.",
     commonProblems: [
       "Engine Not Providing Thrust? Check If Another Part Blocks The Exhaust Channel.",
-      "Ship Slow Despite Many Engines? Some Engines May Be Blocked — Check The Ship Summary For Blocked Engine Count.",
+      "Ship Slow Despite Many Engines? Some Engines May Be Blocked : Check The Ship Summary For Blocked Engine Count.",
       "Maneuver Thruster Blocked? Ensure The Outward-Facing Channel Is Clear."
     ],
     related: ["placement-rules", "movement", "ship-validation", "ship-summary"]
@@ -154,7 +164,7 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Max Drone Bays", value: `${GENERATED_BALANCE.drones?.maxBaysPerShip ?? 4}` },
       { label: "Engine Requirement", value: "At Least 1 With Effective Thrust (Build Time)" }
     ],
-    practicalUse: "The Designer Warns About Most Issues Live. Drone Bay Configuration (Drone Type) Must Be Set Before Deployment. The Thrust Requirement Is Only Enforced When Building — You Can Save A Design Without Engines But Cannot Deploy It.",
+    practicalUse: "The Designer Warns About Most Issues Live. Drone Bay Configuration (Drone Type) Must Be Set Before Deployment. The Thrust Requirement Is Only Enforced When Building : You Can Save A Design Without Engines But Cannot Deploy It.",
     commonProblems: [
       "Missing Core Error? Every Ship Needs Exactly One Core.",
       "Disconnected Parts Error? See The Structural Connectivity Article.",
@@ -188,10 +198,10 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` },
       { label: "Fleet Count Range", value: "1–5 Ships" }
     ],
-    practicalUse: "Cheaper Ships Mean More Ships In Your Fleet. Weapon Premiums Make Expensive Ships Cost-Inefficient. Wiring Cost Is Additive — Long Cable Runs Increase Cost Without Being Subject To Multipliers.",
+    practicalUse: "Cheaper Ships Mean More Ships In Your Fleet. Weapon Premiums Make Expensive Ships Cost-Inefficient. Wiring Cost Is Additive : Long Cable Runs Increase Cost Without Being Subject To Multipliers.",
     commonProblems: [
       "Ship Too Expensive? Reduce Weapon Count, Use Cheaper Weapons, Or Shrink The Design.",
-      "Fleet Count Too Low? Lower The Unit Cost — The Formula Divides A Base Value By Cost.",
+      "Fleet Count Too Low? Lower The Unit Cost : The Formula Divides A Base Value By Cost.",
       "Wiring Cost Too High? Shorten Cable Runs And Use Light Cable For Low-Power Branches."
     ],
     related: ["ship-pricing", "economy", "blueprint-designer", "wiring-infrastructure", "ship-validation"]
@@ -202,14 +212,14 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Ship Summary Panel",
     summary: "The Live Overview Of Build Cost, Mass, Hull, Shield, Weapons, Speed, Turn, Power, And Status Warnings.",
     keywords: ["ship summary", "overview", "stats", "status", "warnings", "mobility", "power details", "combat details", "support details"],
-    howItWorks: "The Ship Summary Shows 9 Headline Values: Build Cost, Class, Mass, Hull, Shield, Weapon DPS, Max Speed, Turn Rate, And Power. Below The Overview, Status Messages Appear Based On Real Conditions: Power Shortfall, Load Shedding, Stranded Generation, No Effective Thrust, Mass Drag Limiting Speed, Asymmetric Turning, No Shield Coverage, No Weapons, Backup Command Available, Insufficient Cooling, Overheating Components, And Cable Overload. Four Collapsible Detail Sections Provide Engineering Numbers: Mobility Details (Acceleration, Thrust-To-Mass, Engine Efficiency, Turn Rates, Blocked Engines), Power Details (Generation, Demand, Delivered, Spare, Stranded, Unmet, Efficiency, Penalty, Load Shed, Energy Storage), Combat Details (Per-Weapon-Family DPS, Range, Point Defence, Beam Radius, Shield Recharge), And Support Details (Repair Rate, Drone Capacity, Drone Squads, Capture Pressure, Cooling Bonus).",
+    howItWorks: "The Ship Summary Shows 9 Headline Values: Build Cost, Class, Mass, Hull, Shield, Weapon DPS, Max Speed, Turn Rate, And Power. Below The Overview, Status Messages Appear In A Consistent Healthy, Caution, Then Critical Order Based On Real Conditions: Power Shortfall, Load Shedding, Stranded Generation, Disconnected Components, No Effective Thrust, Mass Drag Limiting Speed, Asymmetric Turning, No Shield Coverage, No Weapons, Backup Command Available, Insufficient Cooling, Overheating Components, And Cable Overload. Four Collapsible Detail Sections Provide Engineering Numbers: Mobility Details (Acceleration, Thrust-To-Mass, Engine Efficiency, Turn Rates, Blocked Engines), Power Details (Generation, Demand, Delivered, Spare, Stranded, Unmet, Efficiency, Penalty, Load Shed, Energy Storage), Combat Details (Per-Weapon-Family DPS, Range, Point Defence, Beam Radius, Shield Recharge), And Support Details (Repair Rate, Drone Capacity, Drone Squads, Capture Pressure, Cooling Bonus).",
     importantStats: [
       { label: "Overview Fields", value: "9 (Cost, Class, Mass, Hull, Shield, DPS, Speed, Turn, Power)" },
       { label: "Detail Sections", value: "4 (Mobility, Power, Combat, Support)" },
       { label: "Status Levels", value: "Good, Warning, Bad, Neutral" },
-      { label: "Live Updates", value: "Yes — Updates As You Build" }
+      { label: "Live Updates", value: "Yes : Updates As You Build" }
     ],
-    practicalUse: "Watch The Power Field — Spare Means Healthy, Short Means Problems. Check Status Messages For Specific Issues. Expand Detail Sections For Engineering Numbers. The Summary Updates Live As You Build.",
+    practicalUse: "Watch The Power Field : Spare Means Healthy, Short Means Problems. Check Status Messages For Specific Issues. Expand Detail Sections For Engineering Numbers. The Summary Updates Live As You Build.",
     commonProblems: [
       "Power Showing Short? Add Reactors Or Reduce Power-Hungry Components.",
       "No Effective Thrust? Add Engines With Clear Exhaust Or Restore Power.",
@@ -224,7 +234,7 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Power Systems",
     summary: "Power generation, consumption, wiring, and overload protection.",
     keywords: ["power", "reactor", "generator", "battery", "capacitor", "wiring", "cable", "energy", "overload"],
-    howItWorks: "Every component either generates or consumes power. Reactors and auxiliary generators produce power; weapons, shields, engines, and support modules consume it. Power is delivered through wiring — physical cable networks that connect sources to consumers. Each cable tier (Light, Standard, Heavy) has a sustained capacity (safe continuous load) and a peak capacity (maximum burst). Drawing above sustained generates extra heat and overload stress. If a cable network is overloaded, protection circuits trip and disconnect non-priority consumers until the load drops.",
+    howItWorks: "Every component either generates or consumes power. Reactors and auxiliary generators produce power; weapons, shields, engines, and support modules consume it. Power is delivered through wiring : physical cable networks that connect sources to consumers. Each cable tier (Light, Standard, Heavy) has a sustained capacity (safe continuous load) and a peak capacity (maximum burst). Drawing above sustained generates extra heat and overload stress. If a cable network is overloaded, protection circuits trip and disconnect non-priority consumers until the load drops.",
     importantStats: [
       { label: "Light Cable Sustained", value: `${WIRING.powerTiers?.light?.sustainedCapacityMw ?? 4} MW` },
       { label: "Light Cable Peak", value: `${WIRING.powerTiers?.light?.peakCapacityMw ?? 7} MW` },
@@ -241,7 +251,7 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Critical Stress Ratio", value: formatPercent(GENERATED_BALANCE.powerProtection?.criticalStressRatio ?? 0.75) },
       { label: "Trip Cooldown", value: `${GENERATED_BALANCE.powerProtection?.tripCooldownSeconds ?? 4}s` }
     ],
-    practicalUse: "Use Standard cable for most builds. Upgrade to Heavy for weapon-heavy ships that draw bursts above 10 MW. Keep power use below generation to maintain full combat efficiency — underpowered ships suffer reduced movement, shields, and weapon performance.",
+    practicalUse: "Use Standard cable for most builds. Upgrade to Heavy for weapon-heavy ships that draw bursts above 10 MW. Keep power use below generation to maintain full combat efficiency : underpowered ships suffer reduced movement, shields, and weapon performance.",
     commonProblems: [
       "Weapons not firing? Check if power cables are connected and not tripped.",
       "Shields weak? Power deficit reduces shield efficiency by pow(ratio, 1.35).",
@@ -255,7 +265,7 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Wiring Infrastructure",
     summary: "Power and data cable networks, tiers, and costs.",
     keywords: ["wiring", "cable", "power", "data", "network", "tier", "light", "standard", "heavy", "auto-wire"],
-    howItWorks: "Wiring physically connects power sources to consumers through cable networks routed through occupied ship cells. Power cable comes in three tiers: Light, Standard, and Heavy. Data cable is a single tier and carries data support signals — it has no capacity or overload mechanics. Cables displace heat capacity from the cells they pass through. Use the Wiring tab in the designer to draw, inspect, and clear networks. Auto-wire creates a simple deterministic Standard-cable route connecting every powered component.",
+    howItWorks: "Wiring physically connects power sources to consumers through cable networks routed through occupied ship cells. Power cable comes in three tiers: Light, Standard, and Heavy. Data cable is a single tier and carries data support signals : it has no capacity or overload mechanics. Cables displace heat capacity from the cells they pass through. Use the Wiring tab in the designer to draw, inspect, and clear networks. Auto-wire creates a simple deterministic Standard-cable route connecting every powered component.",
     importantStats: [
       { label: "Light Cable Cost", value: `\u00a3${WIRING.powerTiers?.light?.costPerHostedCell ?? 1}/Cell` },
       { label: "Standard Cable Cost", value: `\u00a3${WIRING.powerTiers?.standard?.costPerHostedCell ?? 2}/Cell` },
@@ -285,15 +295,15 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Heat Management",
     summary: "Heat generation, transfer, cooling, and overheating consequences.",
     keywords: ["heat", "thermal", "radiator", "heat sink", "heat pipe", "cooling", "overheat", "meltdown"],
-    howItWorks: "Every active component generates heat. Heat accumulates in each component's heat capacity and transfers to adjacent components, frames, and cable routes. Radiators remove heat continuously but only at 25% efficiency when fully enclosed — they need an exposed exterior edge. Heat sinks absorb heat from connected frames and boost adjacent heat capacity. Heat pipes transfer heat to a connected heat sink or radiator route. When a component reaches 100% heat it overheats and shuts down. Reactors that overheat will melt down, dealing area damage.",
+    howItWorks: "Every active component generates heat. Heat accumulates in each component's heat capacity and transfers to adjacent components, frames, and cable routes. Radiators remove heat continuously but only at 25% efficiency when fully enclosed : they need an exposed exterior edge. Heat sinks absorb heat from connected frames and boost adjacent heat capacity. Heat pipes transfer heat to a connected heat sink or radiator route. When a component reaches 100% heat it overheats and shuts down. Reactors that overheat will melt down, dealing area damage.",
     importantStats: [
       { label: "Minimum Component Heat Capacity", value: `${WIRING.minimumComponentHeatCapacity ?? 10}` }
     ],
     practicalUse: "Place radiators on the ship's exterior edges for maximum cooling. Use heat sinks as thermal buffers for burst-heavy weapons. Connect heat pipes to move heat from hot spots to radiator clusters. The Heat analysis tab shows predicted thermal loads under Idle, Typical Combat, and Max Load scenarios.",
     commonProblems: [
-      "Reactor melting down? It overheated — add more radiators or reduce sustained load.",
+      "Reactor melting down? It overheated : add more radiators or reduce sustained load.",
       "Weapons stopping mid-fight? They likely overheated. Add heat sinks near weapon clusters.",
-      "Radiators not cooling? Check if they have an exposed exterior edge — enclosed radiators are only 25% effective."
+      "Radiators not cooling? Check if they have an exposed exterior edge : enclosed radiators are only 25% effective."
     ],
     related: ["power", "blueprint-designer", "wiring-infrastructure"]
   },
@@ -303,9 +313,9 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Movement & Orders",
     summary: "Engines, thrust, turn rate, mass classes, and issuing commands.",
     keywords: ["movement", "engine", "thrust", "turn", "speed", "mass", "orders", "command", "right-click", "rally"],
-    howItWorks: "Ships move using engine thrust. Thrust stacks with diminishing returns: each additional engine contributes 90% of the previous one's thrust (100%, 90%, 81%, 73%, etc.). Turn rate is improved by gyroscopes and maneuver thrusters, also with diminishing returns (92% falloff). Maneuver thrusters provide directional torque based on their distance from the ship's centre of mass — the lever arm grows from a minimum of 0.35 up to a maximum of 1.75 per cell of offset. Mass determines a ship's soft speed and turn caps across four classes. If a ship is underpowered, movement is multiplied by pow(powerGeneration / max(powerUse, 1), 1.8), clamped to a minimum 18%. Shield and system efficiency also drops with pow(ratio, 1.35). Surplus power grants up to 8% bonus movement. Issue orders by selecting ships and right-clicking the arena. Right-click an enemy to focus fire. Set a rally point to direct newly built ships. Ships without engines cannot move. Backup Command Core reduces turn rate by 10%.",
+    howItWorks: `Ships move using engine thrust. Thrust stacks with diminishing returns: each additional engine contributes ${formatPercent(ENGINE_FALLOFF)} of the previous one's thrust (${formatPercent(1)}, ${formatPercent(ENGINE_FALLOFF)}, ${formatPercent(Math.pow(ENGINE_FALLOFF, 2))}, ${formatPercent(Math.pow(ENGINE_FALLOFF, 3))}, etc.). Turn rate is improved by gyroscopes and maneuver thrusters, also with diminishing returns (92% falloff). Maneuver thrusters provide directional torque based on their distance from the ship's centre of mass; the lever arm grows from a minimum of 0.35 up to a maximum of 1.75 per cell of offset. Mass determines a ship's soft speed and turn caps across four classes. If a ship is underpowered, movement is multiplied by pow(powerGeneration / max(powerUse, 1), 1.8), clamped to a minimum 18%. Shield and system efficiency also drops with pow(ratio, 1.35). Surplus power grants up to 8% bonus movement. Issue orders by selecting ships and right-clicking the arena. Right-click an enemy to focus fire. Set a rally point to direct newly built ships. Ships without engines cannot move. Backup Command Core reduces turn rate by 10%.`,
     importantStats: [
-      { label: "Engine Stacking Falloff", value: "0.90× Per Engine" },
+      { label: "Engine Stacking Falloff", value: `${ENGINE_FALLOFF.toFixed(2)}× Per Engine` },
       { label: "Gyroscope Stacking Falloff", value: "0.92× Per Module" },
       { label: "Maneuver Thruster Stacking Falloff", value: "0.92× Per Module" },
       { label: "Maneuver Min Lever", value: `${MOVEMENT.maneuverThrusterLever?.minimumLever ?? 0.35}` },
@@ -322,11 +332,11 @@ const MANUAL_ARTICLES_PART_1 = [
         value: `Speed ${c.softSpeedCap}, Turn ${c.softTurnCap}`
       })))
     ],
-    practicalUse: "Light ships are fast and agile — ideal for capture runs and flanking. Capital ships are slow but tanky and pack heavy weapons. Use maneuver thrusters for better turning without adding much straight-line speed. Position maneuver thrusters far from the centre of mass for maximum lever effect. Gyroscopes are simpler but less powerful than a well-placed pair of maneuver thrusters.",
+    practicalUse: "Light ships are fast and agile : ideal for capture runs and flanking. Capital ships are slow but tanky and pack heavy weapons. Use maneuver thrusters for better turning without adding much straight-line speed. Position maneuver thrusters far from the centre of mass for maximum lever effect. Gyroscopes are simpler but less powerful than a well-placed pair of maneuver thrusters.",
     commonProblems: [
       "Ship not moving? Check for engines and sufficient power.",
       "Turning too slowly? Add gyroscopes or maneuver thrusters.",
-      "Ship slow despite engines? High mass reduces speed — check the Ship Summary for your mass class."
+      "Ship slow despite engines? High mass reduces speed : check the Ship Summary for your mass class."
     ],
     related: ["combat-styles", "blueprint-designer", "power", "economy"]
   }
@@ -348,7 +358,7 @@ const MANUAL_ARTICLES_PART_2 = [
     commonProblems: [
       "Weapons not firing? Check power supply and cable connections.",
       "Missiles intercepted? Consider overwhelming enemy point defense with swarm missiles.",
-      "Rails missing? They have narrow arcs — position ships carefully."
+      "Rails missing? They have narrow arcs : position ships carefully."
     ],
     related: ["combat-styles", "defence", "power", "heat", "blueprint-designer"]
   },
@@ -388,7 +398,7 @@ const MANUAL_ARTICLES_PART_2 = [
     howItWorks: "Defence components protect ships from incoming damage. Shields absorb damage and regenerate over time (consuming power). Armor plates add hull HP and can reduce incoming damage. Point defense lasers destroy incoming missiles and drones. Flak cannons provide short-range anti-missile and anti-swarm defence. Interceptor pods offer longer-range missile interception. Aegis projectors project a fast-recharging shield field at high power cost. Decoy launchers deploy false targets that can pull guided missiles away.",
     practicalUse: "Layer shields over armor for maximum survivability. Point defense is essential against missile-heavy opponents. Use armor on the forward facing for charge-style ships. Decoy launchers counter guided missile spam.",
     commonProblems: [
-      "Shields not regenerating? Check power supply — shields need power to regenerate.",
+      "Shields not regenerating? Check power supply : shields need power to regenerate.",
       "Missiles getting through? Add point defense or flak cannons.",
       "Armor not helping enough? Composite armor is lighter but gives less protection per cell than standard armor."
     ],
@@ -400,13 +410,13 @@ const MANUAL_ARTICLES_PART_2 = [
     title: "Drones",
     summary: "Drone bays, fighter/defence/repair drones, and squadron mechanics.",
     keywords: ["drone", "drone bay", "fighter", "defence drone", "repair drone", "squadron", "launch"],
-    howItWorks: "Drone Bays launch and rebuild squads of configurable drones. Each bay launches a squad of 3 drones by default. Drones come in three types: Fighter (attacks the parent ship's target and nearby hostile drones), Defence (guards the parent ship and prioritises hostile drones), and Repair (repairs the parent ship, then nearby friendly ships). Drones have limited fuel and must return to refuel. A bay must have one complete two-cell edge exposed for launch.",
+    howItWorks: `Drone Bays launch and rebuild configurable squads. Squad sizes, fuel durations and rebuild times depend on the selected drone type: ${droneTypeSummary("squadSize", " drones")}; ${droneTypeSummary("fuelSeconds", "s")} of fuel. Fighter drones attack the parent ship's target, Defence drones guard the parent ship, and Repair drones restore friendly hulls. Drones must return to refuel, and a bay needs one complete two-cell edge exposed for launch.`,
     importantStats: [
-      { label: "Squad Size", value: `${DRONES.squadSize ?? 3}` },
+      { label: "Squad Size", value: droneTypeSummary("squadSize", " drones") },
       { label: "Max Bays Per Ship", value: `${DRONES.maxBaysPerShip ?? 4}` },
       { label: "Max Active Per Ship", value: `${DRONES.maxActivePerShip ?? 12}` },
       { label: "Max Active Per Player", value: `${DRONES.maxActivePerPlayer ?? 48}` },
-      { label: "Fuel Duration", value: `${DRONES.fuelSeconds ?? 15}s` },
+      { label: "Fuel Duration", value: droneTypeSummary("fuelSeconds", "s") },
       { label: "Refuel Time", value: `${DRONES.refuelSeconds ?? 2}s` },
       { label: "Launch Interval", value: `${DRONES.launchIntervalSeconds ?? 0.65}s` },
       { label: "Launch Duration", value: `${DRONES.launchDurationSeconds ?? 0.8}s` },
@@ -447,12 +457,12 @@ const MANUAL_ARTICLES_PART_2 = [
     title: "Command Systems",
     summary: "Command cores, backup cores, and command auras.",
     keywords: ["command", "core", "backup core", "aura", "command range", "accuracy", "tracking"],
-    howItWorks: "Every ship requires a Core component — it is the command centre. If the Core is destroyed, the ship is lost. A Backup Command Core can be installed to keep the ship operational if the main Core is destroyed, but with reduced combat efficiency. Command components project a command aura that improves weapon accuracy, tracking, and target acquisition for friendly ships within range. All command auras share the same range so players can judge coverage at a glance.",
+    howItWorks: "Every ship requires a Core component : it is the command centre. If the Core is destroyed, the ship is lost. A Backup Command Core can be installed to keep the ship operational if the main Core is destroyed, but with reduced combat efficiency. Command components project a command aura that improves weapon accuracy, tracking, and target acquisition for friendly ships within range. All command auras share the same range so players can judge coverage at a glance.",
     importantStats: [
       { label: "Command Aura Range", value: `${GENERATED_BALANCE.commandAura?.range ?? 800} m` },
       { label: "Aura Affects Self", value: `${GENERATED_BALANCE.commandAura?.selfAura ? "Yes" : "No"}` }
     ],
-    practicalUse: "Place the Core in a well-protected position — usually the ship's interior. Backup Cores are essential for expensive capital ships. Overlapping command auras from multiple ships stack benefits for fleet engagements.",
+    practicalUse: "Place the Core in a well-protected position : usually the ship's interior. Backup Cores are essential for expensive capital ships. Overlapping command auras from multiple ships stack benefits for fleet engagements.",
     commonProblems: [
       "Ship destroyed when Core killed? Install a Backup Command Core.",
       "Aura not helping? Check that friendly ships are within the aura range.",
@@ -473,7 +483,7 @@ const MANUAL_ARTICLES_PART_3 = [
     title: "Economy & Objectives",
     summary: "Money, income, ship purchases, relays, and victory conditions.",
     keywords: ["economy", "money", "income", "ship cap", "relay", "capture", "bounty", "victory", "win", "objective"],
-    howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map — controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum £24). Capturing a relay awards a £70 bonus. Victory is achieved by holding every relay for the victory countdown or by destroying the enemy home station. Each home station's hull and shields scale with the number of players attacking it.",
+    howItWorks: "Players earn money passively through base income and relay control. Relays are capturable points on the map : controlling them provides additional income. Ships cost money to build, up to a fleet cap. Destroying enemy ships awards kill bounties (28% of the destroyed ship's cost, minimum £24). Capturing a relay awards a £70 bonus. Victory is achieved by holding every relay for the victory countdown or by destroying the enemy home station. Each home station's hull and shields scale with the number of players attacking it.",
     importantStats: [
       { label: "Starting Money", value: `\u00a3${ECON.startingMoney ?? 1000}` },
       { label: "Maximum Money", value: `\u00a3${ECON.maxMoney ?? 99999}` },
@@ -483,10 +493,10 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Capture Bonus", value: `\u00a3${ECON.captureBonus ?? 70}` },
       { label: "Ship Cap", value: `${ECON.shipCap ?? 30} Ships` }
     ],
-    practicalUse: "Balance economy and military: capturing relays early provides income advantage. Don't float money — spend it on ships to project force. Cheap ships are cost-effective for relay capture; expensive ships win fleet engagements.",
+    practicalUse: "Balance economy and military: capturing relays early provides income advantage. Don't float money : spend it on ships to project force. Cheap ships are cost-effective for relay capture; expensive ships win fleet engagements.",
     commonProblems: [
       "Can't buy ships? Check your money and fleet cap.",
-      "Losing income? Enemy may control more relays — recapture them.",
+      "Losing income? Enemy may control more relays : recapture them.",
       "Fleet cap reached? Destroyed ships free up cap space."
     ],
     related: ["movement", "combat-styles", "multiplayer", "blueprint-designer", "ship-pricing", "rewards", "capture-mechanics"]
@@ -518,7 +528,7 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Fleet Count Min", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimum ?? 1}` },
       { label: "Fleet Count Max", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.maximum ?? 5}` }
     ],
-    practicalUse: "Weapon premiums make weapon-heavy ships more expensive. Cheaper ships mean more ships in your fleet — consider mass-producing cost-effective designs.",
+    practicalUse: "Weapon premiums make weapon-heavy ships more expensive. Cheaper ships mean more ships in your fleet : consider mass-producing cost-effective designs.",
     commonProblems: [
       "Ship too expensive? Reduce weapon count or use cheaper weapon types.",
       "Not enough ships? Lower the ship cost to increase fleet count."
@@ -549,7 +559,7 @@ const MANUAL_ARTICLES_PART_3 = [
     practicalUse: "Winning is the biggest payout, but destroying enemy ships and keeping yours alive adds significantly. Efficient fleets (low cost, high performance) earn extra bonuses.",
     commonProblems: [
       "Low rewards? Focus on destroying enemy ships and keeping yours alive.",
-      "Loss support too low? It's designed to keep losing players in the game — win next round."
+      "Loss support too low? It's designed to keep losing players in the game : win next round."
     ],
     related: ["economy", "ship-pricing", "multiplayer"]
   },
@@ -566,7 +576,7 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Capture Rate Per Ship", value: `+${GENERATED_BALANCE.capture?.captureRatePerShip ?? 0.045}/s` },
       { label: "New Owner Multiplier", value: `${GENERATED_BALANCE.capture?.newOwnerProgressMultiplier ?? 3}×` }
     ],
-    practicalUse: "Send multiple ships to a relay to capture it faster. The new-owner multiplier means freshly captured relays consolidate quickly — push hard right after capture. Hold majority control for 20 seconds to win.",
+    practicalUse: "Send multiple ships to a relay to capture it faster. The new-owner multiplier means freshly captured relays consolidate quickly : push hard right after capture. Hold majority control for 20 seconds to win.",
     commonProblems: [
       "Relay not capturing? Ensure your ships are close enough to the relay.",
       "Relay losing progress? Enemy ships may be contesting or no ships are present to hold it."
@@ -588,7 +598,7 @@ const MANUAL_ARTICLES_PART_3 = [
     practicalUse: "For 1v1 practice, create a room with 2 max players and add a bot. For team games, coordinate with teammates on fleet composition. The host can restart the lobby for rematches without creating a new room.",
     commonProblems: [
       "Can't join? Check the room code is correct and the host is online.",
-      "Disconnected? The game saves your room code for recovery — use the Resume button on the main menu.",
+      "Disconnected? The game saves your room code for recovery : use the Resume button on the main menu.",
       "Can't start? Only the host can start the design phase."
     ],
     related: ["economy", "blueprint-designer", "controls"]
@@ -641,7 +651,7 @@ const MANUAL_ARTICLES_PART_3 = [
     ],
     practicalUse: "Keep sustained load below cable capacity to avoid tripping. If tripped, reduce power consumption (turn off non-essential systems) or add more generation. Heavy cable trips less often under burst loads.",
     commonProblems: [
-      "Power tripping repeatedly? The load is above sustained capacity — upgrade cable or reduce consumers.",
+      "Power tripping repeatedly? The load is above sustained capacity : upgrade cable or reduce consumers.",
       "Not recovering? Load must drop below 95% of sustained for recovery to begin."
     ],
     related: ["power", "wiring-infrastructure", "blueprint-designer"]
@@ -652,7 +662,7 @@ const MANUAL_ARTICLES_PART_3 = [
     title: "Power Demand & Standby",
     summary: "How much power each system type draws in standby and active modes.",
     keywords: ["power", "demand", "standby", "consumption", "fraction", "command", "propulsion", "shields", "weapons", "repair"],
-    howItWorks: "When systems are not actively engaged, they draw a fraction of their full power use as standby. Command cores always draw full power. Propulsion and shields draw 15% standby. Weapons draw 10% standby. Repair and cooling support draw 10-15% standby. This means even idle ships consume some power — ensure your reactor can cover standby loads plus active combat loads.",
+    howItWorks: "When systems are not actively engaged, they draw a fraction of their full power use as standby. Command cores always draw full power. Propulsion and shields draw 15% standby. Weapons draw 10% standby. Repair and cooling support draw 10-15% standby. This means even idle ships consume some power : ensure your reactor can cover standby loads plus active combat loads.",
     importantStats: Object.entries(GENERATED_BALANCE.powerDemand?.standbyFractions || {}).map(([key, val]) => ({
       label: `${key.charAt(0).toUpperCase() + key.slice(1)} Standby`,
       value: formatPercent(val)
@@ -686,7 +696,7 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Rail Map Impact Margin", value: `${GENERATED_BALANCE.projectiles?.mapImpactMargins?.rail ?? 3} m` },
       { label: "Default Map Impact Margin", value: `${GENERATED_BALANCE.projectiles?.mapImpactMargins?.default ?? 5} m` }
     ],
-    practicalUse: "Missiles are easier to intercept due to larger hit radius and slower speed. Rails are harder to intercept — small hit radius and very high speed. Shields provide a collision radius that can catch near-misses.",
+    practicalUse: "Missiles are easier to intercept due to larger hit radius and slower speed. Rails are harder to intercept : small hit radius and very high speed. Shields provide a collision radius that can catch near-misses.",
     commonProblems: [
       "Shots passing through shields? The shield collision radius may not be large enough for the projectile.",
       "Missiles shot down? Enemy point defence intercepts within 20 m."
@@ -711,10 +721,10 @@ const MANUAL_ARTICLES_PART_3 = [
       { label: "Default Max Speed", value: formatSpeed(GENERATED_BALANCE.missileGuidance?.defaultMaxSpeed ?? 460) },
       { label: "Acceleration", value: `${GENERATED_BALANCE.missileGuidance?.acceleration ?? 95} m/s²` }
     ],
-    practicalUse: "Higher tracking weapons turn harder — swarm missiles track better than torpedoes. ECM from Electronic Warfare Command Centres can reduce tracking by up to 55%, making missiles miss agile targets.",
+    practicalUse: "Higher tracking weapons turn harder : swarm missiles track better than torpedoes. ECM from Electronic Warfare Command Centres can reduce tracking by up to 55%, making missiles miss agile targets.",
     commonProblems: [
       "Missiles missing? Target may be too agile or ECM is reducing tracking.",
-      "Torpedoes not hitting? They have low tracking (0.2) — use against slow or stationary targets."
+      "Torpedoes not hitting? They have low tracking (0.2) : use against slow or stationary targets."
     ],
     related: ["weapons", "projectile-mechanics", "defence", "command"]
   },
@@ -724,15 +734,15 @@ const MANUAL_ARTICLES_PART_3 = [
     title: "Repair Mechanics",
     summary: "How hull repair works, stacking, range, and repair beams.",
     keywords: ["repair", "hull", "heal", "stacking", "repair beam", "repair range", "multiplier"],
-    howItWorks: "Repair modules restore hull HP over time. Multiple repair sources on the same ship stack with diminishing returns — each additional source contributes less. Repair beams project repair at range toward friendly ships. The repair range determines how far the beam can reach. Drones can also repair their parent ship and nearby allies.",
+    howItWorks: `Repair modules restore hull HP over time. Multiple repair sources on the same ship stack with diminishing returns; each additional source contributes ${formatPercent(REPAIR_STACKING_MULTIPLIER)} of the previous source. Repair beams project repair at range toward friendly ships. The repair range determines how far the beam can reach. Drones can also repair their parent ship and nearby allies.`,
     importantStats: [
       { label: "Repair Range", value: formatDistance(GENERATED_BALANCE.repair?.repairRange ?? 410) },
       { label: "Stacking Multiplier", value: `${GENERATED_BALANCE.repair?.stackingMultiplier ?? 0.8}×` }
     ],
-    practicalUse: "Multiple repair modules stack but with 62% efficiency per additional source. Repair beams are directional — aim them at the ship you want to heal. Repair drones automatically target the parent ship first, then nearby allies.",
+    practicalUse: `Multiple repair modules stack at ${formatPercent(REPAIR_STACKING_MULTIPLIER)} efficiency per additional source. Repair beams are directional; aim them at the ship you want to heal. Repair drones automatically target the parent ship first, then nearby allies.`,
     commonProblems: [
-      "Repair not stacking well? Each additional source contributes 62% of the previous.",
-      "Repair beam not hitting? It's directional — ensure the emitter faces the target."
+      `Repair not stacking well? Each additional source contributes ${formatPercent(REPAIR_STACKING_MULTIPLIER)} of the previous.`,
+      "Repair beam not hitting? It's directional; ensure the emitter faces the target."
     ],
     related: ["support", "defence", "drones", "blueprint-designer"]
   }
@@ -991,15 +1001,15 @@ function generateComponentArticle(partId) {
     // Drone type details
     const types = droneConfig.types || {};
     for (const [typeId, typeData] of Object.entries(types)) {
-      importantStats.push({ label: `${typeData.label || typeId} — Hull`, value: `${typeData.hull} HP` });
-      importantStats.push({ label: `${typeData.label || typeId} — Speed`, value: formatSpeed(typeData.speed) });
-      if (typeData.damage) importantStats.push({ label: `${typeData.label || typeId} — Damage`, value: formatDamage(typeData.damage) });
-      if (typeData.fireRate) importantStats.push({ label: `${typeData.label || typeId} — Fire Rate`, value: `${typeData.fireRate}/s` });
-      if (typeData.repairPerSecond) importantStats.push({ label: `${typeData.label || typeId} — Repair`, value: `${typeData.repairPerSecond} HP/s` });
-      if (typeData.commandRange) importantStats.push({ label: `${typeData.label || typeId} — Command Range`, value: formatDistance(typeData.commandRange) });
-      if (typeData.squadSize) importantStats.push({ label: `${typeData.label || typeId} — Squad Size`, value: `${typeData.squadSize}` });
-      if (typeData.fuelSeconds) importantStats.push({ label: `${typeData.label || typeId} — Fuel`, value: `${typeData.fuelSeconds}s` });
-      if (typeData.productionSeconds) importantStats.push({ label: `${typeData.label || typeId} — Rebuild Time`, value: `${typeData.productionSeconds}s` });
+      importantStats.push({ label: `${typeData.label || typeId} : Hull`, value: `${typeData.hull} HP` });
+      importantStats.push({ label: `${typeData.label || typeId} : Speed`, value: formatSpeed(typeData.speed) });
+      if (typeData.damage) importantStats.push({ label: `${typeData.label || typeId} : Damage`, value: formatDamage(typeData.damage) });
+      if (typeData.fireRate) importantStats.push({ label: `${typeData.label || typeId} : Fire Rate`, value: `${typeData.fireRate}/s` });
+      if (typeData.repairPerSecond) importantStats.push({ label: `${typeData.label || typeId} : Repair`, value: `${typeData.repairPerSecond} HP/s` });
+      if (typeData.commandRange) importantStats.push({ label: `${typeData.label || typeId} : Command Range`, value: formatDistance(typeData.commandRange) });
+      if (typeData.squadSize) importantStats.push({ label: `${typeData.label || typeId} : Squad Size`, value: `${typeData.squadSize}` });
+      if (typeData.fuelSeconds) importantStats.push({ label: `${typeData.label || typeId} : Fuel`, value: `${typeData.fuelSeconds}s` });
+      if (typeData.productionSeconds) importantStats.push({ label: `${typeData.label || typeId} : Rebuild Time`, value: `${typeData.productionSeconds}s` });
     }
   }
 
@@ -1019,19 +1029,19 @@ function generateComponentArticle(partId) {
   if (w) {
     const dps = (w.damage * w.fireRate).toFixed(1);
     practicalUse = `Theoretical DPS: ${dps}. `;
-    if (w.family === "missile") practicalUse += "Vulnerable to point defence — overwhelm with numbers or mix with other weapons. ";
+    if (w.family === "missile") practicalUse += "Vulnerable to point defence : overwhelm with numbers or mix with other weapons. ";
     if (w.family === "railgun") practicalUse += "Best at long range against slow or stationary targets. Narrow arc requires careful positioning. ";
-    if (w.family === "beam") practicalUse += "Sustained shield-breaking — ramps up damage over 15s. Keep the beam on target. ";
+    if (w.family === "beam") practicalUse += "Sustained shield-breaking : ramps up damage over 15s. Keep the beam on target. ";
     if (w.family === "blaster") practicalUse += "General-purpose weapon with good accuracy and moderate range. ";
-    if (w.family === "pointDefense" || w.family === "flak") practicalUse += "Anti-missile and anti-drone defence — negligible damage to ships. ";
+    if (w.family === "pointDefense" || w.family === "flak") practicalUse += "Anti-missile and anti-drone defence; low base damage makes it weak against ships. ";
     commonProblems.push("Not firing? Check power supply and cable connections.");
-    if (w.arc < 90) commonProblems.push("Narrow firing arc — position the ship to face the target.");
+    if (w.arc < 90) commonProblems.push("Narrow firing arc : position the ship to face the target.");
     if (w.tracking > 0) commonProblems.push("Missiles can be intercepted by enemy point defence.");
   }
 
   if (aura) {
     practicalUse += `Projects a ${aura.type} command aura affecting friendly ships within ${GENERATED_BALANCE.commandAura?.range ?? 800} m. `;
-    commonProblems.push("Aura does not affect the ship itself — coordinate with fleet members.");
+    commonProblems.push("Aura does not affect the ship itself : coordinate with fleet members.");
   }
 
   if (stats.armorFlatReduction) {
@@ -1039,7 +1049,7 @@ function generateComponentArticle(partId) {
   }
 
   if (stats.meltdownDamage) {
-    commonProblems.push("Reactor will melt down if overheated — ensure adequate cooling.");
+    commonProblems.push("Reactor will melt down if overheated : ensure adequate cooling.");
   }
 
   // Merge structured mechanics from the registry

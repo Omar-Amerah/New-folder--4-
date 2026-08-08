@@ -13,7 +13,7 @@ const { chromium } = require("playwright");
 const { uniquePort, startServer, waitForServer, launchChromium } = require("./verify-pixi-browser-support.js");
 
 const artifactDir = path.join("test-artifacts", "component-inspector");
-const REPRESENTATIVE = ["frame", "reactor", "blaster", "signalAmplifier", "shield", "droneBay", "heatSink", "core", "backupCore"];
+const REPRESENTATIVE = ["frame", "reactor", "blaster", "signalAmplifier", "shield", "droneBay", "heatSink", "heatPipe", "heatVent", "radiator", "closedCycleCooler", "burstCooler", "core", "backupCore"];
 
 // Select a component by type through the same path the palette uses.
 async function selectComponent(page, type) {
@@ -48,13 +48,20 @@ async function readInspector(page) {
       capability: cells(".part-capability-cell"),
       thermal: Array.from(root.querySelectorAll(".part-thermal-line")).map((line) => ({
         label: text(line.querySelector(".part-thermal-label")),
-        value: text(line.querySelector(".part-thermal-value"))
+        value: text(line.querySelector(".part-thermal-value")),
+        category: line.closest("[data-callout-category]")?.dataset.calloutCategory || ""
       })),
       warnings: Array.from(root.querySelectorAll(".part-warning")).map((warning) => ({
         id: warning.dataset.warning,
+        tone: Array.from(warning.classList).find((name) => name.startsWith("is-"))?.slice(3) || "warning",
         title: text(warning.querySelector(".part-warning-title")),
         body: text(warning.querySelector(".part-warning-text"))
       })),
+      callouts: Array.from(root.querySelectorAll("[data-callout-stack] [data-callout-id]")).map((callout) => ({
+        id: callout.dataset.calloutId,
+        category: callout.dataset.calloutCategory
+      })),
+      calloutGroups: Array.from(root.querySelectorAll("[data-callout-stack] > [data-callout-category]")).map((group) => group.dataset.calloutCategory),
       requirements: Array.from(root.querySelectorAll("[data-requirement]")).map((chip) => ({
         id: chip.dataset.requirement,
         tag: chip.tagName,
@@ -125,6 +132,9 @@ async function readInspector(page) {
     for (const type of REPRESENTATIVE) {
       await selectComponent(page, type);
       snapshots[type] = await readInspector(page);
+      if (["radiator", "heatVent", "closedCycleCooler", "reactor"].includes(type)) {
+        await page.locator("#partInspector").screenshot({ path: path.join(artifactDir, `${type}-hierarchy.png`) });
+      }
     }
 
     check("every representative component renders a header, badge and core row", () => {
@@ -193,11 +203,48 @@ async function readInspector(page) {
       assert.equal(meltdown.length, 1, "exactly one meltdown warning panel");
       assert.match(meltdown[0].title, /meltdown risk/i);
       assert.match(meltdown[0].body, /explodes after \d+ seconds/i);
+      assert.equal(meltdown[0].tone, "bad", "meltdown risk uses the critical red treatment");
       for (const cell of [...reactor.core, ...reactor.capability]) {
         assert.doesNotMatch(cell.label, /meltdown/i, "meltdown is not an ordinary stat card");
       }
       assert.ok(reactor.sections.some((section) => /thermal details/i.test(section.title)), "Reactor keeps Thermal details");
       assert.equal(reactor.thermal.filter((line) => /produces/i.test(line.value)).length, 1, "heat at load is stated once");
+    });
+
+    check("component callouts follow capability, condition, cost, role, severe hierarchy", () => {
+      const ranks = { capability: 0, condition: 1, cost: 2, role: 3, severe: 4 };
+      for (const type of REPRESENTATIVE) {
+        const actual = snapshots[type].callouts.map((callout) => ranks[callout.category]);
+        assert.deepEqual(actual, [...actual].sort((a, b) => a - b), `${type} callouts follow semantic order`);
+        assert.deepEqual(snapshots[type].calloutGroups, [...new Set(snapshots[type].callouts.map((callout) => callout.category))],
+          `${type} groups adjacent callouts of the same category`);
+      }
+      assert.equal(snapshots.backupCore.warnings.find((warning) => warning.id === "backup-command")?.tone, "ok",
+        "backup capability uses the green treatment");
+      assert.equal(snapshots.radiator.callouts.find((callout) => callout.id === "heat.exposure")?.category, "condition",
+        "exposure reminder uses the normal condition treatment");
+      assert.equal(snapshots.reactor.callouts.at(-1)?.id, "meltdown", "severe meltdown warning renders last");
+      assert.equal(snapshots.backupCore.callouts.at(-1)?.id, "backup-power-loss", "severe command warning renders last");
+    });
+
+    check("thermal cards are concise, non-repetitive and use H/s units", () => {
+      assert.deepEqual(snapshots.radiator.callouts.map((callout) => callout.category),
+        ["capability", "condition", "condition", "role"]);
+      assert.deepEqual(snapshots.heatVent.callouts.map((callout) => callout.category),
+        ["capability", "condition", "role"]);
+      assert.deepEqual(snapshots.closedCycleCooler.callouts.map((callout) => callout.category),
+        ["capability", "capability", "capability", "condition", "role"]);
+      for (const type of REPRESENTATIVE) assert.doesNotMatch(snapshots[type].allText, /\bHeat\/s\b/i, `${type} uses H/s`);
+      for (const type of ["radiator", "heatVent"]) {
+        const role = snapshots[type].thermal.find((row) => /thermal role/i.test(row.label));
+        assert.doesNotMatch(role.value, /expos|enclos/i, `${type} role does not repeat exposure`);
+        assert.doesNotMatch(snapshots[type].description, /expos|enclos/i, `${type} description does not repeat exposure`);
+        assert.equal(snapshots[type].callouts.filter((callout) => /exposure/.test(callout.id)).length, 1,
+          `${type} has one exposure condition`);
+      }
+      assert.match(snapshots.closedCycleCooler.allText,
+        /Active cooling[\s\S]*Passive emergency cooling[\s\S]*Heat storage[\s\S]*Requirements[\s\S]*Thermal role/i,
+        "powered cooler leads with cooling, then storage, requirement and role");
     });
 
     check("Blaster overview shows DPS, range, accuracy and arc with no detail repeats", () => {
@@ -470,8 +517,9 @@ async function readInspector(page) {
           import("/src/ui/partInspectorUi.js")
         ]);
         const free = { x: 2, y: 2 };
-        state.design = [...state.design.filter((part) => !(part.x === free.x && part.y === free.y)),
-          { type: "signalAmplifier", x: free.x, y: free.y, rotation: 0 }];
+        // Keep the fixture genuinely unpowered even when physical Wiring is
+        // disabled and Power is allocated automatically across the whole ship.
+        state.design = [{ type: "signalAmplifier", x: free.x, y: free.y, rotation: 0 }];
         state.selectedPart = null;
         state.selectedCell = { ...free };
         designerUi.renderBuildGrid();
@@ -490,15 +538,15 @@ async function readInspector(page) {
       assert.ok(view.requirements.length >= 1, "the placed component shows its requirements");
       const power = view.requirements.find((chip) => chip.id === "power");
       const data = view.requirements.find((chip) => chip.id === "data");
-      assert.ok(power?.unmet, "the unmet Power requirement is flagged red");
-      assert.ok(data?.unmet, "the unmet Data requirement is flagged red");
+      assert.ok(power?.unmet, `the unmet Power requirement is flagged red: ${JSON.stringify(view.requirements)}`);
+      assert.ok(data?.unmet, `the unmet Data requirement is flagged red: ${JSON.stringify(view.requirements)}`);
       assert.match(power.ariaLabel, /not met/i, "the failure is exposed to assistive technology");
       // The failure text is visible on the row, not hidden behind the tooltip.
       assert.equal(failureState.tipHiddenWhileFailing, true, "tooltips remain closed");
       assert.ok(view.requirementFailures.length >= 2, `failures are stated visibly: ${JSON.stringify(view.requirementFailures)}`);
       assert.match(view.requirementFailures.join(" "), /power unmet/i);
       assert.match(view.requirementFailures.join(" "), /data unmet/i);
-      assert.match(view.allText, /not connected to any power network|receiving no power/i,
+      assert.match(view.allText, /not connected to any power network|receiving no power|not receiving enough power/i,
         "the visible text explains the Power failure");
     });
 

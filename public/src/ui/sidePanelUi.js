@@ -52,8 +52,8 @@ const ORBIT_TITLES = {
 };
 // A selection whose ships disagree. Clicking sends them all the UI's current
 // preference; once they agree, the next click toggles them together.
-const ORBIT_MIXED_LABEL = "Orbit —";
-const ORBIT_MIXED_TITLE = "Orbit — selected ships are going opposite ways. Click to set them all one way.";
+const ORBIT_MIXED_LABEL = "Orbit";
+const ORBIT_MIXED_TITLE = "Orbit: selected ships are going opposite ways. Click to set them all one way.";
 
 function normalizeOrbitDirection(value) {
   return Number(value) === ORBIT_ANTICLOCKWISE ? ORBIT_ANTICLOCKWISE : ORBIT_CLOCKWISE;
@@ -378,7 +378,7 @@ function renderSelectionControls() {
     const description = style === "orbit" && orbiting
       ? (orbitDirection === null
         ? ORBIT_MIXED_TITLE
-        : `${ORBIT_TITLES[orbitDirection]} — click to reverse`)
+        : `${ORBIT_TITLES[orbitDirection]} : click to reverse`)
       : def.description;
     if (button.textContent !== label) button.textContent = label;
     button.title = description;
@@ -431,7 +431,7 @@ function renderMovementToggles(selectedShips) {
     const readout = row.querySelector("[data-movement-toggle-state]");
     if (readout && readout.textContent !== stateText) readout.textContent = stateText;
     const title = mixed
-      ? `${description} Selected ships disagree — click to turn it on for all of them.`
+      ? `${description} Selected ships disagree : click to turn it on for all of them.`
       : description;
     if (title && row.title !== title) row.title = title;
     row.setAttribute("aria-label", `${label}: ${stateText}`);
@@ -599,7 +599,7 @@ function setSelectedCombatStyle(style) {
   }
   const sent = send(payload);
   if (!sent) {
-    notify.warning("Unable to send style command — connection is offline.", { key: `style-send:${requestId}` });
+    notify.warning("Unable to send style command : connection is offline.", { key: `style-send:${requestId}` });
     recordNetworkEvent("notice", { message: "Style command failed to send (offline)", requestId, style });
     return;
   }
@@ -645,7 +645,7 @@ function setSelectedOrbitDirection(direction) {
   else payload.shipIds = shipIds;
   const sent = send(payload);
   if (!sent) {
-    notify.warning("Unable to send orbit direction — connection is offline.", { key: `orbit-send:${requestId}` });
+    notify.warning("Unable to send orbit direction : connection is offline.", { key: `orbit-send:${requestId}` });
     recordNetworkEvent("notice", { message: "Orbit direction failed to send (offline)", requestId, orbitDirection });
     return;
   }

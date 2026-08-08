@@ -113,7 +113,7 @@ export function buyPurchaseOption(optionId) {
   }
   // Never buy while the client and server disagree on gameplay balance.
   if (isBalanceIncompatible()) {
-    setPurchaseError(optionId, "Balance out of date — refresh");
+    setPurchaseError(optionId, "Balance out of date : refresh");
     notify.error(balanceBlockMessage(), { key: "balance-mismatch", keyTtl: 15000 });
     return;
   }
@@ -614,6 +614,7 @@ function patchPurchaseAvailability() {
     setCardText(card, "strong", option.name);
     setCardText(card, ".purchase-cost", purchaseCostText(option, optionState));
     setCardText(card, ".purchase-weapons", option.weaponSummary || weaponSummaryText(option.stats));
+    setCardText(card, ".purchase-speed", formatSpeed(Math.round(option.stats.maxSpeed)));
     const statusText = purchaseStatusText(optionState);
     setCardText(card, ".purchase-status", statusText);
     const statusDescription = card.querySelector(".purchase-status-description");
@@ -694,6 +695,7 @@ function renderPurchaseCards(options) {
           <strong></strong>
           <span class="purchase-cost"></span>
           <small class="purchase-weapons"></small>
+          <small class="purchase-speed"></small>
           <em class="purchase-status"></em>
           <span class="sr-only purchase-status-description"></span>
         </span>`;
@@ -718,6 +720,7 @@ function renderPurchaseCards(options) {
     setCardText(card, "strong", option.name);
     setCardText(card, ".purchase-cost", `$${option.stats.unitCost}`);
     setCardText(card, ".purchase-weapons", option.weaponSummary || weaponSummaryText(option.stats));
+    setCardText(card, ".purchase-speed", formatSpeed(Math.round(option.stats.maxSpeed)));
     const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
     const statusText = purchaseStatusText(optionState);
     setCardText(card, ".purchase-status", statusText);
@@ -740,33 +743,19 @@ export function renderPurchaseBar() {
 
 export function purchaseStatusText(optionState) {
   if (optionState.pending) return "Building…";
-  if (optionState.error) return `Purchase failed — ${optionState.reason || "Server rejected request"}`;
+  if (optionState.error) return `Purchase failed : ${optionState.reason || "Server rejected request"}`;
   if (optionState.canBuy) return "";
   const reason = optionState.reason || "Not available";
   if (/^Need \$/.test(reason)) return reason;
   if (/^Need \d+/.test(reason) && !/fleet slots$/.test(reason)) return reason.replace(/slots$/, "fleet slots");
-  if (/^Invalid design:/i.test(reason)) return compactDesignIssue(reason);
-  if (/^Design invalid\s*[—-]/i.test(reason)) return compactDesignIssue(reason);
-  if (/^Missing /i.test(reason)) return `⚠ ${capitalizeStatusReason(reason)}`;
-  if (/^Purchase failed/i.test(reason)) return reason.replace(/^Purchase failed:?\s*/i, "Purchase failed — ");
+  if (/^(?:Invalid design:|Design invalid\b|Missing |Disconnected\b|No components\b)/i.test(reason)) return "Invalid";
+  if (/^Purchase failed/i.test(reason)) return reason.replace(/^Purchase failed:?\s*/i, "Purchase failed : ");
   return reason;
 }
 
 function purchaseStatusDescription(optionState) {
+  if (!optionState.canBuy && optionState.reason) return String(optionState.reason);
   return purchaseStatusText(optionState) || "Ready to build";
-}
-
-function compactDesignIssue(reason) {
-  const clean = String(reason)
-    .replace(/^Invalid design:\s*/i, "")
-    .replace(/^Design invalid\s*[—-]\s*/i, "")
-    .trim();
-  return `⚠ ${capitalizeStatusReason(clean)}`;
-}
-
-function capitalizeStatusReason(reason) {
-  const text = String(reason || "Not available");
-  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "Not available";
 }
 
 // Updates a child element's text only when it changed, avoiding needless DOM work
