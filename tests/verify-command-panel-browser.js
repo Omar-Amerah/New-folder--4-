@@ -117,6 +117,16 @@ async function panelGeometry(page) {
     assert.equal(await page.locator('[data-ship-group="group2"] .ship-group-count').textContent(), "0 ships");
     assert.equal(await page.locator(".ship-group-row").nth(0).evaluate((row) => row.classList.contains("is-selected") && row.classList.contains("has-ships")), true, "selected populated state is explicit");
     assert.equal(await page.locator(".ship-group-row").nth(1).evaluate((row) => row.classList.contains("is-empty")), true, "empty state is explicit");
+    const selectedGroupVisual = await page.locator(".ship-group-row").nth(0).evaluate((row) => {
+      const name = row.querySelector(".ship-group-name");
+      return {
+        backgroundColor: getComputedStyle(row).backgroundColor,
+        boxShadow: getComputedStyle(row).boxShadow,
+        markerContent: getComputedStyle(name, "::before").content
+      };
+    });
+    assert.equal(selectedGroupVisual.boxShadow, "none", "selected groups have no left accent stripe");
+    assert.equal(selectedGroupVisual.markerContent, "none", "selected groups have no tick marker");
 
     const styles = await page.evaluate(() => {
       const primary = getComputedStyle(document.getElementById("deployButton"));
@@ -162,6 +172,9 @@ async function panelGeometry(page) {
     assert(focusStyle.outlineStyle !== "none" && focusStyle.outlineWidth > 0, "keyboard focus remains visible");
     await page.keyboard.press("Enter");
     assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.activeShipGroup), "unassigned");
+    await page.waitForTimeout(150);
+    const selectedUnassignedColor = await page.locator(".ship-group-row.is-unassigned").evaluate((row) => getComputedStyle(row).backgroundColor);
+    assert.notEqual(selectedUnassignedColor, selectedGroupVisual.backgroundColor, "selected Unassigned uses its own color");
 
     mkdirSync(artifactDir, { recursive: true });
     for (const [width, height] of [[1920, 1080], [1280, 720], [768, 1024], [390, 844]]) {

@@ -54,11 +54,13 @@
 }
 
 .purchase-quantity button {
+  width: 32px;
   min-height: 26px;
-  padding: 0;
+  padding: 2px 8px;
   border-color: var(--line);
   background: #111827;
   box-shadow: none;
+  line-height: 1;
 }
 
 .purchase-quantity button.active {
@@ -205,13 +207,13 @@
 }
 
 .purchase-option {
-  flex: 0 0 184px;
+  flex: 0 0 196px;
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  min-height: 72px;
-  padding: 6px 9px;
+  gap: 9px;
+  min-height: 78px;
+  padding: 8px 11px;
   border: 1px solid rgba(174, 199, 231, 0.18);
   border-color: rgba(174, 199, 231, 0.18);
   background: rgba(12, 20, 32, 0.88);
@@ -219,16 +221,16 @@
   text-align: left;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
   touch-action: manipulation;
-  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, opacity 140ms ease, transform 80ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease, opacity 140ms ease, transform 80ms ease;
 }
 
 .purchase-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 6px;
+  width: 60px;
+  height: 60px;
+  border-radius: 7px;
   background: radial-gradient(circle at 50% 42%, rgba(40, 62, 98, 0.5), rgba(4, 8, 14, 0.85));
   border: 1px solid rgba(120, 150, 200, 0.16);
   overflow: hidden;
@@ -431,7 +433,13 @@
   font-weight: 800;
 }
 
-.purchase-option:hover {
+.purchase-option.ready {
+  border-color: rgba(103, 224, 138, 0.34);
+  background: linear-gradient(180deg, rgba(18, 48, 45, 0.92), rgba(9, 22, 24, 0.96));
+  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.08), 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+.purchase-option.ready:hover {
   border-color: rgba(103, 224, 138, 0.66);
   background: rgba(21, 43, 39, 0.94);
   box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.14), 0 9px 20px rgba(0, 0, 0, 0.30);
@@ -584,7 +592,7 @@
 
 .purchase-option {
   align-items: start;
-  min-height: 72px;
+  min-height: 78px;
 }
 
 .purchase-info {

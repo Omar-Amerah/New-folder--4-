@@ -94,7 +94,7 @@ function radiatorConditionalPerformance() {
   return [
     {
       label: "Base Cooling",
-      value: `${profile.cooling} Heat/s`,
+      value: `${profile.cooling} H/s`,
       sourceKey: "heatRules.profile.radiator.cooling"
     },
     {
@@ -164,9 +164,9 @@ export const COMPONENT_MECHANICS = {
       { label: "Connection", value: "Automatic, orthogonal adjacency", detail: "A Heat Pipe joins every orthogonally adjacent Heat Pipe and every adjacent living component. There is no rotation, port or flow direction to configure, and diagonals never connect." }
     ],
     specialMechanics: [
-      { label: "Transport Only", value: "0 Heat/s cooling", detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves — the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
-      { label: "Negligible Storage", value: "10 Heat capacity", detail: "Pipes are conduits, not buffers: heat entering the network moves on to whatever is attached rather than being banked.", sourceKey: "heatRules.profile.heatPipe.capacity" },
-      { label: "Finite Throughput", value: "40 Heat/s per shared edge", detail: "Each attachment can move at most this much heat per second, so a coolant network transports quickly but never equalises attached components instantly.", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
+      { label: "Transport Only", value: "0 H/s cooling", detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves — the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
+      { label: "Negligible Storage", value: "10 H capacity", detail: "Pipes are conduits, not buffers: heat entering the network moves on to whatever is attached rather than being banked.", sourceKey: "heatRules.profile.heatPipe.capacity" },
+      { label: "Finite Throughput", value: "40 H/s per shared edge", detail: "Each attachment can move at most this much heat per second, so a coolant network transports quickly but never equalises attached components instantly.", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
       { label: "Automatic Flow Direction", value: "Hotter to colder", detail: "The coolant settles at the conductance-weighted mean of the attached components' heat ratios; anything hotter than that gives heat up, anything colder takes it." },
       { label: "Destroyed Route", value: "Splits the network when destroyed", detail: "A destroyed Heat Pipe leaves the network, splitting the coolant run into the separate networks that remain.", warning: true, sourceKey: "heatRules.CONDUCTIVITY.destroyed" }
     ],
@@ -180,8 +180,8 @@ export const COMPONENT_MECHANICS = {
 
   heatSink: {
     specialMechanics: [
-      { label: "Thermal Mass", value: "340 Heat capacity", detail: "Heat Sinks have large heat capacity for their size. That capacity is their own — heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
-      { label: "Low Cooling", value: "1.5 Heat/s", detail: "Heat Sinks store heat but remove very little themselves. They work best paired with a Radiator on the same coolant network.", sourceKey: "heatRules.profile.heatSink.cooling" },
+      { label: "Thermal Mass", value: "340 H capacity", detail: "Heat Sinks have large heat capacity for their size. That capacity is their own — heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
+      { label: "Low Cooling", value: "1.5 H/s", detail: "Heat Sinks store heat but remove very little themselves. They work best paired with a Radiator on the same coolant network.", sourceKey: "heatRules.profile.heatSink.cooling" },
       { label: "No Adjacency Bonus", value: "Neighbours gain no capacity", detail: "Sitting next to a Heat Sink does not raise a component's own heat capacity. Connect hot systems to the sink with Heat Pipes so the heat actually reaches it." },
       { label: "Destroyed Behaviour", value: "Excluded from aggregate capacity but retains stored heat", detail: "A destroyed Heat Sink stops counting toward the ship's heat capacity, but any heat already stored remains until transferred away.", warning: true }
     ],
@@ -197,7 +197,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Connection", value: "Attaches from any side", detail: "Adjacency-based like every thermal part: a Heat Vent takes heat from components it touches, or from a Heat Pipe network on any orthogonal side. No rotation needed." }
     ],
     specialMechanics: [
-      { label: "Passive Rejection", value: "4 Heat/s while exposed", detail: "Constant output with no Power draw and no scaling with heat state.", sourceKey: "heatRules.profile.heatVent.cooling" },
+      { label: "Passive Rejection", value: "4 H/s while exposed", detail: "Constant output with no Power draw and no scaling with heat state.", sourceKey: "heatRules.profile.heatVent.cooling" },
       { label: "Weaker Than a Radiator", value: "Well below Radiator output", detail: "The Heat Vent is the cheap, compact, unpowered option for low and medium heat ships. It is not a Radiator substitute on a heavy build." },
       { label: "Fragile", value: "18 hull", detail: "Cheap and light, but it sits on the exterior where it is easy to shoot off.", warning: true }
     ],
@@ -212,7 +212,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Meltdown", value: "Explodes after 3s in Overheated state", detail: "A reactor pinned at the overheat failure state for 3 seconds melts down and detonates, dealing area damage.", warning: true, sourceKey: "heatRules.REACTOR_MELTDOWN_SECONDS" },
       { label: "Meltdown Damage", value: "60 damage", sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" },
       { label: "Meltdown Radius", value: "1.9 tiles", sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" },
-      { label: "Activity Heat", value: "2 + powerGeneration × 0.42 Heat/s", detail: "Reactors generate heat proportional to their power output." }
+      { label: "Activity Heat", value: "2 + powerGeneration × 0.42 H/s", detail: "Reactors generate heat proportional to their power output." }
     ],
     interactions: [
       { label: "Radiators", value: "Essential — an overheated reactor will melt down without adequate cooling" },
@@ -263,7 +263,7 @@ export const COMPONENT_MECHANICS = {
 
   battery: {
     specialMechanics: [
-      { label: "No Activity Heat", value: "0 Heat/s at idle", detail: "Batteries do not generate activity heat, but charging and discharging may produce heat depending on efficiency." },
+      { label: "No Activity Heat", value: "0 H/s at idle", detail: "Batteries do not generate activity heat, but charging and discharging may produce heat depending on efficiency." },
       { label: "Charge/Discharge", value: "Efficiency-based heat generation", detail: "Discharge heat at max rate is configured per battery type." }
     ],
     interactions: [
@@ -273,7 +273,7 @@ export const COMPONENT_MECHANICS = {
 
   capacitor: {
     specialMechanics: [
-      { label: "No Activity Heat", value: "0 Heat/s at idle", detail: "Capacitors do not generate activity heat." },
+      { label: "No Activity Heat", value: "0 H/s at idle", detail: "Capacitors do not generate activity heat." },
       { label: "Discharge Heat", value: "Configured per capacitor type", detail: "Discharging at maximum rate produces heat proportional to the discharge rate." }
     ],
     interactions: [
@@ -291,7 +291,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Stacking Falloff", value: "90% per additional engine", detail: "Each additional engine contributes 90% of the previous one's thrust (100%, 90%, 81%, 73%, etc.)." },
       { label: "Power Scaling", value: "Movement scales with pow(powerGen / max(powerUse, 1), 1.8)", detail: "Underpowered ships suffer reduced movement, clamped to a minimum 18%." },
       { label: "Heat-State Scaling", value: "Active output follows the shared active-output table", detail: "Cool/Warm: 100%, Hot: 70%, Critical: 40%, Overheated: 0%." },
-      { label: "Activity Heat", value: "2 + thrust × 0.018 Heat/s" }
+      { label: "Activity Heat", value: "2 + thrust × 0.018 H/s" }
     ],
     interactions: [
       { label: "Propulsion Capacitor", value: "Can boost acceleration when activated" },
@@ -335,7 +335,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Lever Arm", value: "0.35 min, +0.35 per cell of offset, 1.75 max", detail: "Maneuver thrusters provide directional torque based on distance from the ship's centre of mass." },
       { label: "Stacking Falloff", value: "92% per additional module" },
-      { label: "Activity Heat", value: "2 + lateralThrust × 0.018 Heat/s" }
+      { label: "Activity Heat", value: "2 + lateralThrust × 0.018 H/s" }
     ],
     interactions: [
       { label: "Gyroscope", value: "Stacks with diminishing returns for turn rate" }
@@ -345,7 +345,7 @@ export const COMPONENT_MECHANICS = {
   gyroscope: {
     specialMechanics: [
       { label: "Stacking Falloff", value: "92% per additional module", detail: "Each additional gyroscope contributes 92% of the previous one's turn rate bonus." },
-      { label: "Activity Heat", value: "2 + turn × 1.5 Heat/s" }
+      { label: "Activity Heat", value: "2 + turn × 1.5 H/s" }
     ],
     interactions: [
       { label: "Maneuver Thruster", value: "Stacks with diminishing returns for turn rate" }
@@ -484,7 +484,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Flat Damage Reduction", value: "Reduces incoming damage by a flat amount per hit", detail: "Armor reduces each incoming hit by its flat reduction value before hull damage is applied." },
       { label: "Heat Retention", value: "0.9 retention multiplier", detail: "Armor retains 90% of its cooling efficiency — it dissipates heat slightly slower than standard components.", sourceKey: "heatRules.profile.armor.retention" },
-      { label: "Heat Capacity", value: "125 Heat", sourceKey: "heatRules.profile.armor.capacity" }
+      { label: "Heat Capacity", value: "125 H", sourceKey: "heatRules.profile.armor.capacity" }
     ],
     interactions: [
       { label: "Hull", value: "Adds hull HP and flat damage reduction" }
@@ -495,7 +495,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Flat Damage Reduction", value: "Reduces incoming damage by a flat amount per hit" },
       { label: "Heat Retention", value: "0.82 retention multiplier", detail: "Composite armor retains 82% of cooling efficiency — it dissipates heat slower than standard armor.", sourceKey: "heatRules.profile.compositeArmor.retention" },
-      { label: "Heat Capacity", value: "140 Heat", sourceKey: "heatRules.profile.compositeArmor.capacity" }
+      { label: "Heat Capacity", value: "140 H", sourceKey: "heatRules.profile.compositeArmor.capacity" }
     ],
     interactions: [
       { label: "Hull", value: "Adds hull HP and flat damage reduction; lighter than standard armor" }
@@ -546,7 +546,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Stacking", value: "62% efficiency per additional source", detail: "Multiple repair sources on the same ship stack with diminishing returns." },
       { label: "Repair Range", value: "410 m", detail: "Repair modules restore hull HP to the parent ship and nearby allies within range." },
-      { label: "Activity Heat", value: "1.5 + repairRate × 0.35 Heat/s" }
+      { label: "Activity Heat", value: "1.5 + repairRate × 0.35 H/s" }
     ],
     interactions: [
       { label: "Repair Beams", value: "Repair beams project hull recovery at range" },
@@ -767,4 +767,3 @@ export function getMechanicsSearchText(partId) {
   }
   return parts.join(" ");
 }
-

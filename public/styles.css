@@ -519,8 +519,8 @@ h2 {
 
 .ship-group-row.is-selected {
   border-color: rgba(56, 213, 255, 0.62);
-  background: rgba(23, 62, 78, 0.48);
-  box-shadow: inset 3px 0 0 var(--cyan);
+  background: rgba(20, 72, 91, 0.68);
+  box-shadow: none;
 }
 
 .ship-group-main {
@@ -549,6 +549,11 @@ h2 {
 .ship-group-row.is-unassigned.has-ships {
   border-color: rgba(255, 202, 87, 0.36);
   background: rgba(35, 30, 25, 0.70);
+}
+
+.ship-group-row.is-unassigned.is-selected {
+  border-color: rgba(255, 202, 87, 0.68);
+  background: rgba(77, 56, 23, 0.72);
 }
 
 .ship-group-controls {
@@ -674,13 +679,6 @@ h2 {
   border-color: transparent;
   background: rgba(56, 213, 255, 0.035);
   box-shadow: none;
-}
-
-.ship-group-button.active .ship-group-name::before {
-  margin-right: 5px;
-  color: #75ddf7;
-  content: "✓";
-  font-size: 10px;
 }
 
 .ship-group-action {
@@ -1111,8 +1109,8 @@ h2 {
 
 .ship-damage-panel {
   display: grid;
-  gap: 6px;
-  padding-top: 8px;
+  gap: 4px;
+  padding-top: 5px;
   border-top: 1px solid rgba(174, 199, 231, 0.14);
 }
 
@@ -1123,7 +1121,7 @@ h2 {
   position: sticky;
   top: 0;
   z-index: 4;
-  padding: 4px 0 6px;
+  padding: 2px 0 3px;
   background: linear-gradient(180deg, var(--panel) 78%, rgba(7, 12, 21, 0));
   font-size: 11px;
   color: #9fb4d2;
@@ -1132,7 +1130,7 @@ h2 {
 }
 
 .ship-damage-head button {
-  min-height: 24px;
+  min-height: 22px;
   padding: 0 8px;
   border: 1px solid rgba(174, 199, 231, 0.18);
   border-radius: 6px;
@@ -1148,7 +1146,7 @@ h2 {
   color: #fff0bf;
 }
 
-.status-view-tabs { display:flex; gap:4px; }
+.status-view-tabs { display:flex; gap:3px; margin-top:-1px; }
 .status-view-tabs button[aria-selected="true"] { border-color:rgba(255,202,87,.64); background:rgba(74,53,18,.68); color:#fff0bf; }
 
 #shipDamageCanvas {
@@ -1890,9 +1888,10 @@ h2 {
 
 #shipDamageCanvas {
   width: 100%;
-  max-width: none;
+  max-width: 270px;
   box-sizing: border-box;
   aspect-ratio: 1;
+  margin: 0 auto;
 }
 .heat-hud i { position:relative; overflow:hidden; }
 .heat-hud i b {

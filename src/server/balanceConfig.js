@@ -8,7 +8,8 @@ const COMPONENT_BALANCE_PATH = path.join(__dirname, "..", "..", "component-balan
 
 function loadRawBalance(filePath = COMPONENT_BALANCE_PATH) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+    return JSON.parse(raw);
   } catch (error) {
     throw new Error(`Failed to load component-balance.json from ${filePath}: ${error.message}`);
   }

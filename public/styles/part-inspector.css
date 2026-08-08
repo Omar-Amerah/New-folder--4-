@@ -86,9 +86,9 @@
 
 .part-inspector-ledger-link {
   justify-self: start;
-  min-height: 28px;
-  padding: 0 10px;
-  font-size: 11px;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 10px;
 }
 
 /* --- Core specification row --------------------------------------------- */
@@ -195,12 +195,13 @@
 .part-requirements-heading {
   margin: 0;
   color: var(--faint);
+  font-size: 8.5px;
 }
 
 .part-requirement-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 /* Amber is the normal dependency colour; red is reserved for a dependency the
@@ -209,24 +210,24 @@
 .part-requirement {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 26px;
-  padding: 3px 8px;
-  border: 1px solid rgba(251, 191, 36, 0.42);
+  gap: 4px;
+  min-height: 22px;
+  padding: 2px 6px;
+  border: 1px solid rgba(251, 191, 36, 0.34);
   border-radius: 999px;
-  background: rgba(120, 53, 15, 0.2);
+  background: rgba(120, 53, 15, 0.13);
   color: #fcd34d;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
-  letter-spacing: .04em;
+  letter-spacing: .03em;
   line-height: 1.2;
   text-transform: uppercase;
   cursor: pointer;
 }
 
 .part-requirement:hover {
-  border-color: rgba(251, 191, 36, 0.7);
-  background: rgba(120, 53, 15, 0.34);
+  border-color: rgba(251, 191, 36, 0.62);
+  background: rgba(120, 53, 15, 0.26);
 }
 
 .part-requirement:focus-visible {
@@ -235,7 +236,7 @@
 }
 
 .part-requirement-icon {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
 }
 

@@ -111,7 +111,7 @@ export function categoryBadge(category, footprint = { width: 1, height: 1 }) {
 const heatRules = () => globalThis.HeatRules;
 const turretRules = () => globalThis.TurretRules;
 
-function heatRate(value) { return `${Number(value).toFixed(1)} Heat/s`; }
+function heatRate(value) { return `${Number(value).toFixed(1)} H/s`; }
 function degrees(value) { return `${Math.round(value)}°`; }
 
 function aimSpeedText(value) {
@@ -268,7 +268,11 @@ function capabilityRows(type, stat, family, context = {}) {
       // Power output already appears in the core row; the ledger drops the repeat
       // and leaves storage as the meaningful capability for batteries/capacitors.
       if ((stat.powerGeneration || 0) > 0) rows.push(statRow("power", "Power Output", `${stat.powerGeneration} MW`));
-      const capacity = stat.energyCapacity || stat.energyStorage || 0;
+      // Generators may carry a legacy `energy` value in the catalogue, but the
+      // power solver treats them as sources rather than stored-energy modules.
+      const capacity = (stat.powerGeneration || 0) <= 0
+        ? (stat.energyCapacity || stat.energyStorage || 0)
+        : 0;
       if (capacity > 0) rows.push(statRow("power.storage", "Energy Capacity", formatEnergy(capacity)));
       if ((stat.maxChargeRate || 0) > 0) rows.push(statRow("power.chargeRate", "Max Charge Rate", `${stat.maxChargeRate} MW`));
       if ((stat.maxDischargeRate || 0) > 0) rows.push(statRow("power.dischargeRate", "Max Discharge Rate", `${stat.maxDischargeRate} MW`));
@@ -290,7 +294,9 @@ function capabilityRows(type, stat, family, context = {}) {
     case "command": {
       const rows = [];
       if ((stat.powerGeneration || 0) > 0) rows.push(statRow("power", "Power Output", `${stat.powerGeneration} MW`));
-      if ((stat.energyStorage || 0) > 0) rows.push(statRow("power.storage", "Energy Storage", formatEnergy(stat.energyStorage)));
+      if ((stat.powerGeneration || 0) <= 0 && (stat.energyStorage || 0) > 0) {
+        rows.push(statRow("power.storage", "Energy Storage", formatEnergy(stat.energyStorage)));
+      }
       return rows;
     }
 
@@ -339,31 +345,35 @@ function thermalSummaryRows(type, stat, ledger) {
   if (profile.generation > 0.05) {
     rows.push(statRow("heat.production", "Heat", `Produces ${heatRate(profile.generation)} ${profile.cadence}`, { tone: "hot" }));
   }
-  if (type === "heatSink") rows.push(statRow("heat.storage", "Heat", `Stores ${profile.capacity} Heat`));
+  if (type === "heatSink") rows.push(statRow("heat.storage", "Heat", `Stores ${profile.capacity} H`));
   if (type === "radiator") rows.push(statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
   if (type === "heatVent") {
     rows.push(statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)} while exposed`, { tone: "cool" }));
     rows.push(statRow("heat.exposure", "Exposure", "Needs one edge open to space; enclosed it vents almost nothing"));
   }
   if (type === "closedCycleCooler") {
-    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} Heat`));
+    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} H`));
     rows.push(statRow("heat.cooling", "Active Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
     rows.push(statRow("heat.passiveCooling", "Passive Emergency Cooling", `${heatRate(profile.passiveCooling)} minimum`, { tone: "cool" }));
   }
-  // Burst cooling is not a rate, so quoting only "Removes N Heat/s" would
+  // Burst cooling is not a rate, so quoting only "Removes N H/s" would
   // describe the wrong component entirely. The store, the trigger and the dead
   // window are the three numbers a player actually plans around.
   const burst = stat.burstCooler;
   if (burst) {
-    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} Heat`));
-    rows.push(statRow("heat.burstVent", "Burst Vent", `Dumps ${Math.round(Number(burst.burstHeat) || 0)} Heat at once`, { tone: "cool" }));
+    rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} H`));
+    rows.push(statRow("heat.burstVent", "Burst Vent", `Dumps ${Math.round(Number(burst.burstHeat) || 0)} H at once`, { tone: "cool" }));
     rows.push(statRow("heat.burstTrigger", "Vents At", `${Math.round((Number(burst.triggerHeatRatio) || 0) * 100)}% of its own capacity`));
     rows.push(statRow("heat.burstRecharge", "Recharge", `${Number(burst.rechargeSeconds) || 0}s at ${Math.round((Number(burst.rechargeCoolingFraction) || 0) * 100)}% cooling`, { tone: "hot" }));
   }
   if (stat.heatBeamShield) {
     rows.push(statRow("heat.beamShield", "Heat Beams", "Blocks induction Heat beams passing through it", { tone: "cool" }));
   }
-  if (THERMAL_ROLE_TYPES.has(type)) rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
+  // Heat Vent's role is useful context, but the cooling and exposure rows are
+  // the actionable overview. Keep the explanation in the collapsed details.
+  if (THERMAL_ROLE_TYPES.has(type) && type !== "heatVent") {
+    rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
+  }
   return ledger.take(rows);
 }
 
@@ -667,7 +677,11 @@ function advancedSections(type, stat, family, ledger, context) {
   if (family === "power" || family === "command") {
     push("power", "Power Details", [
       statRow("power.category", "Priority Band", powerBandLabel(stat.powerCategory)),
-      statRow("power.storage", "Energy Storage", (stat.energyStorage || 0) > 0 ? formatEnergy(stat.energyStorage) : null)
+      statRow(
+        "power.storage",
+        "Energy Storage",
+        (stat.powerGeneration || 0) <= 0 && (stat.energyStorage || 0) > 0 ? formatEnergy(stat.energyStorage) : null
+      )
     ]);
   }
 
@@ -714,7 +728,8 @@ function advancedSections(type, stat, family, ledger, context) {
   }
 
   if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus) {
-    push("sensor", "Sensor Details", [
+    const detailsTitle = type === "targetingComputer" ? "Targeting Details" : "Sensor Details";
+    push("sensor", detailsTitle, [
       statRow("bonus.range", "Weapon Range Bonus", (stat.rangeBonus || 0) ? `+${formatDistance(stat.rangeBonus)}` : null, { kind: "bonus", raw: stat.rangeBonus }),
       statRow("bonus.accuracy", "Accuracy Bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus }),
       statRow("bonus.fireRate", "Fire Rate Bonus", `+${formatPercent(stat.fireRateBonus)}`, { kind: "bonus", raw: stat.fireRateBonus }),
@@ -883,9 +898,13 @@ function thermalSection(type, stat, ledger, context) {
   const profile = heatProfileFor(type, stat);
   const rows = [
     statRow("heat.production", "Heat Production", profile.generation > 0.05 ? `${heatRate(profile.generation)} ${profile.cadence}` : null, { tone: "hot" }),
-    statRow("heat.capacity", "Heat Capacity", `${profile.capacity} Heat`),
+    statRow("heat.capacity", "Heat Capacity", `${profile.capacity} H`),
     statRow("heat.naturalCooling", "Natural Cooling", heatRate(profile.cooling), { tone: "cool" })
   ];
+
+  if (type === "heatVent") {
+    rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
+  }
 
   const prediction = context.prediction;
   if (prediction) {

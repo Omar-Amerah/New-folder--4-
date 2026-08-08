@@ -2486,7 +2486,7 @@
       "name": "Proximity Demolition Charge",
       "category": "Weapons",
       "cost": 66,
-      "mass": 64,
+      "mass": 90,
       "hull": 70,
       "powerGeneration": 0,
       "powerUse": 1.8,
@@ -2504,7 +2504,7 @@
         "height": 3
       },
       "proximityCharge": {
-        "triggerRadius": 50,
+        "triggerRadius": 75,
         "triggerConfirmationSeconds": 0.2,
         "blastRadius": 420,
         "centreDamage": 8000,
@@ -2539,12 +2539,12 @@
         "height": 1
       },
       "proximityCharge": {
-        "triggerRadius": 50,
+        "triggerRadius": 75,
         "triggerConfirmationSeconds": 0.2,
         "blastRadius": 460,
         "centreDamage": 1800,
         "falloffExponent": 2,
-        "maxAffectedComponents": 12,
+        "maxAffectedComponents": 6,
         "internalDamageReduction": 0.5,
         "directContactMultiplier": 2.5,
         "damagesFriendlyShips": false

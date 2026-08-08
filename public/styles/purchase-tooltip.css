@@ -7,10 +7,10 @@
   padding: 12px;
   border: 1px solid rgba(174, 199, 231, 0.28);
   border-radius: 8px;
-  background: rgba(7, 12, 20, 0.96);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
+  background: rgba(7, 12, 20, 0.98);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
   pointer-events: none;
-  backdrop-filter: blur(16px);
+  backdrop-filter: none;
 }
 
 .purchase-tooltip-head,

@@ -695,7 +695,6 @@ function renderPurchaseCards(options) {
         </span>`;
 
       card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
-      card.addEventListener?.("mousemove", (event) => positionPurchaseTooltip(event));
       card.addEventListener?.("mouseleave", hidePurchaseTooltip);
       card.addEventListener?.("focus", (event) => showPurchaseTooltip(option.id, event));
       card.addEventListener?.("blur", hidePurchaseTooltip);
@@ -1061,10 +1060,20 @@ export function positionPurchaseTooltip(event) {
   const margin = 14;
   const rect = dom.purchaseTooltip.getBoundingClientRect();
   const sourceRect = event.currentTarget?.getBoundingClientRect?.();
-  const pointerX = event.clientX || sourceRect?.left || window.innerWidth / 2;
-  const pointerY = event.clientY || sourceRect?.top || window.innerHeight / 2;
-  const left = clamp(pointerX + 14, margin, window.innerWidth - rect.width - margin);
-  const top = clamp(pointerY - rect.height - 12, margin, window.innerHeight - rect.height - margin);
+  if (!sourceRect) return;
+  const gap = 12;
+  const left = clamp(
+    sourceRect.left + (sourceRect.width - rect.width) / 2,
+    margin,
+    window.innerWidth - rect.width - margin
+  );
+  const above = sourceRect.top - rect.height - gap;
+  const below = sourceRect.bottom + gap;
+  const top = clamp(
+    above >= margin ? above : below,
+    margin,
+    window.innerHeight - rect.height - margin
+  );
   dom.purchaseTooltip.style.left = `${left}px`;
   dom.purchaseTooltip.style.top = `${top}px`;
 }

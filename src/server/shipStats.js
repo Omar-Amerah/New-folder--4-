@@ -106,7 +106,9 @@ function computeStats(modules, wiring = null) {
       engineThrustValues.push(part.thrust);
       engineMassValues.push(part.mass || 0);
     }
-    energyStorage += part.energyStorage || 0;
+    // Generators are power sources, not stored-energy modules. Do not expose
+    // their legacy `energy` field as ship Energy Storage.
+    if ((part.powerGeneration || 0) <= 0) energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
     missile += part.missile || 0;
     railgun += part.railgun || 0;

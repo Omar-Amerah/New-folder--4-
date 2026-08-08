@@ -231,8 +231,8 @@ function buildCard(saved, color) {
       <div class="bp-chips">${isInvalid ? escapeHtml(saved.invalidReason || "Invalid blueprint") : statChips(stats)}</div>
     </div>
     <div class="bp-actions saved-design-actions">
-      <button type="button" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Load Copy</button>
-      <button type="button" class="primary" data-saved-action="edit" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit Original</button>
+      <button type="button" data-saved-action="edit" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Edit Original</button>
+      <button type="button" class="primary" data-saved-action="load" data-saved-id="${escapeHtml(saved.id)}"${isInvalid ? " disabled" : ""}>Load Copy</button>
       <details class="bp-overflow">
         <summary aria-label="More actions for ${escapeHtml(saved.name)}" title="More actions">⋯</summary>
         <div class="bp-overflow-menu">

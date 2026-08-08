@@ -183,7 +183,10 @@ export function computeStats(modules, options = {}) {
       engineMassValues.push(part.mass || 0);
     }
 
-    energyStorage += part.energyStorage || 0;
+    // A generator's legacy `energy` field is not a ship battery. The shared
+    // power rules classify sources separately from storage, so aggregate stats
+    // must keep that field out of player-facing Energy Storage totals too.
+    if ((part.powerGeneration || 0) <= 0) energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
     missile += part.missile || 0;
     railgun += part.railgun || 0;

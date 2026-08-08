@@ -208,22 +208,32 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     // Every thermal part states its role, so transport/storage/rejection cannot
     // be confused with one another in the inspector.
     assert.deepEqual(summaryOf("heatSink"), [
-      `Heat — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} Heat`,
+      `Heat — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} H`,
       "Thermal role — Storage — holds a large amount of heat in itself; heat must be transferred into it"
     ]);
     assert.deepEqual(summaryOf("radiator"), [
-      `Cooling — Removes ${HeatRules.profile("radiator", PART_STATS.radiator).cooling.toFixed(1)} Heat/s`,
+      `Cooling — Removes ${HeatRules.profile("radiator", PART_STATS.radiator).cooling.toFixed(1)} H/s`,
       "Thermal role — Strong external cooling — the ship's best sustained heat rejection, needs an exposed edge"
     ]);
     assert.deepEqual(summaryOf("heatVent"), [
-      `Cooling — Removes ${HeatRules.profile("heatVent", PART_STATS.heatVent).cooling.toFixed(1)} Heat/s while exposed`,
-      "Exposure — Needs one edge open to space; enclosed it vents almost nothing",
-      "Thermal role — Weak external cooling — cheap passive rejection, needs at least one edge exposed to space"
+      `Cooling — Removes ${HeatRules.profile("heatVent", PART_STATS.heatVent).cooling.toFixed(1)} H/s while exposed`,
+      "Exposure — Needs one edge open to space; enclosed it vents almost nothing"
     ]);
+    const heatVentDetails = build("heatVent").sections.find((section) => section.id === "thermal");
+    assert.ok(heatVentDetails, "Heat Vent keeps deeper thermal details collapsed");
+    assert.ok(heatVentDetails.rows.some((row) => row.id === "heat.role" && /Weak external cooling/.test(row.value)),
+      "Heat Vent thermal role moves into Thermal Details");
     assert.deepEqual(summaryOf("heatPipe"), [
       "Thermal role — Transport — moves heat rapidly between everything on the same coolant network, and removes none itself"
     ]);
-    assert.match(summaryOf("reactor")[0], /^Heat — Produces [\d.]+ Heat\/s at power load$/);
+    assert.match(summaryOf("reactor")[0], /^Heat — Produces [\d.]+ H\/s at power load$/);
+  });
+
+  check("reactors omit non-storage energy capacity from the inspector", () => {
+    const reactor = build("reactor");
+    const rows = allRows(reactor);
+    assert.equal(rows.some((row) => row.id === "power.storage"), false, "Reactor has no Energy Storage row");
+    assert.equal(reactor.capability.length, 0, "Reactor needs no empty Primary capability section");
   });
 
   check("heat generation is never stated twice", () => {
@@ -336,6 +346,8 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     assert.ok(titles("droneBay").includes("Drone Details"));
     assert.ok(titles("repair").includes("Repair Details"));
     assert.ok(titles("signalAmplifier").includes("Sensor Details"));
+    assert.ok(titles("targetingComputer").includes("Targeting Details"));
+    assert.equal(titles("targetingComputer").includes("Sensor Details"), false);
     assert.ok(titles("backupCore").includes("Command Details"));
     assert.ok(titles("reactor").includes("Thermal Details"));
     for (const type of REPRESENTATIVE) {

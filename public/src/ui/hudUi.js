@@ -93,7 +93,7 @@ export function updateHeatHud() {
       bumpWrite();
     }
   }
-  setText(dom.heatHudLabel, overheatedCount ? `HEAT ${heatText} · ${overheatedCount} OVERHEATED` : hotCount ? `HEAT ${heatText} · ${hotCount} HOT` : `HEAT ${heatText}`);
+  setText(dom.heatHudLabel, overheatedCount ? `${heatText} · ${overheatedCount} OVERHEATED` : hotCount ? `${heatText} · ${hotCount} HOT` : heatText);
   if (dom.heatHud) {
     const heatClass = `heat-hud${overheatedCount ? " overheated" : hotCount ? " hot" : ""}`;
     if (dom.heatHud.__mfaLastClass !== heatClass) {

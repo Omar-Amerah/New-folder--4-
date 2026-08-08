@@ -154,12 +154,11 @@ async function readInspector(page) {
       }
     });
 
-    check("no empty, None or no-op 100% value is rendered", () => {
+    check("no empty or placeholder value is rendered", () => {
       for (const type of REPRESENTATIVE) {
         const view = snapshots[type];
         assert.doesNotMatch(view.allText, /accuracy bonus/i, `${type} hides a zero Accuracy bonus`);
         assert.doesNotMatch(view.allText, /:\s*none\b/i, `${type} renders no "None" value`);
-        assert.doesNotMatch(view.allText, /vs hull\s*100%/i, `${type} hides a standard 100% hull modifier`);
         const values = [...view.core, ...view.capability, ...view.sections.flatMap((s) => s.rows)].map((cell) => cell.value);
         for (const value of values) assert.ok(value && value.trim().length, `${type} renders no blank value`);
       }

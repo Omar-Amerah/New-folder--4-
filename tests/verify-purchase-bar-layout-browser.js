@@ -80,17 +80,30 @@ function makeManyDesigns(count) {
         const sidePanel = document.querySelector(".side-panel");
         const options = document.getElementById("purchaseOptions");
         const firstCard = options?.querySelector(".purchase-option");
+        const firstThumb = firstCard?.querySelector(".purchase-thumb");
         const lastCard = options?.lastElementChild;
+        const quantity = document.querySelector(".purchase-quantity");
+        const quantityOne = document.getElementById("purchaseQuantityOne");
+        const purchaseTitle = document.querySelector(".purchase-title");
 
         const barRect = bar.getBoundingClientRect();
         const arenaRect = arena.getBoundingClientRect();
         const matchRect = matchPanel.getBoundingClientRect();
         const sideRect = sidePanel.getBoundingClientRect();
         const firstCardRect = firstCard?.getBoundingClientRect();
+        const firstThumbRect = firstThumb?.getBoundingClientRect();
         const lastCardRect = lastCard?.getBoundingClientRect();
+        const quantityRect = quantity?.getBoundingClientRect();
+        const quantityOneRect = quantityOne?.getBoundingClientRect();
+        const purchaseTitleRect = purchaseTitle?.getBoundingClientRect();
 
         const barStyle = window.getComputedStyle(bar);
         const optionsStyle = window.getComputedStyle(options);
+        const quantityOneStyle = window.getComputedStyle(quantityOne);
+        const firstCardClassName = firstCard.className;
+        firstCard.className = "purchase-option ready";
+        const readyCardBackgroundImage = window.getComputedStyle(firstCard).backgroundImage;
+        firstCard.className = firstCardClassName;
 
         return {
           barLeft: barRect.left,
@@ -113,6 +126,13 @@ function makeManyDesigns(count) {
           optionsClientWidth: options.clientWidth,
           cardCount: options.children.length,
           firstCardLeft: firstCardRect?.left,
+          firstCardWidth: firstCardRect?.width,
+          firstThumbWidth: firstThumbRect?.width,
+          quantityRight: quantityRect?.right,
+          purchaseTitleLeft: purchaseTitleRect?.left,
+          quantityButtonWidth: quantityOneRect?.width,
+          quantityButtonPaddingLeft: quantityOneStyle.paddingLeft,
+          readyCardBackgroundImage,
           lastCardRight: lastCardRect?.right,
           barParentId: bar.parentElement?.id || bar.parentElement?.className || null
         };
@@ -148,10 +168,58 @@ function makeManyDesigns(count) {
       assert.equal(desktopLayout.optionsOverflowX, "auto", "purchase options has overflow-x: auto");
       assert.equal(desktopLayout.optionsOverflowY, "hidden", "purchase options has overflow-y: hidden");
 
+      // Purchase controls and cards retain their deliberate visual hierarchy.
+      assert.ok(desktopLayout.quantityRight <= desktopLayout.purchaseTitleLeft,
+        `quantity controls (${desktopLayout.quantityRight}) are left of Buy Ships (${desktopLayout.purchaseTitleLeft})`);
+      assert.ok(desktopLayout.quantityButtonWidth >= 32,
+        `quantity button has a usable width (${desktopLayout.quantityButtonWidth})`);
+      assert.equal(desktopLayout.quantityButtonPaddingLeft, "8px", "quantity button keeps horizontal padding");
+      assert.ok(desktopLayout.firstCardWidth >= 196,
+        `purchase cards are at least 196px wide (${desktopLayout.firstCardWidth})`);
+      assert.ok(desktopLayout.firstThumbWidth >= 60,
+        `purchase thumbnails are at least 60px wide (${desktopLayout.firstThumbWidth})`);
+      assert.notEqual(desktopLayout.readyCardBackgroundImage, "none", "purchasable card has its green ready background");
+
       // Many cards should cause horizontal scrolling
       assert.ok(desktopLayout.cardCount > 10, `many cards rendered (${desktopLayout.cardCount})`);
       assert.ok(desktopLayout.optionsScrollWidth > desktopLayout.optionsClientWidth,
         `options scrollWidth (${desktopLayout.optionsScrollWidth}) > clientWidth (${desktopLayout.optionsClientWidth}) — horizontal scroll exists`);
+
+      // The tooltip is positioned once from the card and remains still while the
+      // pointer moves within that card.
+      const tooltipResult = await page.evaluate(async () => {
+        const card = document.querySelector("#purchaseOptions .purchase-option");
+        const tooltip = document.getElementById("purchaseTooltip");
+        const cardRect = card.getBoundingClientRect();
+        card.dispatchEvent(new MouseEvent("mouseenter", {
+          bubbles: false,
+          clientX: cardRect.left + 8,
+          clientY: cardRect.top + 8
+        }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const first = tooltip.getBoundingClientRect();
+        card.dispatchEvent(new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: cardRect.right - 8,
+          clientY: cardRect.bottom - 8
+        }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const second = tooltip.getBoundingClientRect();
+        return {
+          hidden: tooltip.hidden,
+          firstLeft: first.left,
+          firstTop: first.top,
+          secondLeft: second.left,
+          secondTop: second.top,
+          aboveCard: first.bottom <= cardRect.top,
+          backdropFilter: window.getComputedStyle(tooltip).backdropFilter
+        };
+      });
+      assert.equal(tooltipResult.hidden, false, "purchase tooltip is shown on card entry");
+      assert.equal(tooltipResult.firstLeft, tooltipResult.secondLeft, "tooltip does not follow horizontal pointer movement");
+      assert.equal(tooltipResult.firstTop, tooltipResult.secondTop, "tooltip does not follow vertical pointer movement");
+      assert.equal(tooltipResult.aboveCard, true, "tooltip is anchored above the purchase card");
+      assert.equal(tooltipResult.backdropFilter, "none", "tooltip does not use a live backdrop blur");
 
       // The last card should be reachable by scrolling
       const scrollResult = await page.evaluate(() => {
