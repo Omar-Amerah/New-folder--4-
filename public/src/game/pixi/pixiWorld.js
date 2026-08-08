@@ -8,7 +8,7 @@ import { projectBallisticProjectile } from "../projectileTimeline.js";
 import { getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { isCircleVisible, cullVisual } from "../viewportCulling.js";
 import { teamColorFor } from "../../shared/teamColors.js";
-import { getNebulaSprite, drawAsteroid, drawBulletVisual, isFriendlyProjectile } from "../worldArt.js";
+import { getNebulaSprite, drawAsteroid, drawBulletVisual, bulletArtExtent, isFriendlyProjectile } from "../worldArt.js";
 import { playerMap } from "../../ui/matchStatusUi.js";
 import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
@@ -51,27 +51,53 @@ function worldObjectId(obj) {
   return id;
 }
 
+const GRID_MINOR_SPACING = 160;
+const GRID_MAJOR_EVERY = 5;
+const GRID_MAJOR_SPACING = GRID_MINOR_SPACING * GRID_MAJOR_EVERY;
+
+// The grid is a background reference, so it thins out as the camera pulls back
+// rather than turning into a dense hatch. Camera zoom spans 0.22 to 1.45.
+function gridAlphaForZoom(zoom) {
+  return clamp(0.3 + zoom * 0.86, 0.42, 1);
+}
+
 function updatePixiGrid(env) {
   const gfx = env.layers.grid;
   const zoom = state.camera.zoom;
   const worldW = state.world.width;
   const worldH = state.world.height;
+  gfx.alpha = gridAlphaForZoom(zoom);
   const zoomChanged = Math.abs(zoom - gridCache.zoom) / (gridCache.zoom || 1) > 0.02;
   if (gridCache.width === worldW && gridCache.height === worldH && !zoomChanged) return;
   gridCache = { width: worldW, height: worldH, zoom };
 
   gfx.clear();
-  for (let x = 0; x <= worldW; x += 160) {
+  // Minor lines first, then a slightly stronger line every fifth cell. Both
+  // passes stay well below the contrast of ships and weapon effects.
+  for (let x = 0; x <= worldW; x += GRID_MINOR_SPACING) {
+    if (Math.round(x / GRID_MINOR_SPACING) % GRID_MAJOR_EVERY === 0) continue;
     gfx.moveTo(x, 0);
     gfx.lineTo(x, worldH);
   }
-  for (let y = 0; y <= worldH; y += 160) {
+  for (let y = 0; y <= worldH; y += GRID_MINOR_SPACING) {
+    if (Math.round(y / GRID_MINOR_SPACING) % GRID_MAJOR_EVERY === 0) continue;
     gfx.moveTo(0, y);
     gfx.lineTo(worldW, y);
   }
-  gfx.stroke({ width: 1 / zoom, color: "rgba(130,160,205,0.11)" });
+  gfx.stroke({ width: 1 / zoom, color: "rgba(132,160,203,0.085)" });
+
+  for (let x = 0; x <= worldW; x += GRID_MAJOR_SPACING) {
+    gfx.moveTo(x, 0);
+    gfx.lineTo(x, worldH);
+  }
+  for (let y = 0; y <= worldH; y += GRID_MAJOR_SPACING) {
+    gfx.moveTo(0, y);
+    gfx.lineTo(worldW, y);
+  }
+  gfx.stroke({ width: 1 / zoom, color: "rgba(146,176,219,0.16)" });
+
   gfx.rect(0, 0, worldW, worldH);
-  gfx.stroke({ width: 3 / zoom, color: "rgba(255,255,255,0.22)" });
+  gfx.stroke({ width: 2 / zoom, color: "rgba(168,194,228,0.18)" });
 }
 
 // --- Map features (safe zones, nebulas, asteroids) ---------------------------
@@ -404,19 +430,19 @@ function updatePixiCommandTarget(env, now) {
 // --- Bullets ---------------------------------------------------------------------
 
 function bulletArtKey(bullet, color) {
+  // Owner-coloured art (bolts, flak) varies with both the firing weapon and the
+  // team colour; the rest is fully described by type + subtype.
   const isTracer = bullet.type !== "rail" && bullet.type !== "missile" && bullet.type !== "pdShot";
-  return isTracer ? `tracer|${color}` : `${bullet.type}|${bullet.subtype || ""}`;
+  return isTracer
+    ? `tracer|${bullet.type}|${bullet.subtype || ""}|${color}`
+    : `${bullet.type}|${bullet.subtype || ""}`;
 }
 
 function acquireBulletLease(env, bullet, color) {
   const key = `${bulletArtKey(bullet, color)}|${env.bakeScale}|${getPixiBakeGeneration()}`;
   return bulletTextureCache.acquire(key, () => {
     // Extents cover the largest art per type plus baked glow.
-    let halfW = 24;
-    let halfH = 12;
-    if (bullet.type === "rail") { halfW = 48; halfH = 18; }
-    else if (bullet.type === "missile") { halfW = 44; halfH = 20; }
-    else if (bullet.type === "pdShot") { halfW = 18; halfH = 12; }
+    const { halfW, halfH } = bulletArtExtent(bullet);
     return pixiBakeTexture(env, halfW * 2, halfH * 2, () => {
       drawBulletVisual({ type: bullet.type, subtype: bullet.subtype }, color);
     });
@@ -609,7 +635,9 @@ function updatePixiBullets(env, players, bounds, renderTime) {
       toDelete.push(id);
       continue;
     }
-    if (bounds && !isCircleVisible(x, y, 20, bounds)) continue;
+    // Rail lances are long enough that a 20px cull radius pops them off at the
+    // screen edge while half the shot is still on screen.
+    if (bounds && !isCircleVisible(x, y, p.type === "rail" ? 64 : 20, bounds)) continue;
     if (state.debugStats) state.debugStats.drawnBullets++;
 
     const owner = players.get(p.ownerId);

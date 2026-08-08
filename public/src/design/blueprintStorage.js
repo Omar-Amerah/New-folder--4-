@@ -2,6 +2,7 @@
 // Schema v2 stores { modules, wiring } together; older storage versions/keys are
 // intentionally discarded (no migration) — stale data falls back to the default ship.
 
+import "../shared/componentTransform.js";
 import "../shared/dataSupportRules.js";
 import "../shared/droneBayRules.js";
 import "../shared/wiringRules.js";
@@ -11,6 +12,8 @@ import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { validateBlueprint } from "./blueprintValidation.js";
 import { getOccupiedCells } from "./footprint.js";
 import { computeStats } from "./componentStats.js";
+
+const ComponentTransform = globalThis.ComponentTransform;
 
 export const BLUEPRINT_STORAGE_VERSION = 2;
 export const MAX_SAVED_DESIGNS = 24;
@@ -152,14 +155,19 @@ function isCurrentEnvelope(value, kind) {
   return isEnvelope(value, kind) && value.schemaVersion === BLUEPRINT_STORAGE_VERSION;
 }
 
-export function makeDesignPart(x, y, type, previousRotation = 0) {
+export function makeDesignPart(x, y, type, previousRotation = 0, previousFlipped = false) {
   const allowed = PART_STATS[type]?.allowedRotations;
   const rotation = type === "maneuverThruster"
     ? maneuverThrusterAutoRotation(x)
     : isRotatablePart(type) ? normalizeRotation(previousRotation, allowed, x) : 0;
-  return type === "droneBay"
+  // `flipped` is written only when it is actually true on a flippable part, so
+  // every blueprint saved before mirroring existed stays byte-identical and an
+  // absent field keeps meaning "not mirrored".
+  const flipped = ComponentTransform.normalizePartFlip(PART_STATS[type], previousFlipped);
+  const base = type === "droneBay"
     ? { x, y, type, rotation: 0, droneType: null }
     : { x, y, type, rotation };
+  return flipped ? { ...base, flipped: true } : base;
 }
 
 const COMMAND_COMPONENT_TYPES = new Set([
@@ -279,10 +287,10 @@ export function normalizeDesignDetailed(input, options = {}) {
     const type = String(raw?.type || "");
     if (!Number.isInteger(x) || !Number.isInteger(y)) { issues.push(normalizationIssue("invalid-coordinate", inputIndex)); continue; }
     if (!PART_DEFS[type]) { issues.push(normalizationIssue("unknown-module", inputIndex)); continue; }
-    let newPart = makeDesignPart(x, y, type, raw?.rotation);
+    let newPart = makeDesignPart(x, y, type, raw?.rotation, raw?.flipped);
     if (type === "droneBay") newPart = { ...newPart, rotation: 0, droneType: globalThis.DroneBayRules?.normalizeDroneType(raw?.droneType) || null };
     const footprint = (PART_STATS[type] || PART_STATS.frame).footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(x, y, footprint, newPart.rotation);
+    const cells = getOccupiedCells(x, y, footprint, newPart.rotation, newPart.flipped === true);
     let outOfBounds = false;
     let overlap = false;
     for (const cell of cells) {

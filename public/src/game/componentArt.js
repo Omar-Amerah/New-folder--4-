@@ -22,6 +22,11 @@ import {
 } from "../design/rotation.js";
 import { qualityShadowBlur } from "./renderSettings.js";
 import { moduleLocalPosition } from "./shipGeometry.js";
+import "../shared/componentTransform.js";
+
+// Horizontal-mirror factor for a flipped component, from the shared transform
+// authority so the art can never mirror on a different axis than the geometry.
+const flippedScaleX = (flipped) => globalThis.ComponentTransform.artFlipScaleX(flipped);
 
 // --- Shared primitives --------------------------------------------------------
 
@@ -297,6 +302,99 @@ function drawComponentPort(size, x, y, radius, accent, innerScale = 0.45) {
     ctx.arc(size * x, size * y, size * radius * innerScale, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+// --- Shared power-storage detail ------------------------------------------------
+// The Battery and the Capacitor are both "stored charge in a dark case", so they
+// share their two building blocks: a stack of cells whose fill reads as level in
+// a can, and a plate pair with the charge arcing across its dielectric gap. The
+// 1x1 and multi-cell variants call the same helpers at different spans, which is
+// what keeps a capacitor bank looking like four of the same capacitor.
+
+// Cells standing in a housing: dark can, electrolyte core graded bright at the
+// foot, lit cap. All coordinates are fractions of `unit`.
+function drawCellStack(unit, { xs, halfWidth, top, bottom, casing, edge, hot, cool, fine }) {
+  const height = (bottom - top) * unit;
+  ctx.save();
+  for (const cx of xs) {
+    const x = cx * unit;
+    const w = halfWidth * unit;
+    ctx.fillStyle = casing;
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = fine;
+    roundRect(ctx, { x: x - w, y: top * unit, width: w * 2, height, radius: w * 0.55 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Electrolyte: brightest at the bottom of the can so a row of cells reads as
+    // a level, not as a row of identical bars.
+    const charge = ctx.createLinearGradient(0, bottom * unit, 0, top * unit);
+    charge.addColorStop(0, hot);
+    charge.addColorStop(1, cool);
+    ctx.fillStyle = charge;
+    roundRect(ctx, {
+      x: x - w * 0.58,
+      y: top * unit + height * 0.12,
+      width: w * 1.16,
+      height: height * 0.76,
+      radius: w * 0.4
+    });
+    ctx.fill();
+
+    // Contact plate on the terminal end: dark against the electrolyte, so the
+    // cells read as having a top rather than fading out into the bus bar.
+    ctx.fillStyle = casing;
+    roundRect(ctx, { x: x - w * 0.72, y: top * unit + height * 0.04, width: w * 1.44, height: height * 0.11, radius: w * 0.3 });
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// One plate pair either side of a dielectric gap, with the held charge arcing
+// across it. `gapHalf` is the half-width of the gap; the plates hang off it.
+function drawCapacitorPlatePair(unit, centerX, gapHalf, halfHeight, fine, plateThickness = unit * 0.17) {
+  ctx.save();
+  for (const side of [-1, 1]) {
+    const inner = centerX + side * gapHalf;
+    const outer = inner + side * plateThickness;
+    ctx.fillStyle = "#2f6fd0";
+    ctx.strokeStyle = "rgba(3,10,24,0.85)";
+    ctx.lineWidth = fine;
+    roundRect(ctx, {
+      x: Math.min(inner, outer),
+      y: -halfHeight,
+      width: plateThickness,
+      height: halfHeight * 2,
+      radius: plateThickness * 0.22
+    });
+    ctx.fill();
+    ctx.stroke();
+    // Charged face toward the gap.
+    ctx.fillStyle = "#dbeafe";
+    const faceWidth = plateThickness * 0.26;
+    ctx.fillRect(
+      side < 0 ? inner - faceWidth : inner,
+      -halfHeight * 0.86,
+      faceWidth,
+      halfHeight * 1.72
+    );
+  }
+
+  // Discharge arc across the dielectric.
+  ctx.shadowColor = "#93c5fd";
+  ctx.shadowBlur = qualityShadowBlur(4);
+  ctx.strokeStyle = "#eff6ff";
+  ctx.lineWidth = Math.max(0.7, unit * 0.035);
+  ctx.beginPath();
+  const steps = 4;
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    const x = centerX - gapHalf + gapHalf * 2 * t;
+    const y = i === 0 || i === steps ? 0 : (i % 2 ? -1 : 1) * halfHeight * 0.34;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1748,6 +1846,12 @@ export function spinalChargeStage(progress) {
 
 function drawSpinalAcceleratorTop(unit, hl, hc, color, M, fine, chargeProgress = 0) {
   const progress = Math.max(0, Math.min(1, Number(chargeProgress) || 0));
+  M = {
+    ...M,
+    housing: mixColor(M.housing, "#05070c", 0.25),
+    shellDeep: mixColor(M.shellDeep, "#05070c", 0.25),
+    shell: mixColor(M.shell, "#05070c", 0.25)
+  };
   const coils = 6;
   const chamberBack = -hl * 0.97;
   const chamberFront = -hl * 0.58;
@@ -2230,20 +2334,32 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
 // rivets rotate with `rotation`, but the underlying plate/tile material and the
 // soft body gradient are drawn in ship-local space so adjacent armour tiles read
 // as one continuous belt with consistent lighting.
-function withRotatedShape(size, rotation, outline, drawMaterial, drawEdge) {
+function withRotatedShape(size, rotation, outline, drawMaterial, drawEdge, flipped = false) {
   const shapeAngle = moduleRotationToRadians(normalizeRotation(rotation));
+  // Mirror first, rotation second (ComponentTransform.TRANSFORM_ORDER). Canvas
+  // applies transforms to geometry in reverse call order, so scale() goes after
+  // rotate().
+  const flipX = flippedScaleX(flipped);
+  // Getting from the mirrored+rotated frame back to the mirrored-only frame is
+  // rotate(-angle) normally, but rotate(+angle) once mirrored: a reflection
+  // conjugates a rotation into its inverse. The material is drawn there, so
+  // plating direction stays in ship-local axes (unchanged by rotation) while
+  // still mirroring with the part.
+  const materialUnrotate = -shapeAngle * flipX;
 
   ctx.save();
   ctx.rotate(shapeAngle);
+  ctx.scale(flipX, 1);
   outline();
   ctx.clip();
-  ctx.rotate(-shapeAngle);
+  ctx.rotate(materialUnrotate);
   ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
   drawMaterial();
   ctx.restore();
 
   ctx.save();
   ctx.rotate(shapeAngle);
+  ctx.scale(flipX, 1);
   drawEdge();
   outline();
   ctx.strokeStyle = "rgba(3,6,12,0.72)";
@@ -2252,9 +2368,327 @@ function withRotatedShape(size, rotation, outline, drawMaterial, drawEdge) {
   ctx.restore();
 }
 
+// --- Propulsion family vocabulary -----------------------------------------------
+// Every part in the Engines category is built from these four pieces so the whole
+// group reads as one manufacturer's hardware: a dark gunmetal casing, a ribbed
+// thrust chamber, a bell nozzle, and mount hardware. Cyan is reserved for the
+// things that are actually hot — the throat and the feed spine — because when the
+// body itself was cyan the colour did all the identifying work and the shapes
+// could just as easily have been sensors or reactors.
+//
+// Everything below is authored in the canonical +x-forward frame, so a nozzle
+// always opens toward -x and the mount always sits at +x. Coordinates are raw
+// canvas units; `unit` only sets stroke weights, which lets the single-cell
+// (`size`) and footprint (`unit`) paths share the same primitives.
+
+// Dark machined housing over the coloured cube. The cube is deliberately left
+// showing as a rim: part colour still identifies the module in the palette, but
+// the object itself is metal.
+function drawPropulsionCasing(unit, halfLong, halfCross, color, radius = unit * 0.11) {
+  ctx.save();
+  ctx.fillStyle = mixColor(color, "#05070c", 0.7);
+  ctx.strokeStyle = "rgba(2,5,10,0.85)";
+  ctx.lineWidth = Math.max(0.9, unit * 0.055);
+  roundRect(ctx, { x: -halfLong, y: -halfCross, width: halfLong * 2, height: halfCross * 2, radius });
+  ctx.fill();
+  ctx.stroke();
+  // Lit top edge and shaded bottom edge: the shared bevel that makes the family
+  // read as the same milled alloy as the rest of the catalogue.
+  ctx.lineCap = "butt";
+  ctx.strokeStyle = mixColor(color, "#ffffff", 0.6);
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = Math.max(0.7, unit * 0.035);
+  ctx.beginPath();
+  ctx.moveTo(-halfLong + radius, -halfCross + unit * 0.03);
+  ctx.lineTo(halfLong - radius, -halfCross + unit * 0.03);
+  ctx.stroke();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = "rgba(2,5,10,0.9)";
+  ctx.beginPath();
+  ctx.moveTo(-halfLong + radius, halfCross - unit * 0.03);
+  ctx.lineTo(halfLong - radius, halfCross - unit * 0.03);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Ribbed pressure chamber: the "machinery" half of the propulsion read. Segment
+// ribs run across the thrust axis and a lit feed spine runs along it, so the
+// chamber visibly pipes energy toward the throat behind it.
+function drawThrustChamber(unit, fromX, toX, halfCross, color, ribs = 3) {
+  const span = toX - fromX;
+  if (span <= 0) return;
+  ctx.save();
+  // Darker than the casing around it. A chamber lighter than its housing reads as
+  // a lit window, which is exactly how these parts ended up looking like control
+  // panels; the machinery has to sit *into* the block, not on top of it.
+  ctx.fillStyle = mixColor(color, "#04080e", 0.8);
+  ctx.strokeStyle = "rgba(2,5,10,0.85)";
+  ctx.lineWidth = Math.max(0.8, unit * 0.045);
+  roundRect(ctx, { x: fromX, y: -halfCross, width: span, height: halfCross * 2, radius: unit * 0.06 });
+  ctx.fill();
+  ctx.stroke();
+
+  // Segment ribs: raised bands, so they catch light on top and shade underneath
+  // rather than scoring a flat grid across the face.
+  ctx.lineCap = "butt";
+  ctx.lineWidth = Math.max(0.9, unit * 0.07);
+  for (let i = 1; i <= ribs; i += 1) {
+    const rx = fromX + (span * i) / (ribs + 1);
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.34);
+    ctx.globalAlpha = 0.42;
+    ctx.beginPath();
+    ctx.moveTo(rx, -halfCross * 0.88);
+    ctx.lineTo(rx, halfCross * 0.88);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(2,5,10,0.7)";
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(0.6, unit * 0.028);
+    ctx.beginPath();
+    ctx.moveTo(rx + unit * 0.045, -halfCross * 0.88);
+    ctx.lineTo(rx + unit * 0.045, halfCross * 0.88);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(0.9, unit * 0.07);
+  }
+  ctx.globalAlpha = 1;
+
+  // Feed spine down the thrust axis, running toward the nozzle at -x.
+  ctx.strokeStyle = "rgba(132,230,255,0.72)";
+  ctx.lineWidth = Math.max(0.8, unit * 0.04);
+  ctx.beginPath();
+  ctx.moveTo(toX - unit * 0.06, 0);
+  ctx.lineTo(fromX, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Bell nozzle opening toward -x: dark cone interior, a lit mouth lip, and a hot
+// throat wedge behind it. This is the single shape that has to survive at icon
+// size — if a propulsion part is unreadable, it is because this is missing.
+function drawNozzleBell(unit, { throatX, mouthX, throatHalf, mouthHalf, glow = true }) {
+  const bell = () => {
+    ctx.beginPath();
+    ctx.moveTo(throatX, -throatHalf);
+    ctx.lineTo(mouthX, -mouthHalf);
+    ctx.lineTo(mouthX, mouthHalf);
+    ctx.lineTo(throatX, throatHalf);
+    ctx.closePath();
+  };
+  ctx.save();
+  ctx.fillStyle = "rgba(2,11,18,0.96)";
+  ctx.strokeStyle = "rgba(2,5,10,0.85)";
+  ctx.lineWidth = Math.max(0.8, unit * 0.05);
+  bell();
+  ctx.fill();
+  ctx.stroke();
+
+  // Cone walls: two lit flanks converging on the throat. These do the work of
+  // making the bell read hollow, so the hot core can stay small — a bell filled
+  // edge to edge with glow is just a bright wedge again.
+  ctx.save();
+  bell();
+  ctx.clip();
+  ctx.strokeStyle = "rgba(168,208,232,0.42)";
+  ctx.lineWidth = Math.max(0.9, unit * 0.055);
+  ctx.beginPath();
+  ctx.moveTo(throatX, -throatHalf);
+  ctx.lineTo(mouthX, -mouthHalf);
+  ctx.moveTo(throatX, throatHalf);
+  ctx.lineTo(mouthX, mouthHalf);
+  ctx.stroke();
+  ctx.restore();
+
+  // Machined lip around the mouth: the rim that says "this end is open".
+  ctx.strokeStyle = "rgba(203,229,245,0.75)";
+  ctx.lineWidth = Math.max(1, unit * 0.055);
+  ctx.beginPath();
+  ctx.moveTo(mouthX, -mouthHalf);
+  ctx.lineTo(mouthX, mouthHalf);
+  ctx.stroke();
+
+  if (glow) {
+    // Two-layer plume: a tight bright core at the throat and a dim flare behind
+    // it. A single wedge of near-constant width just reads as a lit rectangle
+    // parked inside the bell, which is what the first pass produced.
+    const plume = (fromT, toT, fromHalf, toHalf) => {
+      const x0 = throatX + (mouthX - throatX) * fromT;
+      const x1 = throatX + (mouthX - throatX) * toT;
+      ctx.beginPath();
+      ctx.moveTo(x0, -throatHalf * fromHalf);
+      ctx.lineTo(x1, -mouthHalf * toHalf);
+      ctx.lineTo(x1, mouthHalf * toHalf);
+      ctx.lineTo(x0, throatHalf * fromHalf);
+      ctx.closePath();
+      ctx.fill();
+    };
+    ctx.fillStyle = "rgba(109,222,255,0.34)";
+    plume(0, 0.86, 0.9, 0.78);
+    ctx.shadowColor = "#89f7ff";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#c8fbff";
+    plume(0, 0.34, 0.62, 0.3);
+  }
+  ctx.restore();
+}
+
+// Mount block at the forward (+x) end with anchor bolts: where the drive bolts to
+// the hull, and the visual counterweight that keeps a nozzle from floating.
+function drawEngineMount(unit, fromX, toX, halfCross, color, bolts = [-0.55, 0.55]) {
+  ctx.save();
+  ctx.fillStyle = mixColor(color, "#05070c", 0.4);
+  ctx.strokeStyle = "rgba(2,5,10,0.8)";
+  ctx.lineWidth = Math.max(0.8, unit * 0.05);
+  roundRect(ctx, { x: fromX, y: -halfCross, width: toX - fromX, height: halfCross * 2, radius: unit * 0.05 });
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  const cap = mixColor(color, "#ffffff", 0.66);
+  const bx = (fromX + toX) * 0.5;
+  for (const t of bolts) drawFootprintPort(unit, bx, halfCross * t, unit * 0.06, cap);
+}
+
+// --- Thermal plumbing art -----------------------------------------------------
+//
+// A Heat Pipe is one catalogue part with one 1x1 footprint; the six shapes a
+// player sees (endpoint, straight, corner, T, cross, isolated) are all this one
+// routine reading a four-bit connection mask. Bit order matches
+// design/coolantLayout.js: N=1, E=2, S=4, W=8, in the space the caller draws in.
+
+const PIPE_DIRECTION_VECTORS = Object.freeze([[0, -1], [1, 0], [0, 1], [-1, 0]]);
+const COOLANT_CASING = "#0a2c42";
+const COOLANT_FLUID = "#5ecdf0";
+const COOLANT_HIGHLIGHT = "#c7f2ff";
+
+function drawHeatPipeTile(size, connectionMask) {
+  const mask = (Number(connectionMask) || 0) & 15;
+  const directions = [];
+  for (let bit = 0; bit < 4; bit += 1) if (mask & (1 << bit)) directions.push(PIPE_DIRECTION_VECTORS[bit]);
+
+  ctx.save();
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "round";
+
+  // Dark mechanical housing on the same square tile the rest of the catalogue
+  // uses, so a pipe run reads as installed hardware and not as loose cabling.
+  ctx.fillStyle = "rgba(7,20,31,0.8)";
+  ctx.strokeStyle = "rgba(150,206,232,0.26)";
+  ctx.lineWidth = Math.max(0.7, size * 0.04);
+  roundRect(ctx, { x: -size * 0.46, y: -size * 0.46, width: size * 0.92, height: size * 0.92, radius: size * 0.13 });
+  ctx.fill();
+  ctx.stroke();
+
+  const casingWidth = Math.max(2, size * 0.34);
+  const coolantWidth = Math.max(1, size * 0.17);
+  const reach = size * 0.5;
+
+  const runs = (width, style) => {
+    ctx.strokeStyle = style;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    if (!directions.length) {
+      // Isolated pipe: a short capped section that plainly goes nowhere.
+      ctx.moveTo(-size * 0.15, 0);
+      ctx.lineTo(size * 0.15, 0);
+    } else {
+      for (const [dx, dy] of directions) {
+        ctx.moveTo(0, 0);
+        ctx.lineTo(dx * reach, dy * reach);
+      }
+    }
+    ctx.stroke();
+  };
+
+  runs(casingWidth, COOLANT_CASING);
+  ctx.fillStyle = COOLANT_CASING;
+  ctx.beginPath();
+  ctx.arc(0, 0, casingWidth * 0.56, 0, Math.PI * 2);
+  ctx.fill();
+  runs(coolantWidth, COOLANT_FLUID);
+  ctx.fillStyle = COOLANT_FLUID;
+  ctx.beginPath();
+  ctx.arc(0, 0, coolantWidth * 0.62, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Coupling flange where each live channel meets the tile edge: this is what
+  // makes a connection read as reaching its neighbour rather than stopping short.
+  ctx.fillStyle = "rgba(199,242,255,0.6)";
+  for (const [dx, dy] of directions) {
+    const along = casingWidth * 0.16;
+    const across = casingWidth * 0.86;
+    const width = dx ? along : across;
+    const height = dx ? across : along;
+    ctx.fillRect(dx * (reach - along) - width * 0.5, dy * (reach - along) - height * 0.5, width, height);
+  }
+
+  // Blanked faces keep the housing symmetric so an endpoint still looks like a
+  // sealed pipe end rather than a broken one.
+  ctx.fillStyle = "rgba(126,176,201,0.16)";
+  for (let bit = 0; bit < 4; bit += 1) {
+    if (mask & (1 << bit)) continue;
+    const [dx, dy] = PIPE_DIRECTION_VECTORS[bit];
+    const width = dx ? size * 0.05 : size * 0.3;
+    const height = dx ? size * 0.3 : size * 0.05;
+    ctx.fillRect(dx * size * 0.415 - width * 0.5, dy * size * 0.415 - height * 0.5, width, height);
+  }
+
+  ctx.restore();
+}
+
+function drawHeatVentTile(size, connectionMask) {
+  const mask = (Number(connectionMask) || 0) & 15;
+  ctx.save();
+  ctx.lineJoin = "round";
+
+  // Dark exchanger frame.
+  ctx.fillStyle = "rgba(8,22,30,0.86)";
+  ctx.strokeStyle = "rgba(150,206,232,0.3)";
+  ctx.lineWidth = Math.max(0.7, size * 0.045);
+  roundRect(ctx, { x: -size * 0.44, y: -size * 0.44, width: size * 0.88, height: size * 0.88, radius: size * 0.1 });
+  ctx.fill();
+  ctx.stroke();
+
+  // Exhaust face: a warm plenum behind hard louvre slats. The warmth is what
+  // separates a Vent (heat leaving the hull) from the Heat Sink's cold fin
+  // stack and the Radiator's fan.
+  const plenum = ctx.createLinearGradient(0, -size * 0.3, 0, size * 0.3);
+  plenum.addColorStop(0, "#7c2d12");
+  plenum.addColorStop(0.55, "#c2410c");
+  plenum.addColorStop(1, "#f59e0b");
+  ctx.fillStyle = plenum;
+  roundRect(ctx, { x: -size * 0.31, y: -size * 0.3, width: size * 0.62, height: size * 0.6, radius: size * 0.05 });
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(6,18,26,0.9)";
+  for (let i = 0; i < 4; i += 1) {
+    ctx.fillRect(-size * 0.31, -size * 0.26 + i * size * 0.155, size * 0.62, size * 0.075);
+  }
+  ctx.strokeStyle = "rgba(199,242,255,0.35)";
+  ctx.lineWidth = Math.max(0.6, size * 0.03);
+  ctx.strokeRect(-size * 0.31, -size * 0.3, size * 0.62, size * 0.6);
+
+  // Coolant inlet toward whatever the vent is plumbed to. With nothing attached
+  // it still shows a capped port, so the part never looks half-drawn.
+  const directions = [];
+  for (let bit = 0; bit < 4; bit += 1) if (mask & (1 << bit)) directions.push(PIPE_DIRECTION_VECTORS[bit]);
+  const stubs = directions.length ? directions : [[0, 1]];
+  ctx.lineCap = "butt";
+  for (const pass of [[Math.max(1.6, size * 0.2), COOLANT_CASING], [Math.max(1, size * 0.09), COOLANT_FLUID]]) {
+    ctx.strokeStyle = pass[1];
+    ctx.lineWidth = pass[0];
+    ctx.beginPath();
+    for (const [dx, dy] of stubs) {
+      ctx.moveTo(dx * size * 0.28, dy * size * 0.28);
+      ctx.lineTo(dx * size * 0.5, dy * size * 0.5);
+    }
+    ctx.stroke();
+  }
+  for (const [dx, dy] of stubs) drawComponentPort(size, dx * 0.42, dy * 0.42, 0.075, COOLANT_HIGHLIGHT, 0.5);
+
+  ctx.restore();
+}
+
 // --- Professional single-cell detail ------------------------------------------
 
-function drawProfessionalModuleDetail(type, size, color, visualState = "active", rotation = 0) {
+function drawProfessionalModuleDetail(type, size, color, visualState = "active", rotation = 0, flipped = false, connectionMask = 0) {
   type = componentArtType(type);
   const line = Math.max(0.8, size * 0.065);
   const fine = Math.max(0.7, size * 0.045);
@@ -2311,14 +2745,14 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
         () => drawRefractoryColdEdge(size, () => {
           ctx.moveTo(size * 0.4, -size * 0.42);
           ctx.lineTo(-size * 0.42, size * 0.4);
-        }));
+        }), flipped);
     } else if (ABLATIVE_PARTS.has(type)) {
       withRotatedShape(size, rotation, outline,
         () => drawAblativeSpallPlating(size, color, fine),
         () => drawAblativeHotEdge(size, () => {
           ctx.moveTo(size * 0.4, -size * 0.42);
           ctx.lineTo(-size * 0.42, size * 0.4);
-        }));
+        }), flipped);
     } else {
       withRotatedShape(size, rotation, outline, () => {},
         () => {
@@ -2329,7 +2763,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
           ctx.lineTo(type === "halfFrameDiagonal" ? size * 0.17 : size * 0.1, -size * 0.32);
           ctx.lineTo(-size * 0.32, type === "halfFrameDiagonal" ? size * 0.17 : size * 0.1);
           ctx.stroke();
-        });
+        }, flipped);
     }
     return true;
   }
@@ -2351,7 +2785,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
           ctx.lineTo(size * 0.38, -size * 0.03);
           ctx.moveTo(-size * 0.44, size * 0.4);
           ctx.lineTo(size * 0.38, size * 0.03);
-        }));
+        }), flipped);
     } else if (ABLATIVE_PARTS.has(type)) {
       withRotatedShape(size, rotation, outline,
         () => drawAblativeSpallPlating(size, color, fine),
@@ -2360,7 +2794,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
           ctx.lineTo(size * 0.38, -size * 0.03);
           ctx.moveTo(-size * 0.44, size * 0.4);
           ctx.lineTo(size * 0.38, size * 0.03);
-        }));
+        }), flipped);
     } else {
       withRotatedShape(size, rotation, outline, () => {},
         () => {
@@ -2371,7 +2805,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
           ctx.lineTo(size * 0.16, 0);
           ctx.lineTo(-size * 0.34, size * 0.3);
           ctx.stroke();
-        });
+        }, flipped);
     }
     return true;
   }
@@ -2447,7 +2881,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
       if (isFrame) drawComponentPort(size, -0.08, 0.08, 0.085, "#d8e2f0", 0.35);
       else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
     };
-    withRotatedShape(size, rotation, outline, drawMaterial, drawEdge);
+    withRotatedShape(size, rotation, outline, drawMaterial, drawEdge, flipped);
     return true;
   }
 
@@ -2492,7 +2926,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
       if (isFrame) drawComponentPort(size, -0.1, 0.1, 0.085, "#d8e2f0", 0.35);
       else drawArmorRivets(size, color, [[-0.38, -0.34], [-0.38, 0.36], [0.38, 0.36]]);
     };
-    withRotatedShape(size, rotation, outline, drawMaterial, drawEdge);
+    withRotatedShape(size, rotation, outline, drawMaterial, drawEdge, flipped);
     return true;
   }
 
@@ -2525,73 +2959,32 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
   }
 
   if (type === "compactEngine") {
-    // Single-cell sibling of the main engine, built from the same parts so the
-    // two read as one family: intake turbine forward (+x), cowled power section,
-    // one nozzle bell with a hot throat aft (-x).
-    drawRecessedPanel(size, 0.92, 0.88, 0.1);
-
-    // Cowling over the power section.
-    ctx.fillStyle = mixColor(color, "#ffffff", 0.12);
-    ctx.strokeStyle = "rgba(3,6,12,0.66)";
-    ctx.lineWidth = fine;
-    roundRect(ctx, { x: -size * 0.16, y: -size * 0.27, width: size * 0.5, height: size * 0.54, radius: size * 0.09 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(225,248,255,0.5)";
-    ctx.beginPath();
-    ctx.moveTo(size * 0.09, -size * 0.24); ctx.lineTo(size * 0.09, size * 0.24);
-    ctx.stroke();
-
-    // Nozzle bell aft: a slim shroud around a glowing throat.
-    ctx.fillStyle = "rgba(2,20,29,0.92)";
-    ctx.strokeStyle = "rgba(3,6,12,0.72)";
-    ctx.lineWidth = Math.max(0.8, size * 0.05);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.17, -size * 0.2);
-    ctx.lineTo(-size * 0.42, -size * 0.28);
-    ctx.lineTo(-size * 0.42, size * 0.28);
-    ctx.lineTo(-size * 0.17, size * 0.2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(137,247,255,0.5)";
-    ctx.lineWidth = Math.max(0.7, size * 0.03);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.42, -size * 0.28);
-    ctx.lineTo(-size * 0.42, size * 0.28);
-    ctx.stroke();
+    // The main engine compressed into one cell: the same mount / chamber / bell
+    // sequence, but overbuilt — thicker casing, a stubbier two-rib chamber, and a
+    // bell that gives up length rather than width. It should read as the small
+    // dense member of the family; the old centred intake disc sitting between two
+    // flank conduits read as a face.
+    drawPropulsionCasing(size, size * 0.46, size * 0.44, color, size * 0.07);
+    // No anchor bolts on this one: a symmetric pair of dots above a ribbed block
+    // is a face, and at 1x1 there is nowhere for them to go that isn't "eyes".
+    // The mount reads from its own machined cap line instead.
+    drawEngineMount(size, size * 0.28, size * 0.42, size * 0.32, color, []);
     ctx.save();
-    ctx.shadowColor = "#89f7ff";
-    ctx.shadowBlur = qualityShadowBlur(6);
-    ctx.fillStyle = "#9ff6ff";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.2, -size * 0.12);
-    ctx.lineTo(-size * 0.4, -size * 0.17);
-    ctx.lineTo(-size * 0.4, size * 0.17);
-    ctx.lineTo(-size * 0.2, size * 0.12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    // Intake turbine forward.
-    ctx.fillStyle = "rgba(3,12,20,0.9)";
-    ctx.beginPath();
-    ctx.arc(size * 0.3, 0, size * 0.15, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#bcefff";
-    ctx.lineWidth = Math.max(0.8, size * 0.045);
-    ctx.beginPath();
-    ctx.arc(size * 0.3, 0, size * 0.105, 0, Math.PI * 2);
-    ctx.stroke();
-    drawComponentPort(size, 0.3, 0, 0.045, "#52d8ff", 0.6);
-
-    // Flank conduits tying turbine to nozzle.
-    ctx.strokeStyle = "rgba(132,230,255,0.7)";
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.55);
+    ctx.globalAlpha = 0.6;
     ctx.lineWidth = Math.max(0.7, size * 0.035);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.1, -size * 0.35); ctx.lineTo(size * 0.26, -size * 0.35);
-    ctx.moveTo(-size * 0.1, size * 0.35); ctx.lineTo(size * 0.26, size * 0.35);
+    ctx.moveTo(size * 0.35, -size * 0.28);
+    ctx.lineTo(size * 0.35, size * 0.28);
     ctx.stroke();
+    ctx.restore();
+    drawThrustChamber(size, -size * 0.05, size * 0.26, size * 0.29, color, 2);
+    drawNozzleBell(size, {
+      throatX: -size * 0.06,
+      mouthX: -size * 0.42,
+      throatHalf: size * 0.15,
+      mouthHalf: size * 0.37
+    });
     return true;
   }
 
@@ -2630,39 +3023,135 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
   if (type === "battery") {
-    drawRecessedPanel(size, 0.72, 0.76, 0.08);
-    ctx.fillStyle = "#baf4ff";
-    for (let i = 0; i < 3; i += 1) {
-      roundRect(ctx, { x: -size * 0.25, y: size * (-0.25 + i * 0.21), width: size * 0.5, height: size * 0.1, radius: size * 0.025 }); ctx.fill();
-    }
-    ctx.fillStyle = "#164e63";
-    ctx.fillRect(-size * 0.08, -size * 0.43, size * 0.16, size * 0.08);
+    // Cell stack in a sealed case: three electrolyte cells standing in a dark
+    // housing under a bus bar, with the terminal post on top and a charge
+    // telltale at the foot. Was three bright horizontal bars, which read as a
+    // barcode rather than as stored energy.
+    drawRecessedPanel(size, 0.84, 0.88, 0.1);
+    drawCellStack(size, {
+      xs: [-0.19, 0, 0.19],
+      halfWidth: 0.075,
+      top: -0.26,
+      bottom: 0.3,
+      casing: "rgba(4,18,28,0.92)",
+      edge: "rgba(186,244,255,0.34)",
+      hot: "#d5fbff",
+      cool: "#0e5f7f",
+      fine
+    });
+    // Bus bar across the cell tops with the terminal post rising out of it.
+    ctx.fillStyle = "#9fdcf0";
+    roundRect(ctx, { x: -size * 0.29, y: -size * 0.36, width: size * 0.58, height: size * 0.075, radius: size * 0.03 });
+    ctx.fill();
+    ctx.fillStyle = "rgba(4,18,28,0.92)";
+    roundRect(ctx, { x: -size * 0.075, y: -size * 0.45, width: size * 0.15, height: size * 0.1, radius: size * 0.03 });
+    ctx.fill();
+    drawComponentPort(size, 0, -0.4, 0.05, "#d5fbff", 0.5);
+    drawComponentPort(size, 0, 0.38, 0.055, "#47caee", 0.5);
     return true;
   }
   if (type === "capacitor") {
-    drawRecessedPanel(size, 0.76, 0.76, 0.08);
-    ctx.fillStyle = "#60a5fa";
-    roundRect(ctx, { x: -size * 0.27, y: -size * 0.3, width: size * 0.18, height: size * 0.6, radius: size * 0.04 }); ctx.fill();
-    roundRect(ctx, { x: size * 0.09, y: -size * 0.3, width: size * 0.18, height: size * 0.6, radius: size * 0.04 }); ctx.fill();
-    ctx.strokeStyle = "#dbeafe"; ctx.lineWidth = fine;
-    ctx.beginPath(); ctx.moveTo(-size * 0.09, 0); ctx.lineTo(size * 0.09, 0); ctx.stroke();
+    // Plate pair across a dielectric gap with the stored charge arcing in it.
+    // The two flat blue slabs it replaces carried no sense of a gap at all —
+    // the arc is what separates this from the Battery's chemical cells.
+    drawRecessedPanel(size, 0.86, 0.8, 0.09);
+    drawCapacitorPlatePair(size, 0, size * 0.115, size * 0.3, fine);
+    // Terminal leads out to the housing wall on both faces.
+    ctx.strokeStyle = "rgba(4,12,26,0.9)";
+    ctx.lineWidth = Math.max(1.4, size * 0.1);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.44, 0); ctx.lineTo(-size * 0.27, 0);
+    ctx.moveTo(size * 0.44, 0); ctx.lineTo(size * 0.27, 0);
+    ctx.stroke();
+    drawComponentPort(size, -0.42, 0, 0.07, "#dbeafe", 0.5);
+    drawComponentPort(size, 0.42, 0, 0.07, "#dbeafe", 0.5);
     return true;
   }
   if (type === "auxGenerator") {
-    drawRecessedPanel(size, 0.72, 0.76, 0.09);
-    ctx.fillStyle = "#fef08a";
-    roundRect(ctx, { x: -size * 0.24, y: -size * 0.28, width: size * 0.16, height: size * 0.56, radius: size * 0.04 }); ctx.fill();
-    roundRect(ctx, { x: size * 0.08, y: -size * 0.28, width: size * 0.16, height: size * 0.56, radius: size * 0.04 }); ctx.fill();
-    ctx.strokeStyle = "#f59e0b"; ctx.lineWidth = line;
-    ctx.beginPath(); ctx.moveTo(-size * 0.08, -size * 0.14); ctx.lineTo(size * 0.08, 0); ctx.lineTo(-size * 0.08, size * 0.14); ctx.stroke();
+    // Compact genset: a driven turbine rotor geared to an alternator can, with
+    // the output bus leaving on the far face and a capped exhaust on the near
+    // one. Deliberately machinery, not a containment ring — the Reactor owns
+    // that read, and this used to be two amber slabs with a chevron on them.
+    drawRecessedPanel(size, 0.86, 0.84, 0.1);
+
+    // Turbine rotor with swept vanes.
+    const hub = { x: -size * 0.16, y: 0, r: size * 0.19 };
+    ctx.fillStyle = "rgba(24,14,2,0.9)";
+    ctx.beginPath(); ctx.arc(hub.x, hub.y, hub.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(254,240,138,0.45)"; ctx.lineWidth = fine; ctx.stroke();
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = Math.max(0.9, size * 0.055);
+    ctx.beginPath();
+    for (let i = 0; i < 5; i += 1) {
+      const a = (i * Math.PI * 2) / 5 - Math.PI / 5;
+      ctx.moveTo(hub.x + Math.cos(a) * size * 0.05, hub.y + Math.sin(a) * size * 0.05);
+      ctx.lineTo(hub.x + Math.cos(a + 0.5) * hub.r * 0.86, hub.y + Math.sin(a + 0.5) * hub.r * 0.86);
+    }
+    ctx.stroke();
+    drawComponentPort(size, hub.x / size, 0, 0.05, "#fef9c3", 0.55);
+
+    // Drive shaft into the alternator can.
+    ctx.strokeStyle = "#a16207";
+    ctx.lineWidth = Math.max(1, size * 0.07);
+    ctx.beginPath(); ctx.moveTo(hub.x + hub.r * 0.7, 0); ctx.lineTo(size * 0.06, 0); ctx.stroke();
+
+    ctx.fillStyle = "rgba(24,14,2,0.9)";
+    ctx.strokeStyle = "rgba(254,240,138,0.42)";
+    ctx.lineWidth = fine;
+    roundRect(ctx, { x: size * 0.06, y: -size * 0.22, width: size * 0.26, height: size * 0.44, radius: size * 0.06 });
+    ctx.fill(); ctx.stroke();
+    // Stator windings on the can.
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = Math.max(0.7, size * 0.04);
+    ctx.beginPath();
+    for (let i = 0; i < 3; i += 1) {
+      const y = -size * 0.13 + i * size * 0.13;
+      ctx.moveTo(size * 0.09, y); ctx.lineTo(size * 0.29, y);
+    }
+    ctx.stroke();
+
+    // Output bus off the alternator, capped exhaust stub above the turbine.
+    ctx.strokeStyle = "rgba(24,14,2,0.9)";
+    ctx.lineWidth = Math.max(1.3, size * 0.1);
+    ctx.beginPath(); ctx.moveTo(size * 0.32, size * 0.22); ctx.lineTo(size * 0.44, size * 0.22); ctx.stroke();
+    drawComponentPort(size, 0.42, 0.22, 0.07, "#fef08a", 0.5);
+    ctx.strokeStyle = "rgba(24,14,2,0.9)";
+    ctx.lineWidth = Math.max(1.1, size * 0.085);
+    ctx.beginPath(); ctx.moveTo(hub.x, -size * 0.32); ctx.lineTo(hub.x, -size * 0.44); ctx.stroke();
+    drawComponentPort(size, hub.x / size, -0.42, 0.06, "#f59e0b", 0.5);
     return true;
   }
   if (type === "shield") {
-    drawRecessedPanel(size, 0.78, 0.78, 0.17);
-    ctx.strokeStyle = "#a7f3d0"; ctx.lineWidth = line;
-    ctx.beginPath(); ctx.arc(0, 0, size * 0.3, Math.PI * 0.12, Math.PI * 1.88); ctx.stroke();
-    ctx.strokeStyle = "rgba(167,243,208,0.42)"; ctx.lineWidth = fine;
-    ctx.beginPath(); ctx.arc(0, 0, size * 0.2, Math.PI * 0.12, Math.PI * 1.88); ctx.stroke();
+    // Projector: a lensed emitter in a dark well throwing three field arcs, with
+    // the phase nodes that shape them bolted around the rim. Two bare arcs on an
+    // empty panel gave no clue where the field was coming from.
+    drawRecessedPanel(size, 0.82, 0.82, 0.18);
+
+    // Field arcs, faintest outermost — the projected barrier.
+    const arcs = [[0.4, 0.3], [0.32, 0.52], [0.24, 0.82]];
+    for (const [r, alpha] of arcs) {
+      ctx.strokeStyle = `rgba(167,243,208,${alpha})`;
+      ctx.lineWidth = r > 0.3 ? fine : line;
+      ctx.beginPath();
+      ctx.arc(0, 0, size * r, Math.PI * 0.16, Math.PI * 1.84);
+      ctx.stroke();
+    }
+
+    // Emitter well and lens.
+    ctx.fillStyle = "rgba(3,20,13,0.9)";
+    ctx.beginPath(); ctx.arc(0, 0, size * 0.19, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.shadowColor = "#7cffa0";
+    ctx.shadowBlur = qualityShadowBlur(5);
+    ctx.fillStyle = "#b9ffd0";
+    ctx.beginPath(); ctx.arc(0, 0, size * 0.105, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // Phase nodes on the rim, sitting on the arc gap side so the ring reads open.
+    for (let i = 0; i < 3; i += 1) {
+      const a = Math.PI * (1.5 + (i - 1) * 0.42);
+      drawComponentPort(size, Math.cos(a) * 0.33, Math.sin(a) * 0.33, 0.06, "#a7f3d0", 0.5);
+    }
     return true;
   }
   if (type === "smallSensor") {
@@ -2810,22 +3299,131 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
   if (type === "gyroscope") {
-    drawRecessedPanel(size, 0.78, 0.78, 0.17);
-    ctx.strokeStyle = "#ddd6fe"; ctx.lineWidth = line;
-    ctx.beginPath(); ctx.arc(0, 0, size * 0.27, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = "#8b5cf6";
-    ctx.beginPath(); ctx.moveTo(0, -size * 0.34); ctx.lineTo(0, size * 0.34); ctx.moveTo(-size * 0.34, 0); ctx.lineTo(size * 0.34, 0); ctx.stroke();
-    drawComponentPort(size, 0, 0, 0.09, "#ede9fe", 0.5);
+    // Propulsion SUPPORT hardware, not a thruster: it wears the family's casing
+    // and cyan energy, but has no nozzle and no thrust axis — it is radially
+    // symmetric on purpose. The read is a gimballed rotor: an outer housing ring,
+    // a tilted inner gimbal journalled on two trunnion pins, and a lit flywheel.
+    // The old crosshair-through-a-circle was a targeting reticle, and shared both
+    // silhouette and violet with the Backup Command Core.
+    drawPropulsionCasing(size, size * 0.46, size * 0.46, color, size * 0.09);
+
+    ctx.save();
+    // Housing well.
+    ctx.fillStyle = "rgba(2,10,18,0.9)";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Outer gimbal ring.
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.5);
+    ctx.lineWidth = Math.max(1, size * 0.055);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.32, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner gimbal, tilted out of plane: an ellipse, which is what sells rotation
+    // in a flat top-down icon.
+    ctx.save();
+    ctx.rotate(-Math.PI * 0.18);
+    ctx.scale(1, 0.42);
+    ctx.strokeStyle = "rgba(196,225,245,0.85)";
+    ctx.lineWidth = Math.max(1, size * 0.075);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Trunnion pins: the bearings the inner gimbal swings on.
+    for (const sx of [-1, 1]) {
+      const px = sx * size * 0.32 * Math.cos(-Math.PI * 0.18);
+      const py = sx * size * 0.32 * Math.sin(-Math.PI * 0.18);
+      ctx.fillStyle = "rgba(3,8,14,0.92)";
+      ctx.beginPath();
+      ctx.arc(px, py, size * 0.055, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = mixColor(color, "#ffffff", 0.7);
+      ctx.beginPath();
+      ctx.arc(px, py, size * 0.028, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Flywheel: the one hot thing on the part.
+    ctx.shadowColor = "#89f7ff";
+    ctx.shadowBlur = qualityShadowBlur(6);
+    ctx.fillStyle = "#9ff6ff";
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Spin highlight: a partial arc, so the rotor reads as turning.
+    ctx.strokeStyle = "rgba(230,250,255,0.7)";
+    ctx.lineWidth = Math.max(0.8, size * 0.035);
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.17, -Math.PI * 0.85, -Math.PI * 0.15);
+    ctx.stroke();
+    ctx.restore();
     return true;
   }
   if (type === "maneuverThruster") {
-    drawRecessedPanel(size, 0.76, 0.72, 0.09);
-    ctx.fillStyle = "#8bdff7";
+    // Attitude control, so the whole point is that it pushes SIDEWAYS: a gimbal
+    // yoke bolted at +x carrying a bell canted off the thrust axis, plus one small
+    // vernier firing the other way. Deliberately asymmetric — the old symmetric
+    // wedge-and-dot read as a UI arrow rather than a piece of hardware.
+    drawPropulsionCasing(size, size * 0.46, size * 0.44, color, size * 0.07);
+
+    // Mounting block along the +x edge, with the gimbal yoke reaching off it. One
+    // bracket, one pivot, one bell: at 40px there is no room for more, and the
+    // first pass — yoke plus canted bell plus an opposed vernier — turned to
+    // scribble at icon size.
+    ctx.save();
+    ctx.fillStyle = mixColor(color, "#05070c", 0.4);
+    ctx.strokeStyle = "rgba(2,5,10,0.8)";
+    ctx.lineWidth = Math.max(0.8, size * 0.05);
+    roundRect(ctx, { x: size * 0.24, y: -size * 0.38, width: size * 0.18, height: size * 0.76, radius: size * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    const cap = mixColor(color, "#ffffff", 0.68);
+    drawComponentPort(size, 0.33, -0.26, 0.05, cap, 0.5);
+    drawComponentPort(size, 0.33, 0.26, 0.05, cap, 0.5);
+
+    // Yoke arm from the bracket down to the pivot: the asymmetry is the point.
+    const pivotX = size * 0.02;
+    const pivotY = -size * 0.06;
+    ctx.save();
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.32);
+    ctx.lineWidth = Math.max(1.4, size * 0.095);
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.moveTo(-size * 0.28, -size * 0.27); ctx.lineTo(size * 0.31, -size * 0.12);
-    ctx.lineTo(size * 0.31, size * 0.12); ctx.lineTo(-size * 0.28, size * 0.27);
-    ctx.closePath(); ctx.fill();
-    drawComponentPort(size, -0.3, 0, 0.14, "#bdefff", 0.4);
+    ctx.moveTo(size * 0.26, size * 0.16);
+    ctx.lineTo(pivotX, pivotY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Vectoring bell, pivoted about its throat and canted well off the long axis
+    // so the part visibly pushes sideways.
+    ctx.save();
+    ctx.translate(pivotX, pivotY);
+    ctx.rotate(-0.62);
+    drawNozzleBell(size, {
+      throatX: 0,
+      mouthX: -size * 0.4,
+      throatHalf: size * 0.11,
+      mouthHalf: size * 0.28
+    });
+    ctx.restore();
+
+    // Gimbal pivot pin.
+    ctx.save();
+    ctx.fillStyle = "rgba(3,8,14,0.94)";
+    ctx.beginPath();
+    ctx.arc(pivotX, pivotY, size * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = cap;
+    ctx.beginPath();
+    ctx.arc(pivotX, pivotY, size * 0.036, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
     return true;
   }
   if (type === "backupCore") {
@@ -2875,11 +3473,54 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
   if (type === "heatSink") {
-    drawRecessedPanel(size, 0.78, 0.78, 0.06);
-    ctx.fillStyle = "#93c5fd";
-    for (let i = 0; i < 4; i += 1) {
-      ctx.fillRect(-size * 0.3, size * (-0.29 + i * 0.19), size * 0.6, size * 0.08);
+    // Cold fin stack on a charged mass block: fins graded bright at the tip and
+    // dark at the root, fed from a coolant manifold down one side. The four flat
+    // blue bars it replaces read the same as the Heat Vent's louvres; the
+    // manifold and the frost-bright tips are what mark this as the cold end.
+    drawRecessedPanel(size, 0.84, 0.86, 0.08);
+
+    // Thermal mass the fins are bonded to.
+    ctx.fillStyle = "rgba(6,20,34,0.9)";
+    ctx.strokeStyle = "rgba(191,219,254,0.3)";
+    ctx.lineWidth = fine;
+    roundRect(ctx, { x: -size * 0.34, y: -size * 0.36, width: size * 0.68, height: size * 0.72, radius: size * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Fin stack, tips lit. Left ends stop short of the manifold rail.
+    const fins = 5;
+    for (let i = 0; i < fins; i += 1) {
+      const y = -size * 0.3 + i * size * 0.145;
+      const fin = ctx.createLinearGradient(0, y, 0, y + size * 0.075);
+      fin.addColorStop(0, "#eff6ff");
+      fin.addColorStop(0.5, "#93c5fd");
+      fin.addColorStop(1, "#1d4ed8");
+      ctx.fillStyle = fin;
+      ctx.fillRect(-size * 0.19, y, size * 0.5, size * 0.075);
     }
+
+    // Coolant manifold feeding every fin root, capped at both ends.
+    ctx.fillStyle = COOLANT_CASING;
+    roundRect(ctx, { x: -size * 0.31, y: -size * 0.33, width: size * 0.11, height: size * 0.66, radius: size * 0.05 });
+    ctx.fill();
+    ctx.strokeStyle = COOLANT_FLUID;
+    ctx.lineWidth = Math.max(1, size * 0.055);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.255, -size * 0.26);
+    ctx.lineTo(-size * 0.255, size * 0.26);
+    ctx.stroke();
+    // Fin roots tapping the manifold — the bond that makes this one mass.
+    ctx.strokeStyle = COOLANT_HIGHLIGHT;
+    ctx.lineWidth = Math.max(0.6, size * 0.028);
+    ctx.beginPath();
+    for (let i = 0; i < 5; i += 1) {
+      const y = -size * 0.263 + i * size * 0.145;
+      ctx.moveTo(-size * 0.255, y);
+      ctx.lineTo(-size * 0.19, y);
+    }
+    ctx.stroke();
+    drawComponentPort(size, -0.255, -0.31, 0.05, COOLANT_HIGHLIGHT, 0.5);
+    drawComponentPort(size, -0.255, 0.31, 0.05, COOLANT_HIGHLIGHT, 0.5);
     return true;
   }
   if (type === "closedCycleCooler") {
@@ -2943,54 +3584,76 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
     return true;
   }
   if (type === "heatPipe") {
-    // Cell-wide thermal manifold: insulated edge couplings joined by a broad
-    // serpentine coolant route, with no separate icon plate.
-    ctx.save();
-    ctx.fillStyle = "rgba(5,16,27,0.54)";
-    ctx.strokeStyle = "rgba(186,230,253,0.34)";
-    ctx.lineWidth = fine;
-    roundRect(ctx, { x: -size * 0.45, y: -size * 0.34, width: size * 0.9, height: size * 0.68, radius: size * 0.15 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "#0c4a6e";
-    ctx.lineWidth = Math.max(2, size * 0.17);
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.48, -size * 0.2);
-    ctx.lineTo(-size * 0.18, -size * 0.2);
-    ctx.quadraticCurveTo(0, -size * 0.2, 0, 0);
-    ctx.quadraticCurveTo(0, size * 0.2, size * 0.18, size * 0.2);
-    ctx.lineTo(size * 0.48, size * 0.2);
-    ctx.stroke();
-    ctx.strokeStyle = "#7dd3fc";
-    ctx.lineWidth = Math.max(1, size * 0.07);
-    ctx.stroke();
-    drawComponentPort(size, -0.4, -0.2, 0.1, "#e0f2fe", 0.5);
-    drawComponentPort(size, 0.4, 0.2, 0.1, "#e0f2fe", 0.5);
-    ctx.restore();
+    drawHeatPipeTile(size, connectionMask);
+    return true;
+  }
+  if (type === "heatVent") {
+    drawHeatVentTile(size, connectionMask, visualState);
     return true;
   }
   if (type === "radiator") {
     // Active cooling fan: visually distinct from the heat sink's passive fin
     // stack. The blueprint overlay separately highlights the actual exposed edge.
-    drawRecessedPanel(size, 0.8, 0.8, 0.1);
-    ctx.strokeStyle = "#9be8ff";
-    ctx.lineWidth = fine;
+    drawRecessedPanel(size, 0.86, 0.86, 0.1);
+
+    // Shroud: a dark duct ring the impeller sits inside, with mounting bolts.
+    ctx.fillStyle = "rgba(5,24,36,0.82)";
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.29, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#3aaed8";
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.04, -size * 0.07); ctx.lineTo(size * 0.12, -size * 0.29); ctx.lineTo(size * 0.02, -size * 0.34); ctx.closePath();
-    ctx.moveTo(size * 0.07, -size * 0.04); ctx.lineTo(size * 0.29, size * 0.12); ctx.lineTo(size * 0.34, size * 0.02); ctx.closePath();
-    ctx.moveTo(size * 0.04, size * 0.07); ctx.lineTo(-size * 0.12, size * 0.29); ctx.lineTo(-size * 0.02, size * 0.34); ctx.closePath();
-    ctx.moveTo(-size * 0.07, size * 0.04); ctx.lineTo(-size * 0.29, -size * 0.12); ctx.lineTo(-size * 0.34, -size * 0.02); ctx.closePath();
+    ctx.arc(0, 0, size * 0.37, 0, Math.PI * 2);
+    ctx.arc(0, 0, size * 0.31, 0, Math.PI * 2, true);
     ctx.fill();
-    drawComponentPort(size, 0, 0, 0.105, "#d9f8ff", 0.42);
-    ctx.strokeStyle = "rgba(125,211,252,0.62)";
+    ctx.strokeStyle = "rgba(155,232,255,0.55)";
+    ctx.lineWidth = fine;
+    ctx.beginPath(); ctx.arc(0, 0, size * 0.37, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = "rgba(155,232,255,0.3)";
+    ctx.beginPath(); ctx.arc(0, 0, size * 0.31, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 4; i += 1) {
+      const a = Math.PI * (0.25 + i * 0.5);
+      drawComponentPort(size, Math.cos(a) * 0.34, Math.sin(a) * 0.34, 0.045, "#bae6fd", 0.45);
+    }
+
+    // Six swept blades: dark body with a lit leading edge, so the impeller reads
+    // as pitched metal rather than as four flat pinwheel triangles.
+    const bladeR = size * 0.3;
+    const hubR = size * 0.09;
+    for (let i = 0; i < 6; i += 1) {
+      const a = (i * Math.PI * 2) / 6;
+      const sweep = 0.62;
+      const tip = { x: Math.cos(a + sweep) * bladeR, y: Math.sin(a + sweep) * bladeR };
+      const root = { x: Math.cos(a) * hubR, y: Math.sin(a) * hubR };
+      const trail = { x: Math.cos(a - 0.2) * bladeR * 0.82, y: Math.sin(a - 0.2) * bladeR * 0.82 };
+      ctx.fillStyle = "#2f8fb8";
+      ctx.beginPath();
+      ctx.moveTo(root.x, root.y);
+      ctx.quadraticCurveTo(Math.cos(a + 0.3) * bladeR * 0.7, Math.sin(a + 0.3) * bladeR * 0.7, tip.x, tip.y);
+      ctx.lineTo(trail.x, trail.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#bae6fd";
+      ctx.lineWidth = Math.max(0.6, size * 0.028);
+      ctx.beginPath();
+      ctx.moveTo(root.x, root.y);
+      ctx.quadraticCurveTo(Math.cos(a + 0.3) * bladeR * 0.7, Math.sin(a + 0.3) * bladeR * 0.7, tip.x, tip.y);
+      ctx.stroke();
+    }
+
+    // Motor hub over the blade roots.
+    ctx.fillStyle = "rgba(4,20,30,0.92)";
+    ctx.beginPath(); ctx.arc(0, 0, size * 0.11, 0, Math.PI * 2); ctx.fill();
+    drawComponentPort(size, 0, 0, 0.075, "#d9f8ff", 0.45);
+
+    // Coolant risers up both flanks, feeding the exchanger behind the fan.
+    ctx.strokeStyle = COOLANT_CASING;
+    ctx.lineWidth = Math.max(1.3, size * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.42, -size * 0.3); ctx.lineTo(-size * 0.42, size * 0.3);
+    ctx.moveTo(size * 0.42, -size * 0.3); ctx.lineTo(size * 0.42, size * 0.3);
+    ctx.stroke();
+    ctx.strokeStyle = COOLANT_FLUID;
     ctx.lineWidth = Math.max(0.7, size * 0.04);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.36, -size * 0.28); ctx.lineTo(-size * 0.36, size * 0.28);
-    ctx.moveTo(size * 0.36, -size * 0.28); ctx.lineTo(size * 0.36, size * 0.28);
+    ctx.moveTo(-size * 0.42, -size * 0.26); ctx.lineTo(-size * 0.42, size * 0.26);
+    ctx.moveTo(size * 0.42, -size * 0.26); ctx.lineTo(size * 0.42, size * 0.26);
     ctx.stroke();
     return true;
   }
@@ -3018,7 +3681,7 @@ function drawProfessionalModuleDetail(type, size, color, visualState = "active",
 
 // --- Single-cell module composition --------------------------------------------
 
-export function drawModule({ x, y, size, color, type, trim, drawBase = true, drawDetail = true, visualState = "active", rotation = 0 }) {
+export function drawModule({ x, y, size, color, type, trim, drawBase = true, drawDetail = true, visualState = "active", rotation = 0, flipped = false, connectionMask = 0 }) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineJoin = "round";
@@ -3058,7 +3721,7 @@ export function drawModule({ x, y, size, color, type, trim, drawBase = true, dra
   // All currently selectable parts use the unified professional detail set.
   // Legacy branches remain below as compatibility art for any old/custom part
   // ids loaded from storage.
-  if (drawProfessionalModuleDetail(type, size, bodyColor, visualState, rotation)) {
+  if (drawProfessionalModuleDetail(type, size, bodyColor, visualState, rotation, flipped, connectionMask)) {
     ctx.restore();
     return;
   }
@@ -4085,7 +4748,7 @@ function drawGenericFootprintMachine(type, unit, tilesLong, color, hl, hc) {
   return true;
 }
 
-function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, color, hl, hc, visualState, rotation = 0) {
+function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, color, hl, hc, visualState, rotation = 0, flipped = false) {
   type = componentArtType(type);
   const line = Math.max(1, unit * 0.075);
   const fine = Math.max(0.7, unit * 0.045);
@@ -4098,114 +4761,124 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   }
 
   if (type === "engine") {
-    // Full-cube propulsion block: bright cowling in the module colour, a rear
-    // exhaust manifold with twin glowing bells spanning the whole cross axis,
-    // and a forward intake turbine. Exhaust faces -x (blueprint: downward).
-    drawFootprintPanel(unit, hl, hc, 0.96, 0.9, 0.09);
-    ctx.fillStyle = mixColor(color, "#ffffff", 0.1);
-    roundRect(ctx, { x: -hl + unit * 0.52, y: -hc * 0.74, width: hl * 2 - unit * 0.82, height: hc * 1.48, radius: unit * 0.12 });
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(2,7,13,0.92)";
-    roundRect(ctx, { x: -hl + unit * 0.04, y: -hc * 0.84, width: unit * 0.5, height: hc * 1.68, radius: unit * 0.1 });
-    ctx.fill();
-    const rearX = -hl + unit * 0.28;
-    drawFootprintPort(unit, rearX, -hc * 0.44, unit * 0.19, "#d9fbff");
-    drawFootprintPort(unit, rearX, hc * 0.44, unit * 0.19, "#4dd8ff");
+    // The family's baseline main drive, read front to back: hull mount at +x,
+    // ribbed thrust chamber, then one bell nozzle flared across the entire stern.
+    // The old art led with a big concentric intake disc, which at icon size read
+    // as a camera lens; the nozzle is now the largest feature on the part, which
+    // is what makes it a thruster rather than a blue machine block.
+    drawPropulsionCasing(unit, hl * 0.98, hc * 0.94, color);
+
+    const mountFrom = hl * 0.98 - unit * 0.3;
+    drawEngineMount(unit, mountFrom, hl * 0.98 - unit * 0.03, hc * 0.8, color);
+
+    const throatX = -hl + unit * 0.72;
+    drawThrustChamber(unit, throatX - unit * 0.02, mountFrom - unit * 0.04, hc * 0.68, color, 3);
+
+    // Turbopump feed lines flanking the chamber: machinery, without the detail
+    // storm that made the earlier weapons hard to read.
     ctx.save();
-    ctx.shadowColor = "#89f7ff";
-    ctx.shadowBlur = qualityShadowBlur(6);
-    ctx.fillStyle = "#9ff6ff";
-    roundRect(ctx, { x: -hl + unit * 0.16, y: -hc * 0.11, width: unit * 0.26, height: hc * 0.22, radius: unit * 0.05 });
-    ctx.fill();
-    ctx.restore();
-    const frontX = hl - unit * 0.36;
-    ctx.fillStyle = "rgba(3,12,20,0.9)";
-    ctx.beginPath();
-    ctx.arc(frontX, 0, unit * 0.28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#bcefff";
-    ctx.lineWidth = Math.max(fine, unit * 0.065);
-    ctx.beginPath();
-    ctx.arc(frontX, 0, unit * 0.2, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#52d8ff";
-    ctx.beginPath();
-    ctx.arc(frontX, 0, unit * 0.075, 0, Math.PI * 2);
-    ctx.fill();
-    // Illuminated conduits along both flanks tie manifold to turbine.
-    ctx.strokeStyle = "rgba(132,230,255,0.85)";
+    ctx.strokeStyle = mixColor(color, "#ffffff", 0.4);
+    ctx.globalAlpha = 0.45;
     ctx.lineWidth = fine;
     ctx.beginPath();
-    ctx.moveTo(-hl + unit * 0.62, -hc * 0.52);
-    ctx.lineTo(frontX - unit * 0.28, -hc * 0.52);
-    ctx.moveTo(-hl + unit * 0.62, hc * 0.52);
-    ctx.lineTo(frontX - unit * 0.28, hc * 0.52);
+    ctx.moveTo(throatX + unit * 0.1, -hc * 0.82);
+    ctx.lineTo(mountFrom - unit * 0.1, -hc * 0.82);
+    ctx.moveTo(throatX + unit * 0.1, hc * 0.82);
+    ctx.lineTo(mountFrom - unit * 0.1, hc * 0.82);
     ctx.stroke();
-    drawFootprintSeams(unit, hl, hc, tilesLong);
+    ctx.restore();
+
+    drawNozzleBell(unit, {
+      throatX,
+      mouthX: -hl + unit * 0.06,
+      throatHalf: hc * 0.34,
+      mouthHalf: hc * 0.92
+    });
     return true;
   }
 
   if (type === "heavyEngine") {
-    // Same construction as the standard Engine — intake forward, cowled power
-    // section, exhaust manifold aft — scaled up to a six-cell block and given
-    // FOUR nozzle bells instead of two. The nozzle count is the whole read: a
-    // player glancing at the grid should see "that is several engines' worth of
-    // drive in one casing", which is exactly what the part is.
-    drawFootprintPanel(unit, hl, hc, 0.96, 0.92, 0.09);
+    // The capital drive: the standard Engine's construction, reinforced and given
+    // a nozzle CLUSTER — one oversized centre bell with two outboard bells — fed
+    // from a common manifold. The cluster is the whole read. The previous art was
+    // a flat panel carrying two discs and a row of ports, which said "control
+    // console" at every size; three flared mouths across the stern say "this is
+    // several engines' worth of drive in one casing", which is what the part is.
+    drawPropulsionCasing(unit, hl * 0.98, hc * 0.96, color);
 
-    // Cowling over the power section.
-    ctx.fillStyle = mixColor(color, "#ffffff", 0.1);
-    roundRect(ctx, { x: -hl + unit * 0.72, y: -hc * 0.8, width: hl * 2 - unit * 1.1, height: hc * 1.6, radius: unit * 0.12 });
+    // Heavy longitudinal reinforcement down both flanks.
+    ctx.save();
+    ctx.fillStyle = mixColor(color, "#05070c", 0.42);
+    ctx.strokeStyle = "rgba(2,5,10,0.8)";
+    ctx.lineWidth = Math.max(0.8, unit * 0.045);
+    for (const sy of [-1, 1]) {
+      roundRect(ctx, {
+        x: -hl * 0.9,
+        y: sy * hc * 0.94 - (sy > 0 ? unit * 0.2 : 0),
+        width: hl * 1.8,
+        height: unit * 0.2,
+        radius: unit * 0.05
+      });
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Mount face and its heavy anchor bolts, forward.
+    const mountFrom = hl * 0.98 - unit * 0.36;
+    drawEngineMount(unit, mountFrom, hl * 0.98 - unit * 0.04, hc * 0.74, color, [-0.72, -0.24, 0.24, 0.72]);
+
+    // Segmented chamber block: three ribs, wide enough to feed the whole cluster.
+    const manifoldX = -hl + unit * 1.08;
+    drawThrustChamber(unit, manifoldX, mountFrom - unit * 0.05, hc * 0.62, color, 3);
+
+    // Common exhaust manifold: the dark plenum every bell hangs off, with a hot
+    // distribution strip running across it.
+    ctx.save();
+    ctx.fillStyle = "rgba(2,9,15,0.94)";
+    ctx.strokeStyle = "rgba(2,5,10,0.85)";
+    ctx.lineWidth = Math.max(0.8, unit * 0.05);
+    roundRect(ctx, { x: manifoldX - unit * 0.24, y: -hc * 0.9, width: unit * 0.3, height: hc * 1.8, radius: unit * 0.05 });
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
 
-    // Exhaust manifold aft (-x) with four bells spread across the cross axis.
-    ctx.fillStyle = "rgba(2,7,13,0.92)";
-    roundRect(ctx, { x: -hl + unit * 0.04, y: -hc * 0.88, width: unit * 0.78, height: hc * 1.76, radius: unit * 0.1 });
-    ctx.fill();
-    // Hot throat hard against the rear face, then the four bells in front of it,
-    // so the glow reads as feeding the nozzles instead of sitting on top of them.
+    // Nozzle cluster: big centre bell with an outboard pair whose mouths meet it,
+    // so the stern reads as one continuous exhaust array. Spacing them apart left
+    // three separate trapezoids that looked like legs under a table.
+    const throatX = manifoldX - unit * 0.24;
+    const mouthX = -hl + unit * 0.08;
+    drawNozzleBell(unit, { throatX, mouthX, throatHalf: hc * 0.17, mouthHalf: hc * 0.36 });
+    for (const sy of [-1, 1]) {
+      ctx.save();
+      ctx.translate(0, sy * hc * 0.65);
+      drawNozzleBell(unit, {
+        throatX,
+        mouthX: mouthX + unit * 0.1,
+        throatHalf: hc * 0.13,
+        mouthHalf: hc * 0.29
+      });
+      ctx.restore();
+    }
+
+    // One injector per bell on the manifold face. A single continuous glowing
+    // strip across the plenum read as a strip light bolted to the back of the
+    // part; three discrete feeds read as three nozzles being fed.
     ctx.save();
     ctx.shadowColor = "#89f7ff";
-    ctx.shadowBlur = qualityShadowBlur(7);
+    ctx.shadowBlur = qualityShadowBlur(5);
     ctx.fillStyle = "#9ff6ff";
-    roundRect(ctx, { x: -hl + unit * 0.1, y: -hc * 0.74, width: unit * 0.14, height: hc * 1.48, radius: unit * 0.04 });
-    ctx.fill();
+    for (const cy of [-hc * 0.65, 0, hc * 0.65]) {
+      roundRect(ctx, {
+        x: manifoldX - unit * 0.17,
+        y: cy - hc * 0.15,
+        width: unit * 0.09,
+        height: hc * 0.3,
+        radius: unit * 0.035
+      });
+      ctx.fill();
+    }
     ctx.restore();
-    const rearX = -hl + unit * 0.48;
-    for (const cy of [-hc * 0.66, -hc * 0.22, hc * 0.22, hc * 0.66]) {
-      drawFootprintPort(unit, rearX, cy, unit * 0.18, cy < 0 ? "#d9fbff" : "#4dd8ff");
-    }
-
-    // Twin intake turbines forward.
-    const frontX = hl - unit * 0.44;
-    for (const cy of [-hc * 0.42, hc * 0.42]) {
-      ctx.fillStyle = "rgba(3,12,20,0.9)";
-      ctx.beginPath();
-      ctx.arc(frontX, cy, unit * 0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#bcefff";
-      ctx.lineWidth = Math.max(fine, unit * 0.06);
-      ctx.beginPath();
-      ctx.arc(frontX, cy, unit * 0.21, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#52d8ff";
-      ctx.beginPath();
-      ctx.arc(frontX, cy, unit * 0.075, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Illuminated fuel conduits tying manifold to turbines.
-    ctx.strokeStyle = "rgba(132,230,255,0.85)";
-    ctx.lineWidth = fine;
-    ctx.beginPath();
-    for (const cy of [-hc * 0.42, hc * 0.42]) {
-      ctx.moveTo(-hl + unit * 0.8, cy);
-      ctx.lineTo(frontX - unit * 0.32, cy);
-    }
-    ctx.stroke();
-    drawFootprintSeams(unit, hl, hc, tilesLong);
     return true;
   }
 
@@ -4462,17 +5135,33 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
   }
 
   if (type === "capacitor") {
-    drawFootprintPanel(unit, hl, hc, 0.91, 0.72, 0.08);
-    const cells = Math.min(4, Math.max(2, tilesLong * 2));
-    const available = hl * 1.55;
-    const cellW = available / cells;
-    ctx.fillStyle = "#60a5fa";
-    for (let i = 0; i < cells; i += 1) {
-      const x = -available * 0.5 + i * cellW + cellW * 0.12;
-      roundRect(ctx, { x, y: -hc * 0.38, width: cellW * 0.76, height: hc * 0.76, radius: unit * 0.045 }); ctx.fill();
+    // Capacitor bank: the same plate pair the 1x1 draws, repeated along the
+    // footprint and tied together by top and bottom charge rails. The flat blue
+    // cell bars it replaces shared nothing with the single-cell part.
+    drawFootprintPanel(unit, hl, hc, 0.92, 0.78, 0.08);
+    const banks = Math.max(2, tilesLong);
+    const span = hl * 1.7;
+    const bankW = span / banks;
+    const plateThickness = Math.min(unit * 0.16, bankW * 0.22);
+    const gapHalf = Math.min(unit * 0.11, bankW * 0.16);
+    const halfHeight = Math.min(hc * 0.5, unit * 0.3);
+    for (let i = 0; i < banks; i += 1) {
+      const cx = -span * 0.5 + bankW * (i + 0.5);
+      drawCapacitorPlatePair(unit, cx, gapHalf, halfHeight, fine, plateThickness);
     }
-    ctx.strokeStyle = "#dbeafe"; ctx.lineWidth = fine;
-    ctx.beginPath(); ctx.moveTo(-available * 0.53, 0); ctx.lineTo(available * 0.53, 0); ctx.stroke();
+
+    // Charge rails across the plate ends, with the bank terminals on the flanks.
+    ctx.strokeStyle = "#93c5fd";
+    ctx.lineWidth = Math.max(0.9, unit * 0.055);
+    ctx.beginPath();
+    for (const sy of [-1, 1]) {
+      ctx.moveTo(-span * 0.5, sy * halfHeight * 1.24);
+      ctx.lineTo(span * 0.5, sy * halfHeight * 1.24);
+    }
+    ctx.stroke();
+    for (const sx of [-1, 1]) {
+      drawFootprintPort(unit, sx * hl * 0.88, 0, unit * 0.075, "#dbeafe");
+    }
     drawFootprintSeams(unit, hl, hc, tilesLong);
     return true;
   }
@@ -4749,20 +5438,25 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
       }
     };
 
-    // Base fill and material are clipped to the rotated prow but drawn in ship
-    // axes so plating direction is continuous across the whole ship.
+    // Base fill and material are clipped to the mirrored+rotated prow but drawn
+    // in ship axes so plating direction is continuous across the whole ship.
+    // Same mirror-then-rotate order and same unrotate trick as
+    // withRotatedShape(): once mirrored, rotate(+angle) is the inverse rotation.
+    const flipX = flippedScaleX(flipped);
     ctx.save();
     ctx.rotate(rotation);
+    ctx.scale(flipX, 1);
     outline();
     ctx.clip();
-    ctx.rotate(-rotation);
+    ctx.rotate(-rotation * flipX);
     ctx.fillRect(-hl, -hc, hl * 2, hc * 2);
     drawMaterial();
     ctx.restore();
 
-    // Silhouette, chamfer and hardware rotate with the prow.
+    // Silhouette, chamfer and hardware mirror and rotate with the prow.
     ctx.save();
     ctx.rotate(rotation);
+    ctx.scale(flipX, 1);
     drawEdge();
     outline();
     ctx.strokeStyle = "rgba(3,6,12,0.72)";
@@ -4785,7 +5479,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
 // and the body is centred on the origin. Shared by the arena ship renderer and
 // the designer icon baker so blueprint and in-game visuals match. 1x1 parts
 // keep using drawModule(); this only handles the elongated/multi-cell types.
-export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim, drawBase = true, drawDetail = true, visualState = "safed", rotation = 0 }) {
+export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, color, trim, drawBase = true, drawDetail = true, visualState = "safed", rotation = 0, flipped = false }) {
   const hl = (tilesLong * unit) / 2; // half length along +x
   const hc = (tilesCross * unit) / 2; // half width along y
   const edge = "rgba(3,6,12,0.72)";
@@ -4814,7 +5508,7 @@ export function drawFootprintComponent({ type, unit, tilesLong, tilesCross, colo
     return;
   }
 
-  if (drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, bodyColor, hl, hc, visualState, rotation)) {
+  if (drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, bodyColor, hl, hc, visualState, rotation, flipped)) {
     ctx.restore();
     return;
   }

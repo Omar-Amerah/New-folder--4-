@@ -1,6 +1,8 @@
 import { normalizeRotation } from "../../design/rotation.js";
 export function shipStructuralRevisionKey({ design = [], trimColor = "", qualityGeneration = 0, artVersion = 1 } = {}) {
-  const parts = design.map((part) => `${part.type || "frame"}@${Number(part.x)||0},${Number(part.y)||0},r${normalizeRotation(part.rotation)||0}`);
+  // The mirror is part of the baked silhouette, so it has to key the texture:
+  // without it a flipped component would reuse the unflipped hull bake.
+  const parts = design.map((part) => `${part.type || "frame"}@${Number(part.x)||0},${Number(part.y)||0},r${normalizeRotation(part.rotation)||0}${part.flipped === true ? "m" : ""}`);
   if (parts.length > 512) return `v${artVersion}|q${qualityGeneration}|c${trimColor}|n${parts.length}|h${hashString(parts.join(";"))}`;
   return `v${artVersion}|q${qualityGeneration}|c${trimColor}|n${parts.length}|${parts.join(";")}`;
 }

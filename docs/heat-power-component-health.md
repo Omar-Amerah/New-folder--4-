@@ -20,7 +20,7 @@ Heat generation is component-local. Firing weapons, engine activity, shield rege
 
 ## Capacity, transfer and cooling
 
-Capacity comes from shared thermal profiles, including sinks and adjacent sink bonuses. Heat pressure uses `currentHeat / maxHeat` with both values computed over the same included living components. Transfer moves heat from hotter normalized ratios toward cooler connected neighbors without allowing negative stored heat. Cooling removes no more heat than exists, and radiator/sink/network summaries avoid double-counting removed heat.
+Capacity comes from shared thermal profiles and is per-component: a Heat Sink's thermal mass belongs to the sink, not to its neighbours. Heat pressure uses `currentHeat / maxHeat` with both values computed over the same included living components. Transfer moves heat from hotter normalized ratios toward cooler connected neighbors — by direct-edge conduction, and over Heat Pipe coolant networks — without allowing negative stored heat. Cooling removes no more heat than exists, and radiator/vent/sink/network summaries avoid double-counting removed heat.
 
 ## State thresholds and effects
 
@@ -74,7 +74,7 @@ Section 8C does not redesign the Heat interface, rebalance heat, change HUD layo
 
 ## Section 8D cleanup policy
 
-Effective thermal capacity is the base profile capacity plus bonuses from currently living adjacent heat sinks. Physical adjacency remains immutable, but `recalculateEffectiveThermalCapacities(ship)` reapplies live sink bonuses whenever component lifecycle changes; a destroyed sink gives no neighbor bonus and a repaired sink restores it without creating heat. Stored component heat is clamped to the existing `capacity * 1.25` policy after capacity changes.
+Effective thermal capacity is a component's own base profile capacity, HP-scaled for Heat Sinks and reduced by any hosted Wiring displacement. There is no adjacency bonus: standing next to a Heat Sink never raises a component's capacity, so a sink's storage is only usable once heat is actually transferred into it. `recalculateEffectiveThermalCapacities(ship)` reapplies HP scaling whenever component lifecycle changes; a destroyed sink drops out of aggregate capacity and a repaired sink returns without creating heat. Stored component heat is clamped to the existing `capacity * 1.25` policy after capacity changes.
 
 Destroyed components retain stored heat in their component tuple, but authoritative whole-ship heat (`heatNow`, `heatMax`, pressure and hot counts) includes only living components. Client diagnostics therefore compare the same living set when component HP is available and report `insufficientData` instead of warning when HP is unavailable.
 

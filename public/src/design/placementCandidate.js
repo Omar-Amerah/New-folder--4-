@@ -3,12 +3,15 @@ import { getOccupiedCells } from "./footprint.js";
 import { isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
 import { makeDesignPart } from "./blueprintStorage.js";
+import "../shared/componentTransform.js";
+
+const ComponentTransform = globalThis.ComponentTransform;
 
 export const GRID_SIZE = 15;
 
 function cellsFor(part, catalogue) {
   const stat = catalogue?.[part.type] || catalogue?.frame || {};
-  return getOccupiedCells(part.x, part.y, stat.footprint || { width: 1, height: 1 }, part.rotation || 0);
+  return getOccupiedCells(part.x, part.y, stat.footprint || { width: 1, height: 1 }, part.rotation || 0, part.flipped === true);
 }
 
 export function findPartAtCell(design, catalogue, x, y) {
@@ -20,7 +23,7 @@ export function findPartAtCell(design, catalogue, x, y) {
 
 function cellKey(cell) { return `${cell.x},${cell.y}`; }
 
-export function createPlacementCandidate({ grid, componentType, rotation = 0, design = [], catalogue = {}, mode = "replace" }) {
+export function createPlacementCandidate({ grid, componentType, rotation = 0, flipped = false, design = [], catalogue = {}, mode = "replace" }) {
   const x = Number(grid?.x);
   const y = Number(grid?.y);
   const type = String(componentType || "");
@@ -33,7 +36,10 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
   const targetX = editingSamePart ? existing.x : x;
   const targetY = editingSamePart ? existing.y : y;
   const normalizedRotation = type === "maneuverThruster" ? maneuverThrusterAutoRotation(targetX) : isRotatablePart(type) ? normalizeRotation(rotation, catalogue[type]?.allowedRotations, targetX) : 0;
-  const part = makeDesignPart(targetX, targetY, type, normalizedRotation);
+  // A flip the catalogue does not offer is dropped here, so the preview, the
+  // validity check and the placed part all describe the same transform.
+  const normalizedFlip = ComponentTransform.normalizePartFlip(catalogue[type], flipped);
+  const part = makeDesignPart(targetX, targetY, type, normalizedRotation, normalizedFlip);
   const occupiedCells = cellsFor(part, catalogue);
   const outOfBoundsCells = occupiedCells.filter(cell => cell.x < 0 || cell.x >= GRID_SIZE || cell.y < 0 || cell.y >= GRID_SIZE);
   const baseDesign = existing && mode !== "add" ? design.filter(candidate => candidate !== existing) : [...design];
@@ -82,6 +88,7 @@ export function createPlacementCandidate({ grid, componentType, rotation = 0, de
     part,
     normalizedPart: part,
     normalizedRotation: part.rotation,
+    normalizedFlipped: part.flipped === true,
     occupiedCells,
     overlaps,
     outOfBoundsCells,

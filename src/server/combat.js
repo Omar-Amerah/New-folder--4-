@@ -329,9 +329,11 @@ function inductionEdgeWeight(topology, edgeId) {
   if (!topology) return 0;
   const shared = Number(topology.edgeSharedEdges[edgeId]) || 0;
   const capped = Math.min(shared, 2);
+  // Induction heat spreads along physical conduction only: the base edge
+  // conductivity already carries the material difference between frames,
+  // armour and systems.
   const conductivity = Number(topology.edgeBaseConductivity[edgeId]) || 0;
-  const route = Number(topology.edgeRouteMultiplier[edgeId]) || 1;
-  return Math.max(0, conductivity * route * capped);
+  return Math.max(0, conductivity * capped);
 }
 
 function distributeInductionHeat(target, selectedIndex, totalInductionHeat, weapon) {
@@ -2417,6 +2419,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
           addBullet(room, {
 
             type: "bolt",
+
+            // Presentation only: lets the client size the tracer by weapon.
+            subtype: module.type,
 
             ownerId: ship.ownerId,
 

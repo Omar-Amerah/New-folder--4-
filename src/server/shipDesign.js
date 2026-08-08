@@ -7,6 +7,7 @@ const { getOccupiedCells } = require("./footprint");
 const WiringRules = require("../../public/src/shared/wiringRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
 const StructuralConnectivity = require("../../public/src/shared/structuralConnectivity");
+const ComponentTransform = require("../../public/src/shared/componentTransform");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const { BALANCE } = require("./balanceConfig");
 
@@ -39,8 +40,9 @@ function validateDesign(input) {
     if (!PARTS[type]) { issues.push(designIssue("unknown-module", inputIndex)); continue; }
 
     const rotation = normalizePartRotation(type, x, raw?.rotation);
+    const flipped = normalizePartFlip(type, raw?.flipped);
     const footprint = PARTS[type].footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(x, y, footprint, rotation);
+    const cells = getOccupiedCells(x, y, footprint, rotation, flipped);
     let outOfBounds = false;
     let overlap = false;
     for (const cell of cells) {
@@ -54,7 +56,9 @@ function validateDesign(input) {
     counts[type] = (counts[type] || 0) + 1;
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
     if (type === "droneBay") clean.push({ x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(raw?.droneType) });
-    else clean.push({ x, y, type, rotation });
+    // `flipped` is emitted only when true, so designs that predate mirroring
+    // serialize exactly as they did before.
+    else clean.push(flipped ? { x, y, type, rotation, flipped: true } : { x, y, type, rotation });
   }
 
   if (issues.length) return { ok: false, reason: issues[0].message, issue: issues[0], issues, modules: clean };
@@ -131,15 +135,16 @@ function normalizeShipDesignSnapshot(design, { sourceGridSize = 15 } = {}) {
     const y = Math.trunc(Number(part?.y));
     const type = String(part?.type || "");
     const rotation = normalizePartRotation(type, x, part?.rotation);
+    const flipped = normalizePartFlip(type, part?.flipped);
     if (type === "droneBay") return { x, y, type, rotation: 0, droneType: DroneBayRules.normalizeDroneType(part?.droneType) };
-    return { x, y, type, rotation };
+    return flipped ? { x, y, type, rotation, flipped: true } : { x, y, type, rotation };
   });
 }
 
 function assertFootprintsFitGrid(modules, min, max, message) {
   for (const part of modules) {
     const footprint = (PARTS[part.type] || PARTS.frame).footprint || { width: 1, height: 1 };
-    for (const cell of getOccupiedCells(part.x, part.y, footprint, part.rotation || 0)) {
+    for (const cell of getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true)) {
       if (cell.x < min || cell.x > max || cell.y < min || cell.y > max) throw new Error(message);
     }
   }
@@ -167,6 +172,13 @@ function normalizePartRotation(type, x, rotation) {
   return type === "maneuverThruster" ? RotationRules.maneuverThrusterAutoRotation(x) : isRotatablePart(type) ? normalizeRotation(rotation, allowed, x) : 0;
 }
 
+// A client may only claim `flipped` on a component the catalogue marks
+// flippable; anything else is silently dropped rather than rejected, so an old
+// or hand-edited blueprint still deploys.
+function normalizePartFlip(type, flipped) {
+  return ComponentTransform.normalizePartFlip(PARTS[type], flipped);
+}
+
 function isRotatablePart(type) {
   const part = PARTS[type] || {};
   if (type === "engine" || type === "compactEngine" || type === "heavyEngine" || type === "maneuverThruster" || type === "droneBay") return false;
@@ -192,5 +204,6 @@ module.exports = {
   normalizeShipDesignSnapshot,
   migrateLegacy11DesignSnapshot,
   normalizeRotation,
-  normalizePartRotation
+  normalizePartRotation,
+  normalizePartFlip
 };

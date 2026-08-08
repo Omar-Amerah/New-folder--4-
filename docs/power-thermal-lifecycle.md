@@ -42,7 +42,19 @@ ship-wide deficit penalty.
 Radiator cooling is split explicitly: 12% of catalogue cooling is a passive
 radiative floor, while the remaining active state-dependent output requires
 component Power and scales by its network multiplier. Heat capacity,
-conductivity, Heat Pipe routing, and natural dissipation remain passive.
+conductivity, coolant transport, and natural dissipation remain passive.
+
+Heat moves by exactly two mechanisms. Physical conduction runs across direct
+tile edges between touching components using the shared edge conductivity;
+material differences (frame, armour, system) already live in that conductivity,
+and there is no routing bonus, so a chain of frames conducts like metal rather
+than acting as a long-distance thermal route. Coolant transport runs over Heat
+Pipe networks: every connected group of living pipes plus the living components
+touching them forms one network, solved once per thermal tick by
+`HeatRules.solveCoolantNetwork`. Pipes remove no heat and store almost none;
+the solve is exactly conserving and bounded by a per-shared-edge conductance, a
+per-shared-edge bandwidth ceiling and an anti-overshoot limit, so attached
+components never equalise instantly.
 
 Generator steady heat uses demand/generation from the source's own cached live
 network. Nominal source generation does not fall with temperature below OVERHEATED;
@@ -52,10 +64,15 @@ lifecycle to avoid an intra-tick feedback loop.
 
 ## Heat hardening lifecycle
 
-Heat Sinks are passive, zero-Power thermal mass. Their own capacity and the
-35-unit bonus they grant each adjacent component scale continuously with current
-HP; capacity loss never deletes retained heat, and a zero-capacity hot wreck is
-reported as saturated. Radiators remain Power consumers: their active cooling
+Heat Sinks are passive, zero-Power thermal mass. That mass is the sink's own:
+neighbours gain no capacity from adjacency, so heat has to be transferred into a
+sink — by direct contact or through a Heat Pipe coolant network — before the
+storage is usable. Sink capacity scales continuously with current HP; capacity
+loss never deletes retained heat, and a zero-capacity hot wreck is reported as
+saturated. Heat Vents are passive, zero-Power hull grilles: their catalogue
+cooling applies in full when at least one edge is exposed to space and drops to
+the shared enclosed multiplier otherwise, with no per-edge scaling above one.
+Radiators remain Power consumers: their active cooling
 uses their component-local Power multiplier, while the passive radiative floor
 remains available when disconnected.
 
@@ -69,7 +86,8 @@ ratio of its own network. Meltdown progress is cleared on generator destruction;
 generator begins a new timer without losing retained heat.
 
 Destroyed components retain stored heat but are excluded from live aggregate
-capacity, pressure, generation, output and active cooling. Wrecks cannot act as
-frame or Heat Pipe routes. They exchange heat only across direct physical edges
-using the shared reduced wreck conductivity, which preserves bounded internal
-transfer without bridging separated routed networks.
+capacity, pressure, generation, output and active cooling. A destroyed Heat Pipe
+leaves its coolant network, splitting the run into the networks that remain, and
+a destroyed frame opens a physical break. Wrecks exchange heat only across direct
+physical edges using the shared reduced wreck conductivity, which preserves
+bounded internal transfer without bridging separated networks.

@@ -9,7 +9,7 @@ const {
   startServer,
   waitForServer,
   uniquePort
-} = require("../verify-pixi-browser-support");
+} = require("./verify-pixi-browser-support");
 
 (async () => {
   const port = uniquePort();

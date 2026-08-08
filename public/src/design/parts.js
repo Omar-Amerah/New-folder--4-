@@ -2,6 +2,9 @@
 
 import { componentIconDataUrl, rotatedFootprint, clearComponentIconCache } from "../ui/componentIcon.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import "../shared/componentTransform.js";
+
+const ComponentTransform = globalThis.ComponentTransform;
 
 export const PART_DEFS = {
   core: { name: "Core", color: "#f3f7ff", glyph: "radial-gradient(circle, #ffffff 0 28%, #86ddff 31% 58%, #2b5d92 60%)" },
@@ -68,7 +71,10 @@ export const PART_DEFS = {
   microThruster: { name: "Micro Thruster", color: "#67e8f9", glyph: "linear-gradient(180deg, #cffafe, #0891b2 55%, #164e63)" },
   heavyEngine: { name: "Heavy Engine", color: "#22d3ee", glyph: "linear-gradient(180deg, #a5f3fc, #0284c7 50%, #082f49)" },
   maneuverThruster: { name: "Maneuver Thruster", color: "#7dd3fc", glyph: "linear-gradient(135deg, #e0f2fe, #0369a1)" },
-  gyroscope: { name: "Gyroscope", color: "#c4b5fd", glyph: "conic-gradient(#ede9fe, #7c3aed, #ede9fe)" },
+  // Blue rather than cyan: it belongs to the Engines family, but it is control
+  // hardware, not thrust. The violet it used to wear put it outside the family
+  // entirely and made it the same colour as the Backup Command Core.
+  gyroscope: { name: "Gyroscope", color: "#60a5fa", glyph: "conic-gradient(#dbeafe, #1d4ed8, #dbeafe)" },
   lightShield: { name: "Light Shield", color: "#86efac", glyph: "radial-gradient(circle, #dcfce7 0 18%, #22c55e 30% 55%, #14532d 62%)" },
   heavyShield: { name: "Heavy Shield", color: "#4ade80", glyph: "radial-gradient(circle, #bbf7d0 0 18%, #16a34a 32% 60%, #052e16 66%)" },
   regenShield: { name: "Regen Shield", color: "#5eead4", glyph: "radial-gradient(circle, #ccfbf1 0 16%, #14b8a6 28% 58%, #134e4a 64%)" },
@@ -96,6 +102,7 @@ export const PART_DEFS = {
   fireControl: { name: "Fire Control", color: "#fdba74", glyph: "linear-gradient(135deg, #7c2d12, #fed7aa)" },
   heatPipe: { name: "Heat Pipe", color: "#38bdf8", glyph: "linear-gradient(90deg, #082f49 0 18%, #38bdf8 20% 36%, #e0f2fe 38% 50%, #38bdf8 52% 68%, #082f49 70%)" },
   heatSink: { name: "Heat Sink", color: "#bfdbfe", glyph: "linear-gradient(180deg, #eff6ff 0 15%, #3b82f6 18% 32%, #eff6ff 35% 50%, #1d4ed8 54%)" },
+  heatVent: { name: "Heat Vent", color: "#5fc9d8", glyph: "repeating-linear-gradient(0deg, #06323f 0 14%, #7fe3f0 15% 26%)" },
   radiator: { name: "Radiator", color: "#7dd3fc", glyph: "repeating-linear-gradient(90deg, #0c4a6e 0 12%, #bae6fd 13% 22%)" },
   closedCycleCooler: { name: "Closed-Cycle Cooler", color: "#22d3ee", glyph: "radial-gradient(circle, #cffafe 0 20%, #22d3ee 25% 55%, #0c4a6e 60%)" },
   burstCooler: { name: "Burst Cooler", color: "#a5f3fc", glyph: "radial-gradient(circle at 50% 62%, #ffffff 0 14%, #a5f3fc 18% 42%, #0e7490 48% 66%, #052e3a 72%)" },
@@ -185,9 +192,10 @@ export const PART_DESCRIPTIONS = Object.freeze({
   aegisProjector: "Defence module that projects a fast-recharging shield field at a high power cost.",
   targetingComputer: "Support computer that improves weapon accuracy.",
   fireControl: "Weapon coordinator that improves rate of fire but uses significant power.",
-  heatPipe: "Dedicated high-conductivity thermal conduit. Components can connect directly along its sides, allowing heat to move rapidly toward Heat Sinks and Radiators. It stores little heat, removes no heat by itself and stops routing when destroyed.",
-  heatSink: "High-capacity thermal buffer that soaks heat from connected frames and boosts adjacent components' heat capacity. Pair with radiators to shed the stored heat.",
-  radiator: "Continuous heat removal that works best with an exposed exterior edge; only 25% effective when fully enclosed.",
+  heatPipe: "Transfers heat rapidly between components connected to the same coolant network. Does not remove heat itself. Pipes link automatically to orthogonally adjacent pipes and components, and a destroyed pipe splits the network.",
+  heatSink: "Stores large amounts of heat. Connect it to hot systems with Heat Pipes to absorb thermal spikes. Neighbouring components gain no capacity from it — the heat has to reach the sink.",
+  heatVent: "Cheap passive heat rejection. Must be exposed to space and connected to hot systems directly or through Heat Pipes. Much weaker than a Radiator, but small, cheap and free of Power draw.",
+  radiator: "The strongest sustained heat rejection available. Works best with an exposed exterior edge; only 25% effective when fully enclosed.",
   signalAmplifier: "Support transmitter that extends weapon range for command and skirmish ships.",
   stabilizerNode: "Support stabilizer that improves weapon accuracy and slightly helps turning.",
   repairBeam: "Heavy support repair system with stronger hull recovery and high power draw.",
@@ -230,6 +238,13 @@ export function applyServerParts(parts) {
   return true;
 }
 
+// Mirroring is opt-in per catalogue entry (component-balance.json `flippable`).
+// Symmetric blocks, weapons, reactors and engines deliberately do not offer it:
+// pressing F on them is a no-op rather than an error.
+export function isFlippablePart(type) {
+  return ComponentTransform.isFlippableStat(PART_STATS[type]);
+}
+
 export function isRotatablePart(type) {
   if (FIXED_ORIENTATION_PARTS.has(type)) return false;
   const stat = PART_STATS[type] || {};
@@ -269,10 +284,13 @@ export function partDescription(type, stat) {
   return stat.description || PART_DESCRIPTIONS[type] || "General-purpose ship component.";
 }
 
-export function partIconMarkup(type, extraClass = "", rotationDeg = 0) {
+export function partIconMarkup(type, extraClass = "", rotationDeg = 0, flipped = false, connectionMask = 0) {
   const safeType = String(type || "frame").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
   const classes = ["part-glyph", `part-${safeType}`, extraClass].filter(Boolean).join(" ");
-  const url = componentIconDataUrl(type, rotationDeg);
+  // The mirror is baked into the PNG, not applied as a CSS transform, so the
+  // icon, the placement ghost and the arena hull all come from one drawing pass.
+  // connectionMask does the same for Heat Pipe plumbing shapes.
+  const url = componentIconDataUrl(type, rotationDeg, flipped, connectionMask);
   // The baked PNG carries the footprint aspect ratio as its intrinsic size, so an
   // <img> scales correctly in the palette, grid, and inspector with plain CSS.
   const src = url ? `src="${url}" ` : "";
@@ -415,6 +433,7 @@ export function normalizeRuntimePart(part = {}) {
     rotatable: Boolean(part.rotatable || part.rotationRequired),
     rotationRequired: Boolean(part.rotationRequired || part.rotatable),
     allowedRotations: Array.isArray(part.allowedRotations) ? part.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
+    flippable: Boolean(part.flippable),
     ecmStrength: numberOr(part.ecmStrength, 0),
     frontDamageReduction: numberOr(part.frontDamageReduction, 0),
     frontArc: numberOr(part.frontArc, 0),
@@ -471,6 +490,7 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
+    flippable: Boolean(component.flippable),
     ecmStrength: numberOr(component.ecmStrength, 0),
     frontDamageReduction: numberOr(component.frontDamageReduction, 0),
     frontArc: numberOr(component.frontArc, 0),

@@ -9,6 +9,7 @@ const designer = fs.readFileSync("public/src/ui/designerUi.js", "utf8");
 const damage = fs.readFileSync("public/src/ui/shipDamagePanelUi.js", "utf8");
 const snapshots = fs.readFileSync("src/server/snapshots.js", "utf8");
 const merge = fs.readFileSync("public/src/snapshotMerge.js", "utf8");
+const thermal = fs.readFileSync("public/src/design/thermalAnalysis.js", "utf8");
 const css = fs.readFileSync("public/styles/build-grid.css", "utf8");
 const runner = fs.readFileSync("tools/run-tests.js", "utf8");
 
@@ -18,8 +19,18 @@ has(designer, /THERMAL_SCENARIO_EXPLANATIONS[\s\S]*idle:[\s\S]*standby[\s\S]*com
 has(designer, /Component Heat generation[\s\S]*Power cable Heat generation[\s\S]*Total Heat generation/, "Blueprint summary separates component Heat and cable Heat");
 has(designer, /Power requested[\s\S]*Power delivered[\s\S]*Power spare \/ unmet/, "Blueprint summary shows requested/delivered/spare/unmet Power");
 has(designer, /Hottest component[\s\S]*Hottest cable section/, "Blueprint summary shows hottest component and cable section");
-has(designer, /Base Heat capacity[\s\S]*Capacity bonuses[\s\S]*Power\/Data displacement[\s\S]*Final Heat capacity/, "Component inspection displays capacity bonuses, displacement and final capacity");
-has(designer, /Component activity Heat[\s\S]*Hosted Power cable Heat[\s\S]*Total generated Heat/, "Component inspection separates activity and cable Heat");
+// 7D-4 originally routed the per-component capacity/activity/cable Heat
+// breakdown through the Heat hover card. The hover card is now a decision aid
+// (see tests/verify-heat-hover-card.js): the authoritative per-component
+// diagnostics still exist on the analysis result for the detailed panels, but
+// they are deliberately no longer rendered under the cursor — and
+// componentActivityHeat in particular is an accumulated simulation total, which
+// is meaningless next to H/s values.
+has(thermal, /baseHeatCapacity[\s\S]*powerDisplacement[\s\S]*dataDisplacement[\s\S]*finalHeatCapacity/, "Analysis still exposes capacity bonuses, displacement and final capacity");
+has(thermal, /componentActivityHeat[\s\S]*powerCableHeat[\s\S]*totalGeneratedHeat/, "Analysis still separates activity and cable Heat");
+for (const phrase of ["Base Heat capacity", "Capacity bonuses", "Component activity Heat", "Hosted Power cable Heat", "Operational multiplier"]) {
+  assert(!designer.includes(phrase), `Heat hover card must not dump "${phrase}" diagnostics under the cursor`);
+}
 has(designer, /hostedActiveSectionIds[\s\S]*heat-hosted-power-section/, "Selecting or hovering a component highlights hosted Power sections");
 has(designer, /heat-flag-displacement[\s\S]*heat-flag-cable-heat[\s\S]*heat-flag-cable-overload[\s\S]*heat-flag-cable-peak[\s\S]*heat-flag-cable-risk/, "Overlay flags displacement, cable Heat, overload, peak and cable thermal risk");
 has(css, /heat-flag-cable-heat[\s\S]*box-shadow[\s\S]*heat-flag-cable-risk[\s\S]*repeating-linear-gradient/, "Thermal overlays use outlines/patterns rather than replacing tier colour");

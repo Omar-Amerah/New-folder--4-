@@ -391,6 +391,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "Triangular armor piece for tapered ship edges. Occupies one cell and provides 50% of the standard armor block's stats.",
       "shapeType": "halfDiagonal",
+      "flippable": true,
       "statScale": 0.5,
       "rotatable": true
     },
@@ -412,6 +413,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "Triangular composite armor piece for tapered ship edges. Occupies one cell and provides 50% of the standard composite armor block's stats.",
       "shapeType": "halfDiagonal",
+      "flippable": true,
       "statScale": 0.5,
       "rotatable": true
     },
@@ -432,6 +434,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "Triangular frame piece for tapered ship edges. Occupies one cell and provides 50% of the standard frame block's stats.",
       "shapeType": "halfDiagonal",
+      "flippable": true,
       "statScale": 0.5,
       "rotatable": true
     },
@@ -515,6 +518,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A square armour panel with one corner clipped for tapered edges.",
       "shapeType": "bevel",
+      "flippable": true,
       "statScale": 0.75,
       "rotatable": true
     },
@@ -536,6 +540,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A lighter composite panel with one corner clipped for tapered edges.",
       "shapeType": "bevel",
+      "flippable": true,
       "statScale": 0.75,
       "rotatable": true
     },
@@ -556,6 +561,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A cheap structural panel with one corner clipped for tapered edges.",
       "shapeType": "bevel",
+      "flippable": true,
       "statScale": 0.75,
       "rotatable": true
     },
@@ -577,6 +583,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A square armour panel with one outer corner rounded off.",
       "shapeType": "roundedCorner",
+      "flippable": true,
       "statScale": 0.8,
       "rotatable": true
     },
@@ -598,6 +605,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A lighter composite panel with one outer corner rounded off.",
       "shapeType": "roundedCorner",
+      "flippable": true,
       "statScale": 0.8,
       "rotatable": true
     },
@@ -618,6 +626,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A cheap structural panel with one outer corner rounded off.",
       "shapeType": "roundedCorner",
+      "flippable": true,
       "statScale": 0.8,
       "rotatable": true
     },
@@ -639,6 +648,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A long two-cell armour wedge with a broad rear and a pointed nose.",
       "shapeType": "longWedge",
+      "flippable": true,
       "statScale": 1.5,
       "rotatable": true,
       "footprint": {
@@ -664,6 +674,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A long two-cell composite wedge with a broad rear and a pointed nose.",
       "shapeType": "longWedge",
+      "flippable": true,
       "statScale": 1.5,
       "rotatable": true,
       "footprint": {
@@ -688,6 +699,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A long two-cell frame wedge with a broad rear and a pointed nose.",
       "shapeType": "longWedge",
+      "flippable": true,
       "statScale": 1.5,
       "rotatable": true,
       "footprint": {
@@ -731,6 +743,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "Triangular sacrificial plating for tapered ship edges. Occupies one cell and provides 50% of the standard Ablative Plating block's stats.",
       "shapeType": "halfDiagonal",
+      "flippable": true,
       "statScale": 0.5,
       "rotatable": true
     },
@@ -773,6 +786,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A square sacrificial plating panel with one corner clipped for tapered edges.",
       "shapeType": "bevel",
+      "flippable": true,
       "statScale": 0.75,
       "rotatable": true
     },
@@ -794,6 +808,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A sacrificial plating panel with one outer corner rounded off.",
       "shapeType": "roundedCorner",
+      "flippable": true,
       "statScale": 0.8,
       "rotatable": true
     },
@@ -815,6 +830,7 @@ export const GENERATED_BALANCE = {
       "repair": 0,
       "description": "A long two-cell sacrificial plating wedge with a broad rear and a pointed nose.",
       "shapeType": "longWedge",
+      "flippable": true,
       "statScale": 1.5,
       "rotatable": true,
       "footprint": {
@@ -868,6 +884,7 @@ export const GENERATED_BALANCE = {
       "heatBeamShield": true,
       "description": "Triangular Refractory Armour piece for tapered ship edges. Occupies one cell and provides 50% of the standard Refractory Armour block's stats, including half its thermal mass. It still blocks induction Heat beams outright.",
       "shapeType": "halfDiagonal",
+      "flippable": true,
       "statScale": 0.5,
       "rotatable": true
     },
@@ -920,6 +937,7 @@ export const GENERATED_BALANCE = {
       "heatBeamShield": true,
       "description": "A square Refractory Armour panel with one corner clipped for tapered edges. It still blocks induction Heat beams outright.",
       "shapeType": "bevel",
+      "flippable": true,
       "statScale": 0.75,
       "rotatable": true
     },
@@ -946,6 +964,7 @@ export const GENERATED_BALANCE = {
       "heatBeamShield": true,
       "description": "A Refractory Armour panel with one outer corner rounded off. It still blocks induction Heat beams outright.",
       "shapeType": "roundedCorner",
+      "flippable": true,
       "statScale": 0.8,
       "rotatable": true
     },
@@ -972,6 +991,7 @@ export const GENERATED_BALANCE = {
       "heatBeamShield": true,
       "description": "A long two-cell Refractory Armour wedge with a broad rear and a pointed nose. Its enormous thermal mass makes it the natural prow for a ship expecting Heat weapons, and it blocks induction Heat beams outright.",
       "shapeType": "longWedge",
+      "flippable": true,
       "statScale": 1.5,
       "rotatable": true,
       "footprint": {
@@ -983,10 +1003,10 @@ export const GENERATED_BALANCE = {
       "id": "auxGenerator",
       "name": "Aux Generator",
       "category": "Power",
-      "cost": 12,
-      "mass": 3,
+      "cost": 13,
+      "mass": 4,
       "hull": 26,
-      "powerGeneration": 3.2,
+      "powerGeneration": 5,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
@@ -1740,10 +1760,10 @@ export const GENERATED_BALANCE = {
       "name": "Spinal Accelerator",
       "category": "Weapons",
       "cost": 300,
-      "mass": 100,
+      "mass": 120,
       "hull": 210,
       "powerGeneration": 0,
-      "powerUse": 26,
+      "powerUse": 30,
       "powerCategory": "weapons",
       "shield": 0,
       "shieldRegen": 0,
@@ -1754,7 +1774,7 @@ export const GENERATED_BALANCE = {
       "maxPerShip": 1,
       "weapon": {
         "family": "railgun",
-        "damage": 850,
+        "damage": 1200,
         "fireRate": 0.25,
         "range": 2200,
         "projectileSpeed": 3400,
@@ -1898,7 +1918,7 @@ export const GENERATED_BALANCE = {
       "utility": "heatTransfer",
       "heatCapacity": 10,
       "heatCooling": 0,
-      "description": "Specialised high-conductivity thermal conduit that transfers heat to a connected sink or radiator route. It removes no heat by itself, stores very little heat, and is structurally weak: use frames for hull support and heat pipes for dedicated long thermal runs."
+      "description": "Transfers heat rapidly between components connected to the same coolant network. Does not remove heat itself. Pipes join automatically to orthogonally adjacent pipes and components — no rotation needed — but they store almost no heat and are structurally weak, so use frames for hull support and heat pipes for dedicated thermal runs."
     },
     {
       "id": "heatSink",
@@ -1916,7 +1936,28 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "High-capacity thermal buffer. Soaks a large amount of heat from connected frames and nearby components, buying time before they overheat. Pair with radiators to shed the stored heat."
+      "description": "Stores large amounts of heat. Connect it to hot systems with Heat Pipes to absorb thermal spikes. Its capacity is its own — neighbouring components gain nothing from sitting beside it — and it removes very little heat, so pair it with a Radiator to shed what it has stored."
+    },
+    {
+      "id": "heatVent",
+      "name": "Heat Vent",
+      "category": "Heat Components",
+      "cost": 10,
+      "mass": 2,
+      "hull": 18,
+      "powerGeneration": 0,
+      "powerUse": 0,
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": 0,
+      "energy": 0,
+      "repair": 0,
+      "utility": "cooling",
+      "heatCapacity": 45,
+      "heatCooling": 4,
+      "heatConductivity": 1,
+      "description": "Cheap passive heat rejection. Must be exposed to space and connected to hot systems directly or through Heat Pipes. One exposed edge is enough; fully enclosed it vents almost nothing. Far weaker than a Radiator, but small, cheap and free of Power draw."
     },
     {
       "id": "radiator",
@@ -1935,7 +1976,7 @@ export const GENERATED_BALANCE = {
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "Exterior radiator for continuous local heat removal. Requires an exposed edge for full output."
+      "description": "The ship's strongest sustained heat rejection. Needs an exposed exterior edge for full output and drops to 25% when fully enclosed. Feed it from hot systems directly or through Heat Pipes."
     },
     {
       "id": "closedCycleCooler",

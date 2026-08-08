@@ -45,7 +45,7 @@ export function shipLocalBounds(design, scale = 13) {
 
   for (const part of design) {
     const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
     for (const cell of cells) {
       const center = moduleLocalPosition(cell, scale);
       const left = center.x - halfCell;
@@ -79,7 +79,7 @@ export function shipLocalBounds(design, scale = 13) {
 export function footprintLocalPlacement(part, scale) {
   const stat = PART_STATS[part.type] || {};
   const footprint = stat.footprint || { width: 1, height: 1 };
-  const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+  const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
   let sx = 0, sy = 0, minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
   for (const cell of cells) {
     const p = moduleLocalPosition(cell, scale);

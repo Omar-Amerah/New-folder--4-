@@ -3,7 +3,7 @@
 // with what ships look like on the map. Multi-cell parts render at their footprint
 // aspect ratio with a hull plate behind the single-cell emblem.
 
-import { PART_DEFS, PART_STATS, isRotatablePart } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart, isFlippablePart } from "../design/parts.js";
 import {
   directionalFootprintToShipRadians,
   normalizeRotation,
@@ -90,15 +90,20 @@ function footprintArtAngle(type, rotationDeg, wCells, hCells) {
   return wCells >= hCells ? 0 : -Math.PI / 2;
 }
 
-export function componentIconDataUrl(type, rotationDeg = 0) {
+// connectionMask carries a placed component's live coolant connections (see
+// design/coolantLayout.js). It only changes the art of thermal-plumbing parts,
+// and joins the cache key so each distinct pipe shape bakes exactly once.
+export function componentIconDataUrl(type, rotationDeg = 0, flipped = false, connectionMask = 0) {
   const iconRotation = type === "maneuverThruster" && ![90, 270].includes(Number(rotationDeg)) ? 270 : rotationDeg;
   const { width: w, height: h } = rotatedFootprint(type, iconRotation);
-  const key = `${type}|${w}x${h}|${normalizeRotation(iconRotation)}`;
+  const mirrored = isFlippablePart(type) && flipped === true;
+  const mask = (Number(connectionMask) || 0) & 15;
+  const key = `${type}|${w}x${h}|${normalizeRotation(iconRotation)}|${mirrored ? "f" : "n"}|${mask}`;
   const cached = iconCache.get(key);
   if (cached !== undefined) return cached;
   let url = "";
   try {
-    url = bakeIcon(type, w, h, iconRotation);
+    url = bakeIcon(type, w, h, iconRotation, mirrored, mask);
   } catch (error) {
     // One broken vector must not abort palette/grid rendering and leave the
     // Blueprint Designer in a half-cleared state. Cache the empty fallback so
@@ -109,7 +114,7 @@ export function componentIconDataUrl(type, rotationDeg = 0) {
   return url;
 }
 
-function bakeIcon(type, wCells, hCells, rotationDeg) {
+function bakeIcon(type, wCells, hCells, rotationDeg, flipped = false, connectionMask = 0) {
   if (typeof document === "undefined" || typeof document.createElement !== "function") return "";
   const logicalW = wCells * CELL + PAD * 2;
   const logicalH = hCells * CELL + PAD * 2;
@@ -135,11 +140,14 @@ function bakeIcon(type, wCells, hCells, rotationDeg) {
       const tilesLong = Math.max(wCells, hCells);
       const tilesCross = Math.min(wCells, hCells);
       ictx.rotate(footprintArtAngle(type, rotationDeg, wCells, hCells));
-      drawFootprintComponent({ type, unit: EMBLEM, tilesLong, tilesCross, color, trim: NEUTRAL_TRIM });
+      // The icon canvas already carries the rotation, so the art helper only
+      // needs the mirror; drawn last, it is the inner (first-applied) transform
+      // the shared mirror-then-rotate order requires.
+      drawFootprintComponent({ type, unit: EMBLEM, tilesLong, tilesCross, color, trim: NEUTRAL_TRIM, flipped });
     } else {
       ictx.rotate(emblemAngle(type, rotationDeg));
       // drawModule reads the module-level ctx, which withCanvasContext has pointed here.
-      drawModule({ x: 0, y: 0, size: EMBLEM, color, type, trim: NEUTRAL_TRIM });
+      drawModule({ x: 0, y: 0, size: EMBLEM, color, type, trim: NEUTRAL_TRIM, flipped, connectionMask });
     }
     ictx.restore();
   });

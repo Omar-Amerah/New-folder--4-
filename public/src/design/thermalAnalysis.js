@@ -24,13 +24,13 @@ function wiringInfrastructureAccounting(design, wiring) {
   }
 }
 
-// Apply Power/Data displacement to a capacity that already includes legitimate
-// static bonuses (heat-sink adjacency), then clamp to the configured minimum.
-function clampWiringCapacity(capacityWithBonuses, powerDisplacement, dataDisplacement) {
-  if (!WIRING_ENABLED) return capacityWithBonuses;
+// Apply Power/Data displacement to a component's own heat capacity, then clamp
+// to the configured minimum.
+function clampWiringCapacity(ownCapacity, powerDisplacement, dataDisplacement) {
+  if (!WIRING_ENABLED) return ownCapacity;
   const rules = globalThis.WiringInfrastructureRules;
-  if (!rules) return capacityWithBonuses;
-  return rules.clampDisplacedCapacity(capacityWithBonuses, powerDisplacement, dataDisplacement, WIRING_INFRASTRUCTURE);
+  if (!rules) return ownCapacity;
+  return rules.clampDisplacedCapacity(ownCapacity, powerDisplacement, dataDisplacement, WIRING_INFRASTRUCTURE);
 }
 
 const thermalAnalysisCache = new Map();
@@ -78,15 +78,15 @@ export function buildThermalModel(design, wiring = null) {
     }
     else if (neighbour !== undefined && neighbour !== i) edgeMaps[i].set(neighbour, (edgeMaps[i].get(neighbour) || 0) + 1);
   }
-  // Base per-component capacity from the Heat profile, before adjacency bonus.
+  // Base per-component capacity from the Heat profile, before wiring displacement.
   const baseProfiles = design.map((module) => rules.profile(module.type, PART_STATS[module.type] || {}));
   const wiringAccounting = wiringInfrastructureAccounting(design, wiring);
-  const heatSinkBonus = design.map((module, i) => [...edgeMaps[i].keys()].filter(j => design[j].type === "heatSink").length * 35);
   const profiles = design.map((module, i) => {
-    // Capacity order matches the server: base + legitimate static bonuses
-    // (heat-sink adjacency) - Power/Data displacement -> clamp to minimum.
+    // Capacity order matches the server: a component's own base capacity
+    // - Power/Data displacement -> clamp to minimum. A Heat Sink's thermal mass
+    // stays in the Heat Sink; neighbours get no share of it.
     const entry = wiringAccounting ? wiringAccounting.byComponentIndex[i] : null;
-    const capacity = clampWiringCapacity(baseProfiles[i].capacity + heatSinkBonus[i], entry ? entry.powerDisplacement : 0, entry ? entry.dataDisplacement : 0);
+    const capacity = clampWiringCapacity(baseProfiles[i].capacity, entry ? entry.powerDisplacement : 0, entry ? entry.dataDisplacement : 0);
     return { ...baseProfiles[i], baseHeatCapacity: baseProfiles[i].capacity, capacity, exposedEdges: exposed[i] };
   });
   const heatDiagnostics = wiringAccounting ? design.map((module, i) => {
@@ -107,11 +107,12 @@ export function buildThermalModel(design, wiring = null) {
   for (let i = 0; i < design.length; i += 1) for (const [j, sharedEdges] of edgeMaps[i]) if (j > i) {
     edges.push({ i, j, sharedEdges, conductivity: rules.edgeConductivity(profiles[i], profiles[j]) });
   }
+  const coolantNetworks = buildCoolantNetworks(design, edgeMaps, rules);
   const frameCoolingDistance = design.map(() => Infinity);
   const coolingFrames = [];
   for (let i = 0; i < design.length; i += 1) {
     if (!isFrame(design[i].type)) continue;
-    if ([...edgeMaps[i].keys()].some(j => design[j].type === "radiator" || design[j].type === "heatSink" || design[j].type === "closedCycleCooler" || design[j].type === "burstCooler")) {
+    if ([...edgeMaps[i].keys()].some(j => COOLING_ENDPOINT_TYPES.has(design[j].type) || design[j].type === "burstCooler")) {
       frameCoolingDistance[i] = 0; coolingFrames.push(i);
     }
   }
@@ -122,7 +123,49 @@ export function buildThermalModel(design, wiring = null) {
       frameCoolingDistance[neighbour] = frameCoolingDistance[frame] + 1; coolingFrames.push(neighbour);
     }
   }
-  return { design, rules, owners, cells, exposed, exteriorDirections, edgeMaps, profiles, edges, frameCoolingDistance, heatDiagnostics };
+  return { design, rules, owners, cells, exposed, exteriorDirections, edgeMaps, profiles, edges, coolantNetworks, frameCoolingDistance, heatDiagnostics };
+}
+
+/**
+ * Group Heat Pipes into coolant transport networks, mirroring the server's
+ * rebuildCoolantNetworks(). One network per connected run of pipes, plus every
+ * component that shares an orthogonal tile edge with one of those pipes.
+ * @param {Array<{type:string}>} design
+ * @param {Array<Map<number, number>>} edgeMaps Shared-edge counts by component.
+ * @param {object} rules Shared HeatRules.
+ * @returns {Array<{id:number,pipeIndices:number[],attachments:Array<{index:number,sharedEdges:number}>}>}
+ */
+export function buildCoolantNetworks(design, edgeMaps, rules = globalThis.HeatRules) {
+  const pipes = new Set(design.map((module, i) => (rules.isCoolantTransportType(module.type) ? i : -1)).filter(i => i >= 0));
+  const visited = new Set();
+  const networks = [];
+  for (const start of pipes) {
+    if (visited.has(start)) continue;
+    const pipeIndices = [];
+    const queue = [start]; visited.add(start);
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const index = queue[cursor]; pipeIndices.push(index);
+      for (const neighbour of edgeMaps[index].keys()) {
+        if (pipes.has(neighbour) && !visited.has(neighbour)) { visited.add(neighbour); queue.push(neighbour); }
+      }
+    }
+    const attachments = [];
+    const attachmentPosition = new Map();
+    for (const pipeIndex of pipeIndices) {
+      for (const [neighbour, sharedEdges] of edgeMaps[pipeIndex]) {
+        if (pipes.has(neighbour)) continue;
+        const existing = attachmentPosition.get(neighbour);
+        if (existing === undefined) {
+          attachmentPosition.set(neighbour, attachments.length);
+          attachments.push({ index: neighbour, pipeIndex, sharedEdges });
+        } else {
+          attachments[existing].sharedEdges += sharedEdges;
+        }
+      }
+    }
+    networks.push({ id: networks.length, pipeIndices, attachments });
+  }
+  return networks;
 }
 
 /**
@@ -191,7 +234,7 @@ export function buildThermalLoad(model, mode = "full", wiring = null, options = 
  * @returns {object} Raw simulation arrays and aggregate timing/cooling measurements.
  */
 export function simulateThermalLoad(model, load, options = {}) {
-  const { design, rules, profiles, edges, exposed, frameCoolingDistance } = model;
+  const { design, rules, profiles, edges, exposed, coolantNetworks } = model;
   let generationRates = [...load.generationRates];
   // Section 7D-3: predicted Power-cable Heat per component, refreshed whenever
   // Power is reallocated. Tracked separately from component activity Heat.
@@ -223,6 +266,13 @@ export function simulateThermalLoad(model, load, options = {}) {
   const cooling = design.map(() => 0);
   const componentVentedOverflowHeat = design.map(() => 0);
   const generatedHeat = design.map(() => 0);
+  // Heat actually produced during the most recent tick, as a rate. The nominal
+  // generationRates entry is what the component would make at full output; this
+  // is what it made at the instant the simulation stopped, after heat throttling
+  // and generator shutdown. The two differ exactly when the component is being
+  // penalised, so a readout that pairs it with the final transfer/cooling rates
+  // describes one instant instead of mixing nominal and settled figures.
+  const finalGeneratedRate = design.map(() => 0);
   const timeToOverheat = design.map(() => null);
   const peakRatios = design.map(() => 0);
   const overheatedIndices = new Set();
@@ -268,6 +318,7 @@ export function simulateThermalLoad(model, load, options = {}) {
       const heatScale = (stat.powerGeneration || 0) > 0 ? (states[i] === rules.STATE.OVERHEATED ? 0 : 1) : stat.weapon ? performance : performance > 0 ? 1 : 0;
       const generated = generationRates[i] * heatScale * dt;
       delta[i] += generated; generatedHeat[i] += generated; totalGeneratedHeat += generated;
+      finalGeneratedRate[i] = generated / dt;
       // Section 7D-3: predicted Power-cable Heat is a separate physical source
       // (delivered section flow), added locally to the thermal delta but tracked
       // apart from component activity Heat and not scaled by component performance.
@@ -278,14 +329,63 @@ export function simulateThermalLoad(model, load, options = {}) {
     }
     const workingHeat = heat.map((value, i) => Math.max(0, value + delta[i]));
     finalFlows = [];
+    // Coolant transport first, exactly as the server solves it: Heat Pipes move
+    // heat between everything attached to their network and remove none of it.
+    for (const network of coolantNetworks || []) {
+      let pipeHeat = 0;
+      let pipeCapacity = 0;
+      for (const pipeIndex of network.pipeIndices) {
+        pipeHeat += Math.max(0, workingHeat[pipeIndex]);
+        pipeCapacity += Math.max(1, profiles[pipeIndex].capacity);
+      }
+      const participants = [];
+      let pipeNodeConductance = 0;
+      let pipeNodeBandwidth = 0;
+      for (const attachment of network.attachments) {
+        const conductance = rules.coolantEdgeConductance(attachment.sharedEdges);
+        const bandwidth = rules.coolantEdgeBandwidth(attachment.sharedEdges);
+        pipeNodeConductance += conductance;
+        pipeNodeBandwidth += bandwidth;
+        participants.push({ heat: Math.max(0, workingHeat[attachment.index]), capacity: Math.max(1, profiles[attachment.index].capacity), conductance, bandwidth });
+      }
+      if (!participants.length) continue;
+      participants.push({ heat: pipeHeat, capacity: pipeCapacity, conductance: pipeNodeConductance, bandwidth: pipeNodeBandwidth });
+      const coolantDeltas = rules.solveCoolantNetwork(participants, dt);
+      for (let k = 0; k < network.attachments.length; k += 1) {
+        const amount = coolantDeltas[k];
+        if (amount === 0) continue;
+        const attachment = network.attachments[k];
+        const index = attachment.index;
+        delta[index] += amount;
+        workingHeat[index] += amount;
+        if (amount > 0) received[index] += amount; else transferredOut[index] += -amount;
+        // Draw the exchange against the pipe the component actually touches, so
+        // the designer's flow arrows follow the physical coolant run.
+        if (Math.abs(amount) / dt >= 0.35) {
+          finalFlows.push({ from: amount > 0 ? attachment.pipeIndex : index, to: amount > 0 ? index : attachment.pipeIndex, amount: Math.abs(amount) / dt, coolant: true });
+        }
+      }
+      const pipeDelta = coolantDeltas[coolantDeltas.length - 1];
+      const weightTotal = pipeDelta > 0 ? pipeCapacity : pipeHeat;
+      if (pipeDelta !== 0 && weightTotal > 0) {
+        let assigned = 0;
+        for (let k = 0; k < network.pipeIndices.length; k += 1) {
+          const pipeIndex = network.pipeIndices[k];
+          const weight = pipeDelta > 0 ? Math.max(1, profiles[pipeIndex].capacity) : Math.max(0, workingHeat[pipeIndex]);
+          const share = k === network.pipeIndices.length - 1 ? pipeDelta - assigned : pipeDelta * (weight / weightTotal);
+          assigned += share;
+          delta[pipeIndex] += share;
+          workingHeat[pipeIndex] += share;
+          if (share > 0) received[pipeIndex] += share; else if (share < 0) transferredOut[pipeIndex] += -share;
+        }
+      }
+    }
     const pendingTransfers = [];
     const outflow = design.map(() => 0);
     for (const edge of edges) {
-      const frameI = isFrame(design[edge.i].type), frameJ = isFrame(design[edge.j].type);
-      const routedI = Number.isFinite(frameCoolingDistance[edge.i]), routedJ = Number.isFinite(frameCoolingDistance[edge.j]);
-      let conductivity = edge.conductivity;
-      if ((routedI || routedJ)) conductivity *= rules.routeTypeMultiplier(design[edge.i].type, design[edge.j].type);
-      const amount = rules.edgeTransfer(workingHeat[edge.i], profiles[edge.i].capacity, workingHeat[edge.j], profiles[edge.j].capacity, conductivity, edge.sharedEdges, dt);
+      // Heat Pipes exchange only through their coolant network, solved above.
+      if (rules.isCoolantTransportType(design[edge.i].type) || rules.isCoolantTransportType(design[edge.j].type)) continue;
+      const amount = rules.edgeTransfer(workingHeat[edge.i], profiles[edge.i].capacity, workingHeat[edge.j], profiles[edge.j].capacity, edge.conductivity, edge.sharedEdges, dt);
       if (amount === 0) continue;
       pendingTransfers.push({ i: edge.i, j: edge.j, amount });
       outflow[amount > 0 ? edge.i : edge.j] += Math.abs(amount);
@@ -306,6 +406,9 @@ export function simulateThermalLoad(model, load, options = {}) {
         const activeCooling = profiles[i].cooling * rules.activeCoolingForState(states[i]) * (powerMultiplier[i] ?? 1);
         const passiveFloor = profiles[i].cooling * rules.RADIATOR_PASSIVE_COOLING_FRACTION;
         coolingRate = Math.max(passiveFloor, activeCooling) * exposure * profiles[i].retention;
+      } else if (design[i].type === "heatVent") {
+        const exposure = exposed[i] > 0 ? rules.HEAT_VENT_EXPOSED_MULTIPLIER : rules.HEAT_VENT_ENCLOSED_MULTIPLIER;
+        coolingRate = profiles[i].cooling * exposure * profiles[i].retention;
       } else if (design[i].type === "closedCycleCooler") {
         const activeCooling = profiles[i].cooling * rules.activeCoolingForState(states[i]) * (powerMultiplier[i] ?? 1);
         const passiveFloor = profiles[i].passiveCooling;
@@ -354,7 +457,7 @@ export function simulateThermalLoad(model, load, options = {}) {
     if (equilibriumTime !== null && step * dt > equilibriumTime + 5) break;
   }
   const averagePowerMultiplier = powerMultiplierTotals.map(value => simulatedSeconds > 0 ? value / Math.max(1, Math.round(simulatedSeconds / dt)) : 0);
-  return { heat, states, received, transferredOut, cooling, componentVentedOverflowHeat, totalVentedOverflowHeat, generatedHeat, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport, cableGeneratedHeat, totalCableGeneratedHeat, finalCableHeatRate: [...cableHeatRate], finalPowerState: mutablePower };
+  return { heat, states, received, transferredOut, cooling, componentVentedOverflowHeat, totalVentedOverflowHeat, generatedHeat, finalGeneratedRate, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, generatorShutdownCount, powerReallocationCount, dataReallocationCount, dataSupport, cableGeneratedHeat, totalCableGeneratedHeat, finalCableHeatRate: [...cableHeatRate], finalPowerState: mutablePower };
 }
 
 /**
@@ -377,23 +480,38 @@ export function summariseThermalResult(model, load, simulation) {
   const predictions = new Map();
   for (let i = 0; i < design.length; i += 1) {
     const isRadiator = design[i].type === "radiator";
+    const isHeatVent = design[i].type === "heatVent";
     const isClosedCycleCooler = design[i].type === "closedCycleCooler";
     const isExposed = exposed[i] > 0;
     const powerEntry = powerByIndex.get(i);
     const activityHeat = simulation.generatedHeat?.[i] ?? 0;
     const cableHeat = simulation.cableGeneratedHeat?.[i] ?? 0;
+    // Two distinct instants, deliberately kept apart. `heat`/`ratio`/`state` are
+    // the transient PEAK the run reached — the grid overlay and its percentage
+    // badges are coloured from them. `final*` is where the component actually
+    // settled, which is the instant the received/transferredOut/cooling rates
+    // below describe. Presenting a peak temperature next to a final-state rate
+    // as one reading is what made "82% / +0.0 H/s" look contradictory.
+    const finalHeat = simulation.heat?.[i] ?? peakRatios[i] * profiles[i].capacity;
+    const finalRatio = finalHeat / Math.max(1, profiles[i].capacity);
     predictions.set(design[i], {
       heat: peakRatios[i] * profiles[i].capacity, capacity: profiles[i].capacity, ratio: peakRatios[i],
+      peakRatio: peakRatios[i], finalHeat, finalRatio,
+      finalState: simulation.states?.[i] ?? rules.stateFor(finalRatio, rules.STATE.NORMAL),
+      finalGeneration: simulation.finalGeneratedRate?.[i] ?? generationRates[i],
       generation: generationRates[i], received: received[i] / dt, transferredOut: transferredOut[i] / dt,
       cooling: cooling[i] / dt, state: rules.stateFor(peakRatios[i], rules.STATE.NORMAL), timeToOverheat: timeToOverheat[i],
       meltdownTime: meltdownTime[i],
       exposedEdges: exposed[i],
       exteriorDirections: [...exteriorDirections[i]],
-      exposureCoolingMultiplier: isRadiator ? (isExposed ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER) : (isExposed && !isClosedCycleCooler ? 1.12 : 1),
+      exposureCoolingMultiplier: isRadiator ? (isExposed ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER)
+        : isHeatVent ? (isExposed ? rules.HEAT_VENT_EXPOSED_MULTIPLIER : rules.HEAT_VENT_ENCLOSED_MULTIPLIER)
+        : (isExposed && !isClosedCycleCooler ? 1.12 : 1),
       powerMultiplier: simulation.finalPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       initialPowerMultiplier: simulation.initialPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       minimumPowerMultiplier: simulation.minimumPowerMultiplier?.[i] ?? load.powerMultiplier?.[i] ?? 1,
       radiatorEffectiveCooling: isRadiator ? cooling[i] / dt : 0,
+      heatVentEffectiveCooling: isHeatVent ? cooling[i] / dt : 0,
       closedCycleCoolerEffectiveCooling: isClosedCycleCooler ? cooling[i] / dt : 0,
       dataSupportMultiplier: (simulation.dataSupport || load.dataSupport)?.weaponSupportByIndex?.[i]?.fireRateBonus ? 1 + (simulation.dataSupport || load.dataSupport).weaponSupportByIndex[i].fireRateBonus : 1,
       componentVentedOverflowHeat: simulation.componentVentedOverflowHeat?.[i] || 0,
@@ -429,6 +547,7 @@ export function summariseThermalResult(model, load, simulation) {
     const isCooler = design[i].type === "closedCycleCooler";
     const isRadiator = design[i].type === "radiator";
     if (isRadiator) return sum + item.cooling * (exposed[i] ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER);
+    if (design[i].type === "heatVent") return sum + item.cooling * (exposed[i] ? rules.HEAT_VENT_EXPOSED_MULTIPLIER : rules.HEAT_VENT_ENCLOSED_MULTIPLIER);
     if (isCooler) return sum + item.cooling;
     return sum + item.cooling * (exposed[i] ? 1.12 : 1);
   }, 0);
@@ -455,9 +574,9 @@ export function summariseThermalResult(model, load, simulation) {
     hotspot: design[hottestIndex] ? `${PART_DEFS[design[hottestIndex].type]?.name || design[hottestIndex].type} cluster` : "None",
     exposure: !radiators ? "None" : exposedRadiators === radiators ? "Good" : exposedRadiators ? "Fair" : "Poor",
     coolingRate: coolingRate.toFixed(1), nominalCoolingRate: nominalCoolingRate.toFixed(1),
-    routeWarning: problems.unroutedHot.length ? `${problems.unroutedHot.length} hot component${problems.unroutedHot.length === 1 ? " has" : "s have"} no frame path to a radiator or Heat Sink` : "All hot systems can reach a radiator or Heat Sink",
+    routeWarning: problems.unroutedHot.length ? `${problems.unroutedHot.length} hot component${problems.unroutedHot.length === 1 ? " has" : "s have"} no path to a cooling component` : "All hot systems can reach a cooling component",
     networkWarning: problems.overloadedNetworks.length ? `${problems.overloadedNetworks.length} thermal network overloaded` : "Thermal networks within capacity",
-    severWarning: problems.criticalFrames.size ? `${problems.criticalFrames.size} frame block${problems.criticalFrames.size === 1 ? "" : "s"} could sever heat transfer to cooling components` : "No single-frame heat-transfer bottleneck",
+    severWarning: problems.criticalFrames.size ? `${problems.criticalFrames.size} transfer tile${problems.criticalFrames.size === 1 ? "" : "s"} could sever heat transfer to cooling components` : "No single-tile heat-transfer bottleneck",
     meltdownWarning: problems.meltdownIndices.length ? `${problems.meltdownIndices.length} reactor${problems.meltdownIndices.length === 1 ? "" : "s"} predicted to melt down and explode` : "No reactor meltdowns predicted",
     analysis: {
       mode: load.mode, generation: averageGenerationRate, cooling: coolingRate, nominalCoolingRate, averageEffectiveCoolingRate: coolingRate, averageAvailableCoolingRate: coolingRate, averageActualCoolingRate, finalAvailableCoolingRate: simulation.finalAvailableCoolingRate ?? coolingRate, finalEffectiveCoolingRate: simulation.finalEffectiveCoolingRate ?? averageActualCoolingRate, peakAvailableCoolingRate: simulation.peakAvailableCoolingRate ?? coolingRate, totalCoolingRemoved, totalVentedOverflowHeat: simulation.totalVentedOverflowHeat || 0, componentVentedOverflowHeat: simulation.componentVentedOverflowHeat || [], averageGenerationRate, netAverageHeatRate: averageGenerationRate - coolingRate, net: averageGenerationRate - coolingRate, balance,
@@ -492,7 +611,7 @@ export function findThermalProblems(model, simulation, load) {
     for (let cursor = 0; cursor < queue.length; cursor += 1) for (const neighbour of edgeMaps[queue[cursor]].keys()) {
       if (frameSet.has(neighbour) && neighbour !== removedFrame && !seen.has(neighbour)) { seen.add(neighbour); queue.push(neighbour); }
     }
-    return [...seen].some(frame => [...edgeMaps[frame].keys()].some(i => i !== generator && (design[i].type === "heatSink" || design[i].type === "radiator")));
+    return [...seen].some(frame => [...edgeMaps[frame].keys()].some(i => i !== generator && COOLING_ENDPOINT_TYPES.has(design[i].type)));
   }
   const routedGenerators = generationRates.map((rate, i) => rate > 0 && generatorHasCoolingRoute(i));
   const criticalFrames = new Set();
@@ -527,12 +646,12 @@ export function findThermalProblems(model, simulation, load) {
 export function generateThermalAdvice(problems, model) {
   const { design } = model;
   const actionItems = [];
-  if (problems.unroutedHot.length) actionItems.push(`${describeThermalComponent(problems.unroutedHot[0], design)} has no frame/heat-pipe path to a radiator or Heat Sink.`);
+  if (problems.unroutedHot.length) actionItems.push(`${describeThermalComponent(problems.unroutedHot[0], design)} reaches no Radiator, Heat Vent, Heat Sink or cooler — run a Heat Pipe coolant network to one.`);
   if (problems.overloadedNetworks.length) {
     const network = problems.overloadedNetworks[0];
-    actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed radiators or split the heat-transfer path.`);
+    actionItems.push(`${describeThermalNetwork(network, design)} is overloaded by ${(network.generation - network.cooling).toFixed(1)} H/s; add exposed Radiators or Heat Vents, or split the coolant network.`);
   }
-  if (problems.criticalFrames.size) actionItems.push(`${describeThermalComponent([...problems.criticalFrames][0], design)} is a single-frame heat-transfer bottleneck; add a parallel frame or heat-pipe path.`);
+  if (problems.criticalFrames.size) actionItems.push(`${describeThermalComponent([...problems.criticalFrames][0], design)} is a single-tile heat-transfer bottleneck; add a parallel Heat Pipe run.`);
   if (problems.heatSinkSaturationTime !== null) actionItems.push(`A heat sink saturates at ${problems.heatSinkSaturationTime.toFixed(1)} s; pair it with more exposed radiator output.`);
   if (problems.meltdownIndices.length) actionItems.push(`${describeThermalComponent(problems.firstMeltdownIndex, design)} is predicted to melt down; transfer reactor heat away or reduce sustained load.`);
   return actionItems;
@@ -845,15 +964,24 @@ function buildThermalNetworks(model, generationRates) {
       }
     }
     const generators = [...attached].filter(i => generationRates[i] > 0);
-    const coolers = [...attached].filter(i => design[i].type === "heatSink" || design[i].type === "radiator");
+    const coolers = [...attached].filter(i => COOLING_ENDPOINT_TYPES.has(design[i].type));
     const networkGeneration = generators.reduce((sum, i) => sum + generationRates[i], 0);
-    const networkCooling = coolers.reduce((sum, i) => sum + profiles[i].cooling * (design[i].type === "radiator" && !exposed[i] ? .25 : 1), 0);
-    const heatPipeIndices = frameIndices.filter(i => design[i].type === "heatPipe");
-    const frameOnlyIndices = frameIndices.filter(i => design[i].type !== "heatPipe");
+    const rules = globalThis.HeatRules;
+    const networkCooling = coolers.reduce((sum, i) => {
+      if (design[i].type === "radiator") return sum + profiles[i].cooling * (exposed[i] ? rules.RADIATOR_EXPOSED_MULTIPLIER : rules.RADIATOR_ENCLOSED_MULTIPLIER);
+      if (design[i].type === "heatVent") return sum + profiles[i].cooling * (exposed[i] ? rules.HEAT_VENT_EXPOSED_MULTIPLIER : rules.HEAT_VENT_ENCLOSED_MULTIPLIER);
+      return sum + profiles[i].cooling;
+    }, 0);
+    const heatPipeIndices = frameIndices.filter(i => globalThis.HeatRules.isCoolantTransportType(design[i].type));
+    const frameOnlyIndices = frameIndices.filter(i => !globalThis.HeatRules.isCoolantTransportType(design[i].type));
     networks.push({ id: networks.length, frameIndices, heatPipeIndices, frameOnlyIndices, attached: [...attached], generators, coolers, generation: networkGeneration, cooling: networkCooling, overloaded: networkGeneration > networkCooling, isolated: generators.length > 0 && coolers.length === 0 });
   }
   return networks;
 }
+
+// Components that actually get heat out of, or hold it away from, the systems
+// producing it. A Heat Pipe is deliberately absent: it transports, never cools.
+export const COOLING_ENDPOINT_TYPES = new Set(["heatSink", "radiator", "heatVent", "closedCycleCooler"]);
 
 function isFrame(type) { return /frame/i.test(String(type || "")) || type === "heatPipe"; }
 

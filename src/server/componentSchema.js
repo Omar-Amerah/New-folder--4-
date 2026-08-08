@@ -454,6 +454,12 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     validateBurstCooler(component.burstCooler, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);
+    // Mirroring capability. Only shaped structural silhouettes declare it; a
+    // component that cannot be mirrored simply omits the field.
+    validateBoolean(component.flippable, `${path}.flippable`, errors);
+    if (component.flippable === true && component.shapeType === undefined) {
+      errors.push(`${path}.flippable requires a shapeType: mirroring only applies to shaped silhouettes.`);
+    }
     validateBoolean(component.heatBeamShield, `${path}.heatBeamShield`, errors);
     if (component.proximityCharge !== undefined) {
       const charge = component.proximityCharge;

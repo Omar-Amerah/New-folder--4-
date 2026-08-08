@@ -24,7 +24,7 @@
       const part = parts[i];
       const stat = catalogue[part.type] || catalogue.frame || {};
       const footprint = stat.footprint || { width: 1, height: 1 };
-      const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+      const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
       partCellsMap.set(i, cells);
       for (const cell of cells) {
         cellOwner.set(`${cell.x},${cell.y}`, i);

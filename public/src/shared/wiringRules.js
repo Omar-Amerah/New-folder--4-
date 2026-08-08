@@ -2,10 +2,11 @@
   const onNode = typeof module !== "undefined" && module.exports;
   const dependency = onNode ? require("./dataSupportRules") : root.DataSupportRules;
   const powerPolicy = onNode ? require("./powerPolicyRules") : root.PowerPolicyRules;
-  const rules = factory(dependency, powerPolicy);
+  const transform = onNode ? require("./componentTransform") : root.ComponentTransform;
+  const rules = factory(dependency, powerPolicy, transform);
   if (onNode) module.exports = rules;
   root.WiringRules = rules;
-}(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringRules(DataSupportRules, PowerPolicyRules) {
+}(typeof globalThis !== "undefined" ? globalThis : this, function makeWiringRules(DataSupportRules, PowerPolicyRules, ComponentTransform) {
   "use strict";
 
   const GRID_SIZE = 15;
@@ -29,6 +30,7 @@
   // second, hidden limit.
   const DEFAULT_CABLE_LIMITS = Object.freeze({ power: null, data: null });
   if (!DataSupportRules) throw new Error("DataSupportRules must load before WiringRules");
+  if (!ComponentTransform) throw new Error("ComponentTransform must load before WiringRules");
   if (!PowerPolicyRules) throw new Error("PowerPolicyRules must load before WiringRules");
   const { DATA_SOURCE_INFO, DATA_SOURCE_TYPES } = DataSupportRules;
 
@@ -49,21 +51,11 @@
   function isCompatibleWeapon(sourceType, weaponType, catalogue) { return isDataSourceType(sourceType) && isDataTarget(weaponType, catalogue); }
   function sourceBonusAmount(type, catalogue) { return DataSupportRules.nominalSupportBudget(type, catalogue); }
 
-  function getOccupiedCells(x, y, footprint, rotation = 0) {
-    const cells = [];
-    const width = footprint?.width || 1;
-    const height = footprint?.height || 1;
-    const r = (rotation % 360 + 360) % 360;
-    for (let dy = 0; dy < height; dy += 1) for (let dx = 0; dx < width; dx += 1) {
-      let ox = dx; let oy = dy;
-      if (r === 90) { ox = -dy; oy = dx; }
-      else if (r === 180) { ox = -dx; oy = -dy; }
-      else if (r === 270) { ox = dy; oy = -dx; }
-      cells.push({ x: x + ox, y: y + oy });
-    }
-    return cells;
-  }
-  function moduleCells(module, catalogue) { return getOccupiedCells(module.x, module.y, partStat(catalogue, module.type).footprint || { width: 1, height: 1 }, module.rotation || 0); }
+  // Placement geometry is owned by ComponentTransform (mirror, then rotation),
+  // never re-derived here: wiring must see exactly the cells the designer and
+  // the server placed the component on.
+  const getOccupiedCells = ComponentTransform.getOccupiedCells;
+  function moduleCells(module, catalogue) { return getOccupiedCells(module.x, module.y, partStat(catalogue, module.type).footprint || { width: 1, height: 1 }, module.rotation || 0, module.flipped === true); }
   function cellKey(x, y) { return `${x},${y}`; }
   function componentPorts(module, catalogue) { return moduleCells(module, catalogue).map((p) => ({ x: p.x + 0.5, y: p.y + 0.5 })); }
   function componentCenter(module, catalogue) {

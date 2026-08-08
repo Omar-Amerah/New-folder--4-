@@ -1,5 +1,5 @@
 // Screen-space visuals for the PixiJS arena renderer: backdrop gradient,
-// parallax starfield, minimap, and the "join a room" prompt.
+// parallax starfield, viewport vignette, minimap, and the "join a room" prompt.
 
 import { dom } from "../../ui/dom.js";
 import { state } from "../../state.js";
@@ -12,6 +12,39 @@ let screenUiViews = null;
 let backdropSize = { width: 0, height: 0 };
 let minimapView = null;
 
+// Bakes one star-field layer into a repeating tile. Called once per layer at
+// renderer init; the resulting texture is drawn as a single tiling sprite.
+function bakeStarTile(env, layer) {
+  const texture = pixiBakeScreenTexture(env, layer.tile, layer.tile, (bctx) => {
+    for (const star of layer.stars) {
+      // Faint cool white; no per-star hue so the field stays textural.
+      bctx.fillStyle = `rgba(206,224,247,${star.alpha})`;
+      bctx.fillRect(star.x, star.y, star.size, star.size);
+    }
+  });
+  // Tiling needs wrapped sampling; Texture.from() defaults to clamp.
+  texture.source.addressMode = "repeat";
+  return texture;
+}
+
+// A single static overlay: transparent through the middle, easing to a slight
+// darkening at the corners. Baked once at a small fixed size and stretched over
+// the viewport — bilinear filtering keeps the ramp smooth and it never re-bakes.
+function bakeVignette(env) {
+  const size = 256;
+  return pixiBakeScreenTexture(env, size, size, (bctx) => {
+    const half = size / 2;
+    // Radius reaches the corners once the square is stretched to the viewport.
+    const gradient = bctx.createRadialGradient(half, half, 0, half, half, half * Math.SQRT2);
+    gradient.addColorStop(0, "rgba(2,4,9,0)");
+    gradient.addColorStop(0.58, "rgba(2,4,9,0)");
+    gradient.addColorStop(0.8, "rgba(2,4,9,0.08)");
+    gradient.addColorStop(1, "rgba(2,4,9,0.26)");
+    bctx.fillStyle = gradient;
+    bctx.fillRect(0, 0, size, size);
+  });
+}
+
 function ensureScreenUiViews(env) {
   if (screenUiViews) return screenUiViews;
   const PIXI = env.PIXI;
@@ -19,18 +52,21 @@ function ensureScreenUiViews(env) {
   const backdrop = new PIXI.Sprite(PIXI.Texture.WHITE);
   env.layers.backdropRoot.addChild(backdrop);
 
-  const starContainer = new PIXI.Container();
-  env.layers.backdropRoot.addChild(starContainer);
-  const stars = state.stars.map((star) => {
-    const sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
-    const color = new PIXI.Color(star.color);
-    sprite.tint = color.toNumber();
-    sprite.alpha = color.alpha * 0.88;
-    sprite.width = star.size;
-    sprite.height = star.size;
-    starContainer.addChild(sprite);
-    return sprite;
+  // One tiling sprite per depth layer. Parallax moves the whole layer via
+  // tilePosition, so panning costs two property writes rather than per-star work.
+  const starLayers = state.starLayers.map((layer) => {
+    const texture = bakeStarTile(env, layer);
+    const sprite = new PIXI.TilingSprite({ texture, width: 1, height: 1 });
+    env.layers.backdropRoot.addChild(sprite);
+    return { sprite, texture, drift: layer.drift };
   });
+
+  // Sits at the bottom of the screen-space root, so it darkens the arena but
+  // stays under the minimap and prompts.
+  const vignetteTexture = bakeVignette(env);
+  const vignette = new PIXI.Sprite(vignetteTexture);
+  vignette.eventMode = "none";
+  env.layers.screenUiRoot.addChild(vignette);
 
   const joinText = new PIXI.Text({
     text: "Join a room to enter the arena",
@@ -44,7 +80,7 @@ function ensureScreenUiViews(env) {
   joinText.anchor.set(0.5);
   env.layers.screenUiRoot.addChild(joinText);
 
-  screenUiViews = { backdrop, starContainer, stars, joinText };
+  screenUiViews = { backdrop, starLayers, vignette, vignetteTexture, joinText };
   return screenUiViews;
 }
 
@@ -54,26 +90,40 @@ function updatePixiBackdrop(env, rect) {
     backdropSize = { width: rect.width, height: rect.height };
     const old = views.backdrop.texture;
     views.backdrop.texture = pixiBakeScreenTexture(env, rect.width, rect.height, (bctx) => {
-      const gradient = bctx.createLinearGradient(0, 0, rect.width, rect.height);
-      gradient.addColorStop(0, "#040710");
-      gradient.addColorStop(0.55, "#0a111d");
-      gradient.addColorStop(1, "#05070c");
-      bctx.fillStyle = gradient;
+      // Neutral dark charcoal-navy. The radial lift keeps empty space from
+      // reading as flat black; the diagonal pass adds a touch of tonal
+      // variation. Both stay far below the saturation of component art.
+      bctx.fillStyle = "#05070d";
+      bctx.fillRect(0, 0, rect.width, rect.height);
+      const radius = Math.max(rect.width, rect.height) * 0.72;
+      const lift = bctx.createRadialGradient(rect.width * 0.5, rect.height * 0.46, 0, rect.width * 0.5, rect.height * 0.46, radius);
+      lift.addColorStop(0, "rgba(20,29,45,0.55)");
+      lift.addColorStop(0.6, "rgba(12,18,29,0.3)");
+      lift.addColorStop(1, "rgba(5,7,13,0)");
+      bctx.fillStyle = lift;
+      bctx.fillRect(0, 0, rect.width, rect.height);
+      const tone = bctx.createLinearGradient(0, 0, rect.width, rect.height);
+      tone.addColorStop(0, "rgba(14,20,33,0.28)");
+      tone.addColorStop(0.55, "rgba(9,13,22,0)");
+      tone.addColorStop(1, "rgba(3,5,10,0.3)");
+      bctx.fillStyle = tone;
       bctx.fillRect(0, 0, rect.width, rect.height);
     });
     if (old && old !== env.PIXI.Texture.WHITE) old.destroy(false);
     views.backdrop.width = rect.width;
     views.backdrop.height = rect.height;
+    for (const layer of views.starLayers) {
+      layer.sprite.width = rect.width;
+      layer.sprite.height = rect.height;
+    }
+    views.vignette.width = rect.width;
+    views.vignette.height = rect.height;
   }
 
-  for (let i = 0; i < views.stars.length; i += 1) {
-    const star = state.stars[i];
-    const sprite = views.stars[i];
-    let x = (star.x * rect.width + state.camera.x * star.drift) % rect.width;
-    let y = (star.y * rect.height + state.camera.y * star.drift) % rect.height;
-    if (x < 0) x += rect.width;
-    if (y < 0) y += rect.height;
-    sprite.position.set(x, y);
+  // Whole-layer parallax: two writes per frame, no per-star work. tilePosition
+  // wraps in the shader, so the offsets never need clamping.
+  for (const layer of views.starLayers) {
+    layer.sprite.tilePosition.set(-state.camera.x * layer.drift, -state.camera.y * layer.drift);
   }
 }
 
@@ -238,7 +288,12 @@ export function destroyPixiScreenUi(env) {
     const bt = screenUiViews.backdrop.texture;
     if (bt && bt !== env.PIXI.Texture.WHITE) bt.destroy(false);
     screenUiViews.backdrop.destroy({ children: true, texture: false, textureSource: false });
-    screenUiViews.starContainer.destroy({ children: true, texture: false, textureSource: false });
+    for (const layer of screenUiViews.starLayers) {
+      layer.sprite.destroy({ children: true, texture: false, textureSource: false });
+      layer.texture.destroy(true);
+    }
+    screenUiViews.vignette.destroy({ children: true, texture: false, textureSource: false });
+    screenUiViews.vignetteTexture.destroy(true);
     screenUiViews.joinText.destroy({ children: true, texture: false, textureSource: false });
     screenUiViews = null;
   }

@@ -262,10 +262,11 @@ function approximateTopologyBytes(topology) {
   const edges = topology.edgeA.length;
   const scalarArrays = [
     topology.edgeA, topology.edgeB, topology.edgeSharedEdges, topology.edgeBaseConductivity,
-    topology.edgeRouteMultiplier, topology.edgeThroughFrame, topology.incidentEdgeIds,
+    topology.edgeThroughFrame, topology.incidentEdgeIds,
     topology.incidentEdgeOffsets, topology.transferOrder, topology.transferRank,
     topology.powerSourceIndices, topology.dataSourceIndices, topology.radiatorIndices,
-    topology.heatSinkIndices, topology.thermalRouteIndices
+    topology.heatVentIndices, topology.heatSinkIndices, topology.thermalRouteIndices,
+    topology.coolantPipeIndices
   ];
   const packedBytes = scalarArrays.reduce((sum, values) => sum + values.length * 8, 0);
   return packedBytes + edges * 32;

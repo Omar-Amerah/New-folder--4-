@@ -75,7 +75,7 @@ export async function initPixiRenderer() {
     resolution: computePixiResolution(),
     autoDensity: false,
     antialias: quality !== "low",
-    background: "#040710"
+    background: "#05070d"
   });
 
   // Layer order defines the arena draw order (back to front).

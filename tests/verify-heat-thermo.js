@@ -25,8 +25,8 @@ const hot = dissipatedAt(0.9);
 const cool = dissipatedAt(0.3);
 assert(hot > cool * 1.5, `a hotter component should dissipate much faster (hot=${hot.toFixed(2)} cool=${cool.toFixed(2)})`);
 
-// 2. Frames conduct heat into a central heat sink, whose large capacity buffers
-// the ship and delays the source overheating vs an equivalent all-frame hull.
+// 2. Local conduction still works: a heat sink in direct contact with the source
+// buffers it and delays overheating versus an equivalent frame.
 const { STATE } = require("../public/src/shared/heatRules");
 function ticksToOverheat(design) {
   const ship = shipFor(design);
@@ -37,9 +37,20 @@ function ticksToOverheat(design) {
   }
   return { count: Infinity, ship };
 }
-const sinkRun = ticksToOverheat([{ x: 5, y: 7, type: "blaster" }, { x: 6, y: 7, type: "frame" }, { x: 7, y: 7, type: "frame" }, { x: 8, y: 7, type: "heatSink" }]);
-const frameRun = ticksToOverheat([{ x: 5, y: 7, type: "blaster" }, { x: 6, y: 7, type: "frame" }, { x: 7, y: 7, type: "frame" }, { x: 8, y: 7, type: "frame" }]);
-assert(sinkRun.ship.componentHeat[3] > 0, "heat should route through the frames into the central heat sink");
-assert(sinkRun.count > frameRun.count, `heat sink should delay the source overheating (sink=${sinkRun.count} vs frame=${frameRun.count} ticks)`);
+const adjacentSinkRun = ticksToOverheat([{ x: 5, y: 7, type: "blaster" }, { x: 6, y: 7, type: "heatSink" }]);
+const adjacentFrameRun = ticksToOverheat([{ x: 5, y: 7, type: "blaster" }, { x: 6, y: 7, type: "frame" }]);
+assert(adjacentSinkRun.ship.componentHeat[1] > 0, "heat should conduct into a directly adjacent heat sink");
+assert(adjacentSinkRun.count > adjacentFrameRun.count,
+  `an adjacent heat sink should delay the source overheating (sink=${adjacentSinkRun.count} vs frame=${adjacentFrameRun.count} ticks)`);
+
+// 3. Distance is what needs a Heat Pipe. A sink three tiles away is only useful
+// when a coolant network reaches it; an intervening chain of frames is not a
+// coolant route, so it barely helps.
+const pipedSinkRun = ticksToOverheat([{ x: 5, y: 7, type: "blaster" }, { x: 6, y: 7, type: "heatPipe" }, { x: 7, y: 7, type: "heatPipe" }, { x: 8, y: 7, type: "heatSink" }]);
+const framedSinkRun = ticksToOverheat([{ x: 5, y: 7, type: "blaster" }, { x: 6, y: 7, type: "frame" }, { x: 7, y: 7, type: "frame" }, { x: 8, y: 7, type: "heatSink" }]);
+assert(pipedSinkRun.ship.componentHeat[3] > framedSinkRun.ship.componentHeat[3] * 2,
+  `a Heat Pipe run should fill a distant sink far faster than a frame chain (pipe=${pipedSinkRun.ship.componentHeat[3].toFixed(1)} frame=${framedSinkRun.ship.componentHeat[3].toFixed(1)})`);
+assert(pipedSinkRun.count > framedSinkRun.count,
+  `a piped distant sink should delay overheating more than a framed one (pipe=${pipedSinkRun.count} vs frame=${framedSinkRun.count} ticks)`);
 
 console.log("Heat thermodynamics verification passed");

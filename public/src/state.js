@@ -6,19 +6,51 @@ import { GENERATED_BALANCE } from "./generatedBalance.js";
 
 const initialDesign = loadDesign();
 
-function makeStars(count) {
-  const stars = [];
-  for (let i = 0; i < count; i += 1) {
-    const bright = Math.random() > 0.78;
-    stars.push({
-      x: Math.random(),
-      y: Math.random(),
-      size: bright ? 2 : 1,
-      drift: -0.006 - Math.random() * 0.018,
-      color: bright ? "rgba(220,242,255,0.86)" : "rgba(170,194,220,0.42)"
-    });
-  }
-  return stars;
+// Backdrop star field. Two depth layers, each defined in its own repeating tile
+// so the renderer can bake them once and draw each layer as a single tiling
+// sprite (see pixiScreenUi.js) — no per-star work at render time. `drift` is the
+// parallax factor against camera position; the far layer moves least.
+const STAR_LAYER_SPECS = [
+  { tile: 1024, count: 190, drift: 0.010 },
+  { tile: 640, count: 34, drift: 0.028 }
+];
+
+// mulberry32. Fixed seeds keep the field byte-identical across sessions and
+// renderer restarts, so the backdrop never visibly regenerates mid-match.
+function seededRandom(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeStarLayers() {
+  return STAR_LAYER_SPECS.map((spec, layerIndex) => {
+    const rand = seededRandom(0x9e3779b9 + layerIndex * 0x85ebca6b);
+    const stars = [];
+    for (let i = 0; i < spec.count; i += 1) {
+      const x = rand() * spec.tile;
+      const y = rand() * spec.tile;
+      const roll = rand();
+      // Mostly very small dim stars, fewer medium, very few brighter ones. The
+      // dim tier still has to read as a star at a glance, so it sits near the
+      // brightness the flat field used to have.
+      let size = 1;
+      let alpha = 0.26 + rand() * 0.12;
+      if (roll > 0.955) {
+        size = 2;
+        alpha = 0.72 + rand() * 0.14;
+      } else if (roll > 0.8) {
+        size = 1.5;
+        alpha = 0.44 + rand() * 0.1;
+      }
+      stars.push({ x, y, size, alpha });
+    }
+    return { tile: spec.tile, drift: spec.drift, stars };
+  });
 }
 
 export const DEFAULT_THERMAL_LOAD_MODE = "combat";
@@ -110,6 +142,10 @@ export const state = {
   selectedPart: "frame",
   selectedPartCategory: "Structure",
   previewRotation: 0,
+  previewFlipped: false,
+  // type -> { rotation, flipped } most recently used in the designer. Session/UI
+  // state only: never persisted with a blueprint and never sent to the server.
+  partTransformMemory: {},
   hoveredCell: null,
   selectedCell: null,
   blueprintView: "build",
@@ -197,7 +233,7 @@ export const state = {
   pointer: { x: 0, y: 0 },
   drag: null,
   keys: new Set(),
-  stars: makeStars(260),
+  starLayers: makeStarLayers(),
   rules: { startingMoney: GENERATED_BALANCE.economy.startingMoney, shipCap: 30, maxPlayers: 8, mapSize: "auto", gameMode: "teams", asteroidDensity: "medium", infrastructureMode: "stations", visibilityMode: "sensors" },
   minimap: null,
   shipHud: new Map(),

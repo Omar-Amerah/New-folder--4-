@@ -4,7 +4,7 @@ import { dom } from "../ui/dom.js";
 import { state } from "../state.js";
 import { clampCameraToWorld, minimapWorldAt, screenToWorld, zoomCameraAtScreenPoint, resetCameraZoomToFit, centerCameraOnShips, CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM } from "./camera.js";
 import { selectAt, selectBox, selectAllOwnShips, ownLiveShips } from "./selection.js";
-import { rotateFocusedPart, undoBlueprintEdit } from "../ui/designerUi.js";
+import { rotateFocusedPart, flipFocusedPart, undoBlueprintEdit } from "../ui/designerUi.js";
 import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
 import { canUndoWiring, undoWiring } from "../ui/wiringUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
@@ -98,6 +98,10 @@ export function handleKeyDown(event) {
   if (eventComesFromEditableControl(event)) return;
   state.keys.add(key);
   if (key === "r") { event.preventDefault(); rotateFocusedPart(); return; }
+  // F mirrors the focused/pending component while the designer is open, and
+  // stays the arena's camera-follow key everywhere else. Non-flippable parts
+  // simply do nothing.
+  if (key === "f" && designerOpen) { event.preventDefault(); flipFocusedPart(); return; }
   if (key === "o") { event.preventDefault(); rotateSelectedShips(1, true); return; }
   if (key === "i") { event.preventDefault(); rotateSelectedShips(-1, true); return; }
   if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) event.preventDefault();

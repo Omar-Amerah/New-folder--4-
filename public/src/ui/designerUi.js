@@ -5,11 +5,12 @@ import {
   state,
   DEFAULT_THERMAL_LOAD_MODE
 } from "../state.js";
-import { PART_DEFS, PART_STATS, isRotatablePart, partIconMarkup } from "../design/parts.js";
+import { PART_DEFS, PART_STATS, isRotatablePart, isFlippablePart, partIconMarkup } from "../design/parts.js";
 import { createPlacementCandidate, findPartAtCell } from "../design/placementCandidate.js";
 import { normalizeRotation, nextRotation } from "../design/rotation.js";
 import { isConnected, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
+import { coolantConnectionMasks, coolantNetworkAt } from "../design/coolantLayout.js";
 import { computeStats } from "../design/componentStats.js";
 import { buildShipSummaryModel, turnText, resolvePowerSummary } from "../design/shipSummaryModel.js";
 import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
@@ -21,6 +22,7 @@ import { escapeHtml } from "../shared/formatting.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
+import { buildHeatCardModel, heatCardMarkup } from "../design/heatCardModel.js";
 import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, dataLinksHintText, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
 import { calculateCenterOfMass } from "../shared/movementStats.js";
 import {
@@ -208,7 +210,8 @@ function blueprintCellTitle(part, partIndex, exhaustAnalysis = null) {
   if (!part) return "Empty";
   const blocked = exhaustAnalysis?.blockedEngineIndices?.has(partIndex);
   if (blocked) return "Blocked exhaust — engine provides no thrust.";
-  return `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate` : ""}`;
+  const flipHint = isFlippablePart(part.type) ? `${part.flipped === true ? " | mirrored" : ""} | press F to mirror` : "";
+  return `${PART_DEFS[part.type].name}${isRotatablePart(part.type) ? ` | ${normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x)} deg | Select ${PART_DEFS[part.type].name} and click again, or hover and press R to rotate${flipHint}` : ""}`;
 }
 
 function restoreBlueprintCellTitle(cell, part, partIndex, exhaustAnalysis = null) {
@@ -335,8 +338,8 @@ function refreshBlueprintControls() {
       ? "Choose a component, then left-click a grid cell to place it while viewing predicted Heat."
       : "Choose a component, then left-click a grid cell to place it.";
     if (secondary) secondary.textContent = heatView
-      ? "Click the same component again or press R to rotate · Right-click to remove · Hover components to inspect Heat"
-      : "Click the same component again or press R to rotate · Right-click to remove";
+      ? "Click the same component again or press R to rotate · F to mirror shaped structure · Right-click to remove · Hover components to inspect Heat"
+      : "Click the same component again or press R to rotate · F to mirror shaped structure · Right-click to remove";
   }
   if (dom.rotationIndicator) refreshRotationIndicator();
   if (dom.heatFlowViewControls) {
@@ -349,6 +352,9 @@ export function renderBaseBlueprintGrid() {
   dom.grid.textContent = "";
   clearHeatInspectionState();
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(state.design, PART_STATS);
+  // Heat Pipes are one non-rotatable part whose art follows its live orthogonal
+  // connections, so the placed shape has to be recomputed with the design.
+  const coolantMasks = coolantConnectionMasks(state.design, PART_STATS);
 
   // Find which cells are already covered by the extension of some component
   const coveredCells = new Set();
@@ -359,7 +365,7 @@ export function renderBaseBlueprintGrid() {
     byCell.set(`${part.x},${part.y}`, part);
     const stat = PART_STATS[part.type] || PART_STATS.frame;
     const footprint = stat.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
     for (const c of cells) {
       ownerByCell.set(`${c.x},${c.y}`, { part, partIndex });
       if (c.x !== part.x || c.y !== part.y) {
@@ -390,7 +396,7 @@ export function renderBaseBlueprintGrid() {
       if (part) {
         const stat = PART_STATS[part.type] || PART_STATS.frame;
         const footprint = stat.footprint || { width: 1, height: 1 };
-        const bounds = getFootprintBounds(part.x, part.y, footprint, part.rotation || 0);
+        const bounds = getFootprintBounds(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
         originX = bounds.minX;
         originY = bounds.minY;
         width = bounds.width;
@@ -407,7 +413,7 @@ export function renderBaseBlueprintGrid() {
         const rotation = normalizeRotation(part.rotation, PART_STATS[part.type]?.allowedRotations, part.x);
         const exhaustWarning = blockedExhaust ? `<span class="blocked-exhaust-warning" title="Blocked exhaust — engine provides no thrust." aria-label="Blocked exhaust — engine provides no thrust.">!</span>` : "";
         const droneBadge = part.type === "droneBay" ? `<span class="drone-bay-type-badge drone-${part.droneType || "unconfigured"}" aria-label="${part.droneType ? `${part.droneType} drones` : "Drone type not configured"}">${part.droneType ? part.droneType.charAt(0).toUpperCase() + part.droneType.slice(1) : "!"}</span>` : "";
-        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation)}${droneBadge}${exhaustWarning}`;
+        cell.innerHTML = `${partIconMarkup(part.type, "build-glyph", rotation, part.flipped === true, coolantMasks[partIndex])}${droneBadge}${exhaustWarning}`;
         cell.dataset.partIndex = String(partIndex);
       }
       cell.dataset.x = String(x);
@@ -840,17 +846,23 @@ export function renderHoverPreview() {
       grid: state.hoveredCell,
       componentType: selectedType,
       rotation: state.previewRotation || 0,
+      flipped: state.previewFlipped === true,
       design: state.design,
       catalogue: PART_STATS
     });
     if (!candidate.part) return;
     const footprint = (PART_STATS[selectedType] || PART_STATS.frame).footprint || { width: 1, height: 1 };
-    const bounds = getFootprintBounds(candidate.part.x, candidate.part.y, footprint, candidate.normalizedRotation);
+    // The ghost is drawn from the candidate's own normalized transform, so what
+    // is previewed is exactly what placement validated and will place.
+    const bounds = getFootprintBounds(candidate.part.x, candidate.part.y, footprint, candidate.normalizedRotation, candidate.normalizedFlipped);
 
     const preview = document.createElement("div");
     preview.className = `build-preview ${candidate.ok ? "valid" : "invalid"}`;
     preview.title = candidate.message || "";
-    preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", candidate.normalizedRotation);
+    // The ghost shows the pipe shape the placement would actually create, so a
+    // player sees the coolant run join up before committing the click.
+    const previewMask = coolantConnectionMasks(candidate.nextDesign, PART_STATS)[candidate.nextDesign.indexOf(candidate.part)] || 0;
+    preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", candidate.normalizedRotation, candidate.normalizedFlipped, previewMask);
     positionPreviewOverlay(preview, bounds.minX, bounds.minY, bounds.width, bounds.height);
     dom.grid.appendChild(preview);
     renderRotationPreviewBadge(candidate, bounds);
@@ -867,7 +879,8 @@ function renderRotationPreviewBadge(candidate, bounds) {
   if (!candidate?.part || !isRotatablePart(candidate.part.type)) return;
   const badge = document.createElement("div");
   badge.className = `rotation-preview-badge ${candidate.ok ? "valid" : "invalid"}`;
-  badge.textContent = `${normalizeRotation(candidate.normalizedRotation, PART_STATS[candidate.part.type]?.allowedRotations, candidate.part.x)}° ↻`;
+  const mirrorMark = candidate.normalizedFlipped ? " ↔" : "";
+  badge.textContent = `${normalizeRotation(candidate.normalizedRotation, PART_STATS[candidate.part.type]?.allowedRotations, candidate.part.x)}° ↻${mirrorMark}`;
   badge.setAttribute("aria-hidden", "true");
   positionPreviewOverlay(badge, bounds.minX + Math.max(0.05, bounds.width - 0.72), bounds.minY + 0.05, 0.66, 0.32);
   dom.grid.appendChild(badge);
@@ -1052,12 +1065,42 @@ function selectedPlacementRotation() {
   return normalizeRotation(state.previewRotation || 0, PART_STATS[state.selectedPart]?.allowedRotations);
 }
 
+function selectedPlacementFlipped() {
+  return Boolean(state.selectedPart && isFlippablePart(state.selectedPart) && state.previewFlipped === true);
+}
+
 function refreshRotationIndicator() {
   if (!dom.rotationIndicator) return;
   const rotation = selectedPlacementRotation();
+  const flippable = Boolean(state.selectedPart && isFlippablePart(state.selectedPart));
   const show = state.blueprintView !== "wiring" && rotation != null;
   dom.rotationIndicator.hidden = !show;
-  if (show) dom.rotationIndicator.textContent = `Rotation: ${rotation}° ↻`;
+  // One compact line: the rotation reading it has always shown, plus the mirror
+  // state and its shortcut for the components that offer one.
+  if (show) {
+    dom.rotationIndicator.textContent = `Rotation: ${rotation}° ↻${flippable ? ` · Flip ↔ ${selectedPlacementFlipped() ? "on" : "off"} (F)` : ""}`;
+  }
+}
+
+// Per catalogue part, the transform most recently used for it. Repeated
+// placement keeps the orientation the player chose instead of resetting after
+// every copy. Designer/session state only: nothing here is persisted or sent.
+function rememberPartTransform(type, rotation, flipped) {
+  if (!type) return;
+  state.partTransformMemory = {
+    ...(state.partTransformMemory || {}),
+    [type]: { rotation: Number(rotation) || 0, flipped: flipped === true }
+  };
+}
+
+export function recalledPartTransform(type) {
+  const remembered = (state.partTransformMemory || {})[type];
+  const defaultRotation = PART_STATS[type]?.allowedRotations?.[0] ?? 0;
+  if (!remembered) return { rotation: defaultRotation, flipped: false };
+  return {
+    rotation: isRotatablePart(type) ? normalizeRotation(remembered.rotation, PART_STATS[type]?.allowedRotations) : defaultRotation,
+    flipped: isFlippablePart(type) && remembered.flipped === true
+  };
 }
 
 function refreshAfterPhysicalEdit() {
@@ -1166,6 +1209,7 @@ export function editCell(x, y) {
     grid: { x, y },
     componentType: state.selectedPart,
     rotation: state.previewRotation || 0,
+    flipped: state.previewFlipped === true,
     design: state.design,
     catalogue: PART_STATS
   });
@@ -1190,6 +1234,9 @@ export function editCell(x, y) {
     state.design = candidate.nextDesign;
     syncWiringWithDesign();
   });
+  // Placing does not reset the orientation: the next copy of this part comes out
+  // the same way round.
+  rememberPartTransform(candidate.part.type, candidate.normalizedRotation, candidate.normalizedFlipped);
 }
 
 export function rotateCell(x, y) {
@@ -1225,6 +1272,48 @@ export function rotateCell(x, y) {
       state.previewRotation = newRotation;
     }
   });
+  if (changed) rememberPartTransform(part.type, newRotation, part.flipped === true);
+  return changed;
+}
+
+// Mirrors a placed component in place. The mirrored transform is re-validated
+// exactly like a rotation is, and rejected cleanly if it would leave the grid,
+// overlap, or break the connection to the core.
+export function flipCell(x, y) {
+  const part = state.design.find((candidate) => candidate.x === x && candidate.y === y);
+  if (!part || !isFlippablePart(part.type)) return false;
+
+  const newFlipped = part.flipped !== true;
+  const flippedPart = newFlipped
+    ? { ...part, flipped: true }
+    : (() => { const { flipped, ...rest } = part; return rest; })();
+  const next = state.design.map((candidate) => candidate === part ? flippedPart : candidate);
+
+  if (isOutOfBounds(next)) {
+    setBuildStatus("Mirrored placement goes outside build grid", "error");
+    notify.error("Mirrored placement goes outside build grid");
+    return false;
+  }
+  if (isOverlapping(next)) {
+    setBuildStatus("Mirrored placement overlaps another component", "error");
+    notify.error("Mirrored placement overlaps another component");
+    return false;
+  }
+  if (!isConnected(next)) {
+    setBuildStatus("Mirrored placement breaks connection to core", "error");
+    notify.error("Mirrored placement breaks connection to core");
+    return false;
+  }
+
+  const before = captureBlueprintEditSnapshot(state);
+  const changed = commitPhysicalEdit(before, () => {
+    state.design = next;
+    syncWiringWithDesign();
+    if (state.selectedPart === part.type) {
+      state.previewFlipped = newFlipped;
+    }
+  });
+  if (changed) rememberPartTransform(part.type, part.rotation || 0, newFlipped);
   return changed;
 }
 
@@ -1236,9 +1325,27 @@ export function rotateFocusedPart() {
     rotateCell(part.x, part.y);
   } else if (state.selectedPart && isRotatablePart(state.selectedPart)) {
     state.previewRotation = nextRotation(state.previewRotation || 0, PART_STATS[state.selectedPart]?.allowedRotations);
+    rememberPartTransform(state.selectedPart, state.previewRotation, state.previewFlipped === true);
     renderHoverPreview();
     refreshRotationIndicator();
   }
+}
+
+// F: mirror the hovered/selected placed component, or the pending placement when
+// the cursor is not over one. A component that is not flippable is left alone —
+// no error, no toast.
+export function flipFocusedPart() {
+  if (!isBlueprintRotationMode()) return false;
+  const cell = state.hoveredCell || state.selectedCell;
+  const part = cell ? findPartAt(cell.x, cell.y) : null;
+  if (part && isFlippablePart(part.type)) return flipCell(part.x, part.y);
+  if (part) return false; // hovering a component that cannot be mirrored
+  if (!state.selectedPart || !isFlippablePart(state.selectedPart)) return false;
+  state.previewFlipped = state.previewFlipped !== true;
+  rememberPartTransform(state.selectedPart, state.previewRotation || 0, state.previewFlipped);
+  renderHoverPreview();
+  refreshRotationIndicator();
+  return true;
 }
 
 export function removeCell(x, y) {
@@ -1683,122 +1790,35 @@ function thermalRoleMarkup(part, prediction, result, index) {
   if (!prediction) return "";
   const pieces = [];
   if (prediction.generation > 0.05) pieces.push(`<span class="thermal-role-indicator heat-source" title="Active heat source: +${prediction.generation.toFixed(1)} H/s" aria-label="Active heat source generating ${prediction.generation.toFixed(1)} heat per second">✦</span>`);
-  if (part.type === "heatSink") pieces.push(`<span class="thermal-role-indicator heat-sink-role" title="Absorbing ${prediction.cooling.toFixed(1)} H/s; capacity ${prediction.capacity} H" aria-label="Heat Sink absorbing ${prediction.cooling.toFixed(1)} H/s">▢</span>`);
+  if (part.type === "heatSink") pieces.push(`<span class="thermal-role-indicator heat-sink-role" title="Storage: holds up to ${prediction.capacity} H of its own; removing ${prediction.cooling.toFixed(1)} H/s" aria-label="Heat Sink storing heat, removing ${prediction.cooling.toFixed(1)} H/s">▢</span>`);
   if (part.type === "radiator") {
     const exposed = result.exteriorDirections?.[index]?.size > 0;
-    pieces.push(`<span class="thermal-role-indicator radiator-role" title="Removing ${prediction.cooling.toFixed(1)} H/s; exterior exposure: ${exposed ? "yes" : "no"}" aria-label="Radiator removing ${prediction.cooling.toFixed(1)} H/s">⇱</span>`);
+    pieces.push(`<span class="thermal-role-indicator radiator-role" title="Strong external cooling: removing ${prediction.cooling.toFixed(1)} H/s; exterior exposure: ${exposed ? "yes" : "no"}" aria-label="Radiator removing ${prediction.cooling.toFixed(1)} H/s">⇱</span>`);
   }
-  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Heat Pipe conduit — components attach directly to transfer heat rapidly" aria-label="Heat Pipe conduit, components attach directly">┄</span>`);
+  if (part.type === "heatVent") {
+    const exposed = result.exteriorDirections?.[index]?.size > 0;
+    pieces.push(`<span class="thermal-role-indicator heat-vent-role" title="Weak external cooling: removing ${prediction.cooling.toFixed(1)} H/s; ${exposed ? "exposed to space" : "enclosed — almost no cooling"}" aria-label="Heat Vent removing ${prediction.cooling.toFixed(1)} H/s">≡</span>`);
+  }
+  if (part.type === "heatPipe") pieces.push(`<span class="thermal-role-indicator heat-pipe-role" title="Coolant transport — moves heat between everything on this network, removes none itself" aria-label="Heat Pipe coolant transport, removes no heat">┄</span>`);
   return pieces.join("");
 }
 
+// The hover card is a decision aid, not a diagnostics dump: role-specific rows,
+// a heat bar, and exceptions only. Engineering detail (capacities, Power
+// allocation, accumulated simulation Heat totals) stays in the detailed Heat
+// analysis panel. The contents themselves are built by the pure heatCardModel
+// module so they can be unit-tested without a browser.
 function renderHeatContextCard(result) {
   const index = validHeatIndex(state.hoveredHeatPartIndex) ? state.hoveredHeatPartIndex : null;
   if (!dom.heatContextCard || state.blueprintView !== "heat" || !validHeatIndex(index) || !result) { clearHeatContextCard(); return; }
   const part = state.design[index], prediction = result.predictions.get(part);
   if (!prediction) { clearHeatContextCard(); return; }
-  const labels = globalThis.HeatRules.STATE_LABELS;
-  const powerDiag = result.powerThermal?.components?.[index] || {};
-  const capacityDiag = result.heatDiagnostics?.[index] || {};
-  const net = prediction.generation + prediction.received - prediction.transferredOut - prediction.cooling;
-  const row = (l, v, title = "", className = "") => `<span${title ? ` title="${escapeHtml(title)}"` : ""}${className ? ` class="${escapeHtml(className)}"` : ""}>${escapeHtml(l)}</span><strong${title ? ` title="${escapeHtml(title)}"` : ""}${className ? ` class="${escapeHtml(className)}"` : ""}>${escapeHtml(v)}</strong>`;
-  const coolingLabel = part.type === "radiator" ? "Radiated to space" : "Passive cooling";
-  const exposureRows = [];
-  const destroyed = prediction.state === globalThis.HeatRules.STATE?.DESTROYED || prediction.ratio >= 1.25;
-  const isExposed = (prediction.exposedEdges || 0) > 0;
-  const multiplier = prediction.exposureCoolingMultiplier ?? 1;
-  const routeProblemRows = [];
-  if (/frame/i.test(part.type) && result.criticalFrames?.has?.(index)) {
-    routeProblemRows.push(row("Thermal route", "Bottleneck", "Possible single-frame transfer bottleneck", "heat-card-warning"));
-  }
-  if (result.problemIndices?.unroutedHot?.has?.(index)) {
-    routeProblemRows.push(row("Heat routing", "No cooling route", "Hot component cannot reach enough cooling", "heat-card-warning"));
-  }
-  // Thermal connection label: shows how this component joins its thermal network.
-  const connectedNetwork = result.networks?.find(network =>
-    network.attached?.includes(index) || network.frameIndices?.includes(index)
-  );
-  let connectionLabel = "Disconnected";
-  if (connectedNetwork) {
-    const isRoute = connectedNetwork.frameIndices?.includes(index);
-    const hasHeatPipe = (connectedNetwork.heatPipeIndices || []).length > 0;
-    if (isRoute && part.type === "heatPipe") connectionLabel = "Heat Pipe network";
-    else if (hasHeatPipe) connectionLabel = "Heat Pipe network";
-    else connectionLabel = "Frame network";
-  } else if (part.type === "heatPipe") {
-    connectionLabel = "Disconnected";
-  } else {
-    const hasFrameNeighbor = state.design.some((other, oi) =>
-      oi !== index && /frame/i.test(other.type) &&
-      Math.abs(other.x - part.x) + Math.abs(other.y - part.y) === 1
-    );
-    connectionLabel = hasFrameNeighbor ? "Direct only" : "Disconnected";
-  }
-  routeProblemRows.unshift(row("Thermal connection", connectionLabel, `Component thermal connection: ${connectionLabel}`));
-  const overloadedNetwork = result.networks?.some(network =>
-    result.overloadedNetworkIds?.has?.(network.id) && (network.attached?.includes(index) || network.frameIndices?.includes(index))
-  );
-  if (overloadedNetwork) {
-    routeProblemRows.push(row("Thermal network", "Overloaded", "Attached thermal network is overloaded", "heat-card-warning"));
-  }
-  if (!destroyed && part.type === "radiator") {
-    exposureRows.push(row(
-      "↗ Exterior exposure",
-      isExposed ? "Full radiator output" : "25% radiator output",
-      isExposed ? "Exposed radiator edge" : "Enclosed radiators operate at 25% output."
-    ));
-  } else if (isExposed && prediction.cooling > 0 && multiplier !== 1) {
-    exposureRows.push(row(
-      "↗ Exterior exposure",
-      "+12% cooling",
-      "An exterior edge increases this component's passive cooling by 12%."
-    ));
-  }
+  const model = buildHeatCardModel({ design: state.design, index, prediction, result, partStats: PART_STATS });
+  if (!model) { clearHeatContextCard(); return; }
   dom.heatContextCard.hidden = false;
-  dom.heatContextCard.className = "heat-context-card";
-  dom.heatContextCard.innerHTML = `<h4>${escapeHtml(PART_DEFS[part.type]?.name || part.type)} #${index}</h4><div class="heat-card-state">${escapeHtml(labels[prediction.state] || "Heat")} — ${Math.min(100, Math.round(prediction.ratio * 100))}% <small>${prediction.heat.toFixed(0)} / ${prediction.capacity} H</small></div><div class="heat-card-grid">
-    ${row("Base Heat capacity", `${capacityDiag.baseHeatCapacity ?? prediction.capacity} H`)}
-    ${row("Capacity bonuses", `${Math.max(0, (capacityDiag.finalHeatCapacity ?? prediction.capacity) + (capacityDiag.powerDisplacement || 0) + (capacityDiag.dataDisplacement || 0) - (capacityDiag.baseHeatCapacity ?? prediction.capacity))} H`)}
-    ${row("Hosted Power cells", `L${capacityDiag.hostedLightCells || 0} / S${capacityDiag.hostedStandardCells || 0} / H${capacityDiag.hostedHeavyCells || 0}`)}
-    ${row("Hosted Data cells", capacityDiag.hostedDataCells || 0)}
-    ${row("Power/Data displacement", `${capacityDiag.powerDisplacement || 0} / ${capacityDiag.dataDisplacement || 0} H`)}
-    ${row("Final Heat capacity", `${powerDiag.finalHeatCapacity?.toFixed?.(0) || prediction.capacity} H`)}
-    ${row("Scenario activity", `${Math.round((powerDiag.scenarioActivity || 0) * 100)}%`)}
-    ${row("Requested / allocated Power", `${fmtMw(powerDiag.requestedMw)} / ${fmtMw(powerDiag.allocatedMw)}`)}
-    ${row("Operational multiplier", `${Math.round((powerDiag.operationalMultiplier ?? 1) * 100)}%`)}
-    ${row("Component activity Heat", `+${(powerDiag.componentActivityHeat || 0).toFixed(1)} H`)}
-    ${row("Hosted Power cable Heat", `+${(powerDiag.powerCableHeat || 0).toFixed(1)} H`)}
-    ${row("Total generated Heat", `+${(powerDiag.totalGeneratedHeat || 0).toFixed(1)} H`)}
-    ${row("Cooling", `-${(powerDiag.cooling ?? prediction.cooling).toFixed(1)} H/s`)}
-    ${row("Stored Heat", `${(powerDiag.finalStoredHeat ?? prediction.heat).toFixed(1)} H`)}
-    ${row("Final Heat state", labels[powerDiag.finalHeatState] || labels[prediction.state] || "Stable")}
-    ${row("Hosted Power cables", (() => { const n = (powerDiag.hostedActiveSectionIds || []).length; return n ? `${n} active` : "None"; })())}
-    ${row("Incoming transfer", `+${prediction.received.toFixed(1)} H/s`)}${row("Outgoing transfer", `-${prediction.transferredOut.toFixed(1)} H/s`)}${row(coolingLabel, `-${prediction.cooling.toFixed(1)} H/s`)}${exposureRows.join("")}${routeProblemRows.join("")}${row("Net heat change", `${net >= 0 ? "+" : ""}${net.toFixed(1)} H/s`)}${row("Overheat in", prediction.timeToOverheat == null ? "Never" : `${prediction.timeToOverheat.toFixed(1)} s`)}${heatEffectRows(part, prediction).join("")}${prediction.meltdownTime == null ? "" : row("Meltdown", `${prediction.meltdownTime.toFixed(1)} s`)}</div>`;
+  dom.heatContextCard.className = `heat-context-card heat-card-${model.stateClass}`;
+  dom.heatContextCard.innerHTML = heatCardMarkup(model);
   positionHeatContextCard(index);
-}
-
-
-function heatEffectRows(part, prediction) {
-  const rules = globalThis.HeatRules;
-  const stat = PART_STATS[part.type] || {};
-  const pct = (value) => `${Math.round(value * 100)}%`;
-  const row = (l, v) => `<span>${escapeHtml(l)}</span><strong>${escapeHtml(v)}</strong>`;
-  const state = prediction.state;
-  if (part.type === "heatPipe") return [row("Heat transfer", "Unaffected")];
-  if (part.type === "heatSink") return [row("Storage", "Unaffected"), row("Cooling output", pct(rules.activeCoolingForState(state)))];
-  if (part.type === "radiator") return [row("Cooling output", pct(rules.activeCoolingForState(state)))];
-  const passive = /frame/i.test(part.type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(part.type);
-  if (passive) {
-    if (part.type === "armor" || part.type === "compositeArmor") return [row("Protection", pct(rules.passiveProtectionForState(state)))];
-    return [row("Structural strength", pct(rules.passiveProtectionForState(state))), row("Damage taken", `×${rules.structuralDamageMultiplierForState(state).toFixed(2)}`)];
-  }
-  if (stat.weapon) return [row(stat.weapon.type === "beam" ? "Beam output" : "Fire rate", pct(rules.activeOutputForState(state)))];
-  if ((stat.thrust || 0) > 0) return [row("Thrust output", pct(rules.activeOutputForState(state))), row("Turn output", pct(rules.activeOutputForState(state)))];
-  if ((stat.powerGeneration || 0) > 0) return [row("Power output", pct(rules.activeOutputForState(state)))];
-  if ((stat.shieldRegen || 0) > 0) return [row("Recharge rate", pct(rules.activeOutputForState(state)))];
-  if ((stat.repairRate || 0) > 0) return [row("Repair output", pct(rules.activeOutputForState(state)))];
-  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength) return [row("Bonus effectiveness", pct(rules.activeOutputForState(state)))];
-  return [];
 }
 
 function positionHeatContextCard(index) {
@@ -1936,7 +1956,7 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     clearExteriorCoolingIndicators();
   }
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
-    cell.classList.remove("heat-related", "heat-unrelated", "heat-hosted-power-section");
+    cell.classList.remove("heat-related", "heat-unrelated", "heat-hosted-power-section", "coolant-network-pipe", "coolant-network-endpoint");
   }
   dom.grid.classList.toggle("heat-inspecting", state.blueprintView === "heat" && validHeatIndex(state.hoveredHeatPartIndex));
   if (state.blueprintView !== "heat") { clearExteriorCoolingIndicators(); return; }
@@ -1946,11 +1966,21 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     if (flow.amount < HEAT_FLOW_THRESHOLD) continue;
     if (flow.from === focus || flow.to === focus) { connected.add(flow.from); connected.add(flow.to); }
   }
+  // Hovering anything on a coolant network lights up the whole network: the
+  // transport tiles and the endpoints attached to them get distinct classes, so
+  // "what is plumbed to what" is readable without a dedicated plumbing editor.
+  const coolantNetwork = focus == null ? null : coolantNetworkAt(state.design, focus, PART_STATS);
+  if (coolantNetwork) {
+    for (const index of coolantNetwork.pipes) connected.add(index);
+    for (const index of coolantNetwork.attachments) connected.add(index);
+  }
   for (const cell of dom.grid.querySelectorAll(".build-cell.occupied")) {
     const part = findPartAt(Number(cell.dataset.x), Number(cell.dataset.y));
     const index = part ? state.design.indexOf(part) : -1;
     cell.classList.toggle("heat-related", connected.has(index));
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
+    cell.classList.toggle("coolant-network-pipe", Boolean(coolantNetwork?.pipes.has(index)));
+    cell.classList.toggle("coolant-network-endpoint", Boolean(coolantNetwork?.attachments.has(index)));
     cell.classList.toggle("heat-hosted-power-section", focus === index && (analysis.powerThermal?.components?.[index]?.hostedActiveSectionIds || []).length > 0);
   }
   renderHeatContextCard(analysis);
@@ -2016,7 +2046,7 @@ function renderHeatFlows(analysis) {
   const owner = new Map();
   const occupiedByIndex = state.design.map((part, i) => {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
-    const occupied = getOccupiedCells(part.x, part.y, stat.footprint || { width:1, height:1 }, part.rotation || 0);
+    const occupied = getOccupiedCells(part.x, part.y, stat.footprint || { width:1, height:1 }, part.rotation || 0, part.flipped === true);
     for (const cell of occupied) owner.set(`${cell.x},${cell.y}`, i);
     return occupied;
   });

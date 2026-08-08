@@ -34,6 +34,7 @@ export const SPECIAL_MECHANICS_COMPONENTS = [
   "radiator",
   "heatPipe",
   "heatSink",
+  "heatVent",
   "reactor",
   "nuclearReactor",
   "smallReactor",
@@ -138,7 +139,7 @@ export const COMPONENT_MECHANICS = {
     requirements: [
       { label: "Exterior Edge", value: "At least one exposed exterior edge for full cooling", detail: "An internal empty pocket does not count as exterior exposure. Exposure must connect to open space outside the ship.", warning: true },
       { label: "Component Power", value: "Required for active cooling", detail: "Active cooling scales with the component's operational Power multiplier. Unpowered radiators provide only the passive cooling floor." },
-      { label: "Thermal Route", value: "Only removes heat that reaches the Radiator through local adjacency or its thermal route", detail: "The Radiator creates a cooling gradient; it does not instantly remove heat from the entire ship." }
+      { label: "Thermal Route", value: "Only removes heat that reaches the Radiator", detail: "Heat arrives either by direct contact with a touching component or through a Heat Pipe coolant network. The Radiator creates a cooling gradient; it does not instantly remove heat from the entire ship." }
     ],
     specialMechanics: [
       { label: "Enclosed Output", value: fmtPct(getHeatRules().RADIATOR_ENCLOSED_MULTIPLIER ?? 0.25), detail: "A Radiator with no exterior edge still cools, but its cooling is multiplied by the enclosed multiplier.", warning: true, sourceKey: "heatRules.RADIATOR_ENCLOSED_MULTIPLIER" },
@@ -146,10 +147,12 @@ export const COMPONENT_MECHANICS = {
       { label: "Power Scaling", value: "Active cooling scales with component Power multiplier", detail: "Partially powered radiators provide proportionally reduced active cooling." },
       { label: "Heat-State Scaling", value: "Active cooling follows the shared active-cooling table", detail: "Cool/Warm: 100%, Hot: 75%, Critical: 50%, Overheated: 0% active cooling.", sourceKey: "heatRules.RADIATOR_ACTIVE_COOLING_BY_STATE" },
       { label: "Destroyed Behaviour", value: "No active cooling; passive floor retained", detail: "A destroyed Radiator still radiates heat passively at the floor fraction, but provides no active cooling.", warning: true },
-      { label: "Network Role", value: "Creates a cooling gradient, not instant ship-wide cooling", detail: "Heat Pipes and Frames can deliver heat to the Radiator for dissipation." }
+      { label: "Network Role", value: "Creates a cooling gradient, not instant ship-wide cooling", detail: "Heat Pipes deliver heat to the Radiator from anywhere on their coolant network; touching components deliver it by direct conduction." },
+      { label: "Strongest Rejection", value: "Higher sustained output than a Heat Vent", detail: "Radiators are the ship's main sustained heat rejection. A Heat Vent is the cheap, compact, unpowered alternative at far lower output." }
     ],
     interactions: [
-      { label: "Heat Pipes & Frames", value: "Can deliver heat to the Radiator for dissipation" },
+      { label: "Heat Pipes", value: "Deliver heat to the Radiator from anywhere on the coolant network" },
+      { label: "Heat Vent", value: "Cheaper and weaker; use vents to trim low loads, radiators to carry sustained ones" },
       { label: "Engineering Command Aura", value: "May increase heat dissipation via the heatDissipationMultiplier aura" },
       { label: "Power Loss", value: "Removes active cooling; only the passive floor remains" }
     ]
@@ -158,30 +161,49 @@ export const COMPONENT_MECHANICS = {
   heatPipe: {
     requirements: [
       { label: "Structural", value: "Does not replace structural support", detail: "Non-heat-pipe parts cannot use a heat-pipe chain as their only structural path to the Core.", warning: true },
-      { label: "Routing", value: "Transfers heat but removes none", detail: "A Heat Pipe moves heat between components; it does not dissipate heat itself." }
+      { label: "Connection", value: "Automatic, orthogonal adjacency", detail: "A Heat Pipe joins every orthogonally adjacent Heat Pipe and every adjacent living component. There is no rotation, port or flow direction to configure, and diagonals never connect." }
     ],
     specialMechanics: [
-      { label: "Transfer Only", value: "0 Heat/s cooling", detail: "Heat Pipes have zero cooling. They transfer heat to connected sinks or radiators.", sourceKey: "heatRules.profile.heatPipe.cooling" },
-      { label: "Destroyed Route", value: "Stops routing when destroyed", detail: "A destroyed Heat Pipe has greatly reduced conductivity (0.12) and breaks the thermal route.", warning: true, sourceKey: "heatRules.CONDUCTIVITY.destroyed" },
-      { label: "Edge Transfer Multipliers", value: "Pipe-to-pipe: 2.5×, pipe-to-radiator: 2.5×, pipe-to-sink: 2.25×", detail: "Heat Pipe edges transfer heat significantly faster than Frame edges.", sourceKey: "heatRules.HEAT_PIPE_TRANSFER" }
+      { label: "Transport Only", value: "0 Heat/s cooling", detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves — the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
+      { label: "Negligible Storage", value: "10 Heat capacity", detail: "Pipes are conduits, not buffers: heat entering the network moves on to whatever is attached rather than being banked.", sourceKey: "heatRules.profile.heatPipe.capacity" },
+      { label: "Finite Throughput", value: "40 Heat/s per shared edge", detail: "Each attachment can move at most this much heat per second, so a coolant network transports quickly but never equalises attached components instantly.", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
+      { label: "Automatic Flow Direction", value: "Hotter to colder", detail: "The coolant settles at the conductance-weighted mean of the attached components' heat ratios; anything hotter than that gives heat up, anything colder takes it." },
+      { label: "Destroyed Route", value: "Splits the network when destroyed", detail: "A destroyed Heat Pipe leaves the network, splitting the coolant run into the separate networks that remain.", warning: true, sourceKey: "heatRules.CONDUCTIVITY.destroyed" }
     ],
     interactions: [
-      { label: "Radiator", value: "Delivers heat to radiators for dissipation" },
-      { label: "Heat Sink", value: "Delivers heat to sinks for temporary storage" },
-      { label: "Frames", value: "Frame-to-pipe transfer is boosted 1.7×" }
+      { label: "Radiator", value: "Delivers heat to radiators for strong sustained rejection" },
+      { label: "Heat Vent", value: "Delivers heat to exposed vents for cheap passive rejection" },
+      { label: "Heat Sink", value: "Delivers heat to sinks for buffering thermal spikes" },
+      { label: "Frames", value: "Frames are ordinary attachments, not transport: a chain of frames is not a coolant route" }
     ]
   },
 
   heatSink: {
     specialMechanics: [
-      { label: "Thermal Mass", value: "340 Heat capacity", detail: "Heat Sinks have large heat capacity for their size, absorbing heat from connected frames.", sourceKey: "heatRules.profile.heatSink.capacity" },
-      { label: "Low Cooling", value: "1.5 Heat/s", detail: "Heat Sinks store heat but remove very little themselves. They work best with a Radiator route.", sourceKey: "heatRules.profile.heatSink.cooling" },
-      { label: "Adjacent Capacity Bonus", value: "+35 Heat per adjacent Heat Sink", detail: "Unique adjacent heat sinks boost a component's effective heat capacity. Destroyed sinks remove this bonus." },
-      { label: "Destroyed Behaviour", value: "Excluded from aggregate capacity but retains stored heat", detail: "A destroyed Heat Sink no longer contributes its capacity bonus to neighbours, but any heat already stored remains until transferred away.", warning: true }
+      { label: "Thermal Mass", value: "340 Heat capacity", detail: "Heat Sinks have large heat capacity for their size. That capacity is their own — heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
+      { label: "Low Cooling", value: "1.5 Heat/s", detail: "Heat Sinks store heat but remove very little themselves. They work best paired with a Radiator on the same coolant network.", sourceKey: "heatRules.profile.heatSink.cooling" },
+      { label: "No Adjacency Bonus", value: "Neighbours gain no capacity", detail: "Sitting next to a Heat Sink does not raise a component's own heat capacity. Connect hot systems to the sink with Heat Pipes so the heat actually reaches it." },
+      { label: "Destroyed Behaviour", value: "Excluded from aggregate capacity but retains stored heat", detail: "A destroyed Heat Sink stops counting toward the ship's heat capacity, but any heat already stored remains until transferred away.", warning: true }
     ],
     interactions: [
-      { label: "Radiator", value: "Works best with a Radiator route to dissipate stored heat" },
-      { label: "Heat Pipes", value: "Heat Pipes can deliver heat to sinks at 2.25× transfer rate" }
+      { label: "Radiator", value: "Works best paired with a Radiator to dissipate stored heat" },
+      { label: "Heat Pipes", value: "The intended way to fill a sink: WEAPON — PIPE — HEAT SINK — PIPE — RADIATOR" }
+    ]
+  },
+
+  heatVent: {
+    requirements: [
+      { label: "Enclosed Output", value: fmtPct(getHeatRules().HEAT_VENT_ENCLOSED_MULTIPLIER ?? 0.05), detail: "A Heat Vent rejects heat through the hull, so fully enclosed it produces almost nothing. One exposed edge is enough — extra exposed edges add no further cooling.", warning: true, sourceKey: "heatRules.HEAT_VENT_ENCLOSED_MULTIPLIER" },
+      { label: "Connection", value: "Attaches from any side", detail: "Adjacency-based like every thermal part: a Heat Vent takes heat from components it touches, or from a Heat Pipe network on any orthogonal side. No rotation needed." }
+    ],
+    specialMechanics: [
+      { label: "Passive Rejection", value: "4 Heat/s while exposed", detail: "Constant output with no Power draw and no scaling with heat state.", sourceKey: "heatRules.profile.heatVent.cooling" },
+      { label: "Weaker Than a Radiator", value: "Well below Radiator output", detail: "The Heat Vent is the cheap, compact, unpowered option for low and medium heat ships. It is not a Radiator substitute on a heavy build." },
+      { label: "Fragile", value: "18 hull", detail: "Cheap and light, but it sits on the exterior where it is easy to shoot off.", warning: true }
+    ],
+    interactions: [
+      { label: "Heat Pipes", value: "Can be fed from anywhere in the ship through a coolant network" },
+      { label: "Radiator", value: "Complements rather than replaces it; Radiators carry sustained loads" }
     ]
   },
 
@@ -709,7 +731,11 @@ export const LEDGER_RULE_CONTRACTS = [
   { articleId: "component:radiator", sourceKey: "heatRules.RADIATOR_EXPOSED_MULTIPLIER" },
   { articleId: "component:radiator", sourceKey: "heatRules.RADIATOR_ACTIVE_COOLING_BY_STATE.hot" },
   { articleId: "component:radiator", sourceKey: "heatRules.RADIATOR_ACTIVE_COOLING_BY_STATE.critical" },
-  { articleId: "component:radiator", sourceKey: "heatRules.RADIATOR_ACTIVE_COOLING_BY_STATE.overheated" }
+  { articleId: "component:radiator", sourceKey: "heatRules.RADIATOR_ACTIVE_COOLING_BY_STATE.overheated" },
+  { articleId: "component:heatVent", sourceKey: "heatRules.HEAT_VENT_ENCLOSED_MULTIPLIER" },
+  { articleId: "component:heatVent", sourceKey: "heatRules.HEAT_VENT_EXPOSED_MULTIPLIER" },
+  { articleId: "component:heatPipe", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
+  { articleId: "component:heatPipe", sourceKey: "heatRules.CONDUCTIVITY.destroyed" }
 ];
 
 // ---------------------------------------------------------------------------

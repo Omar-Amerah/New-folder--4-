@@ -20,7 +20,7 @@ export function buildExteriorHullEdges(design, { scale, isLive } = {}) {
     const part = design[index];
     if (!part || (typeof isLive === "function" && !isLive(index, part))) continue;
     const footprint = PART_STATS[part.type]?.footprint || { width: 1, height: 1 };
-    const partCells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    const partCells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
     for (const cell of partCells) {
       const key = cellKey(cell.x, cell.y);
       if (!occupied.has(key)) {

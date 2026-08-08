@@ -137,27 +137,101 @@ export function isFriendlyProjectile(bullet, players) {
   return Boolean(mine?.team && owner?.team && mine.team === owner.team);
 }
 
+// Ballistic bolt sizes, deliberately spread by weapon weight so a shot can be
+// read at a glance without reading its colour (bolts wear the owner's team
+// colour, so colour is not available to tell weapons apart). Ordering matters
+// more than the absolute numbers: pellet < autocannon < blaster < shell.
+const BOLT_ART = {
+  scatterCannon: { length: 7, halfHeight: 1.5, glow: 7, nose: 2 },
+  autocannon: { length: 11, halfHeight: 1.9, glow: 9, nose: 3 },
+  blaster: { length: 16, halfHeight: 2.4, glow: 12, nose: 5 },
+  default: { length: 14, halfHeight: 2, glow: 12, nose: 5 }
+};
+
+// A capsule tracer with a white-hot nose: the shared shape for every plain
+// ballistic bolt. Only the dimensions change between weapons.
+function drawTracerBolt(color, art) {
+  const { length, halfHeight, glow, nose } = art;
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = qualityShadowBlur(glow);
+  roundRect(ctx, { x: -length * 0.6, y: -halfHeight, width: length, height: halfHeight * 2, radius: halfHeight });
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  roundRect(ctx, {
+    x: length * 0.4 - nose,
+    y: -halfHeight * 0.6,
+    width: nose,
+    height: halfHeight * 1.2,
+    radius: halfHeight * 0.6
+  });
+  ctx.fill();
+}
+
+// Half-extents of the baked texture for a projectile, art plus its glow. Lives
+// next to the drawing code so a bigger shell cannot silently clip its own bake.
+export function bulletArtExtent(bullet) {
+  if (bullet?.type === "rail") {
+    return bullet.subtype === "spinalAccelerator" ? { halfW: 88, halfH: 28 } : { halfW: 62, halfH: 22 };
+  }
+  if (bullet?.type === "missile") return { halfW: 44, halfH: 20 };
+  if (bullet?.type === "pdShot") return { halfW: 18, halfH: 12 };
+  return { halfW: 26, halfH: 16 };
+}
+
 // Draws a bullet's art around the origin (translation/rotation already applied
 // by the caller). Used by the Pixi renderer to bake per-type projectile
-// textures into the shared offscreen ctx.
+// textures into the shared offscreen ctx. Sizes are constant world units — the
+// art is baked once, so nothing here may depend on the live camera zoom.
 export function drawBulletVisual(bullet, color) {
   if (bullet.type === "rail") {
-    ctx.strokeStyle = "#eaf6ff";
-    ctx.shadowColor = "#9fdcff";
-    ctx.shadowBlur = qualityShadowBlur(24);
-    ctx.lineWidth = 3.2 / state.camera.zoom;
-    ctx.beginPath();
-    ctx.moveTo(-34, 0);
-    ctx.lineTo(24, 0);
-    ctx.stroke();
-    ctx.strokeStyle = "#64a8ff";
-    ctx.lineWidth = 1.2 / state.camera.zoom;
-    ctx.beginPath();
-    ctx.moveTo(-18, -3);
-    ctx.lineTo(18, -3);
-    ctx.moveTo(-18, 3);
-    ctx.lineTo(18, 3);
-    ctx.stroke();
+    if (bullet.subtype === "spinalAccelerator") {
+      // The heaviest gun in the game: a long white-hot lance inside a wider
+      // blue envelope, roughly twice the railgun's reach on screen.
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#7fb2ff";
+      ctx.shadowColor = "#93c5fd";
+      ctx.shadowBlur = qualityShadowBlur(30);
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(-54, 0);
+      ctx.lineTo(46, 0);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-40, 0);
+      ctx.lineTo(48, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-44, -6.5);
+      ctx.lineTo(30, -6.5);
+      ctx.moveTo(-44, 6.5);
+      ctx.lineTo(30, 6.5);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "#eaf6ff";
+      ctx.shadowColor = "#9fdcff";
+      ctx.shadowBlur = qualityShadowBlur(24);
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(-34, 0);
+      ctx.lineTo(24, 0);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "#64a8ff";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(-18, -3);
+      ctx.lineTo(18, -3);
+      ctx.moveTo(-18, 3);
+      ctx.lineTo(18, 3);
+      ctx.stroke();
+    }
   } else if (bullet.type === "missile") {
     if (bullet.subtype === "swarmMissile") {
       ctx.shadowColor = "#5eead4";
@@ -223,19 +297,23 @@ export function drawBulletVisual(bullet, color) {
       ctx.closePath();
       ctx.fill();
     }
+  } else if (bullet.type === "flak") {
+    // Small proximity-fused shell: dark casing with a bright fuse tip, so a
+    // curtain of flak never reads as friendly-coloured gunfire.
+    ctx.shadowColor = color;
+    ctx.shadowBlur = qualityShadowBlur(9);
+    ctx.fillStyle = color;
+    roundRect(ctx, { x: -6, y: -2.6, width: 9, height: 5.2, radius: 2.6 });
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(10, 14, 22, 0.5)";
+    ctx.fillRect(-3.4, -2.6, 1.8, 5.2);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(1.4, 0, 1.3, 0, Math.PI * 2);
+    ctx.fill();
   } else if (bullet.type === "pdShot") {
-    if (bullet.subtype === "flakCannon") {
-      ctx.shadowColor = "#f97316";
-      ctx.shadowBlur = qualityShadowBlur(14);
-      ctx.fillStyle = "#fdba74";
-      ctx.beginPath();
-      ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (bullet.subtype === "interceptorPod") {
+    if (bullet.subtype === "interceptorPod") {
       ctx.shadowColor = "#c084fc";
       ctx.shadowBlur = qualityShadowBlur(10);
       ctx.fillStyle = "#e9d5ff";
@@ -267,14 +345,43 @@ export function drawBulletVisual(bullet, color) {
       ctx.arc(0, 0, 2, 0, Math.PI * 2);
       ctx.fill();
     }
-  } else {
-    ctx.fillStyle = color;
+  } else if (bullet.subtype === "plasmaCannon") {
+    // Slow, heavy and unmistakable: a glowing orb with a short trailing wisp.
     ctx.shadowColor = color;
-    ctx.shadowBlur = qualityShadowBlur(12);
-    roundRect(ctx, { x: -7, y: -2, width: 14, height: 4, radius: 2 });
+    ctx.shadowBlur = qualityShadowBlur(18);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5.4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.88)";
-    ctx.fillRect(1, -1, 5, 2);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.45;
+    ctx.beginPath();
+    ctx.moveTo(-3.5, -3.6);
+    ctx.lineTo(-13, 0);
+    ctx.lineTo(-3.5, 3.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.beginPath();
+    ctx.arc(0.8, 0, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (bullet.subtype === "fragmentationCannon") {
+    // The bulkiest bolt: a stubby high-explosive shell, wide rather than long,
+    // with a dark casing band that sets it apart from a plain tracer.
+    ctx.shadowColor = color;
+    ctx.shadowBlur = qualityShadowBlur(13);
+    ctx.fillStyle = color;
+    roundRect(ctx, { x: -9, y: -3.8, width: 15, height: 7.6, radius: 3.4 });
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(12, 16, 24, 0.45)";
+    ctx.fillRect(-4.6, -3.8, 2.4, 7.6);
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    roundRect(ctx, { x: 1.4, y: -2.2, width: 4.6, height: 4.4, radius: 2.2 });
+    ctx.fill();
+  } else {
+    drawTracerBolt(color, BOLT_ART[bullet.subtype] || BOLT_ART.default);
   }
 }
 

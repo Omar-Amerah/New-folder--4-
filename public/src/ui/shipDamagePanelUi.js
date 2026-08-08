@@ -9,6 +9,7 @@ import { state } from "../state.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { PART_DEFS, PART_STATS } from "../design/parts.js";
 import { getOccupiedCells } from "../design/footprint.js";
+import { shipLocalCoolantMasks } from "../design/coolantLayout.js";
 import { drawRotatingWeaponTop } from "../game/componentArt.js";
 import { drawPlacedStaticComponent } from "../game/staticComponentComposition.js";
 import { isRotatingWeaponPart, authoritativeWeaponAngle } from "../game/weaponAim.js";
@@ -1076,10 +1077,11 @@ function staticDiagramLayer(ship, canvas, trim) {
         ctx.save();
         ctx.translate(geometry.originX, geometry.originY);
         ctx.rotate(-Math.PI / 2);
-        ship.design.forEach((part) => {
+        const coolantMasks = shipLocalCoolantMasks(ship.design, PART_STATS);
+        ship.design.forEach((part, index) => {
           const def = PART_DEFS[part.type] || PART_DEFS.frame;
           const place = footprintLocalPlacement(part, geometry.cellSize);
-          drawPlacedStaticComponent(ctx, { part, place, unit: geometry.cellSize, color: def.color, trim });
+          drawPlacedStaticComponent(ctx, { part, place, unit: geometry.cellSize, color: def.color, trim, connectionMask: coolantMasks[index] });
         });
         ctx.restore();
       });

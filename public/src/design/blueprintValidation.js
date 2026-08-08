@@ -57,7 +57,7 @@ export function isOverlapping(parts) {
   for (const part of parts) {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
     const footprint = stat.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
     for (const cell of cells) {
       const key = `${cell.x},${cell.y}`;
       if (occupied.has(key)) return true;
@@ -71,7 +71,7 @@ export function isOutOfBounds(parts) {
   for (const part of parts) {
     const stat = PART_STATS[part.type] || PART_STATS.frame;
     const footprint = stat.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
+    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0, part.flipped === true);
     for (const cell of cells) {
       if (cell.x < 0 || cell.x > 14 || cell.y < 0 || cell.y > 14) return true;
     }
@@ -79,10 +79,10 @@ export function isOutOfBounds(parts) {
   return false;
 }
 
-export function explainConnectionProblem(existingParts, partType, x, y, rotation) {
+export function explainConnectionProblem(existingParts, partType, x, y, rotation, flipped = false) {
   const stat = PART_STATS[partType] || PART_STATS.frame;
   const footprint = stat.footprint || { width: 1, height: 1 };
-  const cells = getOccupiedCells(x, y, footprint, rotation || 0);
+  const cells = getOccupiedCells(x, y, footprint, rotation || 0, flipped === true);
 
   let sideNeighbor = false;
   let cornerNeighbor = false;
@@ -91,7 +91,7 @@ export function explainConnectionProblem(existingParts, partType, x, y, rotation
     for (const existingPart of existingParts) {
       const existingStat = PART_STATS[existingPart.type] || PART_STATS.frame;
       const existingFootprint = existingStat.footprint || { width: 1, height: 1 };
-      const existingCells = getOccupiedCells(existingPart.x, existingPart.y, existingFootprint, existingPart.rotation || 0);
+      const existingCells = getOccupiedCells(existingPart.x, existingPart.y, existingFootprint, existingPart.rotation || 0, existingPart.flipped === true);
 
       for (const exCell of existingCells) {
         if (Math.abs(exCell.x - newCell.x) + Math.abs(exCell.y - newCell.y) === 1) {

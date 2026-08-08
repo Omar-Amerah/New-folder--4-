@@ -487,6 +487,7 @@
             <div class="keybinds-grid">
               <div class="keybind-row"><kbd class="keycap">V</kbd><span>Toggle component damage view</span></div>
               <div class="keybind-row"><kbd class="keycap">R</kbd><span>Rotate focused part (designer)</span></div>
+              <div class="keybind-row"><kbd class="keycap">F</kbd><span>Mirror focused shaped part (designer)</span></div>
               <div class="keybind-row"><kbd class="keycap">Ctrl</kbd><span>+</span><kbd class="keycap">Z</kbd><span>Undo blueprint edit (designer)</span></div>
             </div>
           </div>
@@ -572,7 +573,7 @@
                 <button id="blueprintWiringTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="blueprintModeContext" data-feature-wiring hidden>Wiring</button>
               </div>
               <div class="designer-top-right">
-                <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Remove: right-click</div>
+                <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Mirror: F · Remove: right-click</div>
                 <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
                 <div class="designer-actions">
                   <button id="undoBlueprintEditButton" type="button" class="icon-button blueprint-undo-button" title="Undo last blueprint edit (Ctrl+Z)" aria-label="Undo last blueprint edit" disabled>
@@ -661,7 +662,7 @@
               </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">
-                <div id="emptyGridInstruction" class="empty-grid-instruction" aria-hidden="true" hidden><strong>Choose a component, then left-click a grid cell to place it.</strong><span>Click the same component again or press R to rotate · Right-click to remove</span></div>
+                <div id="emptyGridInstruction" class="empty-grid-instruction" aria-hidden="true" hidden><strong>Choose a component, then left-click a grid cell to place it.</strong><span>Click the same component again or press R to rotate · F to mirror shaped structure · Right-click to remove</span></div>
                 <div id="buildGrid" class="build-grid" aria-label="Ship blueprint grid"></div>
                 <div id="heatFlowOverlayHost" class="heat-flow-overlay-host" aria-hidden="true"></div>
                 <div id="wiringOverlayHost" class="wiring-overlay-host"></div>
@@ -797,6 +798,7 @@
     <script src="/src/shared/protocolVersion.js?v=protocol-2"></script>
     <script src="/src/shared/featureFlags.js?v=feature-flags-1"></script>
     <script src="/src/shared/balanceRevision.js?v=balance-revision-1"></script>
+    <script src="/src/shared/componentTransform.js?v=component-transform-1"></script>
     <script src="/src/shared/heatRules.js?v=local-heat-4"></script>
     <script src="/src/shared/engineExhaust.js?v=engine-exhaust-1"></script>
     <script src="/src/shared/turretRules.js?v=turret-rules-1"></script>

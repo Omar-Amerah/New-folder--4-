@@ -56,7 +56,7 @@ function makeThumbnailKey(parts) {
   counters.thumbnailKey++;
   if (!Array.isArray(parts) || parts.length === 0) return "";
   return parts
-    .map((p) => `${p.x},${p.y},${p.type},${normalizeRotation(p.rotation) || 0}`)
+    .map((p) => `${p.x},${p.y},${p.type},${normalizeRotation(p.rotation) || 0}${p.flipped === true ? ",m" : ""}`)
     .join(";");
 }
 

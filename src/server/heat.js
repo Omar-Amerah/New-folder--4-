@@ -14,7 +14,7 @@ const {
 const { performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
 
-const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, PIPE_NETWORK_ATTACHMENT_BANDWIDTH } = HeatRules;
+const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork } = HeatRules;
 
 const TELEMETRY_STRIDE = 8;
 const TELEMETRY_FIELDS = Object.freeze([
@@ -261,7 +261,10 @@ function invalidateHeatRuntime(ship, flags = {}) {
   wakeHeatRuntime(ship);
   const indices = flags.wiringComponentIndices instanceof Set ? flags.wiringComponentIndices : null;
   if (indices) for (const index of indices) addLifecycleComponent(runtime, index);
-  if (flags.exposure) for (const index of runtime.topology.radiatorIndices) addLifecycleComponent(runtime, index);
+  if (flags.exposure) {
+    for (const index of runtime.topology.radiatorIndices) addLifecycleComponent(runtime, index);
+    for (const index of runtime.topology.heatVentIndices) addLifecycleComponent(runtime, index);
+  }
   if (flags.thermalRoutes) for (const index of runtime.topology.thermalRouteIndices) addLifecycleComponent(runtime, index);
   if (flags.activeCoolers) for (const index of runtime.topology.closedCycleCoolerIndices) addLifecycleComponent(runtime, index);
   if (flags.thermalCapacity && !indices) for (const index of runtime.topology.heatSinkIndices) addLifecycleComponent(runtime, index);
@@ -435,9 +438,9 @@ function initShipHeat(ship) {
   ship.componentBaseHeatCapacity = ship.componentThermals.map(item => item.capacity);
   // Static Heat-capacity displacement from installed wiring. Displacement is a
   // static per-component amount computed once from the immutable Blueprint
-  // wiring; recalculateEffectiveThermalCapacities subtracts it AFTER legitimate
-  // static bonuses (heat-sink adjacency) and clamps to the configured minimum,
-  // so order is: base + static bonuses - Power/Data displacement -> clamp.
+  // wiring; recalculateEffectiveThermalCapacities subtracts it from the
+  // component's own capacity and clamps to the configured minimum, so order is:
+  // base - Power/Data displacement -> clamp.
   const infrastructure = BALANCE.wiringInfrastructure;
   ship.wiringMinimumHeatCapacity = WiringInfrastructureRules.minimumCapacity(infrastructure);
   if (WIRING_ENABLED) {
@@ -519,25 +522,21 @@ function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
   if (!ship.componentBaseHeatCapacity || ship.componentBaseHeatCapacity.length !== design.length) {
     ship.componentBaseHeatCapacity = ship.componentThermals.map((thermal, index) => profile(design[index]?.type, PARTS[design[index]?.type] || {}).capacity || thermal.capacity || 0);
   }
+  // A Heat Sink's thermal mass belongs to the Heat Sink. Neighbours no longer
+  // inherit any of it: to use a sink's storage, heat has to actually reach it,
+  // by direct conduction or through a Heat Pipe coolant network.
   const affected = changedSinkIndex === null ? design.map((_, i) => i)
     : [changedSinkIndex, ...topologyNeighbourIndices(topology, changedSinkIndex)];
   for (const i of new Set(affected)) {
-    let adjacencyBonus = 0;
-    for (const index of topologyNeighbourIndices(topology, i)) {
-      if (design[index]?.type === "heatSink") {
-        const max = Math.max(0, ship.componentMaxHp?.[index] || 0);
-        adjacencyBonus += 35 * HeatRules.clamp(max > 0 ? ship.componentHp[index] / max : ((ship.componentHp?.[index] ?? 1) > 0 ? 1 : 0), 0, 1);
-      }
-    }
     const max = Math.max(0, ship.componentMaxHp?.[i] || 0);
     const health = HeatRules.clamp(max > 0 ? ship.componentHp[i] / max : ((ship.componentHp?.[i] ?? 1) > 0 ? 1 : 0), 0, 1);
     const ownCapacity = design[i].type === "heatSink" ? ship.componentBaseHeatCapacity[i] * health : ship.componentBaseHeatCapacity[i];
-    // Wiring displacement is applied AFTER legitimate static bonuses (heat-sink
-    // adjacency), then clamped to the configured minimum so cabling can never
-    // drive a component to zero, negative, NaN or infinite capacity.
+    // Wiring displacement is applied to the component's own capacity, then
+    // clamped to the configured minimum so cabling can never drive a component
+    // to zero, negative, NaN or infinite capacity.
     const displacement = ship.componentWiringDisplacement?.[i] || 0;
     const minimum = ship.wiringMinimumHeatCapacity || 1;
-    const capacity = Math.max(minimum, ownCapacity + adjacencyBonus - displacement);
+    const capacity = Math.max(minimum, ownCapacity - displacement);
     ship.componentThermals[i].capacity = capacity;
     if (ship.componentHeatCapacity) ship.componentHeatCapacity[i] = capacity;
     // Capacity loss never deletes retained heat. Zero capacity with positive
@@ -597,20 +596,23 @@ function rebuildThermalNetworks(ship) {
     const generators = [...attached].filter(i => HeatRules.activityHeat(design[i].type, PARTS[design[i].type] || {}) > 0);
     const sinks = [...attached].filter(i => design[i].type === "heatSink");
     const radiators = [...attached].filter(i => design[i].type === "radiator");
+    const heatVents = [...attached].filter(i => design[i].type === "heatVent");
     const closedCycleCoolers = [...attached].filter(i => design[i].type === "closedCycleCooler");
-    const heatPipeIndices = frames.filter(i => design[i].type === "heatPipe");
-    const frameOnlyIndices = frames.filter(i => design[i].type !== "heatPipe");
+    const heatPipeIndices = frames.filter(i => isCoolantTransportType(design[i].type));
+    const frameOnlyIndices = frames.filter(i => !isCoolantTransportType(design[i].type));
     const id = networks.length;
     for (const index of members) ship.componentThermalNetworks[index].push(id);
     const connectedFrameCells = frames.map(index => ({ index, x: design[index].x, y: design[index].y }));
-    networks.push({ id, frameIndices: frames, heatPipeIndices, frameOnlyIndices, connectedFrameCells, attachedComponents: [...attached], generators, sinks, radiators, closedCycleCoolers, totalStoredHeat: 0, totalStorageCapacity: 0, totalCoolingCapacity: 0, totalCooling: 0, overloaded: false });
+    networks.push({ id, frameIndices: frames, heatPipeIndices, frameOnlyIndices, connectedFrameCells, attachedComponents: [...attached], generators, sinks, radiators, heatVents, closedCycleCoolers, totalStoredHeat: 0, totalStorageCapacity: 0, totalCoolingCapacity: 0, totalCooling: 0, overloaded: false });
 
-    // Cached distance-to-cooling field: used only as a mild conductivity boost,
-    // never as an instant/global heat drain. A Burst Cooler counts here even
-    // though it removes almost nothing continuously — a frame run has to reach
-    // it for the accumulator to have anything to vent.
+    // Cached hop distance from each transfer tile to the nearest cooling
+    // component. This is a diagnostic only — it never scales transfer or drains
+    // heat, and since the redesign no route type earns a conductivity boost from
+    // it. A Burst Cooler counts here even though it removes almost nothing
+    // continuously: a run has to reach it for the accumulator to have anything
+    // to vent.
     const burstCoolers = [...attached].filter(i => PARTS[design[i].type]?.burstCooler);
-    const coolers = new Set([...sinks, ...radiators, ...closedCycleCoolers, ...burstCoolers]);
+    const coolers = new Set([...sinks, ...radiators, ...heatVents, ...closedCycleCoolers, ...burstCoolers]);
     const distanceQueue = [];
     for (const frame of frames) {
       const touchesCooling = topologyNeighbourIndices(topology, frame).some((neighbour) => coolers.has(neighbour));
@@ -628,7 +630,7 @@ function rebuildThermalNetworks(ship) {
   }
   ship.thermalNetworks = networks;
   ship.thermalNetworkBuilds = (ship.thermalNetworkBuilds || 0) + 1;
-  rebuildPipeNetworks(ship);
+  rebuildCoolantNetworks(ship);
   if (ship._thermalRuntime) {
     ship._thermalRuntime.networkDiagnosticsDirty = true;
     if (ship.componentHeat && ship.componentHeatState) refreshHeatRuntimeLists(ship);
@@ -647,15 +649,22 @@ function findAttachmentSharedEdges(topology, pipeIndex, attachmentIndex) {
   return 1;
 }
 
-function rebuildPipeNetworks(ship) {
+// Coolant networks are the ship's dedicated thermal transport: one network per
+// connected group of living Heat Pipes, plus every living component touching
+// one of those pipes on an orthogonal tile edge. Membership is purely
+// adjacency-derived — no rotation, ports or player-configured direction — and a
+// destroyed pipe simply drops out, splitting the network it used to join.
+function rebuildCoolantNetworks(ship) {
   const topology = ship.thermalTopology;
   if (!topology) {
-    ship.pipeNetworks = [];
+    ship.coolantNetworks = [];
     return;
   }
   const design = ship.design || [];
   const alivePipes = new Set();
-  for (let i = 0; i < design.length; i += 1) if (design[i].type === "heatPipe" && (ship.componentHp?.[i] ?? 1) > 0) alivePipes.add(i);
+  for (let i = 0; i < design.length; i += 1) {
+    if (isCoolantTransportType(design[i].type) && (ship.componentHp?.[i] ?? 1) > 0) alivePipes.add(i);
+  }
   const visited = new Set();
   const networks = [];
   for (const start of alivePipes) {
@@ -668,20 +677,29 @@ function rebuildPipeNetworks(ship) {
         if (alivePipes.has(neighbour) && !visited.has(neighbour)) { visited.add(neighbour); queue.push(neighbour); }
       }
     }
+    // A component touching several pipes of the same network attaches once, with
+    // its shared-edge count summed: more contact means more throughput, but the
+    // component is still a single participant in the solve.
     const attached = [];
-    const attachedSet = new Set();
+    const attachedPosition = new Map();
     for (const pipeIndex of pipes) {
       for (const neighbour of topologyNeighbourIndices(topology, pipeIndex)) {
         if (alivePipes.has(neighbour)) continue;
         if ((ship.componentHp?.[neighbour] ?? 1) <= 0) continue;
-        if (attachedSet.has(neighbour)) continue;
-        attachedSet.add(neighbour);
-        attached.push({ index: neighbour, pipeIndex, sharedEdges: findAttachmentSharedEdges(topology, pipeIndex, neighbour) });
+        const sharedEdges = findAttachmentSharedEdges(topology, pipeIndex, neighbour);
+        const existing = attachedPosition.get(neighbour);
+        if (existing === undefined) {
+          attachedPosition.set(neighbour, attached.length);
+          attached.push({ index: neighbour, pipeIndex, sharedEdges });
+        } else {
+          attached[existing].sharedEdges += sharedEdges;
+        }
       }
     }
     networks.push({ id: networks.length, pipeIndices: pipes, attachments: attached });
   }
-  ship.pipeNetworks = networks;
+  ship.coolantNetworks = networks;
+  ship.coolantNetworkBuilds = (ship.coolantNetworkBuilds || 0) + 1;
 }
 
 // Maps a Power-source component index to the network it feeds. The thermal tick
@@ -848,127 +866,130 @@ function buildHeatWorkSet(ship) {
   }
 }
 
-function solvePipeNetworks(ship, elapsed) {
-  const networks = ship.pipeNetworks;
+// Stored heat plus anything generated earlier this tick, for a component that
+// may or may not already be in the sparse work set.
+function pendingComponentHeat(ship, runtime, index) {
+  const stored = Math.max(0, Number(ship.componentHeat?.[index]) || 0);
+  return runtime.touchedMembership[index] ? Math.max(0, stored + runtime.delta[index]) : stored;
+}
+
+function coolantNetworkHasHeat(ship, runtime, network) {
+  for (const pipeIndex of network.pipeIndices) {
+    if ((ship.componentHp?.[pipeIndex] ?? 1) <= 0) continue;
+    if (pendingComponentHeat(ship, runtime, pipeIndex) > 0) return true;
+  }
+  for (const attachment of network.attachments) {
+    if ((ship.componentHp?.[attachment.index] ?? 1) <= 0) continue;
+    if (pendingComponentHeat(ship, runtime, attachment.index) > 0) return true;
+  }
+  return false;
+}
+
+// One coolant-transport step per network. Heat Pipes remove no heat here: every
+// unit that leaves one participant arrives at another in the same network, so
+// the solve is exactly heat-conserving. Flow direction is derived from the
+// participants' relative heat ratios, and is bounded by the shared throughput
+// rules in HeatRules.solveCoolantNetwork.
+function solveCoolantNetworks(ship, elapsed) {
+  const networks = ship.coolantNetworks;
   if (!networks || networks.length === 0) return;
   const runtime = ship._thermalRuntime;
   if (!runtime) return;
 
   for (const network of networks) {
+    network.transportedHeat = 0;
+    // A network where nothing holds heat can only produce zero flows, so skip it
+    // before touching anything: the sparse work set must not grow by one entry
+    // per pipe tile on every solved tick of an idle ship.
+    if (!coolantNetworkHasHeat(ship, runtime, network)) continue;
     const alivePipes = [];
-    let networkHeat = 0;
-    let networkCapacity = 0;
+    let pipeHeat = 0;
+    let pipeCapacity = 0;
     for (const pipeIndex of network.pipeIndices) {
       if ((ship.componentHp?.[pipeIndex] ?? 1) <= 0) continue;
       touchHeatNeighbour(ship, pipeIndex);
       alivePipes.push(pipeIndex);
-      const heat = Math.max(0, runtime.workingHeat[pipeIndex]);
-      const capacity = Math.max(1, ship.componentThermals[pipeIndex].capacity);
-      networkHeat += heat;
-      networkCapacity += capacity;
+      pipeHeat += Math.max(0, runtime.workingHeat[pipeIndex]);
+      pipeCapacity += Math.max(1, ship.componentThermals[pipeIndex].capacity);
     }
-    if (networkCapacity <= 0 || alivePipes.length === 0) continue;
+    if (alivePipes.length === 0) continue;
 
+    // Participant 0..n-1 are the attachments; the pipe tiles follow as one node.
     const attachments = [];
-    let attachmentHeat = 0;
-    let attachmentCapacity = 0;
-    for (const { index, pipeIndex, sharedEdges } of network.attachments) {
+    const participants = [];
+    let pipeNodeConductance = 0;
+    let pipeNodeBandwidth = 0;
+    for (const attachment of network.attachments) {
+      const index = attachment.index;
       if ((ship.componentHp?.[index] ?? 1) <= 0) continue;
       touchHeatNeighbour(ship, index);
-      const capacity = Math.max(1, ship.componentThermals[index].capacity);
-      const heat = Math.max(0, runtime.workingHeat[index]);
-      const edgeCount = Math.min(sharedEdges, HeatRules.MAX_SHARED_EDGE_MULTIPLIER);
-      const bandwidth = PIPE_NETWORK_ATTACHMENT_BANDWIDTH * edgeCount * elapsed;
-      attachments.push({ index, pipeIndex, capacity, heat, bandwidth, delta: 0 });
-      attachmentHeat += heat;
-      attachmentCapacity += capacity;
+      const conductance = coolantEdgeConductance(attachment.sharedEdges);
+      const bandwidth = coolantEdgeBandwidth(attachment.sharedEdges);
+      pipeNodeConductance += conductance;
+      pipeNodeBandwidth += bandwidth;
+      attachments.push(attachment);
+      participants.push({
+        heat: Math.max(0, runtime.workingHeat[index]),
+        capacity: Math.max(1, ship.componentThermals[index].capacity),
+        conductance,
+        bandwidth
+      });
     }
     if (attachments.length === 0) continue;
+    // The coolant in the pipes is always fully coupled to the network it forms,
+    // so the pipe node's conductance is the sum of its attachments'. Its tiny
+    // capacity is what keeps pipes from acting as storage.
+    participants.push({ heat: pipeHeat, capacity: pipeCapacity, conductance: pipeNodeConductance, bandwidth: pipeNodeBandwidth });
 
-    const totalHeat = networkHeat + attachmentHeat;
-    const totalCapacity = networkCapacity + attachmentCapacity;
-    const busTemperature = totalCapacity > 0 ? totalHeat / totalCapacity : 0;
-
-    let sourceTotal = 0;
-    const sources = [];
-    let sinkTotal = 0;
-    const sinks = [];
-    for (const a of attachments) {
-      const ratio = a.heat / a.capacity;
-      if (ratio > busTemperature) {
-        const amount = Math.min(a.heat, a.bandwidth);
-        if (amount > 0) {
-          sources.push({ a, amount });
-          sourceTotal += amount;
-        }
-      } else if (ratio < busTemperature) {
-        const amount = Math.min(a.capacity - a.heat, a.bandwidth);
-        if (amount > 0) {
-          sinks.push({ a, amount });
-          sinkTotal += amount;
-        }
-      }
-    }
-
-    const pipeRatio = networkHeat / networkCapacity;
-    if (pipeRatio > busTemperature) {
-      const amount = networkHeat;
-      if (amount > 0) {
-        sources.push({ pipe: true, amount });
-        sourceTotal += amount;
-      }
-    } else if (pipeRatio < busTemperature) {
-      const amount = networkCapacity - networkHeat;
-      if (amount > 0) {
-        sinks.push({ pipe: true, amount });
-        sinkTotal += amount;
-      }
-    }
-
-    const sourceScale = sourceTotal > 0 ? Math.min(1, sinkTotal / sourceTotal) : 0;
-    const sinkScale = sinkTotal > 0 ? Math.min(1, sourceTotal / sinkTotal) : 0;
-
-    let actualPipeSource = 0;
-    for (const s of sources) {
-      const actual = s.amount * sourceScale;
-      if (s.pipe) {
-        actualPipeSource += actual;
+    const deltas = solveCoolantNetwork(participants, elapsed);
+    for (let k = 0; k < attachments.length; k += 1) {
+      const delta = deltas[k];
+      if (delta === 0) continue;
+      const index = attachments[k].index;
+      runtime.delta[index] += delta;
+      runtime.workingHeat[index] += delta;
+      if (delta > 0) {
+        ship.componentHeatReceived[index] += delta;
+        network.transportedHeat += delta;
       } else {
-        s.a.heat = Math.max(0, s.a.heat - actual);
-        s.a.delta -= actual;
-      }
-    }
-    let actualPipeSink = 0;
-    for (const s of sinks) {
-      const actual = s.amount * sinkScale;
-      if (s.pipe) {
-        actualPipeSink += actual;
-      } else {
-        s.a.heat += actual;
-        s.a.delta += actual;
-        ship.componentHeatTransferredOut[s.a.pipeIndex] += actual;
+        ship.componentHeatTransferredOut[index] += -delta;
       }
     }
 
-    for (const a of attachments) {
-      runtime.delta[a.index] += a.delta;
-      runtime.workingHeat[a.index] = a.heat;
-      if (a.delta > 0) ship.componentHeatReceived[a.index] += a.delta;
-      else if (a.delta < 0) ship.componentHeatTransferredOut[a.index] += -a.delta;
-    }
-
-    const finalPipeHeat = Math.max(0, Math.min(networkCapacity, networkHeat - actualPipeSource + actualPipeSink));
-    for (const pipeIndex of alivePipes) {
-      const target = finalPipeHeat * (ship.componentThermals[pipeIndex].capacity / networkCapacity);
-      const current = runtime.workingHeat[pipeIndex];
-      const clamped = Math.max(0, Math.min(ship.componentThermals[pipeIndex].capacity, target));
-      runtime.delta[pipeIndex] += clamped - current;
-      runtime.workingHeat[pipeIndex] = clamped;
+    // The pipe node's own change is split across its tiles: heat arriving fills
+    // them in proportion to capacity, heat leaving drains them in proportion to
+    // what each one actually holds, so no tile can be driven negative.
+    const pipeDelta = deltas[deltas.length - 1];
+    const weightTotal = pipeDelta > 0 ? pipeCapacity : pipeHeat;
+    if (pipeDelta !== 0 && weightTotal > 0) {
+      let assigned = 0;
+      for (let k = 0; k < alivePipes.length; k += 1) {
+        const pipeIndex = alivePipes[k];
+        const weight = pipeDelta > 0
+          ? Math.max(1, ship.componentThermals[pipeIndex].capacity)
+          : Math.max(0, runtime.workingHeat[pipeIndex]);
+        const share = k === alivePipes.length - 1 ? pipeDelta - assigned : pipeDelta * (weight / weightTotal);
+        assigned += share;
+        runtime.delta[pipeIndex] += share;
+        runtime.workingHeat[pipeIndex] += share;
+        if (share > 0) ship.componentHeatReceived[pipeIndex] += share;
+        else if (share < 0) ship.componentHeatTransferredOut[pipeIndex] += -share;
+      }
     }
   }
 }
 
 function updateHeatNetworkDiagnostics(ship, elapsed) {
+  // Coolant transport is attributed back to the structural thermal network that
+  // contains the pipes, so the designer can report one figure per network.
+  const transportByThermalNetwork = new Map();
+  for (const coolant of ship.coolantNetworks || []) {
+    const moved = Number(coolant.transportedHeat) || 0;
+    if (!moved) continue;
+    for (const id of ship.componentThermalNetworks?.[coolant.pipeIndices[0]] || []) {
+      transportByThermalNetwork.set(id, (transportByThermalNetwork.get(id) || 0) + moved);
+    }
+  }
   for (const network of ship.thermalNetworks || []) {
     let totalStoredHeat = 0;
     let totalStorageCapacity = 0;
@@ -983,15 +1004,18 @@ function updateHeatNetworkDiagnostics(ship, elapsed) {
     let totalCoolingCapacity = 0;
     for (const index of network.sinks) totalCoolingCapacity += ship.componentThermals[index].cooling;
     for (const index of network.radiators) {
-      totalCoolingCapacity += ship.componentThermals[index].cooling * (ship.componentThermals[index].exposedEdges ? 1 : 0.25);
+      totalCoolingCapacity += ship.componentThermals[index].cooling * (ship.componentThermals[index].exposedEdges ? RADIATOR_EXPOSED_MULTIPLIER : RADIATOR_ENCLOSED_MULTIPLIER);
+    }
+    for (const index of network.heatVents || []) {
+      totalCoolingCapacity += ship.componentThermals[index].cooling * (ship.componentThermals[index].exposedEdges ? HEAT_VENT_EXPOSED_MULTIPLIER : HEAT_VENT_ENCLOSED_MULTIPLIER);
     }
     for (const index of network.closedCycleCoolers || []) totalCoolingCapacity += ship.componentThermals[index].cooling;
     let totalCooling = 0;
     for (const index of network.radiators) totalCooling += ship.componentHeatRadiated[index];
+    for (const index of network.heatVents || []) totalCooling += ship.componentHeatRadiated[index];
     for (const index of network.sinks) totalCooling += ship.componentHeatCooled[index];
     for (const index of network.closedCycleCoolers || []) totalCooling += ship.componentHeatCooled[index] || 0;
-    let heatPipeTransfer = 0;
-    for (const index of network.heatPipeIndices || []) heatPipeTransfer += ship.componentHeatTransferredOut[index] || 0;
+    const heatPipeTransfer = transportByThermalNetwork.get(network.id) || 0;
     let generation = 0;
     for (const index of network.generators) generation += HeatRules.activityHeat(ship.design[index].type, PARTS[ship.design[index].type] || {});
     network.totalStoredHeat = totalStoredHeat;
@@ -1115,6 +1139,7 @@ function updateShipHeatCore(ship, dt, room, now) {
     ship.powerCableHeatGenerated = 0;
     const telemetryChanged = finishSparseTelemetryStep(ship, previousTelemetry, runtime.telemetryCandidateComponents);
     if (telemetryChanged) ship.heatTelemetryRevision = (ship.heatTelemetryRevision || 0) + 1;
+    for (const network of ship.coolantNetworks || []) network.transportedHeat = 0;
     if (runtime.networkDiagnosticsDirty) updateHeatNetworkDiagnostics(ship, elapsed);
     else for (const network of ship.thermalNetworks || []) {
       network.totalStoredHeat = 0;
@@ -1216,7 +1241,7 @@ function updateShipHeatCore(ship, dt, room, now) {
     transferRank[left] - transferRank[right] || left - right
   );
 
-  solvePipeNetworks(ship, elapsed);
+  solveCoolantNetworks(ship, elapsed);
 
   let transferStart = performanceNow();
   let transferCount = 0;
@@ -1225,16 +1250,17 @@ function updateShipHeatCore(ship, dt, room, now) {
     const j = topology.edgeB[edgeId];
     const typeI = ship.design[i]?.type;
     const typeJ = ship.design[j]?.type;
-    if (typeI === "heatPipe" || typeJ === "heatPipe") continue;
+    // Heat Pipes exchange heat only through their coolant network, solved above.
+    if (isCoolantTransportType(typeI) || isCoolantTransportType(typeJ)) continue;
     touchHeatNeighbour(ship, i);
     touchHeatNeighbour(ship, j);
     const aliveI = (ship.componentHp?.[i] ?? 1) > 0;
     const aliveJ = (ship.componentHp?.[j] ?? 1) > 0;
     if ((!aliveI && isThermalRouteType(ship.design[i].type)) || (!aliveJ && isThermalRouteType(ship.design[j].type))) continue;
-    const routedI = Number.isFinite(ship.frameCoolingDistance?.[i]);
-    const routedJ = Number.isFinite(ship.frameCoolingDistance?.[j]);
-    let conductivity = (!aliveI || !aliveJ) ? HeatRules.CONDUCTIVITY.destroyed : topology.edgeBaseConductivity[edgeId];
-    if (aliveI && aliveJ && (routedI || routedJ)) conductivity *= topology.edgeRouteMultiplier[edgeId];
+    // Local physical conduction only. Material differences already live in the
+    // base edge conductivity, so a long frame chain conducts like metal — it is
+    // no longer a boosted stand-in for a Heat Pipe run.
+    const conductivity = (!aliveI || !aliveJ) ? HeatRules.CONDUCTIVITY.destroyed : topology.edgeBaseConductivity[edgeId];
     const transfer = edgeTransfer(
       runtime.workingHeat[i], ship.componentThermals[i].capacity,
       runtime.workingHeat[j], ship.componentThermals[j].capacity,
@@ -1289,6 +1315,11 @@ function updateShipHeatCore(ship, dt, room, now) {
       const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) * power : 0;
       const passiveFloor = thermal.cooling * RADIATOR_PASSIVE_COOLING_FRACTION;
       coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention * heatDissipationMult;
+    } else if (ship.design[index].type === "heatVent") {
+      // Passive hull grille: no Power, no heat-state scaling, and almost nothing
+      // at all unless at least one of its edges opens onto space.
+      const exposure = thermal.exposedEdges > 0 ? HEAT_VENT_EXPOSED_MULTIPLIER : HEAT_VENT_ENCLOSED_MULTIPLIER;
+      coolingRate = thermal.cooling * exposure * thermal.retention * heatDissipationMult;
     } else if (ship.design[index].type === "closedCycleCooler") {
       const power = getComponentPowerMultiplier(ship, index);
       const active = thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) * power;
@@ -1309,7 +1340,9 @@ function updateShipHeatCore(ship, dt, room, now) {
     const removed = Math.min(Math.max(0, heat[index] + runtime.delta[index]), coolingRate * elapsed);
     ship.componentHeatRemoved[index] += removed;
     ship.componentHeatCooled[index] += removed;
-    if (ship.design[index].type === "radiator") ship.componentHeatRadiated[index] = removed;
+    // Radiators and Heat Vents are the two parts that reject heat outside the
+    // hull, so both report through the radiated telemetry channel.
+    if (ship.design[index].type === "radiator" || ship.design[index].type === "heatVent") ship.componentHeatRadiated[index] = removed;
     runtime.delta[index] -= removed;
     updateBurstCooler(ship, index, thermal, heat, runtime, elapsed);
   }
@@ -1462,6 +1495,13 @@ function updateShipHeat(ship, dt, room, now) {
 function buildHeatDebug(ship) {
   const dt = Math.max(0.001, ship.lastHeatTickDelta || TICK_SECONDS);
   const adjacency = ship.thermalTopology ? createComponentAdjacency(ship.thermalTopology) : [];
+  const coolantNetworkByComponent = new Map();
+  for (const network of ship.coolantNetworks || []) {
+    for (const index of network.pipeIndices) coolantNetworkByComponent.set(index, network.id);
+    for (const attachment of network.attachments) {
+      if (!coolantNetworkByComponent.has(attachment.index)) coolantNetworkByComponent.set(attachment.index, network.id);
+    }
+  }
   return {
     shipId: ship.id,
     currentHeat: ship.currentHeat,
@@ -1478,14 +1518,23 @@ function buildHeatDebug(ship) {
       transferredOutPerSecond: (ship.componentHeatTransferredOut?.[index] || 0) / dt,
       cooledPerSecond: (ship.componentHeatCooled?.[index] || 0) / dt,
       sentThroughFramePerSecond: (ship.componentHeatSentThroughFrame?.[index] || 0) / dt,
-      removedByRadiatorPerSecond: (ship.componentHeatRadiated?.[index] || 0) / dt,
+      removedByRadiatorPerSecond: module.type === "radiator" ? (ship.componentHeatRadiated?.[index] || 0) / dt : 0,
+      removedByHeatVentPerSecond: module.type === "heatVent" ? (ship.componentHeatRadiated?.[index] || 0) / dt : 0,
       removedByClosedCycleCoolerPerSecond: module.type === "closedCycleCooler" ? (ship.componentHeatCooled?.[index] || 0) / dt : 0,
       ventedOverflowHeatPerSecond: (ship.componentVentedOverflowHeatThisTick?.[index] || 0) / dt,
       totalVentedOverflowHeat: ship.componentTotalVentedOverflowHeat?.[index] || 0,
       thermalNetworkIds: (ship.componentThermalNetworks?.[index] || []).slice(),
+      coolantNetworkId: coolantNetworkByComponent.has(index) ? coolantNetworkByComponent.get(index) : null,
       exposedEdges: ship.componentThermals?.[index]?.exposedEdges || 0,
-      routeType: isThermalRouteType(module.type) ? (module.type === "heatPipe" ? "heatPipe" : "frame") : "attached",
-      adjacentHeatPipeEdges: (adjacency[index] || []).filter(e => ship.design?.[e.index]?.type === "heatPipe").reduce((sum, e) => sum + e.sharedEdges, 0)
+      routeType: isCoolantTransportType(module.type) ? "heatPipe" : isThermalRouteType(module.type) ? "frame" : "attached",
+      adjacentHeatPipeEdges: (adjacency[index] || []).filter(e => isCoolantTransportType(ship.design?.[e.index]?.type)).reduce((sum, e) => sum + e.sharedEdges, 0)
+    })),
+    coolantNetworks: (ship.coolantNetworks || []).map(network => ({
+      id: network.id,
+      pipeIndices: network.pipeIndices.slice(),
+      attachedComponents: network.attachments.map(attachment => attachment.index),
+      attachmentSharedEdges: network.attachments.map(attachment => attachment.sharedEdges),
+      transportedHeatPerSecond: (network.transportedHeat || 0) / dt
     })),
     networks: (ship.thermalNetworks || []).map(network => ({
       id: network.id,
@@ -1494,6 +1543,7 @@ function buildHeatDebug(ship) {
       attachedComponents: network.attachedComponents.slice(),
       sinkIndices: network.sinks.slice(),
       radiatorIndices: network.radiators.slice(),
+      heatVentIndices: (network.heatVents || []).slice(),
       closedCycleCoolerIndices: (network.closedCycleCoolers || []).slice(),
       totalHeat: network.totalStoredHeat,
       totalStorageCapacity: network.totalStorageCapacity,
@@ -1535,6 +1585,8 @@ module.exports = {
   invalidateHeatRuntime,
   refreshHeatRuntimeCableComponents: refreshCableHeatComponents,
   isThermalRouteType,
+  isCoolantTransportType,
+  rebuildCoolantNetworks,
   updateShipHeat,
   buildHeatDebug,
   addComponentHeat,

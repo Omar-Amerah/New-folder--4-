@@ -205,9 +205,24 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
 
   check("thermal components summarise their role compactly", () => {
     const summaryOf = (type) => build(type).thermalSummary.map((row) => `${row.label} — ${row.value}`);
-    assert.deepEqual(summaryOf("heatSink"), [`Heat — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} Heat`]);
-    assert.deepEqual(summaryOf("radiator"), [`Cooling — Removes ${HeatRules.profile("radiator", PART_STATS.radiator).cooling.toFixed(1)} Heat/s`]);
-    assert.deepEqual(summaryOf("heatPipe"), ["Thermal role — High-conductivity conduit — components attach directly to transfer heat toward sinks and radiators"]);
+    // Every thermal part states its role, so transport/storage/rejection cannot
+    // be confused with one another in the inspector.
+    assert.deepEqual(summaryOf("heatSink"), [
+      `Heat — Stores ${HeatRules.profile("heatSink", PART_STATS.heatSink).capacity} Heat`,
+      "Thermal role — Storage — holds a large amount of heat in itself; heat must be transferred into it"
+    ]);
+    assert.deepEqual(summaryOf("radiator"), [
+      `Cooling — Removes ${HeatRules.profile("radiator", PART_STATS.radiator).cooling.toFixed(1)} Heat/s`,
+      "Thermal role — Strong external cooling — the ship's best sustained heat rejection, needs an exposed edge"
+    ]);
+    assert.deepEqual(summaryOf("heatVent"), [
+      `Cooling — Removes ${HeatRules.profile("heatVent", PART_STATS.heatVent).cooling.toFixed(1)} Heat/s while exposed`,
+      "Exposure — Needs one edge open to space; enclosed it vents almost nothing",
+      "Thermal role — Weak external cooling — cheap passive rejection, needs at least one edge exposed to space"
+    ]);
+    assert.deepEqual(summaryOf("heatPipe"), [
+      "Thermal role — Transport — moves heat rapidly between everything on the same coolant network, and removes none itself"
+    ]);
     assert.match(summaryOf("reactor")[0], /^Heat — Produces [\d.]+ Heat\/s at power load$/);
   });
 

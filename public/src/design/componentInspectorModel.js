@@ -144,7 +144,7 @@ export function heatProfileFor(type, stat) {
   return { generation, cadence, capacity: profile.capacity, cooling: profile.cooling, passiveCooling: profile.passiveCooling };
 }
 
-const THERMAL_ROLE_TYPES = new Set(["radiator", "heatSink", "heatPipe"]);
+const THERMAL_ROLE_TYPES = new Set(["radiator", "heatVent", "heatSink", "heatPipe"]);
 
 /**
  * All components now show heat details, so the thermal section is always
@@ -320,10 +320,11 @@ function capabilityRows(type, stat, family, context = {}) {
 }
 
 function thermalRoleText(type) {
-  if (type === "radiator") return "Removes heat from the ship";
+  if (type === "radiator") return "Strong external cooling — the ship's best sustained heat rejection, needs an exposed edge";
+  if (type === "heatVent") return "Weak external cooling — cheap passive rejection, needs at least one edge exposed to space";
   if (type === "closedCycleCooler") return "Powered internal cooling loop — removes heat without requiring hull exposure";
-  if (type === "heatSink") return "Stores heat for adjacent components";
-  if (type === "heatPipe") return "High-conductivity conduit — components attach directly to transfer heat toward sinks and radiators";
+  if (type === "heatSink") return "Storage — holds a large amount of heat in itself; heat must be transferred into it";
+  if (type === "heatPipe") return "Transport — moves heat rapidly between everything on the same coolant network, and removes none itself";
   return "Thermal support";
 }
 
@@ -340,6 +341,10 @@ function thermalSummaryRows(type, stat, ledger) {
   }
   if (type === "heatSink") rows.push(statRow("heat.storage", "Heat", `Stores ${profile.capacity} Heat`));
   if (type === "radiator") rows.push(statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
+  if (type === "heatVent") {
+    rows.push(statRow("heat.cooling", "Cooling", `Removes ${heatRate(profile.cooling)} while exposed`, { tone: "cool" }));
+    rows.push(statRow("heat.exposure", "Exposure", "Needs one edge open to space; enclosed it vents almost nothing"));
+  }
   if (type === "closedCycleCooler") {
     rows.push(statRow("heat.capacity", "Heat", `Stores ${profile.capacity} Heat`));
     rows.push(statRow("heat.cooling", "Active Cooling", `Removes ${heatRate(profile.cooling)}`, { tone: "cool" }));
@@ -358,7 +363,7 @@ function thermalSummaryRows(type, stat, ledger) {
   if (stat.heatBeamShield) {
     rows.push(statRow("heat.beamShield", "Heat Beams", "Blocks induction Heat beams passing through it", { tone: "cool" }));
   }
-  if (type === "heatPipe") rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
+  if (THERMAL_ROLE_TYPES.has(type)) rows.push(statRow("heat.role", "Thermal role", thermalRoleText(type)));
   return ledger.take(rows);
 }
 

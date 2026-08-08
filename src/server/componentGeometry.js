@@ -12,7 +12,7 @@
 // then rotated by the ship angle and offset by the ship position.
 
 const { PARTS } = require("./components");
-const { normalizeRotation } = require("./shipDesign");
+const { normalizeRotation, normalizePartFlip } = require("./shipDesign");
 const { getOccupiedCells } = require("./footprint");
 const { BALANCE } = require("./balanceConfig");
 
@@ -31,7 +31,8 @@ function componentCellLocalCoords(module) {
     module.x,
     module.y,
     part.footprint || { width: 1, height: 1 },
-    normalizeRotation(module.rotation)
+    normalizeRotation(module.rotation),
+    normalizePartFlip(module.type, module.flipped)
   );
   return cells.map((cell) => ({
     x: (7 - cell.y) * MODULE_SCALE,

@@ -40,6 +40,9 @@ function canonicalDesign(design) {
     x: Math.trunc(Number(part.x)),
     y: Math.trunc(Number(part.y)),
     rotation: Math.trunc(Number(part.rotation) || 0),
+    // Mirroring is a real edit: without it here, flipping a component would look
+    // like a no-op and never reach the undo stack.
+    flipped: part.flipped === true,
     droneType: part.type === "droneBay" ? (part.droneType || null) : undefined
   }));
 }

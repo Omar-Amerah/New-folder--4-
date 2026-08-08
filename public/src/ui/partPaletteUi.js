@@ -5,7 +5,7 @@ import { state } from "../state.js";
 import { PART_DEFS, PART_STATS, isPalettePart, partCategory, partIconMarkup } from "../design/parts.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { PART_CATEGORIES } from "../constants.js";
-import { isPaletteBlueprintEditMode } from "./designerUi.js";
+import { isPaletteBlueprintEditMode, recalledPartTransform } from "./designerUi.js";
 
 let selectionPresentationRefresh = () => {};
 
@@ -36,7 +36,9 @@ export function renderPalette() {
       const first = Object.keys(PART_DEFS).find((type) => isPalettePart(type) && partCategory(type) === category);
       if (first) {
         state.selectedPart = first;
-        state.previewRotation = PART_STATS[first]?.allowedRotations?.[0] ?? 0;
+        const transform = recalledPartTransform(first);
+        state.previewRotation = transform.rotation;
+        state.previewFlipped = transform.flipped;
       }
       renderPalette();
       renderPartInspector();
@@ -79,7 +81,10 @@ export function renderPalette() {
       const wasSelected = state.selectedPart === type;
       state.selectedPart = wasSelected ? null : type;
       state.selectedPartCategory = partCategory(type);
-      state.previewRotation = wasSelected ? 0 : (PART_STATS[type]?.allowedRotations?.[0] ?? 0);
+      // Reselecting a part restores the orientation it was last placed with.
+      const transform = recalledPartTransform(type);
+      state.previewRotation = wasSelected ? 0 : transform.rotation;
+      state.previewFlipped = wasSelected ? false : transform.flipped;
       renderPalette();
       renderPartInspector();
       selectionPresentationRefresh();

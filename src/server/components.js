@@ -204,6 +204,8 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     rotatable: Boolean(component.rotatable),
     rotationRequired: Boolean(component.rotationRequired || component.rotatable),
     allowedRotations: Array.isArray(component.allowedRotations) ? component.allowedRotations.map(Number).filter(Number.isFinite) : undefined,
+    // Whether a placed module of this type may carry flipped: true.
+    flippable: Boolean(component.flippable),
     shapeType: typeof component.shapeType === "string" ? component.shapeType : null,
     statScale: toNumber(component.statScale, 1),
     ecmStrength: toNumber(component.ecmStrength, 0),

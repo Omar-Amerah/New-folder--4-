@@ -52,7 +52,7 @@ function moduleIdentity(part) {
 }
 
 function moduleKey(part) {
-  return `${moduleIdentity(part)},${part?.rotation || 0},${part?.droneType || ""}`;
+  return `${moduleIdentity(part)},${part?.rotation || 0},${part?.flipped === true ? "m" : ""},${part?.droneType || ""}`;
 }
 
 function sectionKey(section) {

@@ -842,6 +842,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       if (family === "blaster" || family === "bolt") {
         TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "bolt",
+          subtype: module.type,
           ownerId: identity,
           targetId: target.id,
           targetComponentIndex: -1,
@@ -888,6 +889,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
       } else if (family === "flak") {
         TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "flak",
+          subtype: module.type,
           ownerId: identity,
           targetId: target.id,
           targetComponentIndex: -1,

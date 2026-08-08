@@ -15,31 +15,39 @@
   const HYSTERESIS = Object.freeze({ warm: 0.03, hot: 0.03, critical: 0.03, overheated: 0.38 });
   // Wrecks retain heat and can exchange it with immediately adjacent material,
   // but this deliberately small coefficient cannot bridge a routed network.
-  const CONDUCTIVITY = Object.freeze({ frame: 2.1, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, heatPipe: 3.0, destroyed: 0.12 });
+  const CONDUCTIVITY = Object.freeze({ frame: 2.1, system: 0.72, armor: 0.48, compositeArmor: 0.28, heatSink: 1.4, radiator: 1.12, heatVent: 1.0, heatPipe: 3.0, destroyed: 0.12 });
   const BASE_TRANSFER = 18;
-  const NETWORK_FRAME_BOOST = 1.7;
-  const NETWORK_ATTACHMENT_BOOST = 1.25;
-  // Edge-type transfer multipliers: replace the old two-tier frame/attachment
-  // boost with granular per-edge-type factors. Heat Pipe edges transfer heat
-  // significantly faster than Frame edges, but the product is never compounded
-  // more than once — routeTypeMultiplier returns a single value for the edge.
-  const HEAT_PIPE_TRANSFER = Object.freeze({
-    frameToFrame: 1.7,
-    frameToComponent: 1.25,
-    frameToHeatPipe: 1.7,
-    heatPipeToComponent: 2.0,
-    heatPipeToHeatPipe: 2.5,
-    heatPipeToHeatSink: 2.25,
-    heatPipeToRadiator: 2.5,
-    heatPipeToClosedCycleCooler: 2.25
-  });
   // Soft cap on shared-edge count so a large multi-cell component does not get
   // an unreasonable multiplier from many shared edges.
   const MAX_SHARED_EDGE_MULTIPLIER = 3;
-  // Pipe-network transport: a connected group of living heat pipes acts as one
-  // shared bus. Each attachment edge can move at most this much heat per second,
-  // regardless of how many pipe tiles lie between source and sink.
-  const PIPE_NETWORK_ATTACHMENT_BANDWIDTH = 40;
+
+  // --- Coolant transport network ---------------------------------------------
+  //
+  // Every connected group of living Heat Pipes is one coolant network. Pipes are
+  // transport only: they remove no heat and store almost none. Attachment is
+  // automatic — any living component sharing an orthogonal tile edge with a pipe
+  // in the network exchanges heat with that network's coolant. There is no
+  // rotation, port or direction to configure; flow direction falls out of the
+  // participants' relative heat ratios.
+  //
+  // The network deliberately does NOT behave as one averaged body holding every
+  // attached component's heat capacity. Each participant — every attachment plus
+  // the pipe tiles themselves as a single node — is coupled to the coolant by a
+  // conductance derived from how many tile edges it shares with the network. The
+  // coolant settles at the conductance-weighted mean of the participants' heat
+  // ratios and each participant moves toward it, so the flows sum to zero and
+  // the network conserves heat exactly.
+  //
+  // Three independent limits keep transport finite:
+  //   COOLANT_CONDUCTANCE          heat/second moved per unit of ratio gap
+  //   COOLANT_ATTACHMENT_BANDWIDTH hard per-shared-edge throughput ceiling
+  //   COOLANT_MAX_APPROACH         a participant may close at most this fraction
+  //                                of its gap in one step, which keeps the solve
+  //                                stable at any heat capacity and rules out
+  //                                ping-pong oscillation between two attachments
+  const COOLANT_CONDUCTANCE = 90;
+  const COOLANT_ATTACHMENT_BANDWIDTH = 40;
+  const COOLANT_MAX_APPROACH = 0.5;
   // A power generator pinned at the overheat failure state for this long melts
   // down and explodes (server: componentHealth.detonateComponent). Shared so
   // the designer's thermal prediction and part inspector stay in sync.
@@ -55,9 +63,11 @@
     // and must be conducted away through frames to sinks/radiators.
     const capacity = Number.isFinite(part?.heatCapacity) ? part.heatCapacity
       : type === "heatSink" ? 340 : type === "radiator" ? 115 : type === "heatPipe" ? 10
+      : type === "heatVent" ? 45
       : type === "armor" ? 125 : type === "compositeArmor" ? 140 : 85;
     const cooling = Number.isFinite(part?.heatCooling) ? part.heatCooling
       : type === "radiator" ? 14 : type === "heatSink" ? 1.5 : type === "heatPipe" ? 0
+      : type === "heatVent" ? 4
       : type === "armor" ? 0.7 : type === "compositeArmor" ? 0.6 : 1.25;
     const passiveCooling = Number.isFinite(part?.heatPassiveCooling) ? part.heatPassiveCooling : 0;
     const conductivity = Number.isFinite(part?.heatConductivity) ? part.heatConductivity
@@ -126,6 +136,12 @@
   const RADIATOR_EXPOSED_MULTIPLIER = 1;
   const RADIATOR_ENCLOSED_MULTIPLIER = 0.25;
   const RADIATOR_PASSIVE_COOLING_FRACTION = 0.12;
+  // Heat Vent exposure. A Vent is a bare hull grille: with no opening to space
+  // it has nowhere to reject heat, so an enclosed Vent is very nearly inert.
+  // Exposure is binary on purpose — extra exposed edges add nothing, so there is
+  // no reward for carving a checkerboard hull.
+  const HEAT_VENT_EXPOSED_MULTIPLIER = 1;
+  const HEAT_VENT_ENCLOSED_MULTIPLIER = 0.05;
   const RADIATOR_ACTIVE_COOLING_BY_STATE = Object.freeze({
     normal: ACTIVE_COOLING[0],
     warm: ACTIVE_COOLING[1],
@@ -157,25 +173,89 @@
     return Math.min(sharedEdges, MAX_SHARED_EDGE_MULTIPLIER);
   }
 
-  // Returns the edge-type transfer multiplier for a pair of component types.
-  // Only one multiplier is applied per edge — never compounded.
-  function routeTypeMultiplier(typeA, typeB) {
-    const aIsPipe = String(typeA || "") === "heatPipe";
-    const bIsPipe = String(typeB || "") === "heatPipe";
-    const aIsFrame = /frame/i.test(String(typeA || ""));
-    const bIsFrame = /frame/i.test(String(typeB || ""));
-    if (aIsPipe && bIsPipe) return HEAT_PIPE_TRANSFER.heatPipeToHeatPipe;
-    if (aIsPipe || bIsPipe) {
-      const other = aIsPipe ? typeB : typeA;
-      if (String(other || "") === "heatSink") return HEAT_PIPE_TRANSFER.heatPipeToHeatSink;
-      if (String(other || "") === "radiator") return HEAT_PIPE_TRANSFER.heatPipeToRadiator;
-      if (String(other || "") === "closedCycleCooler") return HEAT_PIPE_TRANSFER.heatPipeToClosedCycleCooler;
-      if (/frame/i.test(String(other || ""))) return HEAT_PIPE_TRANSFER.frameToHeatPipe;
-      return HEAT_PIPE_TRANSFER.heatPipeToComponent;
+  // Only Heat Pipes form a coolant transport network. Frames still conduct heat
+  // to their immediate neighbours through the physical edge model below, but a
+  // chain of frames is no longer a substitute for a dedicated coolant run.
+  function isCoolantTransportType(type) {
+    return String(type || "") === "heatPipe";
+  }
+
+  function coolantEdgeConductance(sharedEdges) {
+    return COOLANT_CONDUCTANCE * effectiveSharedEdges(Math.max(1, Number(sharedEdges) || 1));
+  }
+
+  function coolantEdgeBandwidth(sharedEdges) {
+    return COOLANT_ATTACHMENT_BANDWIDTH * effectiveSharedEdges(Math.max(1, Number(sharedEdges) || 1));
+  }
+
+  /**
+   * Solve one timestep of coolant transport for a single Heat Pipe network.
+   * @param {Array<{heat:number,capacity:number,conductance:number,bandwidth:number}>} participants
+   *   Every attachment plus the pipe tiles as one node, in a deterministic order.
+   * @param {number} dt Timestep in seconds.
+   * @returns {number[]} Signed heat deltas per participant. They sum to exactly
+   *   zero: the network transports heat, it never creates or removes any.
+   */
+  function solveCoolantNetwork(participants, dt) {
+    const count = Array.isArray(participants) ? participants.length : 0;
+    const deltas = new Array(count).fill(0);
+    if (count < 2 || !(dt > 0)) return deltas;
+
+    let totalConductance = 0;
+    let weightedRatio = 0;
+    const ratios = new Array(count);
+    for (let i = 0; i < count; i += 1) {
+      const capacity = Math.max(1, Number(participants[i].capacity) || 0);
+      const conductance = Math.max(0, Number(participants[i].conductance) || 0);
+      ratios[i] = Math.max(0, Number(participants[i].heat) || 0) / capacity;
+      totalConductance += conductance;
+      weightedRatio += conductance * ratios[i];
     }
-    if (aIsFrame && bIsFrame) return HEAT_PIPE_TRANSFER.frameToFrame;
-    if (aIsFrame || bIsFrame) return HEAT_PIPE_TRANSFER.frameToComponent;
-    return 1.0;
+    if (!(totalConductance > 0)) return deltas;
+    const coolantRatio = weightedRatio / totalConductance;
+
+    const sources = [];
+    const sinks = [];
+    let supply = 0;
+    let demand = 0;
+    for (let i = 0; i < count; i += 1) {
+      const gap = ratios[i] - coolantRatio;
+      if (gap === 0) continue;
+      const capacity = Math.max(1, Number(participants[i].capacity) || 0);
+      const conductance = Math.max(0, Number(participants[i].conductance) || 0);
+      const bandwidth = Math.max(0, Number(participants[i].bandwidth) || 0);
+      const magnitude = Math.min(
+        Math.abs(gap) * conductance * dt,
+        bandwidth * dt,
+        Math.abs(gap) * capacity * COOLANT_MAX_APPROACH
+      );
+      if (!(magnitude > 0)) continue;
+      if (gap > 0) {
+        const give = Math.min(magnitude, Math.max(0, Number(participants[i].heat) || 0));
+        if (give > 0) { sources.push({ index: i, amount: give }); supply += give; }
+      } else {
+        sinks.push({ index: i, amount: magnitude });
+        demand += magnitude;
+      }
+    }
+
+    // Pipes bank almost nothing, so the network cannot hold a surplus: whichever
+    // side has more to move is scaled down to what the other side can take.
+    const moved = Math.min(supply, demand);
+    if (!(moved > 0)) return deltas;
+    let assigned = 0;
+    for (let k = 0; k < sources.length; k += 1) {
+      const share = k === sources.length - 1 ? moved - assigned : moved * (sources[k].amount / supply);
+      assigned += share;
+      deltas[sources[k].index] = -share;
+    }
+    assigned = 0;
+    for (let k = 0; k < sinks.length; k += 1) {
+      const share = k === sinks.length - 1 ? moved - assigned : moved * (sinks[k].amount / demand);
+      assigned += share;
+      deltas[sinks[k].index] = share;
+    }
+    return deltas;
   }
 
   function edgeTransfer(aHeat, aCapacity, bHeat, bCapacity, conductivity, sharedEdges, dt) {
@@ -192,5 +272,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, NETWORK_FRAME_BOOST, NETWORK_ATTACHMENT_BOOST, HEAT_PIPE_TRANSFER, MAX_SHARED_EDGE_MULTIPLIER, PIPE_NETWORK_ATTACHMENT_BANDWIDTH, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, RADIATOR_ACTIVE_COOLING_BY_STATE, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, routeTypeMultiplier, effectiveSharedEdges });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, MAX_SHARED_EDGE_MULTIPLIER, COOLANT_CONDUCTANCE, COOLANT_ATTACHMENT_BANDWIDTH, COOLANT_MAX_APPROACH, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, RADIATOR_ACTIVE_COOLING_BY_STATE, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, effectiveSharedEdges, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork });
 }));

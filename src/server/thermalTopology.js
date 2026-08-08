@@ -11,6 +11,10 @@ const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const DIRECTIONS = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]]);
 let topologyBuilds = 0;
 
+// Structural material whose destruction opens a physical break rather than
+// leaving a conducting wreck in place. Frames belong here for hull continuity;
+// it is deliberately NOT the coolant-network membership test — see
+// HeatRules.isCoolantTransportType, which is Heat Pipes only.
 function isThermalRouteType(type) {
   const normalized = String(type || "");
   return normalized === "heatPipe" || /frame/i.test(normalized);
@@ -64,7 +68,6 @@ function buildThermalTopology(design = []) {
         b,
         sharedEdges,
         baseConductivity: HeatRules.edgeConductivity(thermalA, thermalB),
-        routeMultiplier: HeatRules.routeTypeMultiplier(typeA, typeB),
         throughFrame: isThermalRouteType(typeA) || isThermalRouteType(typeB)
       });
     }
@@ -75,7 +78,6 @@ function buildThermalTopology(design = []) {
   const edgeB = [];
   const edgeSharedEdges = [];
   const edgeBaseConductivity = [];
-  const edgeRouteMultiplier = [];
   const edgeThroughFrame = [];
   const incident = Array.from({ length: componentCount }, () => []);
   for (let edgeId = 0; edgeId < edges.length; edgeId += 1) {
@@ -84,7 +86,6 @@ function buildThermalTopology(design = []) {
     edgeB.push(edge.b);
     edgeSharedEdges.push(edge.sharedEdges);
     edgeBaseConductivity.push(edge.baseConductivity);
-    edgeRouteMultiplier.push(edge.routeMultiplier);
     edgeThroughFrame.push(edge.throughFrame ? 1 : 0);
     incident[edge.a].push(edgeId);
     incident[edge.b].push(edgeId);
@@ -126,18 +127,22 @@ function buildThermalTopology(design = []) {
   const powerSourceIndices = [];
   const dataSourceIndices = [];
   const radiatorIndices = [];
+  const heatVentIndices = [];
   const heatSinkIndices = [];
   const closedCycleCoolerIndices = [];
   const thermalRouteIndices = [];
+  const coolantPipeIndices = [];
   for (let i = 0; i < componentCount; i += 1) {
     const module = design[i] || {};
     const part = PARTS[module.type] || {};
     if (Number(part.powerGeneration) > 0) powerSourceIndices.push(i);
     if (DataSupportRules.isDataSupportSource(module.type)) dataSourceIndices.push(i);
     if (module.type === "radiator") radiatorIndices.push(i);
+    if (module.type === "heatVent") heatVentIndices.push(i);
     if (module.type === "heatSink") heatSinkIndices.push(i);
     if (module.type === "closedCycleCooler") closedCycleCoolerIndices.push(i);
     if (isThermalRouteType(module.type)) thermalRouteIndices.push(i);
+    if (HeatRules.isCoolantTransportType(module.type)) coolantPipeIndices.push(i);
   }
 
   topologyBuilds += 1;
@@ -147,7 +152,6 @@ function buildThermalTopology(design = []) {
     edgeB,
     edgeSharedEdges,
     edgeBaseConductivity,
-    edgeRouteMultiplier,
     edgeThroughFrame,
     transferOrder,
     transferRank,
@@ -156,9 +160,11 @@ function buildThermalTopology(design = []) {
     powerSourceIndices,
     dataSourceIndices,
     radiatorIndices,
+    heatVentIndices,
     heatSinkIndices,
     closedCycleCoolerIndices,
-    thermalRouteIndices
+    thermalRouteIndices,
+    coolantPipeIndices
   });
 }
 

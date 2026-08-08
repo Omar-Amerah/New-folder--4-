@@ -99,11 +99,15 @@ const pipeRoute = shipFor([
 ]);
 
 // Apply identical heat for 20 seconds (100 ticks) at a moderate rate
+let frameRadiated = 0;
+let pipeRadiated = 0;
 for (let i = 0; i < 100; i += 1) {
   addComponentHeat(frameRoute, 0, 3);
   addComponentHeat(pipeRoute, 0, 3);
   tick(frameRoute);
   tick(pipeRoute);
+  frameRadiated += frameRoute.componentHeatRadiated[4];
+  pipeRadiated += pipeRoute.componentHeatRadiated[4];
 }
 
 // Heat Pipe route should transfer more heat — generator should be cooler
@@ -125,11 +129,17 @@ assert(pipeRoute.componentHeat.every(v => Number.isFinite(v) && v >= 0), "pipe r
 assert(pipeRoute.componentHeat[0] > pipeRoute.componentHeat[2],
   "heat pipe route equalized instantly (source should still be hotter than middle)");
 
-// After 2 simulated seconds, Heat Pipe route transferred at least 1.8x
-const frameTransferred = frameRoute.componentHeatTransferredOut.reduce((a, b) => a + b, 0);
-const pipeTransferred = pipeRoute.componentHeatTransferredOut.reduce((a, b) => a + b, 0);
-assert(pipeTransferred >= frameTransferred * 1.8,
-  `Heat Pipe route did not transfer at least 1.8x: pipe=${pipeTransferred.toFixed(1)} frame=${frameTransferred.toFixed(1)}`);
+// Over the whole run, the coolant network delivered far more heat to the
+// radiator than the frame chain did. This replaces the old per-tick
+// transferred-out comparison, which measured the residual gradient rather than
+// delivery: an efficient coolant network settles into a *small* per-tick
+// gradient precisely because it has already moved the heat.
+assert(pipeRadiated >= frameRadiated * 1.8,
+  `Heat Pipe route did not radiate at least 1.8x as much: pipe=${pipeRadiated.toFixed(1)} frame=${frameRadiated.toFixed(1)}`);
+
+// A chain of ordinary frames is not a coolant route: the source stays far hotter.
+assert(frameRoute.componentHeat[0] > pipeRoute.componentHeat[0] * 1.5,
+  `frame chain should not behave like a coolant network: frame=${frameRoute.componentHeat[0].toFixed(1)} pipe=${pipeRoute.componentHeat[0].toFixed(1)}`);
 
 console.log("Section 2: Transfer performance — passed");
 
@@ -255,23 +265,24 @@ assert.strictEqual(HeatRules.profile("heatPipe", PARTS.heatPipe).cooling, 0, "he
 assert(HeatRules.profile("heatPipe", PARTS.heatPipe).conductivity > HeatRules.profile("frame", PARTS.frame).conductivity,
   "heat pipe should conduct better than frame");
 
-// routeTypeMultiplier returns correct values
-assert.strictEqual(HeatRules.routeTypeMultiplier("heatPipe", "heatPipe"), 2.5, "heatPipeToHeatPipe multiplier");
-assert.strictEqual(HeatRules.routeTypeMultiplier("heatPipe", "blaster"), 2.0, "heatPipeToComponent multiplier");
-assert.strictEqual(HeatRules.routeTypeMultiplier("heatPipe", "frame"), 1.7, "frameToHeatPipe multiplier");
-assert.strictEqual(HeatRules.routeTypeMultiplier("heatPipe", "heatSink"), 2.25, "heatPipeToHeatSink multiplier");
-assert.strictEqual(HeatRules.routeTypeMultiplier("heatPipe", "radiator"), 2.5, "heatPipeToRadiator multiplier");
-assert.strictEqual(HeatRules.routeTypeMultiplier("frame", "frame"), 1.7, "frameToFrame multiplier");
-assert.strictEqual(HeatRules.routeTypeMultiplier("frame", "blaster"), 1.25, "frameToComponent multiplier");
+// Only Heat Pipes form the coolant transport network. Frames still conduct
+// locally, but they are not transport nodes any more.
+assert.strictEqual(HeatRules.isCoolantTransportType("heatPipe"), true, "heat pipe is coolant transport");
+assert.strictEqual(HeatRules.isCoolantTransportType("frame"), false, "frame is not coolant transport");
+assert.strictEqual(HeatRules.isCoolantTransportType("heavyFrame"), false, "heavy frame is not coolant transport");
+assert.strictEqual(HeatRules.isCoolantTransportType("radiator"), false, "radiator is not coolant transport");
+assert.strictEqual(HeatRules.routeTypeMultiplier, undefined, "the frame-route transfer boost is gone");
 
 // effectiveSharedEdges caps at MAX_SHARED_EDGE_MULTIPLIER
 assert.strictEqual(HeatRules.effectiveSharedEdges(1), 1, "effectiveSharedEdges(1)");
 assert.strictEqual(HeatRules.effectiveSharedEdges(3), 3, "effectiveSharedEdges(3)");
 assert.strictEqual(HeatRules.effectiveSharedEdges(5), 3, "effectiveSharedEdges(5) capped");
-
-// HEAT_PIPE_TRANSFER config exists
-assert(HeatRules.HEAT_PIPE_TRANSFER, "HEAT_PIPE_TRANSFER config should be exported");
 assert(HeatRules.MAX_SHARED_EDGE_MULTIPLIER === 3, "MAX_SHARED_EDGE_MULTIPLIER should be 3");
+
+// Coolant throughput scales with contact area and is capped the same way.
+assert.strictEqual(HeatRules.coolantEdgeBandwidth(1), HeatRules.COOLANT_ATTACHMENT_BANDWIDTH, "one shared edge gets the base bandwidth");
+assert.strictEqual(HeatRules.coolantEdgeBandwidth(2), HeatRules.COOLANT_ATTACHMENT_BANDWIDTH * 2, "two shared edges get double bandwidth");
+assert.strictEqual(HeatRules.coolantEdgeBandwidth(9), HeatRules.COOLANT_ATTACHMENT_BANDWIDTH * 3, "bandwidth is capped at the shared-edge cap");
 
 // buildHeatDebug includes new diagnostics
 const debugShip = shipFor([{ x: 7, y: 7, type: "blaster" }, { x: 8, y: 7, type: "heatPipe" }, { x: 9, y: 7, type: "radiator" }]);
@@ -287,6 +298,12 @@ assert(dbg.components[0].adjacentHeatPipeEdges !== undefined, "component debug h
 assert(dbg.components[0].adjacentHeatPipeEdges > 0, "blaster has adjacent heat pipe edges");
 assert(dbg.networks[0].heatPipeIndices, "network debug has heatPipeIndices");
 assert(dbg.networks[0].heatPipeIndices.includes(1), "network debug heatPipeIndices contains pipe index");
+assert.strictEqual(dbg.components[1].coolantNetworkId, 0, "heat pipe reports its coolant network");
+assert.strictEqual(dbg.components[0].coolantNetworkId, 0, "attached blaster reports the same coolant network");
+assert(Array.isArray(dbg.coolantNetworks) && dbg.coolantNetworks.length === 1, "debug exposes one coolant network");
+assert.deepStrictEqual(dbg.coolantNetworks[0].pipeIndices, [1], "coolant network debug lists its pipes");
+assert.deepStrictEqual([...dbg.coolantNetworks[0].attachedComponents].sort((a, b) => a - b), [0, 2], "coolant network debug lists its attachments");
+assert(dbg.coolantNetworks[0].transportedHeatPerSecond > 0, "coolant network debug reports transported heat");
 assert(dbg.networks[0].frameIndices !== undefined, "network debug has frameIndices");
 assert(dbg.networks[0].sinkIndices !== undefined, "network debug has sinkIndices");
 assert(dbg.networks[0].radiatorIndices !== undefined, "network debug has radiatorIndices");

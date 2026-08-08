@@ -94,7 +94,9 @@ function normalizePixiStrokeColor(color) {
 function pixiDesignSignature(design) {
   let signature = pixiDesignSignatures.get(design);
   if (!signature) {
-    signature = design.map((part) => `${part.x},${part.y},${part.type},${normalizeRotation(part.rotation) || 0}`).join(";");
+    // The mirror is baked into the hull texture, so two designs that differ only
+    // by a flipped component must not share one bake.
+    signature = design.map((part) => `${part.x},${part.y},${part.type},${normalizeRotation(part.rotation) || 0}${part.flipped === true ? ",m" : ""}`).join(";");
     pixiDesignSignatures.set(design, signature);
   }
   return signature;

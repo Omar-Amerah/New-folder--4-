@@ -6,7 +6,8 @@
 // Keep imports explicit and side-effect-free so the native ES-module graph can
 // be verified without relying on a flattened global bundle.
 
-import { PART_DEFS } from "../design/parts.js";
+import { PART_DEFS, PART_STATS } from "../design/parts.js";
+import { shipLocalCoolantMasks } from "../design/coolantLayout.js";
 import { normalizeRotation } from "../design/rotation.js";
 import { withCanvasContext } from "./dom.js";
 import { drawShipStructure } from "../game/componentArt.js";
@@ -19,7 +20,7 @@ const THUMB_DPR = 2;
 const shipThumbCache = new Map();
 
 function shipThumbSignature(design, color) {
-  return `${color}|${design.map((p) => `${p.x},${p.y},${p.type},${normalizeRotation(p.rotation) || 0}`).join(";")}`;
+  return `${color}|${design.map((p) => `${p.x},${p.y},${p.type},${normalizeRotation(p.rotation) || 0}${p.flipped === true ? ",m" : ""}`).join(";")}`;
 }
 
 // Renders `design` centred into a `size`x`size` (logical px) preview.
@@ -68,7 +69,8 @@ function bakeShipThumb(design, color, size) {
     tctx.rotate(-Math.PI / 2); // point the nose up (designer "forward = up")
 
     drawShipStructure(design, THUMB_SCALE, color);
-    for (const part of design) {
+    const coolantMasks = shipLocalCoolantMasks(design, PART_STATS);
+    design.forEach((part, index) => {
       const def = PART_DEFS[part.type] || PART_DEFS.frame;
       const place = footprintLocalPlacement(part, THUMB_SCALE);
       drawPlacedStaticComponent(tctx, {
@@ -77,9 +79,10 @@ function bakeShipThumb(design, color, size) {
         unit: THUMB_SCALE,
         color: def.color,
         trim: color,
-        includeWeaponTop: true
+        includeWeaponTop: true,
+        connectionMask: coolantMasks[index]
       });
-    }
+    });
     tctx.restore();
   });
 

@@ -40,6 +40,7 @@ import {
 } from "../componentArt.js";
 import { footprintLocalPlacement, shipEngineNozzles, shipLocalBounds } from "../shipGeometry.js";
 import { drawPlacedStaticComponent } from "../staticComponentComposition.js";
+import { shipLocalCoolantMasks } from "../../design/coolantLayout.js";
 import { isRotatingWeaponPart } from "../weaponAim.js";
 
 export const SHIP_SCALE = 13;
@@ -114,10 +115,12 @@ export function bakePixiHullTexture(env, design, color, radius) {
 
   return pixiBakeTexture(env, halfW * 2, halfH * 2, (bctx) => {
     drawShipStructure(design, SHIP_SCALE, color);
-    for (const part of design) {
+    const coolantMasks = shipLocalCoolantMasks(design, PART_STATS);
+    for (let index = 0; index < design.length; index += 1) {
+      const part = design[index];
       const def = PART_DEFS[part.type] || PART_DEFS.frame;
       const place = footprintLocalPlacement(part, SHIP_SCALE);
-      drawPlacedStaticComponent(bctx, { part, place, unit: SHIP_SCALE, color: def.color, trim: color });
+      drawPlacedStaticComponent(bctx, { part, place, unit: SHIP_SCALE, color: def.color, trim: color, connectionMask: coolantMasks[index] });
     }
     // Forward direction indicator (the ship's nose arrowhead).
     bctx.strokeStyle = color;
