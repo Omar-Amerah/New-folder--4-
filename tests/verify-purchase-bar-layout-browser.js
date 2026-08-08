@@ -100,6 +100,7 @@ function makeManyDesigns(count) {
         const barStyle = window.getComputedStyle(bar);
         const optionsStyle = window.getComputedStyle(options);
         const quantityOneStyle = window.getComputedStyle(quantityOne);
+        const firstCardTitleStyle = window.getComputedStyle(firstCard.querySelector("strong"));
         const firstCardClassName = firstCard.className;
         firstCard.className = "purchase-option ready";
         const readyCardBackgroundImage = window.getComputedStyle(firstCard).backgroundImage;
@@ -128,6 +129,9 @@ function makeManyDesigns(count) {
           firstCardLeft: firstCardRect?.left,
           firstCardWidth: firstCardRect?.width,
           firstThumbWidth: firstThumbRect?.width,
+          firstCardTitleOverflow: firstCardTitleStyle.overflow,
+          firstCardTitleTextOverflow: firstCardTitleStyle.textOverflow,
+          firstCardTitleWhiteSpace: firstCardTitleStyle.whiteSpace,
           quantityRight: quantityRect?.right,
           purchaseTitleLeft: purchaseTitleRect?.left,
           quantityButtonWidth: quantityOneRect?.width,
@@ -174,10 +178,13 @@ function makeManyDesigns(count) {
       assert.ok(desktopLayout.quantityButtonWidth >= 32,
         `quantity button has a usable width (${desktopLayout.quantityButtonWidth})`);
       assert.equal(desktopLayout.quantityButtonPaddingLeft, "8px", "quantity button keeps horizontal padding");
-      assert.ok(desktopLayout.firstCardWidth >= 196,
-        `purchase cards are at least 196px wide (${desktopLayout.firstCardWidth})`);
-      assert.ok(desktopLayout.firstThumbWidth >= 60,
-        `purchase thumbnails are at least 60px wide (${desktopLayout.firstThumbWidth})`);
+      assert.ok(desktopLayout.firstCardWidth >= 196 && desktopLayout.firstCardWidth < 200,
+        `purchase cards keep their compact 196px width (${desktopLayout.firstCardWidth})`);
+      assert.ok(desktopLayout.firstThumbWidth >= 75,
+        `purchase thumbnails are at least 75px wide (${desktopLayout.firstThumbWidth})`);
+      assert.equal(desktopLayout.firstCardTitleOverflow, "hidden", "long purchase titles are clipped");
+      assert.equal(desktopLayout.firstCardTitleTextOverflow, "ellipsis", "long purchase titles use an ellipsis");
+      assert.equal(desktopLayout.firstCardTitleWhiteSpace, "nowrap", "purchase titles stay on one line");
       assert.notEqual(desktopLayout.readyCardBackgroundImage, "none", "purchasable card has its green ready background");
 
       // Many cards should cause horizontal scrolling
@@ -185,8 +192,8 @@ function makeManyDesigns(count) {
       assert.ok(desktopLayout.optionsScrollWidth > desktopLayout.optionsClientWidth,
         `options scrollWidth (${desktopLayout.optionsScrollWidth}) > clientWidth (${desktopLayout.optionsClientWidth}) — horizontal scroll exists`);
 
-      // The tooltip is positioned once from the card and remains still while the
-      // pointer moves within that card.
+      // The tooltip follows the pointer through compositor transforms while
+      // retaining the blur-free performance path.
       const tooltipResult = await page.evaluate(async () => {
         const card = document.querySelector("#purchaseOptions .purchase-option");
         const tooltip = document.getElementById("purchaseTooltip");
@@ -198,6 +205,7 @@ function makeManyDesigns(count) {
         }));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const first = tooltip.getBoundingClientRect();
+        const firstTransform = tooltip.style.transform;
         card.dispatchEvent(new MouseEvent("mousemove", {
           bubbles: true,
           clientX: cardRect.right - 8,
@@ -205,20 +213,26 @@ function makeManyDesigns(count) {
         }));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const second = tooltip.getBoundingClientRect();
+        const powerCell = Array.from(tooltip.querySelectorAll(".purchase-tooltip-grid div"))
+          .find((cell) => cell.querySelector("span")?.textContent === "Power Use/Gen");
         return {
           hidden: tooltip.hidden,
           firstLeft: first.left,
           firstTop: first.top,
           secondLeft: second.left,
           secondTop: second.top,
-          aboveCard: first.bottom <= cardRect.top,
+          firstTransform,
+          secondTransform: tooltip.style.transform,
+          powerText: powerCell?.querySelector("strong")?.textContent || "",
           backdropFilter: window.getComputedStyle(tooltip).backdropFilter
         };
       });
       assert.equal(tooltipResult.hidden, false, "purchase tooltip is shown on card entry");
-      assert.equal(tooltipResult.firstLeft, tooltipResult.secondLeft, "tooltip does not follow horizontal pointer movement");
-      assert.equal(tooltipResult.firstTop, tooltipResult.secondTop, "tooltip does not follow vertical pointer movement");
-      assert.equal(tooltipResult.aboveCard, true, "tooltip is anchored above the purchase card");
+      assert.notEqual(tooltipResult.firstLeft, tooltipResult.secondLeft, "tooltip follows horizontal pointer movement");
+      assert.notEqual(tooltipResult.firstTop, tooltipResult.secondTop, "tooltip follows vertical pointer movement");
+      assert.match(tooltipResult.firstTransform, /^translate3d\(/, "tooltip uses a compositor transform");
+      assert.match(tooltipResult.secondTransform, /^translate3d\(/, "tooltip keeps using a compositor transform while moving");
+      assert.doesNotMatch(tooltipResult.powerText, /\d+\.\d{3,}/, "tooltip power totals contain no floating-point noise");
       assert.equal(tooltipResult.backdropFilter, "none", "tooltip does not use a live backdrop blur");
 
       // The last card should be reachable by scrolling

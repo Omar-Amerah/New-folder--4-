@@ -9,12 +9,16 @@ import { escapeHtml } from "../shared/formatting.js";
 import { clamp } from "../shared/math.js";
 import { makePurchaseRequestId, makeDesignId } from "../shared/ids.js";
 import { isBalanceIncompatible, balanceBlockMessage, getBalanceStatus } from "../balanceStatus.js";
-import { formatHull, formatShield, formatSpeed, formatMass, formatEnergy, formatRepair, formatPercent } from "../design/statFormatting.js";
+import { round2, formatHull, formatShield, formatSpeed, formatMass, formatEnergy, formatRepair, formatPercent } from "../design/statFormatting.js";
 import { weaponAbbrevText, previewColor } from "./savedBlueprintsUi.js";
 import { shipThumbnailDataUrl } from "./shipThumbnail.js";
 import { isAdmin } from "./lobbyUi.js";
 import { analyseBlueprintOnce, analyseSavedBlueprintOnce, counters, resetBlueprintAnalysisCounters } from "../design/blueprintAnalysisCache.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
+
+let purchaseTooltipFrame = 0;
+let purchaseTooltipPointer = null;
+let purchaseTooltipSize = { width: 0, height: 0 };
 
 export function handlePurchasePointerDown(event) {
   if (event.button !== undefined && event.button !== 0) return;
@@ -695,6 +699,7 @@ function renderPurchaseCards(options) {
         </span>`;
 
       card.addEventListener?.("mouseenter", (event) => showPurchaseTooltip(option.id, event));
+      card.addEventListener?.("mousemove", positionPurchaseTooltip);
       card.addEventListener?.("mouseleave", hidePurchaseTooltip);
       card.addEventListener?.("focus", (event) => showPurchaseTooltip(option.id, event));
       card.addEventListener?.("blur", hidePurchaseTooltip);
@@ -1011,7 +1016,7 @@ export function purchaseCostText(option, optionState) {
 }
 
 export function weaponSummaryText(stats) {
-  return `${stats.weaponDps} DPS`;
+  return `${round2(stats.weaponDps)} DPS`;
 }
 
 export function showPurchaseTooltip(optionId, event) {
@@ -1034,20 +1039,29 @@ export function showPurchaseTooltip(optionId, event) {
       ${tooltipStat("Cost", `$${stats.unitCost}`)}
       ${state.purchaseQuantity > 1 ? tooltipStat("Total", `$${optionState.totalCost}`) : ""}
       ${tooltipStat("Hull", formatHull(stats.maxHp))}
-      ${tooltipStat("Shield", `${formatShield(stats.maxShield)} (+${stats.shieldRegen}/s)`)}
+      ${tooltipStat("Shield", `${formatShield(stats.maxShield)} (+${round2(stats.shieldRegen)}/s)`)}
       ${tooltipStat("Speed", formatSpeed(Math.round(stats.maxSpeed)))}
       ${tooltipStat(Math.abs(Number(stats.turnRateLeft ?? stats.turnRate ?? 0) - Number(stats.turnRateRight ?? stats.turnRate ?? 0)) < 0.01 ? "Turn rate" : "Turn L/R", Math.abs(Number(stats.turnRateLeft ?? stats.turnRate ?? 0) - Number(stats.turnRateRight ?? stats.turnRate ?? 0)) < 0.01 ? `${Number(stats.turnRateLeft ?? stats.turnRate ?? 0).toFixed(2)}` : `${Number(stats.turnRateLeft ?? stats.turnRate ?? 0).toFixed(2)} / ${Number(stats.turnRateRight ?? stats.turnRate ?? 0).toFixed(2)}`)}
       ${tooltipStat("Mass", formatMass(stats.mass))}
-      ${tooltipStat("Power Use/Gen", `${stats.powerUse}/${stats.powerGeneration} MW`)}
+      ${tooltipStat("Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`)}
       ${tooltipStat("Energy", formatEnergy(stats.energyStorage))}
       ${tooltipStat("Repair", formatRepair(stats.repairRate))}
       ${stats.coolingBonus > 0 ? tooltipStat("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : ""}
       ${stats.captureBonus > 0 ? tooltipStat("Capture", `+${formatPercent(stats.captureBonus)}`) : ""}
       ${tooltipStat("Weapons", weaponSummaryText(stats))}
-      ${tooltipStat("DPS", stats.weaponDps)}
+      ${tooltipStat("DPS", round2(stats.weaponDps))}
     </div>
   `;
   dom.purchaseTooltip.hidden = false;
+  const rect = dom.purchaseTooltip.getBoundingClientRect();
+  purchaseTooltipSize = { width: rect.width, height: rect.height };
+  const sourceRect = event.currentTarget?.getBoundingClientRect?.();
+  if (sourceRect) {
+    purchaseTooltipPointer = {
+      x: Number.isFinite(event.clientX) && event.clientX !== 0 ? event.clientX : sourceRect.left + sourceRect.width / 2,
+      y: Number.isFinite(event.clientY) && event.clientY !== 0 ? event.clientY : sourceRect.top
+    };
+  }
   positionPurchaseTooltip(event);
 }
 
@@ -1057,28 +1071,32 @@ function tooltipStat(label, value) {
 
 export function positionPurchaseTooltip(event) {
   if (!dom.purchaseTooltip || dom.purchaseTooltip.hidden) return;
-  const margin = 14;
-  const rect = dom.purchaseTooltip.getBoundingClientRect();
-  const sourceRect = event.currentTarget?.getBoundingClientRect?.();
-  if (!sourceRect) return;
-  const gap = 12;
-  const left = clamp(
-    sourceRect.left + (sourceRect.width - rect.width) / 2,
-    margin,
-    window.innerWidth - rect.width - margin
-  );
-  const above = sourceRect.top - rect.height - gap;
-  const below = sourceRect.bottom + gap;
-  const top = clamp(
-    above >= margin ? above : below,
-    margin,
-    window.innerHeight - rect.height - margin
-  );
-  dom.purchaseTooltip.style.left = `${left}px`;
-  dom.purchaseTooltip.style.top = `${top}px`;
+  if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY) && (event.clientX !== 0 || event.clientY !== 0)) {
+    purchaseTooltipPointer = { x: event.clientX, y: event.clientY };
+  }
+  if (!purchaseTooltipPointer || purchaseTooltipFrame) return;
+  purchaseTooltipFrame = window.requestAnimationFrame(() => {
+    purchaseTooltipFrame = 0;
+    if (!dom.purchaseTooltip || dom.purchaseTooltip.hidden || !purchaseTooltipPointer) return;
+    const margin = 14;
+    const left = clamp(
+      purchaseTooltipPointer.x + 14,
+      margin,
+      window.innerWidth - purchaseTooltipSize.width - margin
+    );
+    const top = clamp(
+      purchaseTooltipPointer.y - purchaseTooltipSize.height - 12,
+      margin,
+      window.innerHeight - purchaseTooltipSize.height - margin
+    );
+    dom.purchaseTooltip.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+  });
 }
 
 export function hidePurchaseTooltip() {
+  if (purchaseTooltipFrame) window.cancelAnimationFrame?.(purchaseTooltipFrame);
+  purchaseTooltipFrame = 0;
+  purchaseTooltipPointer = null;
   if (dom.purchaseTooltip) dom.purchaseTooltip.hidden = true;
 }
 

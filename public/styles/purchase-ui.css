@@ -209,11 +209,11 @@
 .purchase-option {
   flex: 0 0 196px;
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
+  grid-template-columns: 75px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
-  min-height: 78px;
-  padding: 8px 11px;
+  gap: 11px;
+  min-height: 98px;
+  padding: 10px 14px;
   border: 1px solid rgba(174, 199, 231, 0.18);
   border-color: rgba(174, 199, 231, 0.18);
   background: rgba(12, 20, 32, 0.88);
@@ -228,9 +228,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
-  border-radius: 7px;
+  width: 75px;
+  height: 75px;
+  border-radius: 9px;
   background: radial-gradient(circle at 50% 42%, rgba(40, 62, 98, 0.5), rgba(4, 8, 14, 0.85));
   border: 1px solid rgba(120, 150, 200, 0.16);
   overflow: hidden;
@@ -439,12 +439,6 @@
   box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.08), 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
-.purchase-option.ready:hover {
-  border-color: rgba(103, 224, 138, 0.66);
-  background: rgba(21, 43, 39, 0.94);
-  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.14), 0 9px 20px rgba(0, 0, 0, 0.30);
-}
-
 .purchase-option:focus-visible {
   outline: none;
   border-color: rgba(103, 224, 138, 0.78);
@@ -592,7 +586,7 @@
 
 .purchase-option {
   align-items: start;
-  min-height: 78px;
+  min-height: 98px;
 }
 
 .purchase-info {

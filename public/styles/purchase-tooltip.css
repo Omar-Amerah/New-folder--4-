@@ -2,6 +2,8 @@
 
 .purchase-tooltip {
   position: fixed;
+  top: 0;
+  left: 0;
   z-index: 20;
   width: min(310px, calc(100vw - 28px));
   padding: 12px;
@@ -11,6 +13,7 @@
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
   pointer-events: none;
   backdrop-filter: none;
+  will-change: transform;
 }
 
 .purchase-tooltip-head,
