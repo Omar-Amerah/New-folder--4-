@@ -614,8 +614,9 @@ function patchPurchaseAvailability() {
     setCardText(card, ".purchase-status", statusText);
     const statusDescription = card.querySelector(".purchase-status-description");
     if (statusDescription) statusDescription.id = descriptionId;
-    setCardText(card, ".purchase-status-description", statusText);
-    if (card.title !== statusText) card.title = statusText;
+    setCardText(card, ".purchase-status-description", purchaseStatusDescription(optionState));
+    const title = statusText || "Ready to build";
+    if (card.title !== title) card.title = title;
 
     // Thumbnails are static and are only baked when the option is created or the
     // Blueprint/colour changes; availability-only updates do not touch them.
@@ -713,12 +714,14 @@ function renderPurchaseCards(options) {
     setCardText(card, "strong", option.name);
     setCardText(card, ".purchase-cost", `$${option.stats.unitCost}`);
     setCardText(card, ".purchase-weapons", option.weaponSummary || weaponSummaryText(option.stats));
-    const statusText = "Available to build";
+    const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
+    const statusText = purchaseStatusText(optionState);
     setCardText(card, ".purchase-status", statusText);
     const statusDescription = card.querySelector(".purchase-status-description");
     if (statusDescription) statusDescription.id = `purchase-status-${option.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-    setCardText(card, ".purchase-status-description", statusText);
-    if (card.title !== statusText) card.title = statusText;
+    setCardText(card, ".purchase-status-description", purchaseStatusDescription(optionState));
+    const title = statusText || "Ready to build";
+    if (card.title !== title) card.title = title;
 
     if (isNew) dom.purchaseOptions.appendChild(card);
   });
@@ -734,14 +737,32 @@ export function renderPurchaseBar() {
 export function purchaseStatusText(optionState) {
   if (optionState.pending) return "Building…";
   if (optionState.error) return `Purchase failed — ${optionState.reason || "Server rejected request"}`;
-  if (optionState.canBuy) return "Available to build";
+  if (optionState.canBuy) return "";
   const reason = optionState.reason || "Not available";
   if (/^Need \$/.test(reason)) return reason;
   if (/^Need \d+/.test(reason) && !/fleet slots$/.test(reason)) return reason.replace(/slots$/, "fleet slots");
-  if (/^Invalid design:/i.test(reason)) return `Design invalid — ${reason.replace(/^Invalid design:\s*/i, "")}`;
-  if (/^Missing /i.test(reason)) return `Design invalid — ${reason}`;
+  if (/^Invalid design:/i.test(reason)) return compactDesignIssue(reason);
+  if (/^Design invalid\s*[—-]/i.test(reason)) return compactDesignIssue(reason);
+  if (/^Missing /i.test(reason)) return `⚠ ${capitalizeStatusReason(reason)}`;
   if (/^Purchase failed/i.test(reason)) return reason.replace(/^Purchase failed:?\s*/i, "Purchase failed — ");
   return reason;
+}
+
+function purchaseStatusDescription(optionState) {
+  return purchaseStatusText(optionState) || "Ready to build";
+}
+
+function compactDesignIssue(reason) {
+  const clean = String(reason)
+    .replace(/^Invalid design:\s*/i, "")
+    .replace(/^Design invalid\s*[—-]\s*/i, "")
+    .trim();
+  return `⚠ ${capitalizeStatusReason(clean)}`;
+}
+
+function capitalizeStatusReason(reason) {
+  const text = String(reason || "Not available");
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "Not available";
 }
 
 // Updates a child element's text only when it changed, avoiding needless DOM work
@@ -805,10 +826,15 @@ function renderLoadoutTabs(strip = dom.loadoutTabs, manage = false) {
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `loadout-tab${isActive ? " active" : ""}`;
+    const purchaseFilter = !manage && strip === dom.loadoutTabs;
+    btn.className = `loadout-tab${isActive ? " active" : ""}${purchaseFilter ? " purchase-filter-tab" : ""}`;
     btn.textContent = `${tab.name} · ${count}`;
     btn.setAttribute("role", "tab");
     btn.setAttribute("aria-selected", String(isActive));
+    if (purchaseFilter) {
+      btn.setAttribute("aria-label", `${tab.name} filter, ${count} saved design${count === 1 ? "" : "s"}`);
+      btn.title = `Show ${tab.name.toLowerCase()} ships (${count})`;
+    }
     btn.addEventListener("click", () => setActiveLoadout(tab.id));
     strip.appendChild(btn);
   }

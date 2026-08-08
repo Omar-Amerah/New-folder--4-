@@ -453,15 +453,74 @@ h2 {
   margin-top: 0;
 }
 
+/* Deployment sidebar refinements stay scoped to the Deployment controls. */
+.ship-groups-panel,
+.rally-panel {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.ship-groups-panel .section-heading,
+.rally-panel .section-heading {
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.ship-groups-panel .section-heading h2,
+.rally-panel .section-heading h2 {
+  min-width: 0;
+}
+
+#shipGroupTotal,
+#rallyStatus {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  text-align: right;
+}
+
 .ship-group-list {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .ship-group-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(174, 199, 231, 0.16);
+  border-radius: 6px;
+  background: rgba(9, 15, 25, 0.62);
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.ship-group-row:hover,
+.ship-group-row:focus-within {
+  border-color: rgba(174, 199, 231, 0.30);
+  background: rgba(15, 23, 36, 0.82);
+}
+
+.ship-group-row.is-empty {
+  border-color: rgba(174, 199, 231, 0.10);
+  background: rgba(8, 14, 23, 0.44);
+}
+
+.ship-group-row.is-empty:hover,
+.ship-group-row.is-empty:focus-within {
+  border-color: rgba(174, 199, 231, 0.22);
+  background: rgba(14, 22, 35, 0.70);
+}
+
+.ship-group-row.has-ships {
+  border-color: rgba(174, 199, 231, 0.23);
+  background: rgba(12, 20, 32, 0.78);
+}
+
+.ship-group-row.is-selected {
+  border-color: rgba(56, 213, 255, 0.62);
+  background: rgba(23, 62, 78, 0.48);
+  box-shadow: inset 3px 0 0 var(--cyan);
 }
 
 .ship-group-main {
@@ -469,32 +528,27 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid rgba(174, 199, 231, 0.16);
-  border-radius: 5px;
-  background: rgba(9, 15, 25, 0.70);
-  transition: border-color 120ms ease, background 120ms ease;
+  background: transparent;
 }
 
 .ship-group-main:hover {
-  border-color: rgba(174, 199, 231, 0.30);
-  background: rgba(15, 23, 36, 0.88);
-}
-
-.ship-group-row.is-selected .ship-group-main {
-  border-color: rgba(56, 213, 255, 0.62);
-  background: rgba(23, 62, 78, 0.48);
-  box-shadow: inset 3px 0 0 var(--cyan);
+  background: rgba(56, 213, 255, 0.025);
 }
 
 .ship-group-row.is-unassigned {
-  margin-top: 4px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(174, 199, 231, 0.14);
+  margin-top: 5px;
+  border-color: rgba(167, 139, 250, 0.18);
+  background: rgba(18, 17, 31, 0.56);
 }
 
-.ship-group-row.is-unassigned .ship-group-main {
-  border-color: rgba(167, 139, 250, 0.20);
-  background: rgba(18, 17, 31, 0.62);
+.ship-group-row.is-unassigned.is-empty {
+  border-color: rgba(167, 139, 250, 0.10);
+  background: rgba(14, 14, 25, 0.42);
+}
+
+.ship-group-row.is-unassigned.has-ships {
+  border-color: rgba(255, 202, 87, 0.36);
+  background: rgba(35, 30, 25, 0.70);
 }
 
 .ship-group-controls {
@@ -502,6 +556,22 @@ h2 {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  border-top: 1px solid rgba(174, 199, 231, 0.13);
+}
+
+.ship-group-row.is-empty .ship-group-controls {
+  border-top-color: rgba(174, 199, 231, 0.08);
+}
+
+.ship-group-row.has-ships .ship-group-controls {
+  border-top-color: rgba(174, 199, 231, 0.18);
+}
+
+.ship-group-row.is-selected .ship-group-controls {
+  border-top-color: rgba(56, 213, 255, 0.24);
 }
 
 .ship-group-stance-label {
@@ -514,8 +584,8 @@ h2 {
 .ship-group-select {
   min-width: 0;
   width: 100%;
-  min-height: 30px;
-  height: 30px;
+  min-height: 28px;
+  height: 28px;
   padding: 0 28px 0 8px;
   border: 1px solid rgba(174, 199, 231, 0.14);
   border-radius: 4px;
@@ -542,6 +612,16 @@ h2 {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.side-panel .ship-group-button,
+.side-panel .ship-group-action {
+  min-height: 32px;
+}
+
+.side-panel .ship-group-select {
+  min-height: 28px;
+  height: 28px;
 }
 
 .ship-group-button {
@@ -571,6 +651,21 @@ h2 {
   white-space: nowrap;
 }
 
+.ship-group-row.is-empty .ship-group-count {
+  color: #74849b;
+  font-weight: 700;
+}
+
+.ship-group-row.has-ships .ship-group-count {
+  color: #b7c7da;
+  font-weight: 800;
+}
+
+.ship-group-row.is-unassigned.has-ships .ship-group-count {
+  color: #ffda91;
+  font-weight: 850;
+}
+
 .ship-group-button.active {
   color: #effbff;
 }
@@ -592,9 +687,16 @@ h2 {
   min-width: 50px;
   padding: 0 8px;
   border-left: 1px solid rgba(174, 199, 231, 0.12);
-  color: #b9c8da;
+  color: #c8d9ea;
+  font-weight: 780;
   font-size: 10px;
   white-space: nowrap;
+}
+
+.ship-group-assign:not(:disabled) {
+  border-left-color: rgba(56, 213, 255, 0.22);
+  background: rgba(56, 213, 255, 0.025);
+  color: #cce6f5;
 }
 
 .ship-group-action:hover:not(:disabled) {
@@ -607,6 +709,16 @@ h2 {
   color: #c9bff5;
 }
 
+.ship-group-row.is-unassigned.is-empty .ship-group-view {
+  color: #a79dc4;
+}
+
+.ship-group-row.is-unassigned.has-ships .ship-group-view {
+  border-left-color: rgba(255, 202, 87, 0.30);
+  background: rgba(255, 202, 87, 0.05);
+  color: #ffdc98;
+}
+
 .ship-group-unassign {
   color: #f2a4a4;
 }
@@ -616,13 +728,13 @@ h2 {
 }
 
 .ship-group-assign:disabled {
-  opacity: 0.36;
+  opacity: 0.48;
 }
 
 .rally-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 62px;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 60px;
+  gap: 5px;
 }
 
 #rallyPointButton {

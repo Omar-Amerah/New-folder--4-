@@ -10,10 +10,10 @@
   min-width: 0;
   max-width: calc(100% - 24px);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  min-height: 118px;
-  padding: 10px 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  padding: 8px 10px;
   border: 1px solid rgba(174, 199, 231, 0.24);
   border-top-color: rgba(56, 213, 255, 0.42);
   border-radius: 8px;
@@ -23,43 +23,34 @@
   overflow: hidden;
 }
 
-.purchase-meta {
-  display: grid;
-  grid-template-columns: auto;
-  align-content: center;
-  gap: 8px;
-}
-
-.purchase-meta > div,
 .purchase-quantity {
   min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid rgba(174, 199, 231, 0.14);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.purchase-meta span,
-.purchase-main > span {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.purchase-meta strong {
-  display: block;
-  margin-top: 2px;
-  color: #f8fbff;
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .purchase-quantity > div {
-  display: grid;
-  grid-template-columns: repeat(2, 34px);
+  display: flex;
   gap: 4px;
-  margin-top: 4px;
+  margin: 0;
+}
+
+.purchase-quantity > span,
+.purchase-title {
+  display: block;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .purchase-quantity button {
@@ -78,16 +69,16 @@
 .purchase-main {
   min-width: 0;
   display: grid;
-  gap: 6px;
+  gap: 5px;
   overflow: hidden;
 }
 
 .purchase-main-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 /* ---- Loadout tabs ---- */
@@ -129,6 +120,26 @@
   color: #eaf9ff;
 }
 
+/* In the purchase tray these are filters, so keep them button-like rather
+   than reading as passive status pills. */
+.purchase-main-head .loadout-tab {
+  border-radius: 5px;
+  background: rgba(12, 20, 32, 0.72);
+  color: #c7d3e6;
+}
+
+.purchase-main-head .loadout-tab:hover {
+  border-color: rgba(56, 213, 255, 0.52);
+  background: rgba(19, 33, 48, 0.86);
+  color: #eaf4ff;
+}
+
+.purchase-main-head .loadout-tab.active {
+  border-color: rgba(56, 213, 255, 0.72);
+  background: rgba(56, 213, 255, 0.14);
+  color: #eaf9ff;
+}
+
 .loadout-tab-add,
 .loadout-tab-del {
   padding: 2px 8px;
@@ -162,26 +173,51 @@
 
 .purchase-options {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 2px;
+  padding-bottom: 1px;
+  overscroll-behavior-x: contain;
+  scrollbar-color: rgba(174, 199, 231, 0.32) transparent;
+  scrollbar-width: thin;
+}
+
+.purchase-options::-webkit-scrollbar {
+  height: 6px;
+}
+
+.purchase-options::-webkit-scrollbar-track {
+  border-radius: 99px;
+  background: rgba(8, 14, 23, 0.42);
+}
+
+.purchase-options::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 99px;
+  background: rgba(174, 199, 231, 0.30);
+  background-clip: padding-box;
+}
+
+.purchase-options::-webkit-scrollbar-thumb:hover {
+  background: rgba(174, 199, 231, 0.48);
+  background-clip: padding-box;
 }
 
 .purchase-option {
-  flex: 0 0 196px;
+  flex: 0 0 184px;
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
-  min-height: 74px;
-  padding: 8px 11px;
-  border-color: rgba(103, 224, 138, 0.34);
-  background: linear-gradient(180deg, rgba(18, 48, 45, 0.92), rgba(9, 22, 24, 0.96));
+  gap: 8px;
+  min-height: 72px;
+  padding: 6px 9px;
+  border: 1px solid rgba(174, 199, 231, 0.18);
+  border-color: rgba(174, 199, 231, 0.18);
+  background: rgba(12, 20, 32, 0.88);
   color: var(--text);
   text-align: left;
-  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.08), 0 8px 20px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
   touch-action: manipulation;
   transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, opacity 140ms ease, transform 80ms ease;
 }
@@ -190,9 +226,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
-  border-radius: 7px;
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
   background: radial-gradient(circle at 50% 42%, rgba(40, 62, 98, 0.5), rgba(4, 8, 14, 0.85));
   border: 1px solid rgba(120, 150, 200, 0.16);
   overflow: hidden;
@@ -396,9 +432,15 @@
 }
 
 .purchase-option:hover {
-  border-color: rgba(103, 224, 138, 0.54);
-  background: linear-gradient(180deg, rgba(20, 58, 54, 0.96), rgba(10, 28, 30, 0.98));
-  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.12), 0 10px 24px rgba(0, 0, 0, 0.32);
+  border-color: rgba(103, 224, 138, 0.66);
+  background: rgba(21, 43, 39, 0.94);
+  box-shadow: 0 0 0 1px rgba(103, 224, 138, 0.14), 0 9px 20px rgba(0, 0, 0, 0.30);
+}
+
+.purchase-option:focus-visible {
+  outline: none;
+  border-color: rgba(103, 224, 138, 0.78);
+  box-shadow: 0 0 0 3px rgba(103, 224, 138, 0.16), 0 9px 20px rgba(0, 0, 0, 0.30);
 }
 
 .purchase-info strong,
@@ -414,6 +456,7 @@
 
 .purchase-info strong {
   font-size: 12px;
+  line-height: 1.15;
 }
 
 .purchase-info > span {
@@ -422,10 +465,24 @@
   font-weight: 900;
 }
 
+.purchase-info .purchase-cost {
+  color: #ffe5a3;
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
 .purchase-info small {
   color: #c7d7ea;
   font-size: 10px;
   font-weight: 800;
+}
+
+.purchase-info .purchase-weapons {
+  color: #9fb2c9;
+  font-size: 10px;
+  font-weight: 750;
 }
 
 .purchase-info em {
@@ -441,7 +498,7 @@
   background: rgba(20, 25, 35, 0.82);
   box-shadow: none;
   cursor: pointer;
-  opacity: 0.68;
+  opacity: 0.82;
 }
 
 .purchase-option.disabled em {
@@ -450,13 +507,13 @@
 
 .purchase-option.pressed {
   transform: translateY(1px);
-  border-color: rgba(56, 213, 255, 0.64);
-  background: linear-gradient(180deg, rgba(18, 62, 75, 0.96), rgba(8, 28, 36, 0.98));
-  box-shadow: 0 0 0 1px rgba(56, 213, 255, 0.16), 0 0 20px rgba(56, 213, 255, 0.12);
+  border-color: rgba(103, 224, 138, 0.82);
+  background: rgba(26, 57, 47, 0.96);
+  box-shadow: 0 0 0 2px rgba(103, 224, 138, 0.16), 0 0 20px rgba(103, 224, 138, 0.12);
 }
 
 .purchase-option.pressed em {
-  color: #aeeeff;
+  color: #b9f3c8;
 }
 
 .purchase-option.error {
@@ -527,23 +584,31 @@
 
 .purchase-option {
   align-items: start;
-  min-height: 92px;
+  min-height: 72px;
 }
 
 .purchase-info {
   align-self: stretch;
-  grid-template-rows: auto auto auto minmax(28px, auto);
+  grid-template-rows: auto auto auto auto;
+}
+
+.purchase-option.ready .purchase-info {
+  grid-template-rows: auto auto auto;
+}
+
+.purchase-option.ready .purchase-status {
+  display: none;
 }
 
 .purchase-info em.purchase-status {
   display: -webkit-box;
-  min-height: 28px;
-  max-height: 42px;
+  min-height: 0;
+  max-height: 32px;
   overflow: hidden;
   white-space: normal;
   overflow-wrap: anywhere;
   text-overflow: clip;
   line-height: 1.25;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }

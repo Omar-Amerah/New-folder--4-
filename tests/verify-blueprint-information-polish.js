@@ -165,12 +165,12 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   const customOptions = purchaseUi.getPurchaseOptions();
   assert.deepEqual(customOptions.map(o => o.name), ["Current Design", "Saved A"], "custom Loadout preserves Current Design and filters saved designs");
   assert.deepEqual(purchaseUi.getPurchaseOptionState(customOptions[0], 1), currentAllState, "switching Loadouts does not alter Current Design eligibility");
-  assert.equal(purchaseUi.purchaseStatusText(purchaseUi.getPurchaseOptionState(customOptions[1], 1)), "Available to build", "improved status wording appears inside custom Loadout");
+  assert.equal(purchaseUi.purchaseStatusText(purchaseUi.getPurchaseOptionState(customOptions[1], 1)), "", "buildable cards omit repeated availability status");
 
   const option = allOptions[0];
   const baseline = purchaseUi.getPurchaseOptionState(option, 1);
   assert.equal(baseline.canBuy, true, "purchasable option remains buyable");
-  assert.equal(purchaseUi.purchaseStatusText(baseline), "Available to build");
+  assert.equal(purchaseUi.purchaseStatusText(baseline), "");
 
   state.mine.money = option.stats.unitCost - 7;
   const insufficient = purchaseUi.getPurchaseOptionState(option, 1);
@@ -203,7 +203,7 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
   const invalid = purchaseUi.getPurchaseOptionState(invalidOption, 1);
   assert.equal(invalid.canBuy, false);
   assert.ok(invalid.reason, "authoritative invalid reason is preserved");
-  assert.match(purchaseUi.purchaseStatusText(invalid), /^Design invalid — /);
+  assert.match(purchaseUi.purchaseStatusText(invalid), /^⚠ /);
 
   state.pendingPurchases.set("req-1", { optionId: option.id, requestId: "req-1" });
   const pending = purchaseUi.getPurchaseOptionState(option, 1);

@@ -341,7 +341,7 @@ function renderRallyControls() {
   if (dom.rallyPointButton) {
     dom.rallyPointButton.disabled = !active;
     dom.rallyPointButton.classList.toggle("active", Boolean(state.settingRallyPoint));
-    dom.rallyPointButton.textContent = state.settingRallyPoint ? "Click Map" : "Rally Point";
+    dom.rallyPointButton.textContent = state.settingRallyPoint ? "Click Map" : "Set Rally Point";
   }
   if (dom.resetRallyButton) dom.resetRallyButton.disabled = !active;
   if (dom.rallyStatus) {
