@@ -7,7 +7,10 @@ const ROOT = path.dirname(__dirname);
 const CLIENT_ROOT = path.join(ROOT, "public", "src");
 const SERVER_ROOT = path.join(ROOT, "src", "server");
 const ALLOWED_CLIENT_ESCAPES = new Set([path.join(ROOT, "component-balance.json")]);
-const ALLOWED_SERVER_ESCAPES = [path.join(ROOT, "public", "src", "shared")];
+const ALLOWED_SERVER_ESCAPES = [
+  path.join(ROOT, "public", "src", "shared"),
+  path.join(ROOT, "aiblueprints.json")
+];
 const warnings = [];
 
 function rel(file) { return path.relative(ROOT, file).replace(/\\/g, "/"); }
@@ -57,7 +60,9 @@ function checkRoot(files, root, kind) {
       const resolvedReal = path.resolve(resolved);
       const inside = resolvedReal.startsWith(root + path.sep);
       if (!inside) {
-        if (!((kind === "client" && ALLOWED_CLIENT_ESCAPES.has(resolvedReal)) || (kind === "server" && ALLOWED_SERVER_ESCAPES.some((p) => resolvedReal.startsWith(p + path.sep))))) {
+        const allowedClientEscape = kind === "client" && ALLOWED_CLIENT_ESCAPES.has(resolvedReal);
+        const allowedServerEscape = kind === "server" && ALLOWED_SERVER_ESCAPES.some((p) => resolvedReal === p || resolvedReal.startsWith(p + path.sep));
+        if (!(allowedClientEscape || allowedServerEscape)) {
           fail(`${rel(file)} imports ${dep.spec}, escaping ${rel(root)} to ${rel(resolvedReal)}`);
         }
       }

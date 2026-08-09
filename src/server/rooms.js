@@ -806,9 +806,15 @@ function generateSafeZones(world, gameMode) {
   return zones;
 }
 
-function applyAuthoritativeSafeZones(room) {
-  invalidateSpawnPlan(room);
-  const plan = getSpawnRegionPlan(room);
+function applyAuthoritativeSafeZones(room, options = {}) {
+  // A frozen plan already describes the map that was generated for this match.
+  // Replanning against rounded relay coordinates during a reset can reject
+  // that valid map by a few world units, so preserve it when explicitly asked.
+  const preserveFrozenPlan = options.preserveFrozenPlan === true
+    && room.__spawnPlanFrozen === true
+    && room.__spawnRegionPlan;
+  if (!preserveFrozenPlan) invalidateSpawnPlan(room);
+  const plan = preserveFrozenPlan ? room.__spawnRegionPlan : getSpawnRegionPlan(room);
   room.map.safeZones = plan.safeZones;
   return plan;
 }
@@ -1277,7 +1283,7 @@ function resetMatch(room, now) {
   require("./projectiles").resetProjectileRuntime(room);
   require("./spatialIndex").clearRoomSpatialIndex(room);
   room.spawnReservations = [];
-  applyAuthoritativeSafeZones(room);
+  applyAuthoritativeSafeZones(room, { preserveFrozenPlan: true });
   for (const point of room.points) {
     point.ownerId = null;
     point.ownerTeam = null;

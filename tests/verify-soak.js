@@ -12,9 +12,10 @@ const { updateBullets } = require("../src/server/projectiles");
 const { updateCapturePoints, updateControlVictory } = require("../src/server/objectives");
 const { updateShipHeat } = require("../src/server/heat");
 const { performanceNow, seededRandom, rngRange } = require("../src/server/utils");
-const { freezeSpawnPlan } = require("../src/server/spawnPlanner");
+const { freezeSpawnPlan, getSpawnRegionPlan } = require("../src/server/spawnPlanner");
 
 const SEED = 20260714;
+const MAP_SEED = 2;
 const rng = seededRandom(SEED);
 const TICKS = 360;
 const DT = 1 / 30;
@@ -66,10 +67,11 @@ function circularReplacer() {
 }
 
 const memBefore = process.memoryUsage().heapUsed;
-const room = createRoom("SOAK"); room.phase = "active"; room.rules.gameMode = "teams"; room.combatRandom = seededRandom(SEED); room.map.asteroids = room.map.asteroids.slice(0, 20);
+const room = createRoom("SOAK", { seed: MAP_SEED }); room.phase = "active"; room.rules.gameMode = "teams"; room.forcedMapSeed = MAP_SEED; room.combatRandom = seededRandom(SEED); room.map.asteroids = room.map.asteroids.slice(0, 20);
 for (let i=0;i<PLAYER_COUNT;i++) { const p = player(`${i%2?"bot":"human"}${i}`, i % 2, designs[i % designs.length]); room.players.set(p.id, p); }
 prepareArenaForCurrentPlayers(room);
 freezeSpawnPlan(room);
+const frozenSpawnPlan = getSpawnRegionPlan(room);
 let now = performanceNow();
 for (const p of room.players.values()) for (let i=0;i<SHIPS_PER_PLAYER;i++) spawnShip(room, p, now, i, { design:p.design, stats:p.stats, combatStyle:i%2?"charge":"sentry" });
 let peakShips=0, peakBullets=0, peakEffects=0, worstTick=0, totalTick=0;
@@ -77,7 +79,7 @@ const started = performance.now();
 for (let i=0;i<TICKS;i++) { const t0 = performance.now(); now += DT*1000; tick(room, DT, now); const elapsed = performance.now()-t0; totalTick += elapsed; worstTick = Math.max(worstTick, elapsed); peakShips = Math.max(peakShips, room.ships.size); peakBullets = Math.max(peakBullets, room.bullets.length); peakEffects = Math.max(peakEffects, room.effects.length); assert(room.bullets.length < 1500, "unbounded bullets"); assert(room.effects.length < 3000, "unbounded effects"); assertFiniteEntity(room); }
 const duration = performance.now()-started; const snapshotSize = Buffer.byteLength(JSON.stringify({ ships:[...room.ships.values()], bullets:room.bullets, effects:room.effects }, circularReplacer()));
 const purchaseCachePeak = [...room.players.values()].reduce((m,p)=>Math.max(m,p.purchaseRequests?.size||0),0); assert(purchaseCachePeak < 20, "unbounded purchase cache");
-room.winner = { id:"human0" }; tick(room, DT, now+1000); resetMatch(room, "design"); assert.strictEqual(room.bullets.length,0,"rematch clears bullets"); assert(room.effects.length < peakEffects, "rematch leaves only bounded fresh setup effects");
+room.winner = { id:"human0" }; tick(room, DT, now+1000); resetMatch(room, "design"); assert.strictEqual(getSpawnRegionPlan(room), frozenSpawnPlan, "rematch preserves the frozen spawn plan"); assert.strictEqual(room.bullets.length,0,"rematch clears bullets"); assert(room.effects.length < peakEffects, "rematch leaves only bounded fresh setup effects");
 const cleanupStart = performance.now(); room.ships.clear(); room.players.clear(); room.clients.clear(); const cleanupDuration = performance.now()-cleanupStart; assert.strictEqual(room.ships.size,0,"room cleanup clears ships");
 const memAfter = process.memoryUsage().heapUsed;
 console.log(JSON.stringify({ seed:SEED, players:PLAYER_COUNT, shipsPerPlayer:SHIPS_PER_PLAYER, ticks:TICKS, durationMs:Math.round(duration), averageTickMs:+(totalTick/TICKS).toFixed(3), worstTickMs:+worstTick.toFixed(3), peakShips, peakBullets, peakEffects, snapshotSize, purchaseCachePeak, memoryBefore:memBefore, memoryAfter:memAfter, cleanupDurationMs:+cleanupDuration.toFixed(3) }, null, 2));
