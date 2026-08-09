@@ -11,7 +11,7 @@ function close(actual, expected, msg, eps = EPS) {
   assert.ok(Math.abs(actual - expected) <= eps, `${msg}: expected ${expected}, got ${actual}`);
 }
 function room() {
-  return { nextEntityId: 1, bullets: [], effects: [], map: { asteroids: [] }, world: { width: 2000, height: 2000 }, rules: { gameMode: 'team' }, players: new Map([[1, { id: 1, team: 'a' }], [2, { id: 2, team: 'b' }]]), ships: new Map(), combatRandom: () => 0.5 };
+  return { nextEntityId: 1, bullets: [], effects: [], map: { asteroids: [] }, world: { width: 2000, height: 2000 }, rules: { gameMode: 'teams' }, players: new Map([[1, { id: 1, team: 'a' }], [2, { id: 2, team: 'b' }]]), ships: new Map(), combatRandom: () => 0.5 };
 }
 function target(type = 'armor') {
   const ship = { id: `t${Math.random()}`, ownerId: 2, x: 500, y: 500, vx: 0, vy: 0, angle: 0, radius: 35, alive: true, shield: 0, maxShield: 0, stats: { maxHp: 10000, frontDamageReduction: 0, frontArc: 0 }, design: [{ type, x: 7, y: 6, rotation: 0 }, { type: 'core', x: 7, y: 7, rotation: 0 }] };
@@ -89,9 +89,10 @@ close(damageOnce(target('armor'), 20, { armorInteractionSeconds: 0.25 }), 18.75,
   updateBullets(r, 0.5, 0); close(9000 - victim.hp, 18.75, 'updateBullets forwards projectile interval');
   const rLegacy = room(); const legacy = target('armor'); rLegacy.ships.set(legacy.id, legacy); rLegacy.bullets = [{ id: 'c', type: 'bolt', ownerId: 1, targetId: legacy.id, x: legacy.x + 50, y: legacy.y, vx: -100, vy: 0, life: 1, damage: 20, hullDamageMultiplier: 1 }];
   updateBullets(rLegacy, 0.5, 1); close(9000 - legacy.hp, 15, 'legacy projectile defaults to full reduction');
+  const rIntercept = room();
   const missile = { id: 'm', type: 'missile', ownerId: 2, x: 100, y: 100, vx: 0, vy: 0, life: 1, damage: 99, hp: 6, interceptable: true };
-  r.bullets = [missile, { id: 'pd', type: 'pdShot', ownerId: 1, x: 100, y: 100, vx: 0, vy: 0, life: 1, damage: 6, pdTargetType: 'projectile', pdTargetId: 'm' }];
-  updateBullets(r, 0.01, 2); assert.strictEqual(missile.life, 0, 'interception destroys projectile without ship armour');
+  rIntercept.bullets = [missile, { id: 'pd', type: 'pdShot', ownerId: 1, x: 100, y: 100, vx: 0, vy: 0, life: 1, damage: 6, pdTargetType: 'projectile', pdTargetId: 'm' }];
+  updateBullets(rIntercept, 0.01, 2); assert.strictEqual(missile.life, 0, 'interception destroys projectile without ship armour');
 }
 // Beam production firing branch forwards dt through damageBeamTargets.
 {
