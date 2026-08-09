@@ -1,6 +1,6 @@
 // Creation, ownership mapping, death, and removal of ship entities (including bots).
 
-const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY, DEFAULT_DESIGN } = require("./config");
+const { COLORS, BOT_NAMES, MAX_PLAYERS_PER_ROOM, ECONOMY } = require("./config");
 const { sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validation");
 const { performanceNow, seededRandom, rngRange, hashString, compareIdStrings } = require("./utils");
 const { invalidateRelationshipCache } = require("./relationships");
@@ -390,66 +390,6 @@ function chooseBotDesign(sequence = 0, mode = AI_DESIGN_MODES.STANDARD) {
   return chooseInitialAiBlueprint(mode, sequence, ECONOMY.startingMoney).design;
 }
 
-function legacyUpdateBots(room, now) {
-  if (room.winner) return;
-
-  const { buyShip } = require("./economy");
-  const { areEnemies } = require("./combat");
-  const { canTeamTargetEntity } = require("./visibility");
-  const { commandShips } = require("./movement");
-  const { usesStationInfrastructure } = require("./rooms");
-
-  for (const player of room.players.values()) {
-    if (!player.isBot || !player.ready || now < player.ai.nextThinkAt) continue;
-    const ai = player.ai || (player.ai = { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 });
-    const seq = ai.decisionSeq || 0;
-    const rng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:bot:${seq}`)) >>> 0);
-    ai.decisionSeq = seq + 1;
-    ai.nextThinkAt = now + rngRange(rng, 900, 1700);
-    const currentCost = player.stats?.unitCost || computeStats(player.design).unitCost;
-    if (player.money >= currentCost) {
-      // Station mode has no instant spawn: everything a player or bot buys is
-      // built and launched by their home station.
-      if (usesStationInfrastructure(room)) require("./stations").enqueueBotProduction(room, player, now);
-      else buyShip(room, player, now, { silent: true });
-    }
-    const ships = player.ships.filter((ship) => ship.alive);
-    if (ships.length === 0) continue;
-
-    const enemies = getLiveShips(room)
-      .filter((ship) => areEnemies(room, player.id, ship.ownerId) && canTeamTargetEntity(room, player.team, ship, now))
-      .sort((a, b) => distanceToFleet(ships, a) - distanceToFleet(ships, b));
-    const nearestEnemy = enemies[0];
-
-    if (nearestEnemy && distanceToFleet(ships, nearestEnemy) < 760) {
-      // Bots used to rotate through Charge/Orbit/Kite here. They stay on Hold:
-      // Kite is still withdrawn, and picking between the flying stances is a
-      // tactical decision this loop has no basis for making.
-      for (const ship of ships) {
-        if (!ship.combatStyle) ship.combatStyle = "hold";
-      }
-      commandShips(room, player, nearestEnemy.x, nearestEnemy.y, { targetId: nearestEnemy.id });
-      continue;
-    }
-
-    const stationMode = usesStationInfrastructure(room);
-    const objectiveList = stationMode ? (room.stations || []).filter((s) => s && s.stationType === "relay") : (room.points || []);
-    const objectives = objectiveList
-      .filter((point) => point && (stationMode ? !(point.state === "operational" && point.team === player.team) : (point.ownerTeam !== player.team || point.progress < 0.95)))
-      .sort((a, b) => {
-        const diff = distanceToFleet(ships, a) - distanceToFleet(ships, b);
-        return diff || compareIdStrings(a.id || `${a.x},${a.y}`, b.id || `${b.x},${b.y}`);
-      });
-    const objective = objectives[0] || objectiveList[0];
-    if (!objective) continue;
-    commandShips(room, player, objective.x + rngRange(rng, -80, 80), objective.y + rngRange(rng, -80, 80));
-  }
-}
-
-function legacyChooseBotDesign() {
-  return DEFAULT_DESIGN.map((part) => ({ ...part }));
-}
-
 const BOT_COMBAT_ROLES = new Set(["assault", "artillery", "defence", "demolition", "recon", "siege"]);
 
 function rememberBotBlueprint(ai, blueprintId) {
@@ -493,10 +433,6 @@ function botRoleCounts(room, player) {
 
 function botObjectiveId(objective) {
   return objective?.relayId || objective?.id || null;
-}
-
-function botObjectiveTeam(objective, stationMode) {
-  return stationMode ? (objective?.team || null) : (objective?.ownerTeam || null);
 }
 
 function botObjectiveNeedsAction(objective, player, stationMode) {
@@ -766,6 +702,7 @@ function issueBotOrders(room, player, ships, context, rng, now) {
   }
 
   const ai = player.ai || (player.ai = createBotAiState(room.rules?.aiDesignMode, 0, null));
+  if (!ai.commandByRole || typeof ai.commandByRole !== "object") ai.commandByRole = Object.create(null);
   for (const [role, group] of groups) {
     const plan = planBotRole(room, player, group, role, context, rng);
     const shipIds = group.map((ship) => ship.id).sort(compareIdStrings);

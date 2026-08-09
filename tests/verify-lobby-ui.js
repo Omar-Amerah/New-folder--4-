@@ -13,6 +13,8 @@ assert(html.includes('aria-label="Choose team"'), "Team <select> has an accessib
 assert(html.includes('<option value="" disabled selected>Choose a team</option>'), "Team selector placeholder option exists");
 assert(html.includes('<option value="blue">Blue Wing</option>'), "Blue Wing option exists");
 assert(html.includes('<option value="red">Red Wing</option>'), "Red Wing option exists");
+assert(html.includes('id="aiDesignModeSelect"'), "AI design mode control exists");
+assert(html.includes('<option value="better">Better designs</option>'), "Better AI designs option exists");
 
 assert(css.includes(".game-rules-grid"), "Game Rules use a responsive grid class");
 assert(css.includes(".game-rule > dt"), "Rule labels are styled separately from values");
@@ -30,6 +32,7 @@ assert(js.includes("Automatic by player count"), "Auto map size is presented cle
 assert(js.includes("handleTeamSelectChange"), "Team select change handler is present");
 assert(js.includes("onServerError"), "Server-error restore hook is present");
 assert(js.includes("Locked after lobby"), "Locked rules status text is present");
+assert(js.includes("aiDesignMode"), "AI design mode is synchronized with lobby rules");
 assert(!js.includes('state.myTeam'), "Removed undefined state.myTeam usage");
 
 (async () => {

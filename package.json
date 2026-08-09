@@ -90,7 +90,7 @@
     "test:ship-spawn-collision": "node tests/verify-ship-spawn-collision.js",
     "test:selection": "node tests/verify-selection.js",
     "test:economy-sequence": "node tests/verify-economy-sequence.js",
-    "test:bots": "node tests/verify-bots.js",
+    "test:bots": "node tests/verify-bots.js && node tests/verify-ai-battlefield.js",
     "test:soak": "node tools/run-tests.js server-soak",
     "test:thermal-topology": "node tests/verify-thermal-topology.js",
     "test:heat-transfer": "node tests/verify-heat-transfer.js",
