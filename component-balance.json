@@ -1703,7 +1703,7 @@
       "maxPerShip": 1,
       "weapon": {
         "family": "railgun",
-        "damage": 1200,
+        "damage": 2040,
         "fireRate": 0.25,
         "range": 2200,
         "projectileSpeed": 3400,
@@ -1714,7 +1714,7 @@
         "shieldDamageMultiplier": 0.72,
         "hullDamageMultiplier": 1.5,
         "spinalCharge": {
-          "chargeSeconds": 10,
+          "chargeSeconds": 8,
           "chargeHoldSeconds": 1.5,
           "chargeDecayMultiplier": 1.6,
           "committedAimStartProgress": 0.5,
@@ -1729,7 +1729,7 @@
       "rotatable": true,
       "description": "Capital-scale spinal kinetic weapon limited to one per ship. Charges visibly before firing a devastating penetrating shot, while gradually restricting weapon traverse and hull turning.",
       "footprint": {
-        "width": 2,
+        "width": 3,
         "height": 6
       }
     },

@@ -1,0 +1,6865 @@
+{
+  "schemaVersion": 3,
+  "kind": "blueprint-export",
+  "payload": {
+    "designs": [
+      {
+        "id": "dms0x5dfot5hsu",
+        "name": "Design 2",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "maneuverThruster",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "maneuverThruster",
+            "rotation": 270
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "railgun",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 313.2,
+        "weapons": "48 DPS",
+        "speed": 526,
+        "createdAt": 1785017193540,
+        "updatedAt": 1785171377616
+      },
+      {
+        "id": "dms0yze63t9yzs",
+        "name": "Design 3",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "fighter"
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "fighter"
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "defence"
+          },
+          {
+            "x": 5,
+            "y": 9,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "repair"
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "auxGenerator",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "auxGenerator",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "pointDefense",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 1089.2,
+        "weapons": "5.2 DPS",
+        "speed": 61,
+        "createdAt": 1785020273787,
+        "updatedAt": 1785168144924
+      },
+      {
+        "id": "dms2co00cpdgsp",
+        "name": "Design 6",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "frame",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "autocannon",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 244.8,
+        "weapons": "128.1 DPS",
+        "speed": 729,
+        "createdAt": 1785103723020,
+        "updatedAt": 1785168177819
+      },
+      {
+        "id": "dms2d7g548t5il",
+        "name": "Design 7",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 4,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 6,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 6,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 1032,
+        "weapons": "48 DPS",
+        "speed": 424,
+        "createdAt": 1785104630392,
+        "updatedAt": 1785439191919
+      },
+      {
+        "id": "dms2drzktchxp7",
+        "name": "Design 8",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "demolitionCharge",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "demolitionCharge",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "demolitionCharge",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "demolitionCharge",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "gyroscope",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 445.2,
+        "weapons": "0 DPS",
+        "speed": 621,
+        "createdAt": 1785105588701,
+        "updatedAt": 1785275403030
+      },
+      {
+        "id": "dms3eem00xz0j0",
+        "name": "Design 10",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "proximityDemolitionCharge",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "proximityDemolitionCharge",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "defence"
+          },
+          {
+            "x": 9,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 10,
+            "type": "autocannon",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 637.2,
+        "weapons": "42 DPS",
+        "speed": 651,
+        "createdAt": 1785167110368,
+        "updatedAt": 1785168311491
+      },
+      {
+        "id": "dms3ei90my19r9",
+        "name": "Design 11",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "stabilizerNode",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "stabilizerNode",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 10,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 10,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 4,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 4,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 4,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "shieldCommandRelay",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "engineeringCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 12,
+            "type": "propulsionCommandRelay",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 11,
+            "type": "electronicWarfareCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 11,
+            "type": "fleetDefenceCoordinator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "capacitor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "battery",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 6,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 6,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 11,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 11,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 3,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 3,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 12,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 12,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 12,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 8,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 1,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 2,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 3,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 7,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 12,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 14,
+            "y": 11,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 13,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 2,
+            "y": 3,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 6,
+            "y": 1,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 7,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 11,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 1,
+            "y": 12,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 2,
+            "y": 13,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 9,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "repair"
+          },
+          {
+            "x": 13,
+            "y": 9,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "repair"
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 3412.7999999999997,
+        "weapons": "225.5 DPS",
+        "speed": 286,
+        "createdAt": 1785167280166,
+        "updatedAt": 1785168336670
+      },
+      {
+        "id": "dms3es5y63f4zq",
+        "name": "Design 12",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 10,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 10,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 4,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 4,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 4,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "battery",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 3,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 3,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 12,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 12,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 12,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 8,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 13,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 2,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 1,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 2,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 3,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 7,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 11,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "compositeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 4,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 2,
+            "y": 3,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 6,
+            "y": 1,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 7,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 11,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 9,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "repair"
+          },
+          {
+            "x": 13,
+            "y": 9,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "repair"
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 11,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 11,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "defence"
+          },
+          {
+            "x": 12,
+            "y": 11,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "defence"
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 3661.2,
+        "weapons": "345.5 DPS",
+        "speed": 377,
+        "createdAt": 1785167742750,
+        "updatedAt": 1785168481767
+      },
+      {
+        "id": "dms3fsrermqxja",
+        "name": "Design 11",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "battery",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "battery",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "propulsionCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 5,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 5,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 12,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 12,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 12,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 12,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 4,
+            "y": 12,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 3,
+            "y": 9,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 11,
+            "y": 9,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "halfCompositeArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 5,
+            "y": 10,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 10,
+            "type": "autocannon",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 1100.3999999999999,
+        "weapons": "90.2 DPS",
+        "speed": 185,
+        "createdAt": 1785169450179,
+        "updatedAt": 1785169450179
+      },
+      {
+        "id": "dms3gana896u9n",
+        "name": "Design 12",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "repairBeam",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 397.2,
+        "weapons": "0 DPS",
+        "speed": 345,
+        "createdAt": 1785170284640,
+        "updatedAt": 1785170725395
+      },
+      {
+        "id": "dms3gq1mxqj05q",
+        "name": "Design 12",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "reactor",
+            "rotation": 90
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 145.2,
+        "weapons": "0 DPS",
+        "speed": 423,
+        "createdAt": 1785171003081,
+        "updatedAt": 1785171003081
+      },
+      {
+        "id": "dms3j56f1v739t",
+        "name": "Design 14",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "capacitor",
+            "rotation": 180
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "capacitor",
+            "rotation": 180
+          },
+          {
+            "x": 4,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 5,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 5,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 2,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "missile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "missile",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "swarmMissile",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 9,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 9,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 2,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 9,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 9,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 10,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 10,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 11,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 11,
+            "y": 12,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 12,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 2,
+            "y": 11,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 1,
+            "y": 10,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 3139.2,
+        "weapons": "326.6 DPS",
+        "speed": 256,
+        "createdAt": 1785175068349,
+        "updatedAt": 1785185715947
+      },
+      {
+        "id": "dms3q10e10and1",
+        "name": "Design 15",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "capacitor",
+            "rotation": 180
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "capacitor",
+            "rotation": 180
+          },
+          {
+            "x": 4,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 5,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 5,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 2,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "missile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "missile",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 2,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 9,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 9,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 10,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 10,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 11,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 11,
+            "y": 12,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 12,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 2,
+            "y": 11,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 1,
+            "y": 10,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 9,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 0,
+            "y": 9,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 0,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 9,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 9,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "radiator",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 3223.2,
+        "weapons": "310.8 DPS",
+        "speed": 365,
+        "createdAt": 1785186631225,
+        "updatedAt": 1785192817687
+      },
+      {
+        "id": "dms3qcfyztkzz8",
+        "name": "Design 16",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "swarmMissile",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 265.2,
+        "weapons": "27.9 DPS",
+        "speed": 207,
+        "createdAt": 1785187164635,
+        "updatedAt": 1785187356876
+      },
+      {
+        "id": "dms3tox20utsqh",
+        "name": "Design 17",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "fighter"
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "type": "droneBay",
+            "rotation": 0,
+            "droneType": "fighter"
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 4,
+            "type": "railgun",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 4,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "targetingComputer",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "fireControl",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "hold",
+        "cost": 1009.2,
+        "weapons": "48 DPS",
+        "speed": 143,
+        "createdAt": 1785192785496,
+        "updatedAt": 1785192785496
+      },
+      {
+        "id": "dms56pga48xs1l",
+        "name": "Design 17",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "capacitor",
+            "rotation": 180
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "capacitor",
+            "rotation": 180
+          },
+          {
+            "x": 4,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 5,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 5,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 2,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 0,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "beamEmitter",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "missile",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "missile",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 2,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 8,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 9,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 9,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 10,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 10,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 11,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 11,
+            "y": 12,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 3,
+            "y": 12,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 2,
+            "y": 11,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 1,
+            "y": 10,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "nuclearReactor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 9,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 8,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 9,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 0,
+            "y": 9,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 0,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 9,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 8,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 9,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "radiator",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 3223.2,
+        "weapons": "310.8 DPS",
+        "speed": 365,
+        "createdAt": 1785275111596,
+        "updatedAt": 1785275717962
+      },
+      {
+        "id": "dms6kk26dqc6zl",
+        "name": "Design 19",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "capacitor",
+            "rotation": 90
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "largeSensor",
+            "rotation": 270
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "largeSensor",
+            "rotation": 270
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "largeSensor",
+            "rotation": 270
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "largeSensor",
+            "rotation": 270
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 10,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 10,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 10,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 10,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 10,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 6,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 8,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "type": "repairBeam",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 4,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "engineeringCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 11,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 11,
+            "type": "electronicWarfareCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "fleetDefenceCoordinator",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "fleetDefenceCoordinator",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 2,
+            "type": "fireControlCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 2,
+            "type": "fireControlCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 90
+          },
+          {
+            "x": 2,
+            "y": 9,
+            "type": "propulsionCommandRelay",
+            "rotation": 270
+          },
+          {
+            "x": 12,
+            "y": 9,
+            "type": "propulsionCommandRelay",
+            "rotation": 270
+          },
+          {
+            "x": 13,
+            "y": 11,
+            "type": "propulsionCommandRelay",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 11,
+            "type": "propulsionCommandRelay",
+            "rotation": 270
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 7,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 12,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 12,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 13,
+            "y": 8,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 13,
+            "y": 12,
+            "type": "reactor",
+            "rotation": 180
+          },
+          {
+            "x": 2,
+            "y": 12,
+            "type": "reactor",
+            "rotation": 180
+          },
+          {
+            "x": 8,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 13,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 13,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 13,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 13,
+            "type": "reactor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 13,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 13,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "maneuverThruster",
+            "rotation": 90
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "torpedo",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 4,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 7,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 13,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 1,
+            "y": 14,
+            "type": "halfArmorDiagonal",
+            "rotation": 180
+          },
+          {
+            "x": 13,
+            "y": 14,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 14,
+            "y": 13,
+            "type": "halfArmorDiagonal",
+            "rotation": 90
+          },
+          {
+            "x": 14,
+            "y": 7,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 2,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 12,
+            "type": "maneuverThruster",
+            "rotation": 90
+          },
+          {
+            "x": 14,
+            "y": 12,
+            "type": "maneuverThruster",
+            "rotation": 270
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "maneuverThruster",
+            "rotation": 270
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "kite",
+        "cost": 3334.7999999999997,
+        "weapons": "18.2 DPS",
+        "speed": 322,
+        "createdAt": 1785358840837,
+        "updatedAt": 1785358840837
+      },
+      {
+        "id": "dms6kookujaawe",
+        "name": "Design 18",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "blaster",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "heatSink",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 121.2,
+        "weapons": "18.9 DPS",
+        "speed": 483,
+        "createdAt": 1785359056494,
+        "updatedAt": 1785359197941
+      },
+      {
+        "id": "dms7vzy091zes1",
+        "name": "Design 19",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 9,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 5,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 9,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "largeDirectedSensor",
+            "rotation": 270
+          },
+          {
+            "x": 5,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "largeSensor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "smallDirectedSensor",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "smallDirectedSensor",
+            "rotation": 270
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 2,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 5,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "radiator",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "kite",
+        "cost": 705.6,
+        "weapons": "2.1 DPS",
+        "speed": 429,
+        "createdAt": 1785438523881,
+        "updatedAt": 1785438984959
+      },
+      {
+        "id": "dmsg8ze9xfxdr5",
+        "name": "Design 20",
+        "blueprint": [
+          {
+            "x": 7,
+            "y": 7,
+            "type": "core",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 13,
+            "type": "engine",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 8,
+            "type": "nuclearReactor",
+            "rotation": 90
+          },
+          {
+            "x": 8,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 270
+          },
+          {
+            "x": 5,
+            "y": 7,
+            "type": "nuclearReactor",
+            "rotation": 270
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "type": "capacitor",
+            "rotation": 90
+          },
+          {
+            "x": 7,
+            "y": 11,
+            "type": "backupCore",
+            "rotation": 90
+          },
+          {
+            "x": 6,
+            "y": 12,
+            "type": "repair",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 12,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 10,
+            "type": "gyroscope",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 11,
+            "type": "largeSensor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 11,
+            "type": "largeSensor",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 12,
+            "type": "largeSensor",
+            "rotation": 90
+          },
+          {
+            "x": 9,
+            "y": 12,
+            "type": "largeSensor",
+            "rotation": 90
+          },
+          {
+            "x": 5,
+            "y": 14,
+            "type": "compactEngine",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 14,
+            "type": "compactEngine",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 5,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 4,
+            "type": "shield",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 4,
+            "type": "thermalInductionLance",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 4,
+            "type": "thermalInductionLance",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 6,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 7,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 7,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 9,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 10,
+            "type": "signalAmplifier",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 11,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 12,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 13,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 11,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 12,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 13,
+            "type": "fireControl",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 4,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 14,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 14,
+            "type": "radiator",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 2,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 5,
+            "y": 3,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 2,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 2,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 9,
+            "y": 3,
+            "type": "heatSink",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 3,
+            "type": "closedCycleCooler",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 3,
+            "type": "closedCycleCooler",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 3,
+            "type": "stabilizerNode",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "type": "smallSensor",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 1,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 3,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 12,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 13,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 5,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 6,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 7,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 9,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 10,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 12,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 11,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 13,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 14,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 8,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 3,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 5,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 3,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 9,
+            "y": 1,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 10,
+            "y": 2,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 3,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 11,
+            "y": 4,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 12,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 12,
+            "type": "aegisProjector",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 11,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 11,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 10,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 10,
+            "type": "decoyLauncher",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 7,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 7,
+            "type": "pointDefense",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 14,
+            "type": "auxGenerator",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 14,
+            "type": "auxGenerator",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 14,
+            "type": "compactEngine",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 14,
+            "type": "compactEngine",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 5,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 12,
+            "y": 5,
+            "type": "shieldCommandRelay",
+            "rotation": 90
+          },
+          {
+            "x": 1,
+            "y": 10,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 13,
+            "y": 10,
+            "type": "reactor",
+            "rotation": 90
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "type": "fleetDefenceCoordinator",
+            "rotation": 0
+          },
+          {
+            "x": 12,
+            "y": 8,
+            "type": "engineeringCommandCentre",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 7,
+            "type": "interceptorPod",
+            "rotation": 0
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 6,
+            "type": "flakCannon",
+            "rotation": 0
+          },
+          {
+            "x": 2,
+            "y": 4,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 1,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 0,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 12,
+            "y": 4,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 13,
+            "y": 5,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 6,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 7,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 9,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 10,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 11,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 12,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 13,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 0,
+            "y": 14,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 7,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 8,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 9,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 10,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 11,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 12,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 13,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 14,
+            "y": 14,
+            "type": "ablativeArmor",
+            "rotation": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "type": "halfArmorDiagonal",
+            "rotation": 270
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "type": "armor",
+            "rotation": 0
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "type": "auxGenerator",
+            "rotation": 0
+          }
+        ],
+        "dataLinks": [
+          {
+            "sourceIndex": 26,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 26,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 27,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 27,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 28,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 28,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 29,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 29,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 30,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 30,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 31,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 31,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 32,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 32,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 33,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 33,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 34,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 34,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 35,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 35,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 36,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 36,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 37,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 37,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 38,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 38,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 39,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 39,
+            "targetIndex": 23
+          },
+          {
+            "sourceIndex": 54,
+            "targetIndex": 22
+          },
+          {
+            "sourceIndex": 54,
+            "targetIndex": 23
+          }
+        ],
+        "invalid": false,
+        "invalidReason": "Invalid blueprint.",
+        "combatStyle": "charge",
+        "cost": 3581.0000000000005,
+        "weapons": "9.2 DPS",
+        "speed": 384,
+        "createdAt": 1785944062725,
+        "updatedAt": 1785944062725
+      }
+    ],
+    "loadouts": [
+      {
+        "id": "dms3fl69lovz45",
+        "name": "Loadout 1",
+        "designIds": []
+      }
+    ]
+  },
+  "createdAt": "2026-08-09T19:02:00.199Z",
+  "updatedAt": "2026-08-09T19:02:00.199Z"
+}

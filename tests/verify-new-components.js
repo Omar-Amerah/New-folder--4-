@@ -165,10 +165,11 @@ function ok(message) {
 
 {
   assert.strictEqual(PARTS.spinalAccelerator.maxPerShip, 1, "only one spinal mount per ship");
-  assert.deepStrictEqual(PARTS.spinalAccelerator.footprint, { width: 2, height: 6 });
+  assert.deepStrictEqual(PARTS.spinalAccelerator.footprint, { width: 3, height: 6 });
   const charge = PARTS.spinalAccelerator.weapon.spinalCharge;
   assert(charge, "the Spinal Accelerator carries a charge configuration");
-  assert(charge.chargeSeconds >= 8, "the telegraph is long enough to react to");
+  assert.strictEqual(PARTS.spinalAccelerator.weapon.damage, 2040, "Spinal damage is buffed by 70%");
+  assert.strictEqual(charge.chargeSeconds, 8, "Spinal charge time is 20% faster");
   for (let i = 1; i < charge.penetrationProfile.length; i += 1) {
     assert(charge.penetrationProfile[i] < charge.penetrationProfile[i - 1],
       "penetration must weaken with every component passed through");
