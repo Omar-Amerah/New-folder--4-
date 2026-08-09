@@ -28,17 +28,20 @@ function makeShip(id, ownerId, team, x, y, bayId = `${id}:bay`, droneType = "fig
     stats: { frontDamageReduction: 0 },
     focusTargetId: null,
     commandState: "deployed",
-    componentHp: [100],
-    componentMaxHp: [100],
+    componentHp: [100, 100],
+    componentMaxHp: [100, 100],
     componentAliveRevision: 1,
     componentDamageRevision: 1,
     powerRevision: 1,
     heatStateRevision: 1,
-    componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] },
+    componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }, { operationalMultiplier: 1 }] },
     componentCellIndex: new Map(Array.from({ length: 15 * 15 }, (_, index) => [index, 0])),
     dirtyComponents: new Set(),
-    componentHeatState: [0],
-    design: [{ x: 5, y: 6, type: "droneBay", droneType }],
+    componentHeatState: [0, 0],
+    design: [
+      { x: 5, y: 6, type: "droneBay", droneType },
+      { x: 7, y: 7, type: "reactor" }
+    ],
     droneBays: [{
       componentIndex: 0,
       componentId: bayId,
@@ -353,6 +356,7 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   parent.componentHp.push(50);
   parent.componentMaxHp.push(100);
   parent.componentPower.byComponentIndex.push({ operationalMultiplier: 1 });
+  const damagedComponentIndex = parent.design.length - 1;
   parent.hp = 950;
   parent.maxHp = 1000;
   for (const drone of room.drones.values()) if (drone !== first) drone.nextDecisionAt = 1e9;
@@ -360,13 +364,13 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   first.nextActionAt = 1000;
   runCanonicalTick(room, 1000);
   const repairsBeforeDeferredTick = room.effects.filter((effect) => effect.type === "dronerepair").length;
-  const repairedBeforeDeferredTick = parent.componentHp[1];
+  const repairedBeforeDeferredTick = parent.componentHp[damagedComponentIndex];
   first.nextActionAt = 1033;
   const deferredTelemetry = runCanonicalTick(room, 1033);
   const repairsAfterDeferredTick = room.effects.filter((effect) => effect.type === "dronerepair").length;
   assert.equal(deferredTelemetry.droneDecisionsRun, 0, "repair action test keeps the decision deferred");
   assert.ok(repairsAfterDeferredTick > repairsBeforeDeferredTick, "repair actions still run on a deferred-decision tick");
-  assert.ok(parent.componentHp[1] > repairedBeforeDeferredTick, "repair action changes the damaged component on the deferred tick");
+  assert.ok(parent.componentHp[damagedComponentIndex] > repairedBeforeDeferredTick, "repair action changes the damaged component on the deferred tick");
 }
 
 {

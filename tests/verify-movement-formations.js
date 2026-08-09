@@ -574,11 +574,14 @@ function run() {
       y: 1200 + index * 150,
       design: GUNSHIP
     }));
-    const short = makeShip({ id: "short-range", x: 1400, y: 1650, design: SHORT_RANGE });
+    const short = makeShip({ id: "short-range", x: 1400, y: 1820, design: SHORT_RANGE });
     const ships = [...long, short];
     const enemy = makeShip({ id: "enemy", x: 4200, y: 1425, design: GUNSHIP, ownerId: "p2" });
     const room = makeRoom(ships, [], enemy);
     assert(holdRangeOf(short) < holdRangeOf(long[0]), "sanity: a genuinely shorter reach");
+    assert(Math.hypot(short.x - long[3].x, short.y - long[3].y)
+      > physicalCollisionRadius(short) + physicalCollisionRadius(long[3]),
+    "sanity: the short-range ship does not start overlapped with the rear long-range ship");
 
     commandShips(room, room.players.get("p1"), enemy.x, enemy.y, {
       shipIds: ships.map((ship) => ship.id),

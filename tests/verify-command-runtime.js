@@ -295,6 +295,7 @@ function makeRoom(ships) {
   for (let t = 1; t <= gapTicks; t++) updateShipWeapons(room, pd, ships, DT, t * MS);
   // After the gap, pdReactionReadyAt should be set.
   assert(pd.pdReactionReadyAt[1] > 0, "reaction ready time set after target loss");
+  const reactionReadyAt = pd.pdReactionReadyAt[1];
   // New threat appears after the gap.
   pd.weaponCooldowns[1] = 0;
   const ms2 = { id: "m15b", type: "missile", ownerId: "p2", targetId: pd.id, x: 200, y: 100, vx: -100, vy: 0, life: 200, interceptable: true, hp: 100 };
@@ -304,7 +305,11 @@ function makeRoom(ships) {
   let fired = false;
   for (let t = gapTicks + 1; t < gapTicks + tn + 10; t++) {
     updateShipWeapons(room, pd, ships, DT, t * MS);
-    if (ms2.hp < 100) { fired = true; assert(t >= gapTicks + tn - 1, "PD fired too early after gap"); break; }
+    if (ms2.hp < 100) {
+      fired = true;
+      assert(t * MS >= reactionReadyAt, "PD fired before the reaction period opened by target loss completed");
+      break;
+    }
   }
   assert(fired, "PD should fire after reacquisition delay even with gap");
   ok("T15: PD reaction delay survives a gap (A -> nothing -> B).");

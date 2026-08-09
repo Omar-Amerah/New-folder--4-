@@ -88,11 +88,13 @@ function httpGetJson(url) {
 // MessagePack binary snapshots in. Caches per-ship designs the way the real
 // client does (the server sends each design once).
 class NetClient {
-  constructor(name) {
+  constructor(name, mergeSnapshotTransaction) {
     this.name = name;
+    this.mergeSnapshotTransaction = mergeSnapshotTransaction;
     this.latest = {};
     this.snapshots = [];
-    this.designs = new Map();
+    this.snapshot = null;
+    this.networkState = { stateEpoch: 0, snapshotSeq: 0, staticRevision: 0, hasFullBaseline: false };
     this.map = null;
     this.world = null;
   }
@@ -114,14 +116,18 @@ class NetClient {
           return;
         }
         this.latest[message.type] = message;
-        if (message.map) this.map = message.map;
-        if (message.world) this.world = message.world;
         if (message.type === "state") {
-          for (const ship of message.ships || []) {
-            if (ship.design) this.designs.set(ship.id, ship.design);
-            else ship.design = this.designs.get(ship.id);
+          const merged = this.mergeSnapshotTransaction(this.snapshot, this.networkState, message);
+          if (!merged.ok) {
+            this.latest.snapshotError = merged.reason || "snapshot merge rejected";
+            return;
           }
-          this.snapshots.push({ at: Date.now(), state: message });
+          this.snapshot = merged.snapshot;
+          this.networkState = merged.networkState;
+          this.latest.state = this.snapshot;
+          if (this.snapshot.map) this.map = this.snapshot.map;
+          if (this.snapshot.world) this.world = this.snapshot.world;
+          this.snapshots.push({ at: Date.now(), state: this.snapshot });
           if (this.snapshots.length > 900) this.snapshots.shift();
         }
       });
@@ -129,7 +135,10 @@ class NetClient {
   }
 
   send(message) { this.ws.send(msgpack.encode(message)); }
-  state() { return this.latest.state || null; }
+  state() {
+    if (this.latest.snapshotError) throw new Error(`${this.name}: ${this.latest.snapshotError}`);
+    return this.latest.state || null;
+  }
   ship(id) { return this.state()?.ships?.find((candidate) => candidate.id === id) || null; }
   close() { try { this.ws.close(); } catch { /* gone */ } }
 }
@@ -217,6 +226,7 @@ async function pinCameraOnShip(page, shipId) {
 }
 
 async function main() {
+  const { mergeSnapshotTransaction } = await import("../public/src/snapshotMerge.js");
   const server = spawn("node", ["server.js"], {
     cwd: path.dirname(__dirname),
     env: { ...process.env, PORT: String(PORT) },
@@ -228,7 +238,7 @@ async function main() {
 
   let browser;
   let page;
-  const enemy = new NetClient("enemy");
+  const enemy = new NetClient("enemy", mergeSnapshotTransaction);
   const report = { script: "tests/verify-live-turrets.js", room: ROOM, port: PORT, base: BASE, pageErrors: [], console: [], failedRequests: [], websocket: [], snapshots: [] };
 
   try {
@@ -408,6 +418,9 @@ async function main() {
     // 9. Phase B: move the enemy to a significantly different bearing. The
     //    server angles must change toward the new relative angle and the
     //    rendered sprite must follow.
+    await page.evaluate(({ targetId, x, y }) => window.__mfaNetSend({ type: "command", targetId, x, y }),
+      { targetId: enemyId, x: A.x, y: A.y });
+    await until(() => enemy.ship(shooterId)?.focusTargetId === enemyId, 10000, "shooter focus target");
     enemy.send({ type: "command", x: B.x, y: B.y });
     report.targetPositions[enemyId] = B;
     const phaseBStart = enemy.snapshots.length;

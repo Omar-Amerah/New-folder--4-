@@ -13,7 +13,11 @@ const c1=target(); const c2=target(); state.snapshot={ships:[]}; state.world={wi
 const u1=input.bindArenaPointerListeners(c1); input.bindArenaPointerListeners(c1); assert.equal(listeners.get('pointerdown'),1);
 input.bindArenaPointerListeners(c2); assert.equal(listeners.get('pointerdown'),1);
 c2.onpointerdown({currentTarget:c2,target:c2,pointerId:1,button:0,clientX:10,clientY:10,shiftKey:false}); assert(state.drag); c2.onpointercancel({pointerId:1,type:'pointercancel'}); assert.equal(state.drag,null);
-c2.onwheel({currentTarget:c2,target:c2,clientX:100,clientY:100,deltaY:-120,deltaMode:0,preventDefault(){this.p=true},stopPropagation(){}}); assert(state.camera.zoom>1);
+c2.onwheel({currentTarget:c2,target:c2,clientX:100,clientY:100,deltaY:-120,deltaMode:0,preventDefault(){this.p=true},stopPropagation(){}});
+assert.equal(input.inputDiagnostics().pendingZoom,true,'wheel input queues one render-frame zoom');
+input.consumePendingZoom();
+assert(state.camera.zoom>1);
+assert.equal(input.inputDiagnostics().pendingZoom,false,'render-frame zoom consumption clears the queue');
 input.unbindArenaPointerListeners(); assert.equal(input.inputDiagnostics().bound,false);
 
 function control(tag, options={}) { return { tagName:tag.toUpperCase(), isContentEditable:!!options.editable, closest(selector){ return selector.toLowerCase().includes(tag.toLowerCase()) || this.isContentEditable ? this : null; } }; }

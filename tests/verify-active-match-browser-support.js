@@ -42,9 +42,22 @@ export async function setupActiveMatch(page,{baseUrl,room=uniqueRoom('act'),bots
   await page.evaluate(({d,dataLinks})=>window.__mfaNetSend({type:'deploy',design:d,dataLinks,combatStyle:'hold'}),{d:design,dataLinks:[]});
   await waitOutcome(page,s=>s.players.some(p=>p.id===s.myId&&p.ready) || s.phase==='active',10000,`${scenario}: deploy accepted`);
   const active=await waitOutcome(page,s=>s.phase==='active',20000,`${scenario}: active ships`);
-  await page.evaluate(({d,dataLinks,scenario})=>window.__mfaNetSend({type:'buyShip',design:d,dataLinks,count:1,requestId:`${scenario}-starter-${Date.now()}`,combatStyle:'hold'}),{d:design,dataLinks:[],scenario});
-  await sleep(1500);
-  await page.evaluate(()=>{const s=window.__mfaState; const ship=s.snapshot?.ships?.find(sh=>sh.ownerId===s.myId&&sh.alive); if(ship&&window.__mfaTest?.setCamera){window.__mfaTest.setCamera(ship.x,ship.y,0.9);} window.__mfaTest?.frames?.(2);});
+  await page.evaluate(({d,dataLinks,scenario})=>{
+    const safeScenario=String(scenario).replace(/[^a-z0-9_-]/gi,'-').slice(0,40);
+    window.__mfaNetSend({type:'buyShip',design:d,dataLinks,count:1,requestId:`${safeScenario}-starter-${Date.now()}`,combatStyle:'hold'});
+  },{d:design,dataLinks:[],scenario});
+  await page.waitForFunction(()=>{const s=window.__mfaState; return Boolean(s?.snapshot?.ships?.some(sh=>sh.ownerId===s.myId&&sh.alive));},null,{timeout:10000});
+  await page.evaluate(async()=>{
+    const s=window.__mfaState;
+    const ship=s.snapshot.ships.find(sh=>sh.ownerId===s.myId&&sh.alive);
+    s.camera.x=ship.x;
+    s.camera.y=ship.y;
+    s.camera.zoom=0.9;
+    s.camera.manualZoom=0.9;
+    s.camera.follow=false;
+    s.camera.panTarget=null;
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  });
   await waitOutcome(page,s=>normalizeRendererDiagnostics(s.renderer).contextState==='active'&&normalizeRendererDiagnostics(s.renderer).activeShipViews>0&&normalizeRendererDiagnostics(s.renderer).textureEntries>0,15000,`${scenario}: pixi ship views`);
   const renderer=await page.evaluate(()=>window.__mfaRenderer.diagnostics());
   return {room,playerId:active.myId,botIds:active.players.filter(p=>p.bot).map(p=>p.id),shipIds:(await page.evaluate(()=>window.__mfaState.snapshot.ships.map(s=>s.id))),world:await page.evaluate(()=>window.__mfaState.world),stateEpoch:active.stateEpoch,snapshotSequence:active.snapshotSequence,rendererDiagnostics:normalizeRendererDiagnostics(renderer),designValidation,joined};

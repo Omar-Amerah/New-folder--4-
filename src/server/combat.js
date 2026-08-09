@@ -1484,8 +1484,19 @@ function getCadencedShipCombatTarget(room, ship, ships, now) {
       return focused;
     }
     if (focused && Targeting.isOrdinaryWeaponTargetValid(room, ship, focused, now, maxRange, { originX: ship.x, originY: ship.y })) {
-      ship.combatTargetId = focused.id;
-      return focused;
+      const focusedPoint = targetAttackPoint(ship.x, ship.y, focused);
+      const focusedBlocked = TargetingTelemetry.withSampledDuration(
+        room,
+        now,
+        ship,
+        0,
+        "sampledLineOfSightDuration",
+        () => isLineBlocked(room, ship.x, ship.y, focusedPoint.x, focusedPoint.y, 8)
+      );
+      if (!focusedBlocked) {
+        ship.combatTargetId = focused.id;
+        return focused;
+      }
     }
   }
 

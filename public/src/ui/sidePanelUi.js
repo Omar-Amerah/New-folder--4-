@@ -376,7 +376,7 @@ function renderSelectionControls() {
     const description = style === "orbit" && orbiting
       ? (orbitDirection === null
         ? ORBIT_MIXED_TITLE
-        : `${ORBIT_TITLES[orbitDirection]} : click to reverse`)
+        : `${ORBIT_TITLES[orbitDirection]}: click to reverse`)
       : def.description;
     if (button.textContent !== label) button.textContent = label;
     button.title = description;

@@ -12,6 +12,7 @@ const { updateBullets } = require("../src/server/projectiles");
 const { updateCapturePoints, updateControlVictory } = require("../src/server/objectives");
 const { updateShipHeat } = require("../src/server/heat");
 const { performanceNow, seededRandom, rngRange } = require("../src/server/utils");
+const { freezeSpawnPlan } = require("../src/server/spawnPlanner");
 
 const SEED = 20260714;
 const rng = seededRandom(SEED);
@@ -68,6 +69,7 @@ const memBefore = process.memoryUsage().heapUsed;
 const room = createRoom("SOAK"); room.phase = "active"; room.rules.gameMode = "teams"; room.combatRandom = seededRandom(SEED); room.map.asteroids = room.map.asteroids.slice(0, 20);
 for (let i=0;i<PLAYER_COUNT;i++) { const p = player(`${i%2?"bot":"human"}${i}`, i % 2, designs[i % designs.length]); room.players.set(p.id, p); }
 prepareArenaForCurrentPlayers(room);
+freezeSpawnPlan(room);
 let now = performanceNow();
 for (const p of room.players.values()) for (let i=0;i<SHIPS_PER_PLAYER;i++) spawnShip(room, p, now, i, { design:p.design, stats:p.stats, combatStyle:i%2?"charge":"sentry" });
 let peakShips=0, peakBullets=0, peakEffects=0, worstTick=0, totalTick=0;
