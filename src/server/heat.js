@@ -3,9 +3,6 @@ const { PARTS } = require("./components");
 const { getCommandAuraMultiplier } = require("./commandAuras");
 const { getOccupiedCells } = require("./footprint");
 const HeatRules = require("../../public/src/shared/heatRules");
-const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
-const { BALANCE } = require("./balanceConfig");
-const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
   buildThermalTopology,
   createComponentAdjacency,
@@ -16,7 +13,7 @@ const { bump, recordDuration } = require("./roomTelemetry");
 
 const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork } = HeatRules;
 
-const TELEMETRY_STRIDE = 8;
+const TELEMETRY_STRIDE = 7;
 const TELEMETRY_FIELDS = Object.freeze([
   "componentHeatGenerated",
   "componentHeatReceived",
@@ -24,8 +21,7 @@ const TELEMETRY_FIELDS = Object.freeze([
   "componentHeatCooled",
   "componentHeatSentThroughFrame",
   "componentHeatRadiated",
-  "componentVentedOverflowHeatThisTick",
-  "componentPowerCableHeatGenerated"
+  "componentVentedOverflowHeatThisTick"
 ]);
 const compareNumbers = (a, b) => a - b;
 
@@ -80,8 +76,6 @@ function createThermalRuntime(ship, topology) {
     hotPositions: filledInt32(componentCount),
     pendingInputComponents: [],
     pendingInputMembership: new Uint8Array(componentCount),
-    cableComponents: [],
-    cableMembership: new Uint8Array(componentCount),
     loadedGeneratorComponents: [],
     loadedGeneratorMembership: new Uint8Array(componentCount),
     powerSourceMembership: new Uint8Array(componentCount),
@@ -185,36 +179,18 @@ function clearPendingHeatInputs(runtime) {
   runtime.pendingInputComponents.length = 0;
 }
 
-function refreshCableHeatComponents(ship, rates, totalRate = null, previousTotalRate = null) {
-  const runtime = ship?._thermalRuntime;
-  const previousTotal = previousTotalRate === null ? (Number(ship.powerCableHeatRate) || 0) : (Number(previousTotalRate) || 0);
-  const list = runtime?.cableComponents;
-  if (list) {
-    for (const index of list) runtime.cableMembership[index] = 0;
-    list.length = 0;
-    for (let index = 0; index < rates.length; index += 1) {
-      if ((Number(rates[index]) || 0) > 0) insertOrdered(list, runtime.cableMembership, index);
-    }
-  }
-  if (totalRate !== null) ship.powerCableHeatRate = Number(totalRate) || 0;
-  if (previousTotal <= 0 && (Number(ship.powerCableHeatRate) || 0) > 0) wakeHeatRuntime(ship);
-}
-
 function refreshLoadedGeneratorComponents(ship) {
   const runtime = ship?._thermalRuntime;
   if (!runtime) return;
   const previousLoaded = runtime.loadedGeneratorComponents.length > 0;
   for (const index of runtime.loadedGeneratorComponents) runtime.loadedGeneratorMembership[index] = 0;
   runtime.loadedGeneratorComponents.length = 0;
-  const networkBySource = powerNetworkBySourceIndex(ship);
   for (const index of runtime.topology.powerSourceIndices) {
     const part = PARTS[ship.design[index]?.type] || {};
     const alive = (ship.componentHp?.[index] ?? 1) > 0;
     const state = ship.componentHeatState?.[index] || STATE.NORMAL;
-    const network = networkBySource?.get(index);
-    const generation = Number(network?.availableGenerationMw) || 0;
-    const demand = Number(network?.liveDemandMw ?? network?.demandMw ?? network?.demand) || 0;
-    if (alive && part.powerGeneration > 0 && activeOutputForState(state) > 0 && generation > 0 && demand > 0) {
+    const power = require("./componentPower").getComponentPowerMultiplier(ship, index);
+    if (alive && part.powerGeneration > 0 && activeOutputForState(state) > 0 && power > 0) {
       insertOrdered(runtime.loadedGeneratorComponents, runtime.loadedGeneratorMembership, index);
     }
   }
@@ -259,7 +235,7 @@ function invalidateHeatRuntime(ship, flags = {}) {
   runtime.sourceStateDirty = true;
   runtime.networkDiagnosticsDirty = true;
   wakeHeatRuntime(ship);
-  const indices = flags.wiringComponentIndices instanceof Set ? flags.wiringComponentIndices : null;
+  const indices = flags.componentIndices instanceof Set ? flags.componentIndices : null;
   if (indices) for (const index of indices) addLifecycleComponent(runtime, index);
   if (flags.exposure) {
     for (const index of runtime.topology.radiatorIndices) addLifecycleComponent(runtime, index);
@@ -272,7 +248,7 @@ function invalidateHeatRuntime(ship, flags = {}) {
 
 function thermalStable(ship) {
   const runtime = ship._thermalRuntime;
-  if (!runtime || runtime.heatBearingComponents.length || runtime.pendingInputComponents.length || runtime.cableComponents.length || runtime.loadedGeneratorComponents.length || runtime.lifecycleInvalidated) return false;
+  if (!runtime || runtime.heatBearingComponents.length || runtime.pendingInputComponents.length || runtime.loadedGeneratorComponents.length || runtime.lifecycleInvalidated) return false;
   for (const index of runtime.topology.powerSourceIndices) {
     if ((Number(ship.componentMeltdown?.[index]) || 0) > 0) return false;
   }
@@ -309,7 +285,6 @@ function beginSparseTelemetryStep(ship) {
     ship.componentHeatSentThroughFrame[index] = 0;
     ship.componentHeatRadiated[index] = 0;
     ship.componentVentedOverflowHeatThisTick[index] = 0;
-    ship.componentPowerCableHeatGenerated[index] = 0;
   }
   return previous;
 }
@@ -334,7 +309,6 @@ function finishSparseTelemetryStep(ship, previousTelemetry, candidateList) {
     const value4 = ship.componentHeatSentThroughFrame[index] || 0;
     const value5 = ship.componentHeatRadiated[index] || 0;
     const value6 = ship.componentVentedOverflowHeatThisTick[index] || 0;
-    const value7 = ship.componentPowerCableHeatGenerated[index] || 0;
     const values = runtime.telemetryValues;
     if (values[offset] !== value0) { values[offset] = value0; changed = true; }
     if (values[offset + 1] !== value1) { values[offset + 1] = value1; changed = true; }
@@ -343,9 +317,8 @@ function finishSparseTelemetryStep(ship, previousTelemetry, candidateList) {
     if (values[offset + 4] !== value4) { values[offset + 4] = value4; changed = true; }
     if (values[offset + 5] !== value5) { values[offset + 5] = value5; changed = true; }
     if (values[offset + 6] !== value6) { values[offset + 6] = value6; changed = true; }
-    if (values[offset + 7] !== value7) { values[offset + 7] = value7; changed = true; }
     const nonZero = value0 !== 0 || value1 !== 0 || value2 !== 0 || value3 !== 0
-      || value4 !== 0 || value5 !== 0 || value6 !== 0 || value7 !== 0;
+      || value4 !== 0 || value5 !== 0 || value6 !== 0;
     if (nonZero) {
       runtime.telemetryComponents.push(index);
     }
@@ -436,21 +409,6 @@ function initShipHeat(ship) {
 
   ship.componentThermals = design.map((module, i) => ({ ...profile(module.type, PARTS[module.type] || {}), exposedEdges: exposedEdges[i] }));
   ship.componentBaseHeatCapacity = ship.componentThermals.map(item => item.capacity);
-  // Static Heat-capacity displacement from installed wiring. Displacement is a
-  // static per-component amount computed once from the immutable Blueprint
-  // wiring; recalculateEffectiveThermalCapacities subtracts it from the
-  // component's own capacity and clamps to the configured minimum, so order is:
-  // base - Power/Data displacement -> clamp.
-  const infrastructure = BALANCE.wiringInfrastructure;
-  ship.wiringMinimumHeatCapacity = WiringInfrastructureRules.minimumCapacity(infrastructure);
-  if (WIRING_ENABLED) {
-    const wiringAccounting = WiringInfrastructureRules.accountInfrastructure(design, ship.wiring, PARTS, infrastructure);
-    ship.componentWiringDisplacement = wiringAccounting.byComponentIndex.map(entry => entry.powerDisplacement + entry.dataDisplacement);
-    ship.componentWiringHeatDiagnostics = WiringInfrastructureRules.componentThermalDiagnostics(design, ship.wiring, PARTS, infrastructure, ship.componentBaseHeatCapacity);
-  } else {
-    ship.componentWiringDisplacement = design.map(() => 0);
-    ship.componentWiringHeatDiagnostics = null;
-  }
   // Compact arrays indexed by immutable design index.
   ship.componentHeat = design.map(() => 0);
   ship.componentHeatCapacity = ship.componentThermals.map(item => item.capacity);
@@ -476,14 +434,6 @@ function initShipHeat(ship) {
   ship.totalVentedOverflowHeat = 0;
   ship.componentHeatInput = design.map(() => 0);
   ship.componentMeltdown = design.map(() => 0);
-  // Section 7D-1: dynamic Power-cable Heat, tracked separately from component
-  // Heat. Rates are populated by the shared analysis when Power flow is solved.
-  ship.componentPowerCableHeatRate = design.map(() => 0);
-  ship.componentPowerCableHeatGenerated = design.map(() => 0);
-  ship.powerCableHeatRate = 0;
-  ship.powerCableHeatGenerated = 0;
-  ship.powerCableThermalAnalysis = null;
-  ship._powerCableThermalFlowRevision = -1;
   ship.heatAccumulator = 0;
   ship.currentHeat = 0;
   recalculateEffectiveThermalCapacities(ship);
@@ -531,12 +481,7 @@ function recalculateEffectiveThermalCapacities(ship, changedSinkIndex = null) {
     const max = Math.max(0, ship.componentMaxHp?.[i] || 0);
     const health = HeatRules.clamp(max > 0 ? ship.componentHp[i] / max : ((ship.componentHp?.[i] ?? 1) > 0 ? 1 : 0), 0, 1);
     const ownCapacity = design[i].type === "heatSink" ? ship.componentBaseHeatCapacity[i] * health : ship.componentBaseHeatCapacity[i];
-    // Wiring displacement is applied to the component's own capacity, then
-    // clamped to the configured minimum so cabling can never drive a component
-    // to zero, negative, NaN or infinite capacity.
-    const displacement = ship.componentWiringDisplacement?.[i] || 0;
-    const minimum = ship.wiringMinimumHeatCapacity || 1;
-    const capacity = Math.max(minimum, ownCapacity - displacement);
+    const capacity = Math.max(1, ownCapacity);
     ship.componentThermals[i].capacity = capacity;
     if (ship.componentHeatCapacity) ship.componentHeatCapacity[i] = capacity;
     // Capacity loss never deletes retained heat. Zero capacity with positive
@@ -702,29 +647,6 @@ function rebuildCoolantNetworks(ship) {
   ship.coolantNetworkBuilds = (ship.coolantNetworkBuilds || 0) + 1;
 }
 
-// Maps a Power-source component index to the network it feeds. The thermal tick
-// needs this for every component, and resolving it with
-// `powerNetworks.find(n => n.sourceIndices.includes(i))` made the per-component
-// loop O(components x networks x sources). `powerNetworks` is reassigned
-// wholesale whenever Power is re-solved, so caching against the array identity
-// needs no extra revision plumbing. First match wins, matching `.find`.
-function powerNetworkBySourceIndex(ship) {
-  const networks = ship.runtimeWiring?.powerNetworks;
-  if (!Array.isArray(networks) || networks.length === 0) return null;
-  let cache = ship._powerNetworkBySource;
-  if (!cache || cache.source !== networks) {
-    const byIndex = new Map();
-    for (const network of networks) {
-      for (const sourceIndex of network.sourceIndices || []) {
-        if (!byIndex.has(sourceIndex)) byIndex.set(sourceIndex, network);
-      }
-    }
-    cache = { source: networks, byIndex };
-    ship._powerNetworkBySource = cache;
-  }
-  return cache.byIndex;
-}
-
 function addComponentHeat(ship, index, amount) {
   if (!ship.componentHeatInput || !Number.isFinite(amount) || amount <= 0) return;
   if (index < 0 || index >= ship.componentHeatInput.length) return;
@@ -858,7 +780,6 @@ function buildHeatWorkSet(ship) {
   const runtime = ship._thermalRuntime;
   for (const index of runtime.heatBearingComponents) addHeatWorkComponent(ship, index);
   for (const index of runtime.pendingInputComponents) addHeatWorkComponent(ship, index);
-  for (const index of runtime.cableComponents) addHeatWorkComponent(ship, index);
   for (const index of runtime.loadedGeneratorComponents) addHeatWorkComponent(ship, index);
   for (const index of runtime.lifecycleComponents) addHeatWorkComponent(ship, index);
   for (const index of runtime.topology.powerSourceIndices) {
@@ -1092,8 +1013,7 @@ function updateShipHeatCore(ship, dt, room, now) {
 
   const pending = Boolean(ship.hasPendingHeatInput || runtime.pendingInputComponents.length);
   const hasRetainedHeat = runtime.heatBearingComponents.length > 0;
-  if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending && !hasRetainedHeat
-      && !(ship.powerCableHeatRate > 0)) return;
+   if (!ship.hasActiveHeat && !ship.hasPassiveHeatSource && !pending && !hasRetainedHeat) return;
   ship.hasPendingHeatInput = false;
   const maxThermalSteps = 8;
   const maxThermalBacklogSeconds = TICK_SECONDS * maxThermalSteps;
@@ -1105,11 +1025,7 @@ function updateShipHeatCore(ship, dt, room, now) {
   ship.lastHeatTickDelta = elapsed;
 
   const stableCheckStart = performanceNow();
-  // The cable analysis is still the sole authority for the rates. It is
-  // refreshed before the stable decision so a newly positive flow wakes this
-  // ship at the same thermal boundary as the normal sparse path.
-  require("./componentPower").ensureShipCableThermalAnalysis(ship);
-  refreshLoadedGeneratorComponents(ship);
+   refreshLoadedGeneratorComponents(ship);
   // Public test/debug callers historically set hasActiveHeat and a component
   // Heat value directly.  Reconcile that compatibility hint once when the
   // persistent lists are otherwise empty; normal gameplay producers maintain
@@ -1117,8 +1033,7 @@ function updateShipHeatCore(ship, dt, room, now) {
   if (ship.hasActiveHeat && !runtime.stable
       && runtime.heatBearingComponents.length === 0
       && runtime.pendingInputComponents.length === 0
-      && runtime.cableComponents.length === 0
-      && runtime.lifecycleComponents.length === 0) {
+       && runtime.lifecycleComponents.length === 0) {
     refreshHeatRuntimeLists(ship);
     // Preserve the public-array diagnostic contract: direct writes to
     // componentHeatInput are picked up once when no sparse producer list exists.
@@ -1136,7 +1051,6 @@ function updateShipHeatCore(ship, dt, room, now) {
     const previousTelemetry = beginSparseTelemetryStep(ship);
     ship.ventedOverflowHeatThisTick = 0;
     ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
-    ship.powerCableHeatGenerated = 0;
     const telemetryChanged = finishSparseTelemetryStep(ship, previousTelemetry, runtime.telemetryCandidateComponents);
     if (telemetryChanged) ship.heatTelemetryRevision = (ship.heatTelemetryRevision || 0) + 1;
     for (const network of ship.coolantNetworks || []) network.transportedHeat = 0;
@@ -1174,8 +1088,7 @@ function updateShipHeatCore(ship, dt, room, now) {
   ship.ventedOverflowHeatThisTick = 0;
   ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
   const heat = ship.componentHeat;
-  const networkBySource = powerNetworkBySourceIndex(ship);
-  buildHeatWorkSet(ship);
+   buildHeatWorkSet(ship);
   const pendingInputCount = runtime.pendingInputComponents.length;
 
   let generationStart = performanceNow();
@@ -1186,11 +1099,8 @@ function updateShipHeatCore(ship, dt, room, now) {
     const damagedMultiplier = alive && ship.componentMaxHp?.[index]
       ? 1 + 0.15 * (1 - ship.componentHp[index] / ship.componentMaxHp[index])
       : 1;
-    const powerNetwork = part.powerGeneration > 0 ? networkBySource?.get(index) : undefined;
-    const networkGeneration = Number(powerNetwork?.availableGenerationMw) || 0;
-    const networkDemand = Number(powerNetwork?.liveDemandMw ?? powerNetwork?.demandMw ?? powerNetwork?.demand) || 0;
-    const load = alive && activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL) > 0 && networkGeneration > 0
-      ? Math.min(1, Math.max(0, networkDemand / networkGeneration)) : 0;
+    const power = part.powerGeneration > 0 ? require("./componentPower").getComponentPowerMultiplier(ship, index) : 1;
+    const load = alive && activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL) > 0 ? power : 0;
     const steady = alive && part.powerGeneration > 0 ? (2 + part.powerGeneration * 0.42) * load * elapsed * damagedMultiplier : 0;
     const generated = alive ? ship.componentHeatInput[index] * damagedMultiplier + steady : 0;
     ship.componentHeatInput[index] = 0;
@@ -1202,19 +1112,6 @@ function updateShipHeatCore(ship, dt, room, now) {
   }
   clearPendingHeatInputs(runtime);
 
-  let shipCableHeat = 0;
-  const cableRates = ship.componentPowerCableHeatRate;
-  for (const index of runtime.cableComponents) {
-    const alive = (ship.componentHp?.[index] ?? 1) > 0;
-    const rate = alive ? (Number(cableRates?.[index]) || 0) : 0;
-    if (rate <= 0) continue;
-    const cableHeatAmount = rate * elapsed;
-    runtime.delta[index] += cableHeatAmount;
-    ship.componentPowerCableHeatGenerated[index] = cableHeatAmount;
-    shipCableHeat += cableHeatAmount;
-  }
-  ship.powerCableHeatGenerated = shipCableHeat;
-  ship.powerCableHeatTotal = (ship.powerCableHeatTotal || 0) + shipCableHeat;
   recordDuration(room, "heatGenerationMs", generationStart);
 
   for (const index of runtime.workComponents) runtime.workingHeat[index] = Math.max(0, heat[index] + runtime.delta[index]);
@@ -1350,8 +1247,8 @@ function updateShipHeatCore(ship, dt, room, now) {
 
   let finalizationStart = performanceNow();
   let componentHeatChanged = false;
-  let powerSourceTierChanged = false;
-  let dataSourceTierChanged = false;
+  let powerSourceStateChanged = false;
+  let dataSourceStateChanged = false;
   let meltdowns = null;
   if (!ship.componentMeltdown) ship.componentMeltdown = heat.map(() => 0);
   for (const index of runtime.touchedComponents) {
@@ -1400,14 +1297,14 @@ function updateShipHeatCore(ship, dt, room, now) {
     if (runtime.powerSourceMembership[index]) {
       const priorState = ship._heatPowerSourceStates?.[index] ?? oldState;
       const priorAlive = ship._heatPowerSourceAlive?.[index] ?? alive;
-      if (priorAlive !== alive || (priorState === STATE.OVERHEATED) !== (nextState === STATE.OVERHEATED)) powerSourceTierChanged = true;
+      if (priorAlive !== alive || (priorState === STATE.OVERHEATED) !== (nextState === STATE.OVERHEATED)) powerSourceStateChanged = true;
       if (ship._heatPowerSourceStates) ship._heatPowerSourceStates[index] = nextState;
       if (ship._heatPowerSourceAlive) ship._heatPowerSourceAlive[index] = alive ? 1 : 0;
     }
     if (runtime.dataSourceMembership[index]) {
       const priorState = ship._heatDataSourceStates?.[index] ?? oldState;
       const priorAlive = ship._heatDataSourceAlive?.[index] ?? alive;
-      if (priorAlive !== alive || priorState !== nextState) dataSourceTierChanged = true;
+      if (priorAlive !== alive || priorState !== nextState) dataSourceStateChanged = true;
       if (ship._heatDataSourceStates) ship._heatDataSourceStates[index] = nextState;
       if (ship._heatDataSourceAlive) ship._heatDataSourceAlive[index] = alive ? 1 : 0;
     }
@@ -1444,8 +1341,8 @@ function updateShipHeatCore(ship, dt, room, now) {
   ship.heatPressure = nextPressure;
   ship.hotComponentCount = nextHotCount;
   ship.overheatedComponentCount = nextOverheatedCount;
-  if (powerSourceTierChanged) require("./componentPower").reallocateShipPower(ship, "thermal-source-state");
-  else if (dataSourceTierChanged) require("./componentData").refreshShipDataAllocation(ship, "thermal-data-source-state");
+  if (powerSourceStateChanged) require("./componentPower").reallocateShipPower(ship, "thermal-source-state");
+  else if (dataSourceStateChanged) require("./componentData").refreshShipDataAllocation(ship, "thermal-data-source-state");
   refreshLoadedGeneratorComponents(ship);
   runtime.lifecycleInvalidated = false;
   runtime.sourceStateDirty = false;
@@ -1460,9 +1357,8 @@ function updateShipHeatCore(ship, dt, room, now) {
   bump(room, "heatBearingComponents", runtime.heatBearingComponents.length);
   bump(room, "heatHotComponents", runtime.hotComponents.length);
   bump(room, "heatPendingInputComponents", pendingInputCount);
-  bump(room, "heatCableSourceComponents", runtime.cableComponents.length);
   bump(room, "heatLoadedGeneratorComponents", runtime.loadedGeneratorComponents.length);
-  ship.hasActiveHeat = runtime.heatBearingComponents.length > 0 || ship.hasPassiveHeatSource || runtime.cableComponents.length > 0;
+  ship.hasActiveHeat = runtime.heatBearingComponents.length > 0 || ship.hasPassiveHeatSource;
 
   // Resolve reactor meltdowns only after all thermal state and telemetry are
   // settled, preserving the authoritative lifecycle boundary.
@@ -1583,7 +1479,6 @@ module.exports = {
   refreshHeatRuntimeLists,
   refreshLoadedGeneratorComponents,
   invalidateHeatRuntime,
-  refreshHeatRuntimeCableComponents: refreshCableHeatComponents,
   isThermalRouteType,
   isCoolantTransportType,
   rebuildCoolantNetworks,

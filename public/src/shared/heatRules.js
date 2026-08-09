@@ -79,7 +79,7 @@
 
   function activityHeat(type, part) {
     // Per-family heat rates mirror the per-shot heat combat.js actually adds
-    // when a weapon fires, so designer predictions and the network-overload
+    // when a weapon fires, so designer predictions and thermal-network overload
     // flag agree with in-combat heating.
     if (part.weapon) {
       const damage = part.weapon.damage || 1;

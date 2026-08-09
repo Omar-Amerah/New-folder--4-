@@ -5,6 +5,9 @@
 // Run: node tests/verify-command-components.js
 
 const assert = require("assert");
+const { generateBalanceArtifacts } = require("../tools/generate-balance");
+
+generateBalanceArtifacts();
 
 // --- Server-side imports ---
 const { PARTS } = require("../src/server/components");

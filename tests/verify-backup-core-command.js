@@ -14,17 +14,8 @@ const assert = require("assert");
   const { reallocateShipPower } = require("../src/server/componentPower");
   const { buildSharedSnapshot, snapshotRoom } = require("../src/server/snapshots");
 
-  const WiringRules = require("../public/src/shared/wiringRules");
-  function makeTestShip(design, wiring = null) {
-    let shipWiring = wiring;
-    if (!shipWiring) {
-      try {
-        shipWiring = WiringRules.createGeneratedPowerWiring(design, PARTS);
-      } catch (_) {
-        shipWiring = { power: [], data: [] };
-      }
-    }
-    const stats = computeStats(design, shipWiring);
+  function makeTestShip(design, dataLinks = []) {
+    const stats = computeStats(design, { dataLinks });
     const ship = {
       id: "test-ship-1",
       ownerId: "p1",
@@ -34,7 +25,7 @@ const assert = require("assert");
       vx: 0,
       vy: 0,
       design,
-      wiring: shipWiring,
+      dataLinks,
       stats,
       alive: true,
       hp: stats.maxHp,

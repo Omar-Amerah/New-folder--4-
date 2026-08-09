@@ -7,11 +7,8 @@
 // component structure.
 //
 // WHY STATIONS SHARE THE 15x15 GRID BUT NOT THE SHIP MODULE SCALE
-// The wiring system is built around the designer grid: MAX_PATH_CELLS is
-// GRID_SIZE^2 and MAX_SECTIONS_PER_KIND is 480, so a design laid out on a larger
-// cell grid can never produce valid generated wiring — routes get truncated and
-// interior consumers are stranded. Stations therefore stay within 15x15 cells
-// and get their size from a larger MODULE SCALE instead. Component systems are
+// Stations stay within the same 15x15 grid as ship designs and get their size
+// from a larger MODULE SCALE instead. Component systems are
 // index-based, so nothing about power, heat or damage notices; only geometry
 // (render bounds, collision cells, hangar dimensions) reads the scale, and
 // it is exported here as the single source of truth.
@@ -40,8 +37,7 @@
 //
 // Each corridor is a genuine void in the design: no module occupies it, so the
 // compound collision geometry leaves all three open. The outer hulls and the
-// dividing walls stay connected through the rear body, so generated wiring
-// reaches every component.
+// dividing walls stay connected through the rear body.
 
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");

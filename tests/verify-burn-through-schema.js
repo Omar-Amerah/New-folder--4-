@@ -8,12 +8,15 @@
 const assert = require("assert");
 const fs = require("fs");
 const { validateComponentBalance } = require("../src/server/componentSchema");
+const { generateBalanceArtifacts } = require("../tools/generate-balance");
+
+generateBalanceArtifacts();
 
 // Minimal-but-complete balance skeleton so only the weapon field under test drives
 // the burn-through-specific validation result.
 function balanceWith(weapon) {
   return {
-    metadata: {}, shipPricing: { minimum: 1, maximum: 2, weaponPremiums: {} }, economy: { shipCap: 1 },
+    metadata: {}, shipPricing: {}, economy: { shipCap: 1 },
     rewards: {}, movement: {}, projectiles: {}, missileGuidance: {},
     fleetLimits: {}, capture: {}, repair: {},
     drones: {

@@ -7,8 +7,6 @@ const {
   collectSnapshotDesignRevisions,
   collectSnapshotVisibleShipIds,
   collectSnapshotPowerRevisions,
-  collectSnapshotPowerProtectionRevisions,
-  collectSnapshotWiringLayoutRevisions,
   collectSnapshotHeatTelemetryRevisions,
   collectSnapshotStationStaticRevisions,
   collectSnapshotStationComponentRevisions,
@@ -16,8 +14,6 @@ const {
   markSnapshotDesignsWritten,
   markSnapshotVisibilityWritten,
   markSnapshotPowerWritten,
-  markSnapshotPowerProtectionWritten,
-  markSnapshotWiringLayoutWritten,
   markSnapshotHeatTelemetryWritten,
   markSnapshotStationStaticWritten,
   markSnapshotStationComponentWritten,
@@ -198,8 +194,7 @@ function resetSnapshotClientState(client) {
   };
   client._knownSignature = null;
   for (const key of [
-    "knownShipDesignRevisions", "knownShipPowerRevisions", "knownShipPowerProtectionRevisions",
-    "knownShipWiringLayoutRevisions", "knownShipHeatTelemetryRevisions", "knownStationStaticRevisions",
+    "knownShipDesignRevisions", "knownShipPowerRevisions", "knownShipHeatTelemetryRevisions", "knownStationStaticRevisions",
     "knownStationComponentRevisions"
   ]) client[key]?.clear?.();
   client.knownVisibleShipIds = new Set();
@@ -232,8 +227,6 @@ function onSnapshotLifecycle(client, outcome, meta) {
     markSnapshotDesignsWritten(client, meta.shipDesignRevisions);
     markSnapshotVisibilityWritten(client, meta.visibleShipIds);
     markSnapshotPowerWritten(client, meta.shipPowerRevisions);
-    markSnapshotPowerProtectionWritten(client, meta.shipPowerProtectionRevisions);
-    markSnapshotWiringLayoutWritten(client, meta.shipWiringLayoutRevisions);
     markSnapshotHeatTelemetryWritten(client, meta.shipHeatTelemetryRevisions);
     markSnapshotStationStaticWritten(client, meta.stationStaticRevisions);
     markSnapshotStationComponentWritten(client, meta.stationComponentRevisions);
@@ -344,8 +337,6 @@ function buildPayload(room, client, now, full, seq, baseSeq, shared = null) {
     designRevisions: collectSnapshotDesignRevisions(snap),
     visibleShipIds: collectSnapshotVisibleShipIds(snap),
     powerRevisions: collectSnapshotPowerRevisions(snap),
-    powerProtectionRevisions: collectSnapshotPowerProtectionRevisions(snap),
-    wiringLayoutRevisions: collectSnapshotWiringLayoutRevisions(snap),
     heatTelemetryRevisions: collectSnapshotHeatTelemetryRevisions(snap),
     stationStaticRevisions: collectSnapshotStationStaticRevisions(snap),
     stationComponentRevisions: collectSnapshotStationComponentRevisions(snap),
@@ -368,7 +359,7 @@ function sendFullSnapshot(client, now = performanceNow(), reason = 'client-reque
   meta.payloadBytes = built.payload.length;
   meta.telemetryFocusShipId = built.telemetryFocusShipId; meta.telemetryAt = now;
   meta.projectileDelivery = built.projectileDelivery;
-  meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
+   meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
   meta.stationStaticRevisions = built.stationStaticRevisions; meta.stationComponentRevisions = built.stationComponentRevisions; meta.conditionStationIds = built.conditionStationIds;
   diag(client).fullBuilt += 1;
   if (reason) diag(client).recoveryRequests += 1;
@@ -432,8 +423,6 @@ function buildClientKnownSignature(client) {
   return [
     stableRevisionMap(client.knownShipDesignRevisions),
     stableRevisionMap(client.knownShipPowerRevisions),
-    stableRevisionMap(client.knownShipPowerProtectionRevisions),
-    stableRevisionMap(client.knownShipWiringLayoutRevisions),
     stableRevisionMap(client.knownShipHeatTelemetryRevisions),
     stableIdSet(client.knownVisibleShipIds),
     stableRevisionMap(client.knownStationStaticRevisions),
@@ -549,7 +538,7 @@ function broadcastSnapshot(room, now, forceStatic = false) {
       meta.entityDeltaStats = built.entityDeltaStats;
       meta.payloadBytes = built.payload.length;
       meta.projectileDelivery = built.projectileDelivery;
-      meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipPowerProtectionRevisions = built.powerProtectionRevisions; meta.shipWiringLayoutRevisions = built.wiringLayoutRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
+      meta.shipDesignRevisions = built.designRevisions; meta.visibleShipIds = built.visibleShipIds; meta.shipPowerRevisions = built.powerRevisions; meta.shipHeatTelemetryRevisions = built.heatTelemetryRevisions;
       meta.stationStaticRevisions = built.stationStaticRevisions; meta.stationComponentRevisions = built.stationComponentRevisions; meta.conditionStationIds = built.conditionStationIds;
       diag(client)[group.full ? 'fullBuilt' : 'compactBuilt'] += 1;
       enqueueSnapshot(client, built.payload, meta);

@@ -297,7 +297,7 @@ async function readInspector(page) {
       }
     });
 
-    check("each requirement is a real button with a visible label and full ARIA wiring", () => {
+    check("each requirement is a real button with a visible label and full ARIA attributes", () => {
       for (const type of ["blaster", "signalAmplifier", "shield", "reactor"]) {
         for (const chip of snapshots[type].requirements) {
           assert.equal(chip.tag, "BUTTON", `${type}/${chip.id} is a real button`);
@@ -394,7 +394,7 @@ async function readInspector(page) {
     });
 
     // -- Accessibility ---------------------------------------------------------
-    check("accordions are real buttons with correct ARIA wiring, collapsed by default", () => {
+    check("accordions are real buttons with correct ARIA attributes, collapsed by default", () => {
       for (const type of REPRESENTATIVE) {
         for (const section of snapshots[type].sections) {
           assert.equal(section.triggerTag, "BUTTON", `${type}/${section.title} uses a real button`);
@@ -507,7 +507,7 @@ async function readInspector(page) {
     });
 
     // -- Failing dependencies stay visible -------------------------------------
-    // Place a Signal Amplifier with no Power or Data cable, then select it: the
+    // Place a Signal Amplifier with no active Power or Data Link, then select it: the
     // requirement must turn red and state the failure visibly, not only on hover.
     const failureState = await (async () => {
       await page.evaluate(async () => {
@@ -517,7 +517,7 @@ async function readInspector(page) {
           import("/src/ui/partInspectorUi.js")
         ]);
         const free = { x: 2, y: 2 };
-        // Keep the fixture genuinely unpowered even when physical Wiring is
+        // Keep the fixture genuinely unpowered even when component Power is
         // disabled and Power is allocated automatically across the whole ship.
         state.design = [{ type: "signalAmplifier", x: free.x, y: free.y, rotation: 0 }];
         state.selectedPart = null;

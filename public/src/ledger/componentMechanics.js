@@ -259,7 +259,7 @@ export const COMPONENT_MECHANICS = {
     ],
     interactions: [
       { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" },
-      { label: "Power Network", value: "Primary power source for the ship" }
+      { label: "Power Pool", value: "Primary power source for the ship" }
     ]
   },
 
@@ -300,7 +300,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Activity Heat", value: "Generates heat proportional to power output", detail: "Auxiliary generators produce heat following the same formula as reactors." }
     ],
     interactions: [
-      { label: "Power Network", value: "Supplementary power source" }
+      { label: "Power Pool", value: "Supplementary power source" }
     ]
   },
 
@@ -310,7 +310,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Charge/Discharge", value: "Efficiency-based heat generation", detail: "Discharge heat at max rate is configured per battery type." }
     ],
     interactions: [
-      { label: "Power Network", value: "Provides stored energy during power deficits" }
+      { label: "Power Pool", value: "Provides stored energy during power deficits" }
     ]
   },
 
@@ -320,7 +320,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Discharge Heat", value: "Configured per capacitor type", detail: "Discharging at maximum rate produces heat proportional to the discharge rate." }
     ],
     interactions: [
-      { label: "Power Network", value: "Provides burst energy for weapons and systems" }
+      { label: "Power Pool", value: "Provides burst energy for weapons and systems" }
     ]
   },
 
@@ -547,10 +547,10 @@ export const COMPONENT_MECHANICS = {
 
   signalAmplifier: {
     specialMechanics: [
-      { label: "Range Support", value: "Extends weapon range via Data-network allocation", detail: "Range support depends on valid Data-network allocation. Does not necessarily apply its full bonus to every weapon." }
+      { label: "Range Support", value: "Extends weapon range via explicit Data Link allocation", detail: "Range support is divided across the weapons linked to the source. It does not necessarily apply its full bonus to every weapon." }
     ],
     interactions: [
-      { label: "Data Network", value: "Requires valid data cable connection to function" },
+      { label: "Data Links", value: "Requires an explicit link to function" },
       { label: "Weapons", value: "Range bonus is allocated across weapons, not uniformly applied" }
     ]
   },
@@ -561,7 +561,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Range Requirement", value: "Only affects weapons within fire-control range" }
     ],
     interactions: [
-      { label: "Data Network", value: "May require data support for full effectiveness" },
+      { label: "Data Links", value: "May require explicit links for full effectiveness" },
       { label: "Weapons", value: "Boosts fire rate of in-range weapons" }
     ]
   },

@@ -97,7 +97,7 @@ The Fleet Ledger is an in-game encyclopaedia accessible from the main menu and t
 - **Close:** Close button, Escape key, or clicking outside the panel.
 - **Navigation:** Category list on the left, article content in the centre, related entries on the right. Back/Forward/Home buttons provide history navigation.
 - **Search:** Type in the search bar to find articles by title, summary, keyword, or component name.
-- **Data-driven:** Component articles are auto-generated from the authoritative `component-balance.generated.json` via `PART_STATS`. Manual articles pull live values for economy, wiring, movement, and drone constants.
+- **Data-driven:** Component articles are auto-generated from the authoritative `component-balance.json` through the build-generated balance artifacts and `PART_STATS`. Manual articles pull live values for economy, Data Links, movement, and drone constants.
 - **Deep links:** The blueprint component inspector has a "View in Fleet Ledger" button that opens the ledger directly to the selected component's article.
 - **Responsive:** Three-column layout on wide screens, adaptive single-column on narrow screens.
 - **Accessibility:** Keyboard navigable, ARIA roles, focus management, reduced-motion support.
@@ -107,7 +107,7 @@ The Fleet Ledger is an in-game encyclopaedia accessible from the main menu and t
 - `public/src/ledger/ledgerContent.js` — Pure data module: categories, manual articles, data-driven component article generation, search index, validation helpers.
 - `public/src/ledger/fleetLedgerUi.js` — UI module: overlay open/close, navigation history, search, article rendering, related entries, keyboard handling.
 - `public/styles/fleet-ledger.css` — Styling matching the game's CSS variables and button styles.
-- `verify-fleet-ledger.js` — Unit test covering article uniqueness, category validity, related references, data parity, search, HTML structure, CSS, and DOM wiring.
+- `verify-fleet-ledger.js` — Unit test covering article uniqueness, category validity, related references, data parity, search, HTML structure, CSS, and DOM integration.
 
 ## Frontend build path
 
@@ -122,24 +122,20 @@ Turrets may visibly track while reloading or while a safe zone blocks fire.
 Repair beams target damaged allies, while ordinary weapons and point defence do
 not damage allies under the current rules.
 
-## Completed Catch-up Parts 1–3
+## Current design constraints
 
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
+The current game has no physical cable/route topology or Wiring feature flag. Power is evaluated directly per component, and combat Data support uses explicit logical Data Links between support sources and weapon components. Do not reintroduce physical Wiring assumptions into designs, snapshots, or validation.
 
 ### Spawn fairness and test taxonomy
 
-Matches use deterministic server-side spawn planning based on stable player IDs, team/solo layout, map seed, world bounds, and map hazards. Starter fleets reserve non-overlapping space without increasing map size. Dedicated npm commands describe the coverage they actually execute; see `docs/testing-inventory.md` for current details and deferred Section 8-13 items.
+Matches use deterministic server-side spawn planning based on stable player IDs, team/solo layout, map seed, world bounds, and map hazards. Starter fleets reserve non-overlapping space without increasing map size. Dedicated npm commands describe the coverage they actually execute; see `docs/testing-inventory.md` for current details.
 
 ### Spawn protection policy
 
 Spawn protection is generated from the server's deterministic spawn plan. Team zones protect only ships on that team; enemies entering the same circle are not protected. Solo zones protect only their owning player. A protected ship cannot fire from the zone, and targets protected by their own/team zone ignore incoming damage. Clients render the authoritative `map.safeZones` snapshot, but the server is the only authority for protection decisions.
 
 ## Networking protocol notes
-The browser and server use raw WebSockets at `/socket` with MessagePack binary frames in production. Protocol version 4 requires clients to send compatibility fields and the `messagepack` capability in `join`. Reconnect preserves the stable room `playerId` through a private room-scoped resume credential while each transport receives a new `connectionId`.
+The browser and server use raw WebSockets at `/socket` with MessagePack binary frames in production. Protocol version 6 is the current and only compatible protocol: `join` must advertise range `6..6` and the required `messagepack` and `entityDeltaSnapshotsV1` capabilities. Reconnect preserves the stable room `playerId` through a private room-scoped resume credential while each transport receives a new `connectionId`.
 
 Useful networking checks:
 
@@ -164,7 +160,7 @@ The multiplayer protocol uses MessagePack state snapshots with explicit room epo
 
 ## Section 10B1 renderer performance notes
 
-Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.
+Renderer internals use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios and CI artifacts are documented in `docs/renderer-performance.md`.
 
 ## Section 10B2 Chromium renderer verification
 

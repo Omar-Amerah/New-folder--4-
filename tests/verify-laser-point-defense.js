@@ -13,19 +13,10 @@ const assert = require("assert");
   const { updateShipWeapons, findPointDefenseTarget } = require("../src/server/combat");
   const { reallocateShipPower } = require("../src/server/componentPower");
   const { buildSharedSnapshot, snapshotRoom } = require("../src/server/snapshots");
-  const WiringRules = require("../public/src/shared/wiringRules");
   const { createDroneEntity, damageDrone } = require("../src/server/drones");
 
-  function makeTestShip(design, wiring = null, ownerId = "p1") {
-    let shipWiring = wiring;
-    if (!shipWiring) {
-      try {
-        shipWiring = WiringRules.createGeneratedPowerWiring(design, PARTS);
-      } catch (_) {
-        shipWiring = { power: [], data: [] };
-      }
-    }
-    const stats = computeStats(design, shipWiring);
+  function makeTestShip(design, dataLinks = [], ownerId = "p1") {
+    const stats = computeStats(design, { dataLinks });
     const ship = {
       id: `test-ship-${Math.random().toString(36).substr(2, 5)}`,
       ownerId,
@@ -35,7 +26,7 @@ const assert = require("assert");
       vx: 0,
       vy: 0,
       design,
-      wiring: shipWiring,
+      dataLinks,
       stats,
       alive: true,
       hp: stats.maxHp,

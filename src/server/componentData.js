@@ -1,15 +1,13 @@
 // Authoritative runtime Data-support integration for weapon components.
-// State here is derived from the immutable ship design plus Wiring v2 blueprint;
+// State here is derived from the immutable ship design plus explicit Data Links;
 // it is intentionally not persisted into saved blueprints.
 
 const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { getCommandAuraMultiplier } = require("./commandAuras");
-const WiringRules = require("../../public/src/shared/wiringRules");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const HeatRules = require("../../public/src/shared/heatRules");
 const TurretRules = require("../../public/src/shared/turretRules");
-const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
 const ZERO_SUPPORT = Object.freeze({ rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0, sourceIndices: Object.freeze([]), contributions: Object.freeze([]), status: "disconnected" });
 const WEAPON_AURA_KEYS = Object.freeze([
@@ -21,7 +19,6 @@ const WEAPON_AURA_KEYS = Object.freeze([
   "flakTrackingMultiplier",
   "interceptionReactionMultiplier"
 ]);
-const numericSort = (a, b) => a - b;
 const stable = (value) => JSON.stringify(value, (_key, item) => (item instanceof Set ? [...item].sort() : item));
 const perf = () => global.__mfaDataSupportPerf || null;
 function bump(name) { const p = perf(); if (p) p[name] = (p[name] || 0) + 1; }
@@ -61,28 +58,20 @@ function sourceMultiplier(ship, sourceIndex) { return DataSupportRules.normalize
 function isDataWeaponEligible(ship, weaponIndex) { return isAlive(ship, weaponIndex); }
 function isDataSourceEligible(ship, sourceIndex) { return DataSupportRules.isDataSupportSource(ship?.design?.[sourceIndex]?.type); }
 
-function runtimeWiringFor(ship) {
-  if (ship?.runtimeWiring) return { version: WiringRules.WIRING_VERSION, power: ship.runtimeWiring.power?.operationalWiring, data: ship.runtimeWiring.data?.operationalWiring };
-  return ship?.wiring;
-}
-function analyzeTopology(ship, precomputedDataNetworks = null) {
+function normalizeShipDataLinks(ship, dataLinks) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
-  if (!design.length) return { networks: [] };
-  if (Array.isArray(precomputedDataNetworks)) return { networks: precomputedDataNetworks };
-  const dataLinks = DataSupportRules.normalizeDataLinks(design, ship?.dataLinks, PARTS);
-  return { networks: [{ id: "direct-data-links", label: "Data Links", mode: "direct-links", sourceIndices: [], weaponIndices: [], componentIndices: [], sectionIds: [] }], dataLinks };
+  return design.length ? DataSupportRules.normalizeDataLinks(design, dataLinks, PARTS) : [];
 }
 function dataLinksSignature(dataLinks) {
   const links = (dataLinks || []).map((l) => `${l.sourceIndex}:${l.targetIndex}`).sort();
   return `dl:${links.join(",")}`;
 }
-function topologySignatureFrom(networks, ship) {
+function linkSignature(ship) {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const sourceAlive = design.map((m, i) => DataSupportRules.isDataSupportSource(m?.type) && isAlive(ship, i) ? i : -1).filter(i => i >= 0);
   const weaponAlive = design.map((m, i) => PARTS[m?.type]?.weapon && isAlive(ship, i) ? i : -1).filter(i => i >= 0);
-  return dataLinksSignature(ship?.dataLinks) + "#" + stable({ networks: (networks || []).map(n => ({ id: n.id, sectionIds: [...(n.sectionIds || [])].sort(), sourceIndices: [...(n.sourceIndices || [])].sort(numericSort), weaponIndices: [...(n.weaponIndices || [])].sort(numericSort) })), sourceAlive, weaponAlive });
+  return dataLinksSignature(ship?.dataLinks) + "#" + stable({ sourceAlive, weaponAlive });
 }
-function normalizeNetworks(networks) { return (networks || []).map((n) => ({ ...n, sourceIndices: [...(n.sourceIndices || [])], weaponIndices: [...(n.weaponIndices || [])], componentIndices: [...(n.componentIndices || [])], sectionIds: [...(n.sectionIds || [])] })); }
 function statusForSource(ship, record) {
   if (!record || !DataSupportRules.isDataSupportSource(record.sourceType)) return ["invalid-source", "Component is not a Data-support source."];
   if (!isAlive(ship, record.sourceIndex)) return ["destroyed", "Source component is destroyed."];
@@ -125,40 +114,22 @@ function buildAllocation(ship, dataLinks) {
   return analysis;
 }
 function allocationSignatureFrom(analysis) { return stable({ sources: (analysis.sourceAllocations || []).map(r => ({ i: r.sourceIndex, m: r.sourceMultiplier, e: r.effectiveBudget, b: r.bonusPerWeapon, w: r.eligibleWeaponIndices, s: r.status })), weapons: (analysis.weaponBonuses || []).map(r => ({ i: r.weaponIndex, r: r.rangeBonus, a: r.accuracyBonus, f: r.fireRateBonus, s: r.status, c: r.contributions })) }); }
-function installState(ship, networks, analysis, topologySignature, allocationSignature, reason) {
-  const previous = ship.runtimeDataSupport || {}; const topologyChanged = previous.topologySignature !== topologySignature; const allocationChanged = previous.allocationSignature !== allocationSignature;
-  if (topologyChanged) bump("dataTopologyRebuildCount");
-  ship.runtimeDataSupport = { version: 1, topologyRevision: (previous.topologyRevision || 0) + (topologyChanged ? 1 : 0), allocationRevision: (previous.allocationRevision || 0) + (allocationChanged ? 1 : 0), topologySignature, allocationSignature, lastReason: (topologyChanged || allocationChanged) ? reason : previous.lastReason,
-    networks: normalizeNetworks(analysis.networks || networks), sourceAllocations: analysis.sourceAllocations.map(r => cloneAllocation(r, r.sourceIndex)), weaponBonuses: analysis.weaponBonuses.map(r => cloneSupport(r, r.weaponIndex)),
+function installState(ship, analysis, linkSignatureValue, allocationSignature, reason) {
+  const previous = ship.runtimeDataSupport || {}; const linksChanged = previous.linkSignature !== linkSignatureValue; const allocationChanged = previous.allocationSignature !== allocationSignature;
+  if (linksChanged) bump("dataLinkRebuildCount");
+  ship.runtimeDataSupport = { version: 1, linkRevision: (previous.linkRevision || 0) + (linksChanged ? 1 : 0), allocationRevision: (previous.allocationRevision || 0) + (allocationChanged ? 1 : 0), linkSignature: linkSignatureValue, allocationSignature, lastReason: (linksChanged || allocationChanged) ? reason : previous.lastReason,
+    sourceAllocations: analysis.sourceAllocations.map(r => cloneAllocation(r, r.sourceIndex)), weaponBonuses: analysis.weaponBonuses.map(r => cloneSupport(r, r.weaponIndex)),
     sourceAllocationByIndex: analysis.sourceAllocationByIndex.map((r, i) => cloneAllocation(r, i)), weaponBonusByIndex: analysis.weaponBonusByIndex.map((r, i) => cloneSupport(r, i)) };
   return ship.runtimeDataSupport;
 }
-function disableShipDataSupport(ship, reason = "wiring-disabled") {
-  if (!ship || typeof ship !== "object") return null;
-  const design = Array.isArray(ship.design) ? ship.design : [];
-  const previous = ship.runtimeDataSupport || {};
-  const weaponBonusByIndex = design.map((module, index) => (
-    PARTS[module?.type]?.weapon ? cloneSupport(ZERO_SUPPORT, index) : null
-  ));
-  ship.runtimeDataSupport = {
-    version: 1,
-    disabled: true,
-    topologyRevision: previous.disabled ? (previous.topologyRevision || 1) : (previous.topologyRevision || 0) + 1,
-    allocationRevision: previous.disabled ? (previous.allocationRevision || 1) : (previous.allocationRevision || 0) + 1,
-    topologySignature: "wiring-disabled",
-    allocationSignature: "wiring-disabled",
-    lastReason: reason,
-    networks: [],
-    sourceAllocations: [],
-    weaponBonuses: weaponBonusByIndex.filter(Boolean),
-    sourceAllocationByIndex: design.map(() => null),
-    weaponBonusByIndex
-  };
-  return ship.runtimeDataSupport;
+function rebuildShipDataLinks(ship, reason = "data-links") { ship.dataLinks = normalizeShipDataLinks(ship, ship?.dataLinks); const sig = linkSignature(ship); const analysis = buildAllocation(ship, ship.dataLinks); return installState(ship, analysis, sig, allocationSignatureFrom(analysis), reason); }
+function refreshShipDataAllocation(ship, reason = "allocation") {
+  const currentSignature = linkSignature(ship);
+  if (!ship?.runtimeDataSupport?.weaponBonusByIndex || ship.runtimeDataSupport.linkSignature !== currentSignature) return rebuildShipDataLinks(ship, reason);
+  const analysis = buildAllocation(ship, ship.dataLinks);
+  return installState(ship, analysis, currentSignature, allocationSignatureFrom(analysis), reason);
 }
-function rebuildShipDataTopology(ship, reason = "topology", precomputedDataNetworks = null, precomputedDataLinks = null) { const topology = analyzeTopology(ship, precomputedDataNetworks); if (precomputedDataLinks) topology.dataLinks = precomputedDataLinks; ship.dataLinks = topology.dataLinks; const sig = topologySignatureFrom(topology.networks, ship); const analysis = buildAllocation(ship, topology.dataLinks); return installState(ship, topology.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
-function refreshShipDataAllocation(ship, reason = "allocation") { if (!ship?.runtimeDataSupport?.networks) return rebuildShipDataTopology(ship, reason); const sig = ship.runtimeDataSupport.topologySignature || topologySignatureFrom(ship.runtimeDataSupport.networks, ship); const analysis = buildAllocation(ship, ship.dataLinks); return installState(ship, ship.runtimeDataSupport.networks, analysis, sig, allocationSignatureFrom(analysis), reason); }
-function rebuildShipDataSupport(ship) { return ship && typeof ship === "object" ? rebuildShipDataTopology(ship, "rebuild", ship?.runtimeDataSupport?.networks, ship?.dataLinks) : null; }
+function rebuildShipDataSupport(ship) { return ship && typeof ship === "object" ? rebuildShipDataLinks(ship, "rebuild") : null; }
 function ensureShipDataSupport(ship) { return ship?.runtimeDataSupport?.weaponBonusByIndex ? ship.runtimeDataSupport : rebuildShipDataSupport(ship); }
 
 function dataRelevantHeatSignature(ship) {
@@ -183,7 +154,7 @@ function cacheSignature(ship) {
   const power = ship?.powerRevision || 0;
   const heatRevision = ship?.heatStateRevision || 0;
   const hpRevision = ship?.componentAliveRevision || 1;
-  return `${state?.topologyRevision || 0}:${state?.allocationRevision || 0}:${power}:${heatRevision}:${hpRevision}:${ship?.designRevision || 1}:${weaponAuraSignature(ship)}`;
+  return `${state?.linkRevision || 0}:${state?.allocationRevision || 0}:${power}:${heatRevision}:${hpRevision}:${ship?.designRevision || 1}:${weaponAuraSignature(ship)}`;
 }
 function applyEffectiveWeaponCommandAuras(profile, ship) {
   const modified = { ...profile };
@@ -319,4 +290,4 @@ function shipHasArmedProximityCharge(ship) {
 function getWeaponDataSupport(ship, weaponIndex) { if (!Number.isInteger(weaponIndex) || weaponIndex < 0) return cloneSupport(null, weaponIndex); const state = ensureShipDataSupport(ship); return cloneSupport(state?.weaponBonusByIndex?.[weaponIndex], weaponIndex); }
 function getEffectiveWeaponStats(ship, weaponIndex) { const profile = getEffectiveWeaponStatsInternal(ship, weaponIndex); return profile ? { ...profile } : null; }
 function getSourceDataAllocation(ship, sourceIndex) { if (!Number.isInteger(sourceIndex) || sourceIndex < 0) return null; const state = ensureShipDataSupport(ship); return cloneAllocation(state?.sourceAllocationByIndex?.[sourceIndex], sourceIndex); }
-module.exports = { shipHasArmedProximityCharge, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getEffectiveWeaponStatsCached, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataTopology, refreshShipDataAllocation, disableShipDataSupport, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };
+module.exports = { shipHasArmedProximityCharge, rebuildShipDataSupport, ensureShipDataSupport, getWeaponDataSupport, getEffectiveWeaponStats, getEffectiveWeaponStatsInternal, getEffectiveWeaponStatsCached, getMaxEffectiveWeaponRange, getEffectiveWeaponRanges, rebuildEffectiveWeaponProfileCache, ensureEffectiveWeaponProfileCache, getSourceDataAllocation, rebuildShipDataLinks, refreshShipDataAllocation, sourceOperationalMultiplier, sourcePowerMultiplier, sourceThermalMultiplier, sourceMultiplier, isDataWeaponEligible, isDataSourceEligible };

@@ -4,7 +4,7 @@ Section 3 establishes the ship-design contract used by the catalogue, designer, 
 
 ## Component data flow
 
-`component-balance.json` is the balance input. The production server validates it with `src/server/componentSchema.js`, normalizes it in `src/server/components.js`, and sends the normalized catalogue in the WebSocket `hello.parts` message. The client may load `/component-balance.generated.json` early for offline/menu rendering, but after `hello.parts` arrives the server catalogue is authoritative and later HTTP responses are ignored. The flow is:
+`component-balance.json` is the balance input. The production server validates it with `src/server/componentSchema.js`, normalizes it in `src/server/components.js`, and sends the normalized catalogue in the WebSocket `hello.parts` message. The build generates the disposable `public/component-balance.generated.json` and `public/src/generatedBalance.js` client artifacts. The client may load `/component-balance.generated.json` early for offline/menu rendering, but after `hello.parts` arrives the server catalogue is authoritative and later HTTP responses are ignored. The flow is:
 
 ```text
 component-balance.json
@@ -98,19 +98,11 @@ Pointer-to-grid conversion reads the current grid DOM rectangle at interaction t
 9. Spawned ships keep design array order stable for component HP, heat, weapon cooldowns, weapon angles, destroyed-engine indexes, and diagrams.
 10. Snapshots and rendering consume those arrays by design index; client display normalization must not reorder live server designs.
 
-## Catch-up Part 1 verification additions
+## Blueprint verification
 
 Blueprint persistence is now described in `docs/blueprint-storage.md` and covered by `npm run test:blueprint-storage`. The storage migration path normalizes rotations and multi-cell footprints using the same placement helpers as the designer.
 
 Client/server blueprint parity remains covered by `verify-shared-parity.js` / `npm run test:blueprint-parity`, which compares shared footprint and stat calculations against server-side authoritative modules. The server remains authoritative; the client preview is only a purchase/editor estimate.
-
-## Completed Catch-up Parts 1–3
-
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
 
 ## Design-time parity contract
 

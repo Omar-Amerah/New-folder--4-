@@ -7,6 +7,9 @@ const serverFootprint = require('../src/server/footprint');
 const { validateDesign } = require('../src/server/shipDesign');
 const { initComponentState, applyHullDamage } = require('../src/server/componentHealth');
 const { BALANCE } = require('../src/server/balanceConfig');
+const { generateBalanceArtifacts } = require('../tools/generate-balance');
+
+generateBalanceArtifacts();
 
 const EPS = 1e-9;
 function close(actual, expected, msg) {

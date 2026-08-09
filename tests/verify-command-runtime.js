@@ -7,7 +7,6 @@ const { updateShipWeapons } = require("../src/server/combat");
 const { reallocateShipPower } = require("../src/server/componentPower");
 const { updateCommandAuras, getCommandAuraMultiplier, getCommandAuraRange } = require("../src/server/commandAuras");
 const { BALANCE } = require("../src/server/balanceConfig");
-const WiringRules = require("../public/src/shared/wiringRules");
 const HeatRules = require("../public/src/shared/heatRules");
 
 const AURA_RANGE = getCommandAuraRange();
@@ -17,10 +16,9 @@ let passed = 0;
 function ok(m) { passed++; console.log("  " + m); }
 
 function makeShip(id, owner, x, y, design) {
-  let wiring;
-  try { wiring = WiringRules.createGeneratedPowerWiring(design, PARTS); } catch (_) { wiring = { power: [], data: [] }; }
-  const stats = computeStats(design, wiring);
-  const s = { id, ownerId: owner, x, y, angle: 0, vx: 0, vy: 0, design, wiring, stats, alive: true,
+  const dataLinks = [];
+  const stats = computeStats(design, { dataLinks });
+  const s = { id, ownerId: owner, x, y, angle: 0, vx: 0, vy: 0, design, dataLinks, stats, alive: true,
     hp: stats.maxHp || 500, maxHp: stats.maxHp || 500, shield: 0, maxShield: 0, commandState: "mainCore",
     componentHeatState: design.map(() => HeatRules.STATE.NORMAL), commandAurasReceived: {}, commandAuraMultipliers: {} };
   initComponentState(s);
@@ -233,7 +231,7 @@ function makeRoom(ships) {
   const d = PARTS.backupCore.description;
   assert(d.includes("takes control"), "mentions takeover");
   assert(d.includes("aura") || d.includes("command aura"), "mentions aura");
-  assert(d.includes("accuracy") || d.includes("tracking") || d.includes("acquisition"), "mentions aura effects");
+  assert(d.includes("accuracy") || d.includes("targeting") || d.includes("tracking") || d.includes("acquisition"), "mentions aura effects");
   ok("T11: Backup Command Core description covers both takeover and aura.");
 }
 

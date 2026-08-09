@@ -80,26 +80,8 @@ export async function requestCloseBlueprintDesigner() {
     return true;
   }
 
-  const { wiringReadinessWarning } = await import("./wiringUi.js");
-  const warning = wiringReadinessWarning();
-  if (!warning) {
-    closeBlueprintDesigner();
-    return true;
-  }
-
-  closeReturnFocus = document.activeElement instanceof HTMLElement
-    ? document.activeElement
-    : dom.closeBlueprintDesignerButton;
-  dom.confirmModal.dataset.intent = "wiring-warning";
-  dom.confirmModal.dataset.pendingDesignerClose = "true";
-  dom.confirmModalTitle.textContent = warning.kind === "no-wiring"
-    ? "Close with no wiring?"
-    : "Close with incomplete wiring?";
-  dom.confirmModalMessage.textContent = `${warning.message} Close the designer anyway?`;
-  dom.confirmAcceptButton.textContent = "Close Anyway";
-  dom.confirmModal.hidden = false;
-  dom.confirmCancelButton?.focus?.();
-  return false;
+  closeBlueprintDesigner();
+  return true;
 }
 
 export function confirmPendingDesignerClose() {

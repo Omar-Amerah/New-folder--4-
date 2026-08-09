@@ -48,7 +48,7 @@ const enclosedCooling = coolingAfterOneTick(enclosedShip, 0);
 health.beginComponentLifecycleBatch(enclosedShip);
 enclosedShip.componentHp[1] = 0;
 enclosedShip.dirtyComponents.add(1);
-health.requestComponentLifecycleRefresh(enclosedShip, { exposure: true, thermalCapacity: true, wiringTopology: true });
+health.requestComponentLifecycleRefresh(enclosedShip, { exposure: true, thermalCapacity: true, componentState: true });
 health.endComponentLifecycleBatch(enclosedShip);
 assert(enclosedShip.componentThermals[0].exposedEdges > 0, "destroying sealing armour exposes the radiator during flush");
 const exposedCooling = coolingAfterOneTick(enclosedShip, 0);
@@ -70,12 +70,12 @@ let exposureCalls = 0;
 heat.rebuildRuntimeExposure = function countedExposureRebuild(s) { exposureCalls += 1; return originalExposureRebuild(s); };
 const batchDeath = shipFor([{x:7,y:7,type:"radiator"},{x:6,y:7,type:"armor"},{x:8,y:7,type:"engine"},{x:7,y:6,type:"heatPipe"},{x:7,y:8,type:"frame"}]);
 health.beginComponentLifecycleBatch(batchDeath);
-for (const idx of [1,2,3]) { batchDeath.componentHp[idx] = 0; health.requestComponentLifecycleRefresh(batchDeath, { exposure: true, thermalRoutes: heat.isThermalRouteType(batchDeath.design[idx].type), wiringTopology: true }); }
+for (const idx of [1,2,3]) { batchDeath.componentHp[idx] = 0; health.requestComponentLifecycleRefresh(batchDeath, { exposure: true, thermalRoutes: heat.isThermalRouteType(batchDeath.design[idx].type), componentState: true }); }
 health.endComponentLifecycleBatch(batchDeath);
 assert.strictEqual(exposureCalls, 1, "batched component destruction performs one exposure rebuild");
 exposureCalls = 0;
 health.beginComponentLifecycleBatch(batchDeath);
-for (const idx of [1,2,3]) { batchDeath.componentHp[idx] = batchDeath.componentMaxHp[idx]; health.requestComponentLifecycleRefresh(batchDeath, { exposure: true, thermalRoutes: heat.isThermalRouteType(batchDeath.design[idx].type), wiringTopology: true }); }
+for (const idx of [1,2,3]) { batchDeath.componentHp[idx] = batchDeath.componentMaxHp[idx]; health.requestComponentLifecycleRefresh(batchDeath, { exposure: true, thermalRoutes: heat.isThermalRouteType(batchDeath.design[idx].type), componentState: true }); }
 health.endComponentLifecycleBatch(batchDeath);
 assert.strictEqual(exposureCalls, 1, "batched component repair performs one exposure rebuild");
 exposureCalls = 0;

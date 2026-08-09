@@ -32,13 +32,8 @@ function makeShip(id, ownerId, x, y, pdCount = 4) {
     design.push({ x: 8 + Math.floor(i / 5), y: 7 + (i % 5), type: "pointDefense" });
   }
   design.push({ x: 6, y: 7, type: "blaster" });
-  let wiring;
-  try {
-    wiring = require("../public/src/shared/wiringRules").createGeneratedPowerWiring(design, PARTS);
-  } catch (_) {
-    wiring = { power: [], data: [] };
-  }
-  const stats = computeStats(design, wiring);
+  const dataLinks = [];
+  const stats = computeStats(design, { dataLinks });
   const ship = {
     id,
     ownerId,
@@ -51,7 +46,7 @@ function makeShip(id, ownerId, x, y, pdCount = 4) {
     targetX: x,
     targetY: y,
     design,
-    wiring,
+    dataLinks,
     stats,
     alive: true,
     hp: stats.maxHp,

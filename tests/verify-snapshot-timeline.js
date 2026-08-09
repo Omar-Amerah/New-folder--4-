@@ -22,7 +22,6 @@ const { commandShips } = require("../src/server/movement");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 
 const DESIGN = [
   { x: 7, y: 7, type: "core" },
@@ -36,14 +35,14 @@ function makeScenario() {
     id: "s1", ownerId: "p1", alive: true, x: 600, y: 1500, vx: 0, vy: 0, angle: 0,
     targetX: 600, targetY: 1500, radius: stats.radius, physicalRadius: 42,
     design: DESIGN.map((part) => ({ ...part })),
-    wiring: createGeneratedPowerWiring(DESIGN), stats, combatStyle: "hold"
+    dataLinks: [], stats, combatStyle: "hold"
   };
   initComponentState(ship);
   initializeComponentPower(ship);
   initShipHeat(ship);
   const player = {
     id: "p1", name: "P", team: "A", ships: [ship], money: 0, ready: true,
-    connected: true, design: DESIGN, wiring: ship.wiring, stats
+    connected: true, design: DESIGN, dataLinks: ship.dataLinks, stats
   };
   const room = {
     id: "r1", phase: "active", world: { width: 8000, height: 3000 },

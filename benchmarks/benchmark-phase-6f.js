@@ -199,7 +199,7 @@ function makePlayer(id, team) {
     ships: [],
     rallyPoint: { x: 5000, y: 5000 },
     design: [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 7, y: 6, type: "engine", rotation: 0 }],
-    wiring: null,
+    dataLinks: [],
     combatStyle: "hold",
     purchaseRequests: new Map()
   };

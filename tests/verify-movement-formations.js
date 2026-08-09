@@ -27,7 +27,6 @@ const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
 
 const DT = 1 / 30;
@@ -65,7 +64,7 @@ function makeShip({ id, x, y, design = BASE, angle = 0, ownerId = "p1", combatSt
     radius: stats.radius,
     physicalRadius: computeDesignCollisionRadius(design, stats),
     design: design.map((part) => ({ ...part })),
-    wiring: createGeneratedPowerWiring(design),
+    dataLinks: [],
     stats: { ...stats },
     combatStyle,
     combatStyleRaw: combatStyle,

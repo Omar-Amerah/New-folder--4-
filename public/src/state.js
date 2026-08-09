@@ -75,9 +75,7 @@ export const PRESENTATION_DIAGNOSTIC_DEFAULTS = Object.freeze({
   selectedVitalsUpdateCount: 0,
   selectedDamageUpdateCount: 0,
   selectedHeatUpdateCount: 0,
-  selectedPowerUpdateCount: 0,
   selectedStaticGeometryBuildCount: 0,
-  selectedStaticWiringBuildCount: 0,
   selectedDynamicRedrawCount: 0,
   purchaseAffordabilityUpdateCount: 0,
   purchasePendingUpdateCount: 0,
@@ -121,7 +119,6 @@ export const state = {
   world: { ...WORLD_FALLBACK },
   parts: {},
   design: initialDesign.modules,
-  wiring: initialDesign.wiring,
   dataLinks: initialDesign.dataLinks || [],
   combatStyle: initialDesign.combatStyle,
   // Which way round the Orbit button offers next when the current selection has
@@ -153,33 +150,11 @@ export const state = {
   designerAnalysisTab: "heat",
   savedBlueprintSearch: "",
   savedBlueprintSort: "manual",
-  // Manual Wiring editor state. Physical section tier is stored in wiring,
-  // while this object only tracks an unfinished path and inspection.
-  wiringUi: {
-    mode: "power",
-    // Section 7B Power tools. Data keeps the simpler single-tier workflow and
-    // ignores tool/tier selection. selectedPowerTier persists for the session.
-    wiringTool: "draw",
-    selectedPowerTier: "standard",
-    hoveredSectionId: null,
-    selectedIndex: null,
-    selectedConnectionKey: null,
-    selectedSectionId: null,
-    selectedPowerShortageNetworkId: null,
-    hoveredPowerShortageNetworkId: null,
-    sourceIndex: null,
-    path: [],
-    hoverCell: null,
-    livePointer: null,
-    dragging: false,
-    undoStack: []
-  },
   thermalLoadMode: DEFAULT_THERMAL_LOAD_MODE,
   heatFlowView: "local",
   showAllHeatFlows: false,
   hoveredHeatPartIndex: null,
   pendingBlueprintDestructiveAction: null,
-  pendingWiringClearNetwork: null,
   pendingDirtyAction: null,
   shipStatusView: "damage",
   debugTurrets: false,
@@ -215,7 +190,6 @@ export const state = {
   presentationDiagnostics: makePresentationDiagnostics(),
   presentationLocalRevision: {
     blueprint: 0,
-    wiring: 0,
     purchase: 0,
     telemetry: 0,
     rally: 0

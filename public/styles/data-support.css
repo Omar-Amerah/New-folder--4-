@@ -1,6 +1,5 @@
 /* Data-support presentation: the Blueprint's Data analysis tab and the Data
-   Links view render the same cards from this stylesheet. Deliberately free of
-   any dependency on wiring-editor.css so Data survives without wiring. */
+   Links view render the same cards from this stylesheet. */
 
 /* ---- Data Links grid overlay ---- */
 
@@ -188,7 +187,7 @@
   padding-bottom: 2px;
 }
 
-.data-network-title {
+.data-support-title {
   color: #00e5ff;
   font-size: 13px;
   font-weight: 700;
@@ -487,14 +486,14 @@
   outline-offset: 2px;
 }
 
-.data-infra-details {
+.data-link-details {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-top: 8px;
 }
 
-.data-infra-row {
+.data-link-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -502,13 +501,13 @@
   font-size: 12px;
 }
 
-.data-infra-row strong {
+.data-link-row strong {
   color: #e6eefb;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
-.data-infra-note {
+.data-link-note {
   margin-top: 6px;
   padding: 6px 10px;
   background: rgba(20, 32, 52, 0.5);

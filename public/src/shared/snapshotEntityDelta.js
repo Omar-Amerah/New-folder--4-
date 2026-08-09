@@ -52,9 +52,8 @@
   // Shared privacy authority.  A public/detail downgrade must clear every
   // field here, including fields added by later Power/Heat revisions.
   const PRIVATE_SHIP_FIELDS = Object.freeze([
-    "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
-    "powerRuntimeRevision", "wiringStatus", "switchgear", "powerProtection",
-    "powerProtectionRevision", "powerWiring", "powerWiringRevision", "powerWiringRuntime",
+    "componentPower", "powerStatus", "powerThermal", "powerRevision",
+    "powerRuntimeRevision",
     "chp", "chpD", "componentHeat", "componentHeatD", "storageCharge",
     "componentHeatRevision", "heatTelemetryRevision"
   ]);

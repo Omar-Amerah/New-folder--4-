@@ -5,9 +5,9 @@
 // JSON results that can be compared before/after the performance refactor.
 
 const { performance } = require("perf_hooks");
-const fixtures = require("../test-fixtures/powerInfrastructureReferenceShips");
-const harness = require("../test-fixtures/dataSupportRuntimeHarness");
-const { updateShipPowerDemand, effectiveShieldStats } = require("../src/server/componentPower");
+const fixtures = require("../tests/fixtures/dataSupportReferenceShips");
+const harness = require("../tests/fixtures/dataSupportRuntimeHarness");
+const { reallocateShipPower, effectiveShieldStats } = require("../src/server/componentPower");
 const { updateShipHeat } = require("../src/server/heat");
 const { updateShipMovement } = require("../src/server/movement");
 const { updateRuntimeShield } = require("../src/server/runtimeShield");
@@ -20,7 +20,7 @@ const TICK_MS = DT * 1000;
 const SHIP_COUNTS = [1, 5, 10, 25];
 
 function makeShips(count) {
-  const fixtureFn = typeof fixtures.standardFrigate === "function" ? fixtures.standardFrigate : fixtures.lightInterceptor;
+  const fixtureFn = fixtures.broadsideBuild;
   const base = fixtureFn ? fixtureFn() : null;
   if (!base) throw new Error("No reference ship fixture found");
   const ships = [];
@@ -82,7 +82,7 @@ function runForCount(count) {
   let now = 0;
   for (let t = 0; t < WARMUP_TICKS; t += 1) {
     now += TICK_MS;
-    for (const ship of ships) updateShipPowerDemand(ship, room, now);
+    for (const ship of ships) reallocateShipPower(ship, "benchmark");
     for (const ship of ships) updateShipHeat(ship, DT, room, now);
     for (const ship of ships) updateRuntimeShield(ship, DT, now);
     for (const ship of ships) updateShipMovement(room, ship, DT, now);
@@ -92,7 +92,7 @@ function runForCount(count) {
   for (let t = 0; t < MEASURE_TICKS; t += 1) {
     now += TICK_MS;
     let t0 = performance.now();
-    for (const ship of ships) updateShipPowerDemand(ship, room, now);
+    for (const ship of ships) reallocateShipPower(ship, "benchmark");
     state.powerMs += performance.now() - t0;
 
     t0 = performance.now();
@@ -121,11 +121,9 @@ function runForCount(count) {
     power: {
       totalMs: Number(state.powerMs.toFixed(3)),
       perTickUs: Number(((state.powerMs / state.ticks) * 1000).toFixed(2)),
-      tickCalls: dataPerf.powerDemandTickCalls || 0,
-      skippedClean: dataPerf.powerDemandSkippedClean || 0,
-      componentsVisited: dataPerf.powerDemandComponentsVisited || 0,
-      solves: dataPerf.powerDemandSolveCount || 0,
-      deferred: dataPerf.powerDemandDeferredCount || 0
+      reallocationCalls: count * (WARMUP_TICKS + MEASURE_TICKS),
+      dataSupportRefreshes: dataPerf.allocationRefreshCount || 0,
+      profileBuilds: dataPerf.profileBuildCount || 0
     },
     heat: {
       totalMs: Number(state.heatMs.toFixed(3)),

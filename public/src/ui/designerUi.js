@@ -13,7 +13,7 @@ import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { coolantConnectionMasks, coolantNetworkAt } from "../design/coolantLayout.js";
 import { computeStats } from "../design/componentStats.js";
 import { buildShipSummaryModel, turnText, resolvePowerSummary } from "../design/shipSummaryModel.js";
-import { defaultDesign, defaultWiring, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
+import { defaultDesign, persistDesign, makeDesignPart } from "../design/blueprintStorage.js";
 import { captureBlueprintEditSnapshot, pushBlueprintEditSnapshot, blueprintSnapshotsEqual, canUndoBlueprintEdit, undoBlueprintEdit as popBlueprintEditUndo, clearBlueprintEditHistory } from "../design/blueprintEditHistory.js";
 import { notify } from "./toastUi.js";
 import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedBlueprintPresentation } from "./savedBlueprintsUi.js";
@@ -26,56 +26,14 @@ import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAn
 import { buildHeatCardModel, heatCardMarkup } from "../design/heatCardModel.js";
 import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, dataLinksHintText, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
 import { calculateCenterOfMass, ENGINE_FALLOFF } from "../shared/movementStats.js";
-import {
-  refreshWiringPresentation,
-  refreshWiringAnalysisPresentation,
-  clearWiringPresentation,
-  handleWiringCellClick,
-  handleWiringCellHover,
-  handleWiringGridLeave,
-  suppressWiringClick,
-  syncWiringWithDesign,
-  resetWiringToDefault,
-  clearAllWiring,
-  resetWiringEditorState,
-  resetWiringTransientState,
-  canUndoWiring,
-  undoWiring,
-  refreshPowerPriorityControls,
-  powerAllocationAnalysisHtml,
-  confirmPendingWiringClear,
-  cancelPendingWiringClear
-} from "./wiringUi.js";
-import { WIRING_ENABLED } from "../featureFlags.js";
-
-import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
-import { WIRING_INFRASTRUCTURE } from "../constants.js";
+import { calculateUniversalPower } from "../shared/universalPower.js";
 import { phaseLockOverlayAnimations } from "./overlayAnimation.js";
 
 export { analyzeDesignHeat };
 
 export function currentPowerFlow() {
   const design = Array.isArray(state.design) ? state.design : [];
-  if (!WIRING_ENABLED) {
-    const demand = design.reduce(
-      (sum, module) => sum + Math.max(0, Number(PART_STATS[module?.type]?.powerUse) || 0),
-      0
-    );
-    return {
-      byComponentIndex: [],
-      networks: [],
-      sectionFlows: [],
-      summary: {
-        availableGenerationMw: demand,
-        demandMw: demand,
-        allocatedMw: demand,
-        unmetMw: 0,
-        spareGenerationMw: 0
-      }
-    };
-  }
-  const wiring = state.wiring || {};
-  return solveBlueprintPower(design, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
+  return calculateUniversalPower(design, PART_STATS);
 }
 
 const GRID_SIZE = 15;
@@ -90,14 +48,8 @@ const HEAT_FLOW_LABEL_THRESHOLD = 0.35;
 let cachedHeatAnalysis = null;
 let blueprintEditUiHooks = null;
 
-function powerPresetLabel(preset) {
-  const value = String(preset || "Default");
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 export function isPhysicalBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
 export function isPaletteBlueprintEditMode(mode = state.blueprintView) { return mode === "build" || mode === "heat"; }
-export function isWiringBlueprintEditMode(mode = state.blueprintView) { return WIRING_ENABLED && mode === "wiring"; }
 export function isDataLinksBlueprintMode(mode = state.blueprintView) { return mode === "dataLinks"; }
 export function isBlueprintRotationMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
 export function isBlueprintRemovalMode(mode = state.blueprintView) { return isPhysicalBlueprintEditMode(mode); }
@@ -105,11 +57,10 @@ export function isBlueprintRemovalMode(mode = state.blueprintView) { return isPh
 const BLUEPRINT_MODE_CONTENT = {
   build: { title: "Build", description: "Add, rotate and remove ship components." },
   heat: { title: "Heat", description: "Build while viewing predicted component Heat and thermal flow." },
-  wiring: { title: "Wiring", description: "Draw and edit Power or Data networks. Component placement is paused." },
   dataLinks: { title: "Data Links", description: "Directly link Data-support sources to weapons. Component placement is paused." }
 };
 
-function heatDesignSignature(design, wiring, mode) {
+function heatDesignSignature(design, dataLinks, mode) {
   return `${mode}|${JSON.stringify(
     design.map(part => [
       part.type,
@@ -119,7 +70,7 @@ function heatDesignSignature(design, wiring, mode) {
       part.batteryMode || "",
       part.disabled || false
     ])
-  )}|${JSON.stringify(wiring)}`;
+  )}|${JSON.stringify(dataLinks || [])}`;
 }
 
 function cachedPartReferencesMatch(design) {
@@ -134,8 +85,7 @@ function cachedPartReferencesMatch(design) {
 
 export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE) {
   const design = state.design;
-  const activeWiring = WIRING_ENABLED ? state.wiring : null;
-  const signature = heatDesignSignature(design, activeWiring, mode);
+  const signature = heatDesignSignature(design, state.dataLinks, mode);
 
   if (
     cachedHeatAnalysis?.signature === signature &&
@@ -144,7 +94,7 @@ export function getScenarioHeatAnalysis(mode = state.thermalLoadMode || DEFAULT_
     return cachedHeatAnalysis.result;
   }
 
-  const result = analyzeDesignHeat(design, activeWiring, mode);
+  const result = analyzeDesignHeat(design, state.dataLinks, mode);
   cachedHeatAnalysis = {
     signature,
     partReferences: [...design],
@@ -181,9 +131,6 @@ export function renderBuildGrid() {
   if (state.blueprintView === "heat") {
     suppressHeatGridNativeTooltips();
     refreshHeatPresentationSafely();
-  } else if (WIRING_ENABLED && state.blueprintView === "wiring") {
-    applyBlueprintPresentation();
-    refreshWiringPresentation();
   } else if (state.blueprintView === "dataLinks") {
     applyBlueprintPresentation();
     refreshDataLinksPresentation();
@@ -193,7 +140,6 @@ export function renderBuildGrid() {
   // The Data Links overlay accepts pointer input while active, so every other
   // view must tear it down or it keeps swallowing grid clicks.
   if (state.blueprintView !== "dataLinks") renderDataLinksOverlay();
-  if (WIRING_ENABLED && state.blueprintView !== "wiring") refreshWiringAnalysisPresentation();
   refreshBlueprintControls();
   refreshBlueprintDiscoverabilityUi();
   refreshBlueprintUndoControl();
@@ -228,7 +174,7 @@ function suppressHeatGridNativeTooltips() {
 
 export function setBlueprintView(view) {
   const previousView = state.blueprintView;
-  state.blueprintView = view === "heat" ? "heat" : view === "dataLinks" ? "dataLinks" : WIRING_ENABLED && view === "wiring" ? "wiring" : "build";
+  state.blueprintView = view === "heat" ? "heat" : view === "dataLinks" ? "dataLinks" : "build";
   if (previousView === state.blueprintView) {
     // `changed: false` keeps the inspector where the player left it; only a real
     // view switch moves them to that view's readout.
@@ -236,11 +182,9 @@ export function setBlueprintView(view) {
     document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView, changed: false } }));
     return;
   }
-  if (previousView === "wiring" && state.blueprintView !== "wiring") resetWiringTransientState();
   // Entering or leaving Data Links drops any armed source or selected link;
   // component indices are only meaningful against the design that produced them.
   if (previousView === "dataLinks" || state.blueprintView === "dataLinks") resetDataLinksUiState();
-  if (state.blueprintView === "wiring") { state.hoveredCell = null; state.selectedCell = null; }
   refreshBlueprintControls();
   document.dispatchEvent?.(new CustomEvent("blueprint-mode-change", { detail: { mode: state.blueprintView, changed: true } }));
   renderHoverPreview();
@@ -253,14 +197,8 @@ export function setBlueprintView(view) {
     clearHeatPresentation();
   }
 
-  if (state.blueprintView === "wiring") {
-    refreshWiringPresentation();
-  } else {
-    clearWiringPresentation();
-  }
-
   // Data Links owns an input-accepting overlay and dims the grid, so entering
-  // and leaving it must be symmetric with Heat and Wiring above. Switching view
+  // and leaving it must be symmetric with Heat above. Switching view
   // does not necessarily re-render the grid, so this cannot live there.
   if (state.blueprintView === "dataLinks") {
     refreshDataLinksPresentation();
@@ -285,16 +223,13 @@ function updateHeatFlowToggleControl() {
 
 function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
-  const wiringView = isWiringBlueprintEditMode();
   const dataLinksView = isDataLinksBlueprintMode();
-  const buildView = !heatView && !wiringView && !dataLinksView;
+  const buildView = !heatView && !dataLinksView;
   dom.grid.classList.toggle("heat-overlay-active", heatView);
-  dom.grid.classList.toggle("wiring-overlay-active", wiringView);
   dom.blueprintBuildTab?.classList.toggle("active", buildView);
   dom.blueprintHeatTab?.classList.toggle("active", heatView);
   dom.blueprintDataLinksTab?.classList.toggle("active", dataLinksView);
-  dom.blueprintWiringTab?.classList.toggle("active", wiringView);
-  const tabs = [[dom.blueprintBuildTab, buildView], [dom.blueprintHeatTab, heatView], [dom.blueprintDataLinksTab, dataLinksView], [dom.blueprintWiringTab, wiringView]];
+  const tabs = [[dom.blueprintBuildTab, buildView], [dom.blueprintHeatTab, heatView], [dom.blueprintDataLinksTab, dataLinksView]];
   for (const [tab, active] of tabs) {
     tab?.setAttribute("aria-selected", String(active));
     tab?.setAttribute("tabindex", active ? "0" : "-1");
@@ -305,7 +240,6 @@ function refreshBlueprintControls() {
   }
   if (dom.blueprintModeTitle) dom.blueprintModeTitle.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].title;
   if (dom.blueprintModeDescription) dom.blueprintModeDescription.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].description;
-  if (dom.wiringToolbar) dom.wiringToolbar.hidden = !wiringView;
   refreshDataLinksControls();
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
@@ -322,7 +256,7 @@ function refreshBlueprintControls() {
     dom.thermalScenarioLabel.textContent = `Predicted component heat : ${THERMAL_SCENARIO_NAMES[state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE]}`;
   }
   if (dom.buildInteractionGuide) {
-    dom.buildInteractionGuide.hidden = wiringView;
+    dom.buildInteractionGuide.hidden = false;
     // Data Links pauses placement, so the guide carries its linking hint here
     // instead of a separate sentence under the grid.
     dom.buildInteractionGuide.textContent = dataLinksView
@@ -507,25 +441,9 @@ function applyHeatPresentation(heatAnalysis) {
     const stateLabel = globalThis.HeatRules.STATE_LABELS[prediction.state] || "Cool";
     const powerThermal = heatAnalysis.powerThermal;
     const componentDiag = powerThermal?.components?.[index] || {};
-    const capacityDiag = heatAnalysis.heatDiagnostics?.[index] || {};
-    const sectionIds = new Set(componentDiag.hostedActiveSectionIds || []);
-    const sectionFlows = powerThermal?.cableSummary?.sectionFlows || [];
-    const hostedFlows = sectionFlows.filter(section => sectionIds.has(section.sectionId));
     const flags = [];
-    if ((capacityDiag.powerDisplacement || capacityDiag.dataDisplacement || 0) > 0) flags.push("wiring displacement reducing Heat capacity");
-    if ((componentDiag.powerCableHeat || 0) > 0 || (prediction.powerCableHeat || 0) > 0) flags.push("hosted Power cable Heat");
-    if (hostedFlows.some(section => section.aboveSustained)) flags.push("above-sustained cable load");
-    if (hostedFlows.some(section => section.atPeak)) flags.push("cable at peak or capped");
-    if ((componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0)) flags.push("Power cable Heat contributing to thermal risk");
     if ((componentDiag.operationalMultiplier ?? 1) < 1) flags.push((componentDiag.operationalMultiplier || 0) <= 0 ? "disabled component" : "throttled component");
-    const flagClass = [
-      (capacityDiag.powerDisplacement || capacityDiag.dataDisplacement || 0) > 0 ? "heat-flag-displacement" : "",
-      (componentDiag.powerCableHeat || 0) > 0 ? "heat-flag-cable-heat" : "",
-      hostedFlows.some(section => section.aboveSustained) ? "heat-flag-cable-overload" : "",
-      hostedFlows.some(section => section.atPeak) ? "heat-flag-cable-peak" : "",
-      (componentDiag.powerCableHeat || 0) > 0 && prediction.state > (globalThis.HeatRules?.STATE?.NORMAL ?? 0) ? "heat-flag-cable-risk" : "",
-      (componentDiag.operationalMultiplier ?? 1) < 1 ? "heat-flag-throttled" : ""
-    ].filter(Boolean).join(" ");
+    const flagClass = (componentDiag.operationalMultiplier ?? 1) < 1 ? "heat-flag-throttled" : "";
     const threeDigitHeat = displayedHeat >= 100;
     const heatBadge = `<span
       class="component-heat-value${threeDigitHeat
@@ -585,7 +503,6 @@ function fmtSeconds(value) { return value == null ? "Predicted equilibrium" : `$
 function blueprintHeatSummaryMarkup(result) {
   const a = result.analysis;
   const power = result.powerThermal?.powerSummary || {};
-  const cable = result.powerThermal?.cableSummary || {};
   const hottestComponent = a.firstOverheatIndex >= 0 ? a.firstOverheatIndex : state.design.reduce((best, part, i) => {
     const p = result.predictions.get(part);
     const b = result.predictions.get(state.design[best]);
@@ -599,21 +516,15 @@ function blueprintHeatSummaryMarkup(result) {
     <strong>${escapeHtml(THERMAL_SCENARIO_NAMES[a.mode] || a.mode)} : ${escapeHtml(THERMAL_SCENARIO_EXPLANATIONS[a.mode] || "")}</strong>
     ${row("State", blueprintThermalStateLabel(result))}
     ${row("Final total Heat capacity", `${Math.round(totalCapacity)} H`)}
-    ${row("Component Heat generation", fmtHeat(a.generation - (cable.totalPowerCableHeatPerSecond || 0)))}
-    ${row("Power cable Heat generation", fmtHeat(cable.totalPowerCableHeatPerSecond))}
     ${row("Total Heat generation", fmtHeat(a.generation))}
     ${row("Cooling", fmtHeat(a.cooling))}
     ${row("Net Heat rate", `${a.net >= 0 ? "+" : ""}${fmtHeat(a.net)}`)}
     ${row("Prediction", a.equilibriumTime != null ? `Equilibrium in ${a.equilibriumTime.toFixed(1)} s` : fmtSeconds(a.firstOverheatTime))}
     ${row("Hottest component", describeThermalComponent(hottestComponent, state.design))}
-    ${row("Hottest cable section", cable.hottestSectionId || "None")}
-    ${row("Above-sustained cables", power.aboveSustainedSectionCount || 0)}
-    ${row("At-peak cables", power.atPeakSectionCount || 0)}
     ${row("Throttled / disabled", `${throttled} / ${disabled}`)}
     ${row("Power requested", fmtMw(power.requestedDemandMw))}
     ${row("Power delivered", fmtMw(power.deliveredDemandMw))}
     ${row("Power spare / unmet", `${fmtMw(power.spareGenerationMw)} / ${fmtMw(power.unmetDemandMw)}`)}
-    ${row("Priority preset", powerPresetLabel(power.preset))}
   </div>`;
 }
 
@@ -691,7 +602,6 @@ function ensureBlueprintGridEventHandlers() {
   initDataLinksUi();
   if (!dom.grid.dataset.hasDelegatedClick) {
     dom.grid.addEventListener("click", (event) => {
-      if (isWiringBlueprintEditMode() && suppressWiringClick()) return;
       if (isDataLinksBlueprintMode()) {
         const cell = event.target.closest(".build-cell");
         if (!cell || !dom.grid.contains(cell)) return;
@@ -708,10 +618,6 @@ function ensureBlueprintGridEventHandlers() {
       const x = pointed?.x ?? Number(cell.dataset.x);
       const y = pointed?.y ?? Number(cell.dataset.y);
       if (event.button !== undefined && event.button !== 0) return;
-      if (isWiringBlueprintEditMode()) {
-        handleWiringCellClick(x, y);
-        return;
-      }
       if (isPhysicalBlueprintEditMode()) editCell(x, y);
     });
     // Hover preview is delegated so cells are never rebuilt mid-click:
@@ -727,10 +633,6 @@ function ensureBlueprintGridEventHandlers() {
       const y = pointed?.y ?? Number(cell.dataset.y);
       if (state.hoveredCell?.x === x && state.hoveredCell?.y === y) return;
       state.hoveredCell = { x, y };
-      if (state.blueprintView === "wiring") {
-        handleWiringCellHover(x, y);
-        return;
-      }
       if (isDataLinksBlueprintMode()) {
         renderDataLinksOverlay();
         renderHoverPreview();
@@ -741,10 +643,6 @@ function ensureBlueprintGridEventHandlers() {
     });
     dom.grid.addEventListener("mouseleave", () => {
       state.hoveredCell = null;
-      if (state.blueprintView === "wiring") {
-        handleWiringGridLeave();
-        return;
-      }
       if (isDataLinksBlueprintMode()) {
         renderDataLinksOverlay();
         return;
@@ -789,15 +687,10 @@ function ensureBlueprintGridEventHandlers() {
       renderLocalStats();
       renderPartInspector();
     });
-    dom.blueprintWiringTab?.addEventListener("click", () => {
-      setBlueprintView("wiring");
-      renderLocalStats();
-    });
     const modeEntries = [
       [dom.blueprintBuildTab, "build"],
       [dom.blueprintHeatTab, "heat"],
-      [dom.blueprintDataLinksTab, "dataLinks"],
-      ...(WIRING_ENABLED ? [[dom.blueprintWiringTab, "wiring"]] : [])
+      [dom.blueprintDataLinksTab, "dataLinks"]
     ].filter(([tab]) => Boolean(tab));
     const modeTabs = modeEntries.map(([tab]) => tab);
     const activateTab = (index) => { const mode = modeEntries[index][1]; setBlueprintView(mode); renderLocalStats(); if (mode === "heat") renderPartInspector(); modeTabs[index]?.focus(); };
@@ -1027,16 +920,14 @@ function clearInvalidHeatIndexes() {
 
 export function refreshBlueprintUndoControl() {
   if (!dom.undoBlueprintEditButton) return;
-  const wiringContext = state.blueprintView === "wiring";
-  const wiringUndoAvailable = wiringContext && canUndoWiring();
-  dom.undoBlueprintEditButton.disabled = !(wiringUndoAvailable || canUndoBlueprintEdit());
-  dom.undoBlueprintEditButton.title = wiringUndoAvailable ? "Undo last wiring change (Ctrl+Z)" : "Undo last blueprint edit (Ctrl+Z)";
-  dom.undoBlueprintEditButton.setAttribute("aria-label", wiringUndoAvailable ? "Undo last wiring change" : "Undo last blueprint edit");
+  dom.undoBlueprintEditButton.disabled = !canUndoBlueprintEdit();
+  dom.undoBlueprintEditButton.title = "Undo last blueprint edit (Ctrl+Z)";
+  dom.undoBlueprintEditButton.setAttribute("aria-label", "Undo last blueprint edit");
 }
 
 function persistCurrentEditorDesign() {
-  if (blueprintEditUiHooks?.persistDesign) return blueprintEditUiHooks.persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
-  return persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
+  if (blueprintEditUiHooks?.persistDesign) return blueprintEditUiHooks.persistDesign(state.design, state.dataLinks, state.combatStyle);
+  return persistDesign(state.design, state.dataLinks, state.combatStyle);
 }
 
 function refreshEditorAfterBlueprintHistoryChange() {
@@ -1074,7 +965,7 @@ function refreshRotationIndicator() {
   if (!dom.rotationIndicator) return;
   const rotation = selectedPlacementRotation();
   const flippable = Boolean(state.selectedPart && isFlippablePart(state.selectedPart));
-  const show = state.blueprintView !== "wiring" && rotation != null;
+  const show = rotation != null;
   dom.rotationIndicator.hidden = !show;
   // One compact line: the rotation reading it has always shown, plus the mirror
   // state and its shortcut for the components that offer one.
@@ -1112,24 +1003,12 @@ function refreshAfterPhysicalEdit() {
   invalidatePresentation("blueprint-edit");
 }
 
-function cloneWiringUiState() {
-  return {
-    ...state.wiringUi,
-    path: Array.isArray(state.wiringUi?.path) ? state.wiringUi.path.map((cell) => ({ ...cell })) : [],
-    hoverCell: state.wiringUi?.hoverCell ? { ...state.wiringUi.hoverCell } : null,
-    livePointer: state.wiringUi?.livePointer ? { ...state.wiringUi.livePointer } : null,
-    activeOrigin: state.wiringUi?.activeOrigin ? { ...state.wiringUi.activeOrigin } : null,
-    undoStack: Array.isArray(state.wiringUi?.undoStack) ? state.wiringUi.undoStack : []
-  };
-}
-
 function restoreNoOpPhysicalEditUiState(uiBefore) {
   state.hoveredHeatPartIndex = uiBefore.hoveredHeatPartIndex;
-  state.wiringUi = uiBefore.wiringUi;
 }
 
 function commitPhysicalEdit(before, applyChange) {
-  const uiBefore = { hoveredHeatPartIndex: state.hoveredHeatPartIndex, wiringUi: cloneWiringUiState() };
+  const uiBefore = { hoveredHeatPartIndex: state.hoveredHeatPartIndex };
   applyChange();
   const after = captureBlueprintEditSnapshot(state);
   if (blueprintSnapshotsEqual(before, after)) {
@@ -1138,7 +1017,6 @@ function commitPhysicalEdit(before, applyChange) {
     return false;
   }
   pushBlueprintEditSnapshot(before);
-  resetWiringEditorState();
   refreshAfterPhysicalEdit();
   return true;
 }
@@ -1148,46 +1026,18 @@ export function clearPhysicalBlueprintHistory() {
   refreshBlueprintUndoControl();
 }
 
-// The single authoritative Power-policy update path. `transform` receives the
-// current normalised policy and returns the desired policy (a preset switch or a
-// Custom reorder). The change is committed as a Blueprint design-setting edit:
-// it clones and normalises the policy, replaces state.wiring immutably while
-// preserving all Power/Data sections and routes, and runs through
-// commitPhysicalEdit so an exact no-op creates no Undo entry while a real change
-// pushes one history snapshot, persists and refreshes analysis/cost. Returns
-// true when a change was committed.
-export function applyPowerPolicyChange(transform) {
-  const policyRules = globalThis.PowerPolicyRules;
-  if (!policyRules || typeof transform !== "function") return false;
-  const before = captureBlueprintEditSnapshot(state);
-  return commitPhysicalEdit(before, () => {
-    const current = policyRules.normalizePolicy(state.wiring?.powerPolicy);
-    const next = policyRules.normalizePolicy(transform(current));
-    // Immutable replacement (the design-edit architecture expects a new object);
-    // sections, connections, tiers and Data wiring are carried over untouched.
-    state.wiring = { ...state.wiring, powerPolicy: next };
-  });
-}
-
 export function undoBlueprintEdit() {
-  if (state.blueprintView === "wiring" && canUndoWiring()) {
-    const changed = undoWiring();
-    refreshBlueprintUndoControl();
-    return changed;
-  }
   if (!canUndoBlueprintEdit()) return false;
   const restored = popBlueprintEditUndo();
   if (!restored) return false;
   invalidateHeatAnalysisCache();
   clearHeatInspectionState();
-  resetWiringEditorState();
   persistCurrentEditorDesign();
   invalidatePresentation("blueprint-edit");
   if (blueprintEditUiHooks?.refresh) {
     blueprintEditUiHooks.refresh();
   } else {
     renderBuildGrid();
-    refreshWiringPresentation();
     renderLocalStats();
     renderPartInspector();
     renderSavedDesigns();
@@ -1197,7 +1047,6 @@ export function undoBlueprintEdit() {
 }
 
 export function editCell(x, y) {
-  if (state.blueprintView === "wiring") return;
   const existing = findPartAt(x, y);
   if (!state.selectedPart) {
     state.selectedCell = existing ? { x: existing.x, y: existing.y } : null;
@@ -1233,7 +1082,6 @@ export function editCell(x, y) {
   const before = captureBlueprintEditSnapshot(state);
   commitPhysicalEdit(before, () => {
     state.design = candidate.nextDesign;
-    syncWiringWithDesign();
   });
   // Placing does not reset the orientation: the next copy of this part comes out
   // the same way round.
@@ -1268,7 +1116,6 @@ export function rotateCell(x, y) {
   const before = captureBlueprintEditSnapshot(state);
   const changed = commitPhysicalEdit(before, () => {
     state.design = next;
-    syncWiringWithDesign();
     if (state.selectedPart === part.type) {
       state.previewRotation = newRotation;
     }
@@ -1309,7 +1156,6 @@ export function flipCell(x, y) {
   const before = captureBlueprintEditSnapshot(state);
   const changed = commitPhysicalEdit(before, () => {
     state.design = next;
-    syncWiringWithDesign();
     if (state.selectedPart === part.type) {
       state.previewFlipped = newFlipped;
     }
@@ -1357,7 +1203,6 @@ export function removeCell(x, y) {
   const snapshot = captureBlueprintEditSnapshot(state);
   commitPhysicalEdit(snapshot, () => {
     state.design = next;
-    syncWiringWithDesign();
   });
 }
 
@@ -1369,8 +1214,6 @@ export function resetDesign() {
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
     refreshLoadedBlueprintPresentation();
-    // Reset Design restores the default modules together with default wiring.
-    resetWiringToDefault({ resetEditorHistory: false });
   });
 }
 
@@ -1383,13 +1226,12 @@ export function clearDesign() {
     clearHeatInspectionState();
     state.loadedEditorBlueprintId = null;
     refreshLoadedBlueprintPresentation();
-    clearAllWiring({ resetEditorHistory: false });
   });
 }
 
 export function requestResetDesign() {
   const modules = defaultDesign();
-  const target = captureBlueprintEditSnapshot({ ...state, design: modules, wiring: defaultWiring(), loadedEditorBlueprintId: null });
+  const target = captureBlueprintEditSnapshot({ ...state, design: modules, loadedEditorBlueprintId: null });
   if (blueprintSnapshotsEqual(captureBlueprintEditSnapshot(state), target)) return false;
   openBlueprintDestructiveConfirm("reset");
   return true;
@@ -1405,14 +1247,13 @@ function openBlueprintDestructiveConfirm(action) {
   state.pendingKickTargetId = null;
   state.blueprintModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = action === "reset" ? "Reset to the starter ship?" : "Clear all components?";
-  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = action === "reset" ? "Your current component layout and Wiring will be replaced. You can Undo this afterward." : "Your current component layout and Wiring will be removed. You can Undo this afterward.";
+  if (dom.confirmModalMessage) dom.confirmModalMessage.textContent = action === "reset" ? "Your current component layout will be replaced. You can Undo this afterward." : "Your current component layout will be removed. You can Undo this afterward.";
   if (dom.confirmAcceptButton) dom.confirmAcceptButton.textContent = action === "reset" ? "Reset Ship" : "Clear All";
   if (dom.confirmModal) dom.confirmModal.hidden = false;
   dom.confirmCancelButton?.focus?.();
 }
 
 export function handleBlueprintConfirmModalAction() {
-  if (confirmPendingWiringClear()) return true;
   const action = state.pendingBlueprintDestructiveAction;
   if (!action) return false;
   state.pendingBlueprintDestructiveAction = null;
@@ -1425,7 +1266,6 @@ export function handleBlueprintConfirmModalAction() {
 }
 
 export function closeBlueprintConfirmModalIfPending() {
-  if (cancelPendingWiringClear()) return true;
   if (!state.pendingBlueprintDestructiveAction) return false;
   state.pendingBlueprintDestructiveAction = null;
   if (dom.confirmModal) dom.confirmModal.hidden = true;
@@ -1446,7 +1286,7 @@ function designRepairWarningMessage() {
 // buildShipSummaryModel; this function only renders it.
 function renderShipSummary(stats, heat) {
   if (!dom.stats) return;
-  const flow = WIRING_ENABLED ? currentPowerFlow() : null;
+  const flow = currentPowerFlow();
   const model = buildShipSummaryModel(stats, {
     design: state.design,
     powerSummary: flow,
@@ -1539,7 +1379,7 @@ function attachShipSummaryAccordionHandlers() {
 }
 
 export function renderLocalStats() {
-  const stats = computeStats(state.design, { wiring: state.wiring });
+  const stats = computeStats(state.design, { dataLinks: state.dataLinks });
   const heat = currentHeatAnalysis();
   const mine = state.mine;
   const money = currentMatchMoney(mine);
@@ -1548,7 +1388,6 @@ export function renderLocalStats() {
   if (dom.combatStyleSelect) {
     dom.combatStyleSelect.value = state.combatStyle || "hold";
   }
-  if (WIRING_ENABLED) refreshPowerPriorityControls();
   refreshLoadedBlueprintPresentation();
   if (dom.blueprintCostLabel) dom.blueprintCostLabel.textContent = `$${stats.unitCost.toLocaleString()}`;
   if (dom.blueprintCostStatus) {
@@ -1558,11 +1397,7 @@ export function renderLocalStats() {
   if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");
   renderShipSummary(stats, heat);
 
-  if (dom.blueprintCostBreakdown) {
-    dom.blueprintCostBreakdown.innerHTML = costBreakdownInnerMarkup(stats.costBreakdown);
-  }
-
-  renderAnalysisPanels(stats, heat);
+    renderAnalysisPanels(stats, heat);
 }
 
 function configureSelectedDroneBay(value) {
@@ -1713,32 +1548,7 @@ function sensorCoverageMarkup(stats) {
 }
 
 function renderAnalysisPanels(stats, heat) {
-  if (WIRING_ENABLED) {
-    // One shared resolver keeps the Ship summary, its Power details and this
-    // panel reporting identical authoritative figures.
-    const flow = currentPowerFlow();
-    const resolved = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
-    const { requested, delivered, spare, unmet, overloadedSections } = resolved;
-    const powerRows = [
-      ["Available generation", `${resolved.generation.toFixed(1)} MW`],
-      ["Active demand", `${requested.toFixed(1)} MW`],
-      ["Delivered", `${delivered.toFixed(1)} MW`],
-      ["Reachable spare", `${spare.toFixed(1)} MW`, spare > 0 ? "good" : ""],
-      ["Unmet", `${unmet.toFixed(1)} MW`, unmet > 0 ? "bad" : "good"],
-      ["Efficiency", formatPercent(stats.powerEfficiency)],
-      ["Priority preset", powerPresetLabel(resolved.preset || state.wiring?.powerPolicy?.preset)],
-      ["Overloaded sections", String(overloadedSections)]
-    ];
-    if (dom.powerAnalysisSummary) {
-      dom.powerAnalysisSummary.innerHTML = `<section class="analysis-summary-card"><h3>Power analysis</h3>${analysisGridMarkup(powerRows)}</section>${powerAllocationAnalysisHtml()}`;
-    }
-    if (dom.wiringAnalysisSummary) {
-      // Wiring owns a prioritised, actionable analysis renderer. Keep this
-      // legacy summary host empty so the same values are not repeated above it.
-      dom.wiringAnalysisSummary.innerHTML = "";
-      dom.wiringAnalysisSummary.hidden = true;
-    }
-  } else if (dom.dataAnalysisSummary) {
+  if (dom.dataAnalysisSummary) {
     // Data support reuses the Data Links presentation so the analysis tab and
     // the grid overlay describe the same prediction with the same cards.
     renderDataAnalysisPanel(dom.dataAnalysisSummary, { thermalAnalysis: heat });
@@ -1947,9 +1757,7 @@ function renderFullLoadThermalPanel(fullLoadResult) {
   const seconds = value => value === null ? "Never" : `${value.toFixed(1)} s`;
   const equilibrium = analysis.equilibriumTime === null ? "No equilibrium" : `${analysis.equilibriumTime.toFixed(1)} s`;
   const spareCooling = analysis.reserve >= 0;
-  const cable = fullLoadResult.powerThermal?.cableSummary || {};
   const totalCapacity = (fullLoadResult.powerThermal?.components || []).reduce((sum, component) => sum + (Number(component.finalHeatCapacity) || 0), 0);
-  const componentGeneration = analysis.generation - (Number(cable.totalPowerCableHeatPerSecond) || 0);
   const hottestIndex = analysis.firstOverheatIndex >= 0 ? analysis.firstOverheatIndex : state.design.reduce((best, part, index) => {
     const prediction = fullLoadResult.predictions?.get(part);
     const bestPrediction = fullLoadResult.predictions?.get(state.design[best]);
@@ -1981,8 +1789,6 @@ function renderFullLoadThermalPanel(fullLoadResult) {
       <div class="thermal-analysis-rows">
         ${row("Scenario", THERMAL_SCENARIO_NAMES[analysis.mode] || analysis.mode)}
         ${row("Final total Heat capacity", `${Math.round(totalCapacity)} H`)}
-        ${row("Component Heat generation", `+${componentGeneration.toFixed(1)} H/s`)}
-        ${row("Power cable Heat generation", `+${(Number(cable.totalPowerCableHeatPerSecond) || 0).toFixed(1)} H/s`)}
         ${row("Total Heat generation", `+${analysis.generation.toFixed(1)} H/s`)}
         ${row("Cooling", `-${analysis.cooling.toFixed(1)} H/s`)}
         ${row("Actual heat removed", `-${analysis.actualCooling.toFixed(1)} H/s`)}
@@ -2015,7 +1821,7 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     clearExteriorCoolingIndicators();
   }
   for (const cell of dom.grid.querySelectorAll(".build-cell")) {
-    cell.classList.remove("heat-related", "heat-unrelated", "heat-hosted-power-section", "coolant-network-pipe", "coolant-network-endpoint");
+    cell.classList.remove("heat-related", "heat-unrelated", "coolant-network-pipe", "coolant-network-endpoint");
   }
   dom.grid.classList.toggle("heat-inspecting", state.blueprintView === "heat" && validHeatIndex(state.hoveredHeatPartIndex));
   if (state.blueprintView !== "heat") { clearExteriorCoolingIndicators(); return; }
@@ -2040,7 +1846,6 @@ function updateHeatInspectionOverlay(analysis, options = {}) {
     cell.classList.toggle("heat-unrelated", connected.size > 0 && !connected.has(index));
     cell.classList.toggle("coolant-network-pipe", Boolean(coolantNetwork?.pipes.has(index)));
     cell.classList.toggle("coolant-network-endpoint", Boolean(coolantNetwork?.attachments.has(index)));
-    cell.classList.toggle("heat-hosted-power-section", focus === index && (analysis.powerThermal?.components?.[index]?.hostedActiveSectionIds || []).length > 0);
   }
   renderHeatContextCard(analysis);
   if (!options.preserveOverlay) {
@@ -2424,7 +2229,7 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
 function showStatTooltip(card, event) {
   if (!dom.statTooltip) return;
   const key = card.dataset.statKey;
-  const stats = computeStats(state.design, { wiring: state.wiring });
+  const stats = computeStats(state.design, { dataLinks: state.dataLinks });
   const markup = buildStatTooltipMarkup(key, stats);
   if (!markup) {
     dom.statTooltip.hidden = true;
@@ -2491,14 +2296,6 @@ function buildStatTooltipMarkup(key, stats) {
 
 function buildStatTooltipData(key, stats) {
   switch (key) {
-    case "fleet":
-      return {
-        label: "Fleet Squadron Size",
-        desc: "Number of ships spawned by this blueprint in matches. Cheaper designs with smaller mass allow you to control larger fleets in combat.",
-        formula: "Squadron Size = Clamp(Floor(260 / (UnitCost * 0.72 + Mass * 0.45)), 1, 5)",
-        breakdown: `Unit Cost: $${stats.unitCost}\nMass: ${stats.mass} T\nFinal Squad Size: ${stats.fleetCount} ship(s)`
-      };
-    
     case "class":
       return {
         label: "Ship Weight Class",
@@ -2565,29 +2362,23 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
 
     case "power": {
       const flow = currentPowerFlow();
-      const view = (globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
-        ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design: state.design, partNames: PART_DEFS, stats })
-        : resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+      const view = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
 
       const gen = view.availableGenerationMw ?? view.generationMw ?? view.generation ?? stats.powerGeneration;
       const demand = view.activeDemandMw ?? view.demandMw ?? view.requested ?? stats.powerUse;
       const delivered = view.allocatedMw ?? view.deliveredMw ?? view.delivered ?? Math.min(gen, demand);
       const unmet = view.unmetMw ?? view.unmet ?? Math.max(0, demand - delivered);
       const spare = unmet > 0.0005 ? 0 : (view.reachableSpareMw ?? view.spareMw ?? view.spare ?? Math.max(0, gen - demand));
-      const stranded = view.strandedGenerationMw ?? view.strandedMw ?? view.stranded ?? 0;
 
       const fmtMw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
 
       let explanationText = "";
       if (view.explanation) {
         explanationText = view.explanation;
-      } else if (view.loadShedActive && view.lowestShedCategory) {
-        const catLabel = globalThis.PowerDiagnostics ? globalThis.PowerDiagnostics.categoryLabel(view.lowestShedCategory) : view.lowestShedCategory;
-        explanationText = `${catLabel} was load-shed after higher-priority demand was supplied.`;
       } else if (unmet > 0.0005) {
-        explanationText = `${fmtMw(unmet)} of connected demand could not be supplied over the active Power network.`;
+        explanationText = `${fmtMw(unmet)} of component demand could not be supplied.`;
       } else {
-        explanationText = "Power supply meets all connected demand across the network.";
+        explanationText = "Power supply meets all component demand.";
       }
 
       const rows = [
@@ -2597,13 +2388,9 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
         `Unmet: ${fmtMw(unmet)}`,
         `Reachable spare: ${fmtMw(spare)}`
       ];
-      if (stranded > 0.0005) {
-        rows.push(`Stranded generation: ${fmtMw(stranded)}`);
-      }
-
       return {
         label: "Reactor Power Balance",
-        desc: "Power is allocated through connected networks according to cable capacity and the active priority policy.",
+        desc: "Power is supplied universally from the ship's total generation to its active component demand.",
         breakdown: `${rows.join("\n")}\n\n${explanationText}`
       };
     }
@@ -2629,9 +2416,7 @@ Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
 
     case "powerEfficiency": {
       const flow = currentPowerFlow();
-      const view = (globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
-        ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design: state.design, partNames: PART_DEFS, stats })
-        : resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+       const view = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
       const gen = view.availableGenerationMw ?? view.generationMw ?? view.generation ?? stats.powerGeneration;
       const demand = view.activeDemandMw ?? view.demandMw ?? view.requested ?? stats.powerUse;
       const fmtMw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
@@ -2645,9 +2430,7 @@ Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
 
     case "powerDebuff": {
       const flow = currentPowerFlow();
-      const view = (globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
-        ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design: state.design, partNames: PART_DEFS, stats })
-        : resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
+       const view = resolvePowerSummary(stats, flow, { design: state.design, partNames: PART_DEFS });
       const gen = view.availableGenerationMw ?? view.generationMw ?? view.generation ?? stats.powerGeneration;
       const demand = view.activeDemandMw ?? view.demandMw ?? view.requested ?? stats.powerUse;
       const fmtMw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
@@ -2747,55 +2530,6 @@ Total Mass: ${stats.mass} T`
     default:
       return { label: "", desc: "", formula: "", breakdown: "" };
   }
-}
-
-function costBreakdownInnerMarkup(breakdown) {
-  if (!breakdown) return "";
-  const rows = [
-    ["Base", breakdown.base],
-    ["Parts", breakdown.parts],
-    ["Mass", breakdown.mass],
-    ["Hull", breakdown.hull],
-    ["Shield", breakdown.shield],
-    ["Repair", breakdown.repair],
-    ["Weapons", breakdown.weaponPremium]
-  ];
-  const formatMoney = (value) => {
-    const number = Number(value) || 0;
-    return Number.isInteger(number) ? `$${number}` : `$${number.toFixed(2)}`;
-  };
-  // Section 7A: infrastructure (Power/Data wiring) is added on top of the
-  // component-derived price. Only render the infrastructure block when wiring
-  // cost data is present so component-only previews are unchanged.
-  const hasInfrastructure = WIRING_ENABLED && breakdown.totalInfrastructure !== undefined;
-  const infrastructureRows = hasInfrastructure ? [
-    ["Power wiring", breakdown.powerWiring || 0],
-    ["Data wiring", breakdown.dataWiring || 0],
-    ["Total infra", breakdown.totalInfrastructure || 0]
-  ] : [];
-  const percentText = hasInfrastructure ? `${Math.round((breakdown.infrastructurePercentage || 0) * 100)}%` : "";
-  return `
-    <div class="cost-breakdown-grid">
-      ${rows.map(([label, value]) => `
-        <div>
-          <span>${label}</span>
-          <strong>${formatMoney(value)}</strong>
-        </div>
-      `).join("")}
-      ${infrastructureRows.map(([label, value]) => `
-        <div class="cost-breakdown-infrastructure">
-          <span>${label}</span>
-          <strong>${formatMoney(value)}</strong>
-        </div>
-      `).join("")}
-    </div>
-    ${hasInfrastructure ? `
-    <div class="cost-breakdown-total">
-      <div><span>Infrastructure share</span><strong>${percentText}</strong></div>
-      <div><span>Total ship cost</span><strong>${formatMoney(breakdown.total)}</strong></div>
-    </div>
-    <p class="cost-breakdown-guidance" data-infrastructure-guidance>Conventional designs often spend around 5–10% of total cost on wiring. Lower is cheaper but may indicate limited capacity or redundancy; higher can be justified by Heavy trunks or ring routes.</p>` : ""}
-  `;
 }
 
 const DIAGNOSTIC_LEVELS = new Set(["neutral", "good", "warning", "bad"]);

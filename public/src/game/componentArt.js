@@ -5100,7 +5100,7 @@ function drawProfessionalFootprintDetail(type, unit, tilesLong, tilesCross, colo
     drawFootprintPort(unit, capX + capLong * 0.5, 0, unit * 0.06, "#fde68a");
 
     // Power coupling: wider across and lighter in tone than the injector, with a
-    // bus plate and two cable contacts, so the two ends of the vessel are
+    // bus plate and two contact points, so the two ends of the vessel are
     // visibly doing different jobs rather than mirroring each other.
     const couplingX = casingHalfLong - unit * 0.06 - couplingLong;
     ctx.save();

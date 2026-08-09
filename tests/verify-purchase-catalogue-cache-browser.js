@@ -43,7 +43,7 @@ function manySavedDesigns(count) {
       id: `saved-${i}`,
       name: `Ship ${i + 1}`,
       blueprint: largeDesign(i),
-      wiring: { version: 3, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: { preset: "balanced", customOrder: ["propulsion", "shields", "pointDefence", "command", "weapons", "coolingSupport"] } },
+      dataLinks: [],
       combatStyle: "hold",
       updatedAt: Date.now() + i
     });
@@ -74,7 +74,7 @@ function manySavedDesigns(count) {
       s.combatStyle = "hold";
       s.activeLoadoutId = "all";
       s.design = designs[0].blueprint.slice();
-      s.wiring = designs[0].wiring;
+      s.dataLinks = designs[0].dataLinks;
       s.mine = { ready: true, money: 100_000, activeShips: 0, shipCap: 100, team: "blue", income: 50 };
     }, manySavedDesigns(24));
 
@@ -86,7 +86,7 @@ function manySavedDesigns(count) {
       purchase.rebuildPurchaseCatalogue();
       return { ...cache.counters };
     });
-    const catalogueCost = baseline.computeStats + baseline.normalizeDesign + baseline.normalizeWiring + baseline.validateBlueprint;
+    const catalogueCost = baseline.computeStats + baseline.normalizeDesign + baseline.normalizeDataLinks + baseline.validateBlueprint;
     assert.ok(catalogueCost > 0, "initial catalogue must perform analysis");
 
     // Warm-up done: 100 snapshots should not trigger any further expensive work.
@@ -104,7 +104,7 @@ function manySavedDesigns(count) {
     });
     assert.strictEqual(snapshot.computeStats, baseline.computeStats, "computeStats must not run during snapshots");
     assert.strictEqual(snapshot.normalizeDesign, baseline.normalizeDesign, "normalizeDesign must not run during snapshots");
-    assert.strictEqual(snapshot.normalizeWiring, baseline.normalizeWiring, "normalizeWiring must not run during snapshots");
+    assert.strictEqual(snapshot.normalizeDataLinks, baseline.normalizeDataLinks, "normalizeDataLinks must not run during snapshots");
     assert.strictEqual(snapshot.validateBlueprint, baseline.validateBlueprint, "validateBlueprint must not run during snapshots");
     assert.ok(snapshot.availabilityUpdate >= 100, "availability updates ran for each snapshot");
 
@@ -114,7 +114,7 @@ function manySavedDesigns(count) {
       const before = { ...cache.counters };
       const s = window.__mfaState;
       s.design = s.savedDesigns[1].blueprint.slice();
-      s.wiring = s.savedDesigns[1].wiring;
+      s.dataLinks = s.savedDesigns[1].dataLinks;
       const purchase = await import("/src/ui/purchaseUi.js");
       purchase.rebuildPurchaseCatalogue();
       return { before, after: { ...cache.counters } };

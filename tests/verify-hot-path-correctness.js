@@ -3,8 +3,6 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-global.WiringRules = require("../public/src/shared/wiringRules");
-global.PowerFlowRules = require("../public/src/shared/powerFlowRules");
 global.ShieldRules = require("../public/src/shared/shieldRules");
 global.HeatRules = require("../public/src/shared/heatRules");
 
@@ -36,9 +34,9 @@ const design = [
   { type: "reactor", x: 8, y: 7, rotation: 0 },
   { type: "radiator", x: 6, y: 7, rotation: 0 }
 ];
-const wiring = global.WiringRules.emptyWiring();
-const template = createImmutableShipTemplate(design, wiring, computeStats(design, wiring));
-const player = { id: "p", team: "blue", ships: [], shipCap: 5, design, wiring, stats: template.stats };
+const dataLinks = [];
+const template = createImmutableShipTemplate(design, dataLinks, computeStats(design, { dataLinks }));
+const player = { id: "p", team: "blue", ships: [], shipCap: 5, design, dataLinks, stats: template.stats };
 const room = {
   nextEntityId: 1,
   world: { width: 2000, height: 1200 },

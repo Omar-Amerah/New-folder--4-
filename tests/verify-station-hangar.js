@@ -236,14 +236,14 @@ function run() {
       { x: 7, y: 7, type: "core", rotation: 0 },
       { x: 7, y: 6, type: "engine", rotation: 0 }
     ];
-    player.wiring = null;
-    player.stats = computeStats(player.design, player.wiring);
+    player.dataLinks = [];
+    player.stats = computeStats(player.design);
     const template = getOrCreateTemplate(
       player.id,
       player.design,
-      player.wiring,
+      player.dataLinks,
       player.stats,
-      canonicalBlueprintSignature(player.design, player.wiring)
+      canonicalBlueprintSignature(player.design, player.dataLinks)
     );
     const result = enqueueStationProduction(launchRoom, player, {
       template,
@@ -284,7 +284,7 @@ function run() {
   const launchNormal = { x: Math.cos(launchStation.angle), y: Math.sin(launchStation.angle) };
   const frontBlocker = spawnShip(launchRoom, frontBlockerOwner, 33, 1, {
     design: frontBlockerOwner.design,
-    wiring: frontBlockerOwner.wiring,
+    dataLinks: frontBlockerOwner.dataLinks,
     stats: frontBlockerOwner.stats,
     spawnPoint: {
       x: centralHangar.mouth.x + launchNormal.x * 40,
@@ -331,9 +331,9 @@ function run() {
   const blockerTemplate = getOrCreateTemplate(
     blockerPlayer.id,
     blockerPlayer.design,
-    blockerPlayer.wiring,
+    blockerPlayer.dataLinks,
     blockerPlayer.stats,
-    canonicalBlueprintSignature(blockerPlayer.design, blockerPlayer.wiring)
+    canonicalBlueprintSignature(blockerPlayer.design, blockerPlayer.dataLinks)
   );
   const blockedByFront = enqueueStationProduction(launchRoom, blockerPlayer, {
     template: blockerTemplate,

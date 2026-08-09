@@ -242,7 +242,6 @@ const COUNTER_FIELDS = Object.freeze([
   "heatBearingComponents",
   "heatHotComponents",
   "heatPendingInputComponents",
-  "heatCableSourceComponents",
   "heatLoadedGeneratorComponents",
   "heatEdgesTotal",
   "heatEdgesVisited",

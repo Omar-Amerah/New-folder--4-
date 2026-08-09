@@ -1,24 +1,18 @@
-// Calculations for ship statistics, speed cap scales, mass classes, power efficiency, cost breakdown, and builder warnings.
+// Calculations for ship statistics, speed cap scales, mass classes, power efficiency, fleet count, and builder warnings.
 
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "./parts.js";
-import { SHIP_ECONOMY, WIRING_INFRASTRUCTURE, POWER_DEMAND } from "../constants.js";
-import { isConnected, isOverlapping, isOutOfBounds } from "./blueprintValidation.js";
-import { getOccupiedCells } from "./footprint.js";
+import { FLEET_COUNT_RULES } from "../constants.js";
 import ShieldRules from "../shared/shieldRules.js";
-import { solveBlueprintPower } from "./powerAllocationAnalysis.js";
+
 import { angleDifference, directionalFootprintToShipRadians, normalizeRotation } from "./rotation.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
-  calculateDirectionalTurnInputs, calculateSystemEfficiency, effectiveStackedValue } from "../shared/movementStats.js";
+  calculateDirectionalTurnInputs, effectiveStackedValue } from "../shared/movementStats.js";
+import { calculateUniversalPower } from "../shared/universalPower.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
-import { WIRING_ENABLED } from "../featureFlags.js";
 
-const WiringRules = globalThis.WiringRules;
 const DataSupportRules = globalThis.DataSupportRules || null;
-if (!WiringRules) {
-  throw new Error("WiringRules must load before componentStats.js");
-}
 
 function sensorStackMultiplier(index) {
   if (index <= 0) return 1;
@@ -153,10 +147,7 @@ export function computeStats(modules, options = {}) {
   let weaponBonusByIndex = null;
   if (DataSupportRules) {
     try {
-      const dataNetworks = WIRING_ENABLED && options.wiring
-        ? (WiringRules.analyzeWiring(modules, options.wiring, PART_STATS).data || {}).networks || []
-        : DataSupportRules.automaticDataNetworks(modules, PART_STATS);
-      weaponBonusByIndex = DataSupportRules.analyzeDataSupport(modules, dataNetworks, PART_STATS).weaponBonusByIndex || [];
+      weaponBonusByIndex = DataSupportRules.analyzeDirectDataSupport(modules, options.dataLinks || [], PART_STATS).weaponBonusByIndex || [];
     } catch (_) {
       weaponBonusByIndex = null;
     }
@@ -228,8 +219,7 @@ export function computeStats(modules, options = {}) {
 
   repairRate = effectiveStackedValue(repairRateValues, GENERATED_BALANCE?.repair?.stackingMultiplier ?? 0.8);
   const baseShieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
-  const effectiveShieldStats = calculateBlueprintEffectiveShieldStats(modules, options.wiring);
-  const shieldStats = WIRING_ENABLED && options.wiring ? effectiveShieldStats : baseShieldStats;
+  const shieldStats = baseShieldStats;
 
   applyWeaponUtilityBonuses(weaponTotals, {
     rangeBonus,
@@ -238,9 +228,11 @@ export function computeStats(modules, options = {}) {
     coolingBonus
   });
 
-  const power = powerGeneration - powerUse;
-  const effectivePowerGeneration = WIRING_ENABLED ? powerGeneration : powerUse;
-  const efficiency = WIRING_ENABLED ? calculateSystemEfficiency(powerGeneration, powerUse) : 1;
+  const powerFlow = calculateUniversalPower(modules, PART_STATS);
+  const availablePower = powerFlow.summary.availableGenerationMw;
+  const powerRatio = powerFlow.summary.powerRatio;
+  const power = availablePower - powerUse;
+  const efficiency = powerRatio;
 
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PART_STATS, {
     centerOfMass,
@@ -250,7 +242,7 @@ export function computeStats(modules, options = {}) {
     mass,
     thrust,
     turnBonus,
-    powerGeneration: effectivePowerGeneration,
+    powerGeneration: availablePower,
     powerUse,
     engineThrustValues,
     engineMassValues,
@@ -263,24 +255,26 @@ export function computeStats(modules, options = {}) {
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
 
-  const costBreakdown = applyInfrastructureCost(calculateCostBreakdown({
-    cost,
-    mass,
-    maxHp,
-    maxShield,
-    repairRate,
-    blaster,
-    missile,
-    railgun,
-    beam
-  }), modules, options.wiring);
-
-  const unitCost = costBreakdown.total;
-  const fleetCount = clamp(Math.floor(260 / Math.max(58, unitCost * 0.72 + mass * 0.45)), 1, 5);
+  const unitCost = cost;
+  const fleetRules = FLEET_COUNT_RULES;
+  const fleetCount = clamp(
+    Math.floor(
+      (Number(fleetRules.base) || 260) /
+        Math.max(
+          Number(fleetRules.minimumDivisor) || 58,
+          unitCost * (Number(fleetRules.unitCostMultiplier) || 0.72) +
+            mass * (Number(fleetRules.massMultiplier) || 0.45)
+        )
+    ),
+    Number(fleetRules.minimum) || 1,
+    Number(fleetRules.maximum) || 5
+  );
 
   const warnings = shipWarnings({
+    modules,
     powerGeneration,
     powerUse,
+    availablePower,
     thrust,
     effectiveThrust: movement.effectiveThrust,
     thrustRatio: movement.thrustRatio,
@@ -319,6 +313,9 @@ export function computeStats(modules, options = {}) {
     powerGeneration,
     powerUse,
     power,
+    availablePower: Number(availablePower.toFixed(2)),
+    powerRatio: Number(powerRatio.toFixed(2)),
+    powerStorageDischarge: Number(powerFlow.summary.storageDischargeMw.toFixed(2)),
     efficiency: Number(efficiency.toFixed(2)),
     thrust,
     effectiveThrust: Math.round(movement.effectiveThrust),
@@ -364,7 +361,6 @@ export function computeStats(modules, options = {}) {
     weapons: summarizeWeaponTotals(weaponTotals),
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     warnings,
-    costBreakdown,
     fleetCount,
     baseSensorRange: sensorProfile.baseRange,
     sensorRange: Number(sensorProfile.omniRange.toFixed(1)),
@@ -377,103 +373,6 @@ export function computeStats(modules, options = {}) {
       omni: sensorProfile.omniContributions,
       directed: sensorProfile.directedContributions
     }
-  };
-}
-
-export function calculateBlueprintEffectiveShieldStats(modules, wiring) {
-  if (!WIRING_ENABLED) return ShieldRules.calculateShieldStats(modules, PART_STATS);
-  if (!wiring) return ShieldRules.calculateShieldStats(modules, PART_STATS);
-  const flow = solveBlueprintPower(modules, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
-  const powerByComponent = new Map((flow?.byComponentIndex || []).map((entry) => [entry.componentIndex, entry]));
-  let fallbackNetworkByComponent = new Map();
-  if (!flow) {
-    try { fallbackNetworkByComponent = WiringRules.analyzePowerNetworks(modules, wiring, PART_STATS).networkByComponent || new Map(); }
-    catch (_) { fallbackNetworkByComponent = new Map(); }
-  }
-  const powerDemandRules = globalThis.PowerDemandRules;
-  const capacityPowerMultiplier = (index, module, part) => {
-    if (!((Number(part.shield) || 0) > 0)) return 1;
-    const entry = powerByComponent.get(index);
-    if (!entry || entry.state === "disconnected") return 0;
-    const maintenanceMw = powerDemandRules?.requestedMwForComponent
-      ? powerDemandRules.requestedMwForComponent(part, 0, POWER_DEMAND)
-      : Number(part.powerUse) || 0;
-    if (!(maintenanceMw > 0)) return 1;
-    return clamp((Number(entry.allocatedMw) || 0) / maintenanceMw, 0, 1);
-  };
-  return ShieldRules.calculateShieldStats(modules, PART_STATS, {
-    powerMultiplier: (index, module, part) => {
-      if (!((Number(part.shield) || 0) > 0 || (Number(part.shieldRegen) || 0) > 0)) return 1;
-      const entry = powerByComponent.get(index);
-      if (entry) return entry.state === "disconnected" ? 0 : clamp(Number(entry.operationalMultiplier), 0, 1);
-      const network = fallbackNetworkByComponent.get(index);
-      if (!network || !(network.sourceIndices || []).length) return 0;
-      return clamp(Number(network.availableEfficiency), 0, 1);
-    },
-    capacityPowerMultiplier,
-    heatMultiplier: () => 1
-  });
-}
-
-// Section 7A cost ordering (shared with the server): calculate the component
-// price normally, then add raw Power/Data infrastructure cost. Infrastructure
-// is never multiplied by hull/mass/weapon premiums. Passing wiring enables the
-// surcharge; without wiring the component price is returned unchanged so the
-// client preview total matches the server total for the same inputs.
-export function calculateInfrastructureCost(modules, wiring) {
-  if (!WIRING_ENABLED) return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
-  const rules = globalThis.WiringInfrastructureRules;
-  if (!wiring || !rules) return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
-  try {
-    const infra = rules.computeInfrastructureCost(modules, wiring, PART_STATS, WIRING_INFRASTRUCTURE);
-    return { powerWiring: infra.powerWiring, dataWiring: infra.dataWiring, totalInfrastructure: infra.totalInfrastructure };
-  } catch (_) {
-    return { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0 };
-  }
-}
-
-export function applyInfrastructureCost(costBreakdown, modules, wiring) {
-  if (!WIRING_ENABLED) return costBreakdown;
-  const componentsTotal = costBreakdown.total;
-  const infra = calculateInfrastructureCost(modules, wiring);
-  const rules = globalThis.WiringInfrastructureRules;
-  const presentation = rules
-    ? rules.infrastructureCostPresentation(componentsTotal, infra.powerWiring, infra.dataWiring)
-    : { powerWiring: 0, dataWiring: 0, totalInfrastructure: 0, totalShipCost: componentsTotal, infrastructurePercentage: 0 };
-  costBreakdown.preInfrastructureShipCost = componentsTotal;
-  costBreakdown.powerWiring = presentation.powerWiring;
-  costBreakdown.dataWiring = presentation.dataWiring;
-  costBreakdown.totalInfrastructure = presentation.totalInfrastructure;
-  costBreakdown.infrastructurePercentage = presentation.infrastructurePercentage;
-  costBreakdown.total = Math.round(presentation.totalShipCost);
-  return costBreakdown;
-}
-
-export function calculateCostBreakdown(stats) {
-  const base = SHIP_ECONOMY.baseShipCost;
-  const parts = stats.cost * SHIP_ECONOMY.partCostMultiplier;
-  const mass = stats.mass * SHIP_ECONOMY.massCostMultiplier;
-  const hull = stats.maxHp * SHIP_ECONOMY.hullCostMultiplier;
-  const shield = stats.maxShield * SHIP_ECONOMY.shieldCostMultiplier;
-  const repair = stats.repairRate * SHIP_ECONOMY.repairCostMultiplier;
-
-  const weaponPremium =
-    stats.blaster * SHIP_ECONOMY.weaponPremiums.blaster +
-    stats.missile * SHIP_ECONOMY.weaponPremiums.missile +
-    stats.railgun * SHIP_ECONOMY.weaponPremiums.railgun +
-    (stats.beam || 0) * (SHIP_ECONOMY.weaponPremiums.beam || SHIP_ECONOMY.weaponPremiums.railgun);
-
-  const total = base + parts + mass + hull + shield + repair + weaponPremium;
-
-  return {
-    base: Math.round(base),
-    parts: Math.round(parts),
-    mass: Math.round(mass),
-    hull: Math.round(hull),
-    shield: Math.round(shield),
-    repair: Math.round(repair),
-    weaponPremium: Math.round(weaponPremium),
-    total: Math.round(total)
   };
 }
 
@@ -561,11 +460,10 @@ export function summarizeWeaponTotals(totals) {
 export function shipWarnings(stats) {
   const warnings = [];
 
-  const powerUse = Number(stats.powerUse || 0);
-  const powerGeneration = Number(stats.powerGeneration || 0);
   const effectiveThrust = Number(stats.effectiveThrust || 0);
   const thrustRatio = Number(stats.thrustRatio || 0);
-  const powerDebuff = Number(stats.powerDebuff || 0);
+  const powerUse = Number(stats.powerUse || 0);
+  const availablePower = Number(stats.availablePower ?? stats.powerGeneration ?? 0);
 
   const weaponCount =
     Number(stats.blaster || 0) +
@@ -574,52 +472,26 @@ export function shipWarnings(stats) {
     Number(stats.beam || 0) +
     Number(stats.pointDefense || 0);
 
-  const modules = Array.isArray(stats.modules) ? stats.modules : [];
-  const hasReactor = modules.some((module) => module.type === "reactor");
-
-  const coreGeneration = Number(PART_STATS.core?.powerGeneration || 0);
-  const isUnderpowered = powerUse > powerGeneration;
-  const hasShield = Number(stats.shield || 0) > 0;
-  const hasRepair = Number(stats.repair || 0) > 0;
-
   // Keep warnings for clear, actionable problems.
   // Softer trade-offs like "heavy", "slow", or "average mobility" should be handled by stat colour-coding.
 
-  if (WIRING_ENABLED && isUnderpowered) {
-    warnings.push(
-      `Power overdraw: uses ${formatStatNumber(powerUse)} MW / generates ${formatStatNumber(powerGeneration)} MW. Add reactors or remove high-power modules.`
-    );
-  }
-
-  if (WIRING_ENABLED && !hasReactor && powerUse > coreGeneration && !isUnderpowered) {
-    warnings.push("No reactor installed: add a reactor for high-power systems.");
+  if (powerUse > availablePower + 0.0005) {
+    warnings.push(`Power shortage: ${availablePower.toFixed(1)} MW available for ${powerUse.toFixed(1)} MW demand.`);
   }
 
   if (effectiveThrust <= 0) {
-    warnings.push(WIRING_ENABLED ? "No effective thrust: add engines or fix power supply." : "No effective thrust: add engines.");
+    warnings.push("No effective thrust: add engines.");
   }
 
   if (weaponCount === 0) {
     warnings.push("No weapons installed: this ship cannot attack.");
   }
 
-  const hasBackupCore = modules.some((module) => module.type === "backupCore");
+  const hasBackupCore = (stats.modules || []).some((module) => module.type === "backupCore");
   if (hasBackupCore) {
     warnings.push("Backup available: ship can survive main Core loss");
   } else {
     warnings.push("Main Core only: destruction disables ship");
-  }
-
-  if (WIRING_ENABLED && isUnderpowered && (hasShield || hasRepair || effectiveThrust > 0 || powerDebuff > 0)) {
-    const affected = [];
-
-    if (effectiveThrust > 0 || powerDebuff > 0) affected.push("engines");
-    if (hasShield) affected.push("shields");
-    if (hasRepair) affected.push("repair");
-
-    if (affected.length > 0) {
-      warnings.push(`Underpowered systems may reduce ${joinList(affected)} performance.`);
-    }
   }
 
   // Only warn about mobility when it is genuinely severe.
@@ -636,87 +508,8 @@ export function shipWarnings(stats) {
   return dedupeWarnings(warnings);
 }
 
-function formatStatNumber(value) {
-  const number = Number(value || 0);
-  return Number.isInteger(number) ? String(number) : number.toFixed(1);
-}
-
-function joinList(items) {
-  if (items.length <= 1) return items[0] || "";
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
-}
-
 function dedupeWarnings(warnings) {
   return [...new Set(warnings.filter(Boolean))];
-}
-
-export function estimatePartEffectiveCost(type, design) {
-  const baseDesign = Array.isArray(design) ? design.map((part) => ({ ...part })) : [];
-  const current = computeStats(baseDesign);
-  const occupied = new Set();
-
-  for (let i = 0; i < baseDesign.length; i += 1) {
-    const part = baseDesign[i];
-    const stat = PART_STATS[part.type] || PART_STATS.frame;
-    const footprint = stat.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
-
-    for (const cell of cells) {
-      occupied.add(`${cell.x},${cell.y}`);
-    }
-  }
-
-  const dx = [1, -1, 0, 0];
-  const dy = [0, 0, 1, -1];
-
-  for (let i = 0; i < baseDesign.length; i += 1) {
-    const part = baseDesign[i];
-    const stat = PART_STATS[part.type] || PART_STATS.frame;
-    const footprint = stat.footprint || { width: 1, height: 1 };
-    const cells = getOccupiedCells(part.x, part.y, footprint, part.rotation || 0);
-
-    for (const cell of cells) {
-      for (let d = 0; d < 4; d += 1) {
-        const cx = cell.x + dx[d];
-        const cy = cell.y + dy[d];
-
-        if (cx < 0 || cx > 14 || cy < 0 || cy > 14) continue;
-        if (occupied.has(`${cx},${cy}`)) continue;
-
-        const candidate = [...baseDesign, { x: cx, y: cy, type }];
-
-        if (!isOutOfBounds(candidate) && !isOverlapping(candidate) && isConnected(candidate)) {
-          const updated = computeStats(candidate);
-          return Math.max(0, updated.unitCost - current.unitCost);
-        }
-      }
-    }
-  }
-
-  return estimateFormulaPartCost(type);
-}
-
-export function estimateFormulaPartCost(type) {
-  const stat = PART_STATS[type] || PART_STATS.frame;
-
-  const weaponPremium =
-    (stat.blaster || 0) * SHIP_ECONOMY.weaponPremiums.blaster +
-    (stat.missile || 0) * SHIP_ECONOMY.weaponPremiums.missile +
-    (stat.railgun || 0) * SHIP_ECONOMY.weaponPremiums.railgun +
-    (stat.beam || 0) * (SHIP_ECONOMY.weaponPremiums.beam || SHIP_ECONOMY.weaponPremiums.railgun);
-
-  return Math.max(
-    1,
-    Math.round(
-      stat.cost * SHIP_ECONOMY.partCostMultiplier +
-        stat.mass * SHIP_ECONOMY.massCostMultiplier +
-        stat.hp * SHIP_ECONOMY.hullCostMultiplier +
-        stat.shield * SHIP_ECONOMY.shieldCostMultiplier +
-        (stat.repairRate || 0) * SHIP_ECONOMY.repairCostMultiplier +
-        weaponPremium
-    )
-  );
 }
 
 

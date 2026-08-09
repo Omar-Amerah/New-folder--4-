@@ -11,9 +11,6 @@ const { getPlayerRallyPoint } = require("./ships");
 const { ensureEffectiveWeaponProfileCache } = require("./componentData");
 const { buildDroneSnapshots, buildBaySnapshots } = require("./drones");
 const { buildDecoySnapshots, buildLauncherSnapshots } = require("./decoys");
-const { buildPowerProtectionSnapshot } = require("./powerProtection");
-const { buildPowerWiringLayout, buildPowerWiringRuntime } = require("./powerWiringSnapshot");
-const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { BALANCE_REVISION } = require("./balanceConfig");
@@ -589,48 +586,24 @@ function getKnownStationComponentRevisions(client) {
 }
 
 
-function presentNetworkId(value) { return value === null || value === undefined ? null : value; }
 function finiteOrNull(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
-function buildSwitchgearSnapshot(_ship) { return []; }
-
-function buildProtectionSnapshot(ship) {
-  if (!WIRING_ENABLED) return null;
-  return buildPowerProtectionSnapshot(ship);
-}
-
-function buildPowerWiringLayoutSnapshot(ship) {
-  return buildPowerWiringLayout(ship);
-}
-function buildPowerWiringRuntimeSnapshot(ship) {
-  return buildPowerWiringRuntime(ship);
-}
 
 function appendShipPrivateRevisionFields(entry, ship) {
   entry.componentHeatRevision = ship.componentHeatRevision || 0;
   entry.heatTelemetryRevision = ship.heatTelemetryRevision || 0;
   entry.powerRuntimeRevision = (ship.powerRevision || 0)
-    + (ship.powerProtectionRevision || 0)
     + (ship.heatTelemetryRevision || 0);
 }
 
 function appendComponentPowerState(entry, ship) {
-  entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, power.networkId, Math.round(power.operationalMultiplier * 1000) / 1000]);
+  entry.componentPower = ship.componentPower.byComponentIndex.map((power) => [power.state, Math.round(power.operationalMultiplier * 1000) / 1000]);
   entry.powerStatus = ship.powerStatus;
   entry.powerRevision = ship.powerRevision || 0;
-  entry.wiringRevision = ship.wiringRevision || 0;
 }
 
 function appendDetailedPowerTelemetry(entry, ship) {
   appendComponentPowerState(entry, ship);
-  if (!WIRING_ENABLED) return;
   entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
-  entry.wiringStatus = wiringStatus(ship);
-  entry.switchgear = buildSwitchgearSnapshot(ship);
-  entry.powerProtection = buildProtectionSnapshot(ship);
-  entry.powerProtectionRevision = ship.powerProtectionRevision || 0;
-  entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
-  entry.powerWiringRevision = ship.wiringRevision || 0;
-  entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
 }
 
 function appendFullShipBaseline(entry, ship, includeTelemetry = true) {
@@ -657,47 +630,11 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   const powerChanged = ship.componentPower?.byComponentIndex && (knownPower ? known !== currentPowerRevision : ship.dirtyPower);
   if (powerChanged) {
     appendComponentPowerState(entry, ship);
-    if (includeTelemetry && WIRING_ENABLED) {
-      entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
-      entry.wiringStatus = wiringStatus(ship);
-      entry.switchgear = buildSwitchgearSnapshot(ship);
-    }
+    if (includeTelemetry) entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   }
-  // Section 7G: the compact runtime protection block has its own revision so
-  // stress/trip/retry changes reach the player even when component allocations
-  // are unchanged, while unchanged protection state resends nothing (the
-  // client merge preserves the previous block when omitted).
-  const knownProtection = client?.knownShipPowerProtectionRevisions instanceof Map ? client.knownShipPowerProtectionRevisions : null;
-  const currentProtectionRevision = ship.powerProtectionRevision || 0;
-  const protectionChanged = ship.componentPower?.byComponentIndex
-    && (knownProtection ? knownProtection.get(ship.id) !== currentProtectionRevision : ship.dirtyPowerProtection);
-  if (WIRING_ENABLED && includeTelemetry && protectionChanged) {
-    entry.powerProtection = buildProtectionSnapshot(ship);
-    entry.powerProtectionRevision = currentProtectionRevision;
-    if (!powerChanged) entry.switchgear = buildSwitchgearSnapshot(ship);
-  }
-  // Combat Power tab layout: resent only when the wiring revision changes
-  // (topology rebuild, damage/repair, design change). Unchanged layout arrays
-  // are never resent — the client merge preserves the previous layout.
-  const knownWiring = client?.knownShipWiringLayoutRevisions instanceof Map ? client.knownShipWiringLayoutRevisions : null;
-  const currentWiringRevision = ship.wiringRevision || 0;
-  const wiringLayoutChanged = ship.componentPower?.byComponentIndex
-    && (knownWiring ? knownWiring.get(ship.id) !== currentWiringRevision : (powerChanged || protectionChanged));
-  if (WIRING_ENABLED && includeTelemetry && wiringLayoutChanged) {
-    entry.powerWiring = buildPowerWiringLayoutSnapshot(ship);
-    entry.powerWiringRevision = currentWiringRevision;
-  }
-  // Live per-section runtime block: whenever flow (power) or stress/protection
-  // changed. Layout stays cached; only the runtime values refresh.
-  if (WIRING_ENABLED && includeTelemetry && (powerChanged || protectionChanged) && ship.componentPower?.byComponentIndex) {
-    entry.powerWiringRuntime = buildPowerWiringRuntimeSnapshot(ship);
-  }
-  // `powerThermal` contains Heat-derived values (component Heat generated,
-  // cable Heat generated, cooling, net rate, hottest component) that change
-  // during ordinary thermal ticks even when the Power allocator does not run.
-  // Send a fresh compact diagnostics block with Heat deltas, without forcing a
-  // Power solve or resending static design data.
-  if (WIRING_ENABLED && includeTelemetry && !powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
+  // `powerThermal` contains component Heat and universal Power diagnostics. It
+  // can change during ordinary thermal ticks even when allocation is unchanged.
+  if (includeTelemetry && !powerChanged && ship.componentPower?.byComponentIndex && ship.dirtyHeat?.size) {
     entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
   }
   const knownHeatTelemetry = client?.knownShipHeatTelemetryRevisions instanceof Map
@@ -707,13 +644,12 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   const heatTelemetryChanged = knownHeatTelemetry
     ? knownHeatTelemetry.get(ship.id) !== currentHeatTelemetryRevision
     : Boolean(ship.dirtyHeat?.size);
-  if (WIRING_ENABLED && includeTelemetry && heatTelemetryChanged && ship.componentPower?.byComponentIndex) {
+  if (includeTelemetry && heatTelemetryChanged && ship.componentPower?.byComponentIndex) {
     entry.powerThermal = buildRuntimePowerThermalSnapshot(ship);
     entry.heatTelemetryRevision = currentHeatTelemetryRevision;
   }
   // Focused telemetry is deliberately independent of dirty/revision flags: a
-  // newly selected ship must receive a complete current diagnostics block, and
-  // the scheduled 2 Hz refresh must not depend on whether a topology changed.
+  // newly selected ship must receive a complete current diagnostics block.
   if (forceTelemetry && ship.componentPower?.byComponentIndex) appendDetailedPowerTelemetry(entry, ship);
   if (ship.dirtyComponents && ship.dirtyComponents.size) {
     const delta = [];
@@ -737,23 +673,11 @@ function appendShipDeltas(entry, ship, client = null, options = {}) {
   }
 }
 
-function namespacedPowerSectionId(id) { return String(id).startsWith("power:") || String(id).startsWith("switchgear:") ? String(id) : `power:${id}`; }
 function buildRuntimePowerThermalSnapshot(ship) {
-  const powerSummary = ship.powerFlow?.summary || {};
-  const cable = ship.powerCableThermalAnalysis || {};
-  const cableSummary = cable.summary || {};
+  const powerSummary = ship.powerAnalysis?.summary || {};
   const elapsed = Math.max(Number(ship.lastHeatTickDelta) || 0, Number.EPSILON);
   const componentHeatRate = (ship.componentHeatGenerated || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
   const cooling = (ship.componentHeatCooled || []).reduce((sum, value) => sum + (Number(value) || 0), 0) / elapsed;
-  const powerCableHeatRate = Number(ship.powerCableHeatRate) || 0;
-  // Index the cable component rows once. Looking each row up with
-  // `cable.components.find(...)` inside the per-component map made this
-  // O(components^2), and it runs per viewer per ship on every snapshot that
-  // carries heat deltas.
-  const cableComponentsByIndex = new Map();
-  for (const entry of cable.components || []) {
-    if (entry && !cableComponentsByIndex.has(entry.componentIndex)) cableComponentsByIndex.set(entry.componentIndex, entry);
-  }
   const components = (ship.design || []).map((part, i) => {
     const cp = ship.componentPower?.byComponentIndex?.[i] || {};
     const rated = Number(PARTS[part?.type]?.powerGeneration) || 0;
@@ -762,7 +686,6 @@ function buildRuntimePowerThermalSnapshot(ship) {
     const reasons = Array.isArray(cp.generationReductionReasons) ? cp.generationReductionReasons.slice() : [];
     return ({
     componentIndex: i,
-    networkId: presentNetworkId(cp.networkId),
     requestedMw: finiteOrNull(cp.requestedMw),
     allocatedMw: finiteOrNull(cp.allocatedMw),
     operationalMultiplier: finiteOrNull(cp.operationalMultiplier),
@@ -773,81 +696,34 @@ function buildRuntimePowerThermalSnapshot(ship) {
     deliveredGenerationMw: used,
     unusedGenerationMw: available === null || used === null ? null : Math.max(0, available - used),
     reductionReasons: reasons,
-    activityLevel: Number(ship.componentPowerActivity?.[i]) || 0,
-    componentHeatRate: (Number(ship.componentHeatGenerated?.[i]) || 0) / elapsed,
-    powerCableHeatRate: Number(ship.componentPowerCableHeatRate?.[i]) || 0,
-    powerCableHeatGenerated: Number(ship.componentPowerCableHeatGenerated?.[i]) || 0,
-    hostedActiveSectionIds: cableComponentsByIndex.get(i)?.hostedActiveSectionIds || []
+     activityLevel: 0,
+     componentHeatRate: (Number(ship.componentHeatGenerated?.[i]) || 0) / elapsed
+   });
   });
-  });
-  const powerCableHeatBySectionId = {};
-  let powerCableOverloadHeatRate = 0;
-  for (const section of cable.sections || []) {
-    const id = namespacedPowerSectionId(section.sectionId);
-    const baseHeatPerSecond = finiteOrNull(section.baseHeatPerSecond) ?? 0;
-    const overloadHeatPerSecond = finiteOrNull(section.overloadHeatPerSecond) ?? 0;
-    const totalHeatPerSecond = finiteOrNull(section.totalHeatPerSecond) ?? 0;
-    powerCableOverloadHeatRate += overloadHeatPerSecond;
-    powerCableHeatBySectionId[id] = {
-      baseHeatPerSecond,
-      overloadHeatPerSecond,
-      totalHeatPerSecond,
-      // Deprecated v2 compatibility aliases: these are Heat-rate values, not MW.
-      baseHeatMw: baseHeatPerSecond,
-      overloadHeatMw: overloadHeatPerSecond,
-      totalHeatMw: totalHeatPerSecond
-    };
-  }
   return {
     componentHeatRate,
-    powerCableHeatRate,
-    powerCableHeatBySectionId,
-    snapshotVersion: 2,
+    snapshotVersion: 3,
     totalRatedGenerationMw: components.reduce((sum, c) => sum + c.ratedGenerationMw, 0),
     totalAvailableGenerationMw: finiteOrNull(powerSummary.availableGenerationMw),
     totalDeliveredGenerationMw: finiteOrNull(powerSummary.usedGenerationMw),
-    totalHeatRate: componentHeatRate + powerCableHeatRate,
+    totalHeatRate: componentHeatRate,
     cooling,
-    netHeatRate: componentHeatRate + powerCableHeatRate - cooling,
+    netHeatRate: componentHeatRate - cooling,
     hottestComponentIndex: (ship.componentHeat || []).reduce((best, value, i) => (Number(value) || 0) > (Number(ship.componentHeat?.[best]) || 0) ? i : best, 0),
-    aboveSustainedSectionCount: Number(powerSummary.aboveSustainedSections) || 0,
-    atPeakSectionCount: Number(powerSummary.atPeakSections) || 0,
     throttledComponentCount: components.filter(c => c.operationalMultiplier > 0 && c.operationalMultiplier < 1).length,
     disabledComponentCount: components.filter(c => c.operationalMultiplier <= 0).length,
-    powerCableOverloadHeatRate,
     powerGenerationMw: finiteOrNull(powerSummary.availableGenerationMw),
     requestedDemandMw: finiteOrNull(powerSummary.demandMw),
     deliveredDemandMw: finiteOrNull(powerSummary.allocatedMw),
     sparePowerMw: finiteOrNull(powerSummary.spareGenerationMw),
     unmetDemandMw: finiteOrNull(powerSummary.unmetMw),
-    activePriorityPreset: powerSummary.preset || null,
-    storageChargingMw: finiteOrNull(powerSummary.storageChargingMw),
-    storageDischargingMw: finiteOrNull(powerSummary.storageDischargingMw),
-    storageComponents: powerSummary.storageComponents || [],
-    hottestSectionId: cableSummary.hottestSectionId || null,
     components
   };
 }
 
-function wiringStatus(ship) {
-  if (!WIRING_ENABLED) return undefined;
-  const runtime = ship.runtimeWiring;
-  return runtime ? {
-    powerNetworks: runtime.powerNetworks.length,
-    brokenPowerConnections: runtime.power.brokenConnectionIds.size,
-    disabledPowerSections: runtime.power.disabledSectionIds.size,
-    disabledPowerCells: runtime.power.disabledCells?.length || 0,
-    dataNetworks: runtime.dataNetworks.length,
-    brokenDataConnections: runtime.data.brokenConnectionIds.size,
-    disabledDataSections: runtime.data.disabledSectionIds.size,
-    disabledDataCells: runtime.data.disabledCells?.length || 0
-  } : undefined;
-}
-
 // Viewer-specific ship-detail policy. Owner and allied ships may receive full
 // operational internals (design, per-component HP/Heat, Power allocation, power
-// status/thermal diagnostics, wiring status, switchgear, power protection,
-// installed wiring layout + runtime). Enemy ships receive only the public
+// status and thermal diagnostics). Enemy ships receive only the public
 // visual representation (the design needed to draw the hull and weapons) plus
 // the externally observable dynamic fields already present in the shared
 // baseline (position, velocity, facing, hull/shield totals, radius, weapon
@@ -867,8 +743,8 @@ function canViewShipInternals(viewer, ship, room) {
 
 // Enemy ships: attach only a safe public visual representation. This is the raw
 // design geometry (module types/positions/rotations) required to render the
-// hull and weapon mounts — it carries NO per-component HP, Heat, Power, wiring,
-// switchgear or protection state. Any private field that leaked in from a shared
+// hull and weapon mounts — it carries NO per-component HP, Heat, or Power state.
+// Any private field that leaked in from a shared
 // baseline copy is stripped here defensively, so redaction holds no matter how
 // the base entry was constructed. The `detail: "public"` marker lets the client
 // merge discard any private fields cached from an earlier full-detail snapshot
@@ -1021,31 +897,6 @@ function markSnapshotPowerWritten(client, powerRevisions = []) {
   if (!client.knownShipPowerRevisions) client.knownShipPowerRevisions = new Map();
   for (const [shipId, revision] of powerRevisions) client.knownShipPowerRevisions.set(shipId, revision);
 }
-function collectSnapshotPowerProtectionRevisions(snapshot) {
-  const revisions = [];
-  for (const ship of snapshot?.ships || []) {
-    if (ship.powerProtection) revisions.push([ship.id, ship.powerProtectionRevision || 0]);
-  }
-  return revisions;
-}
-function markSnapshotPowerProtectionWritten(client, protectionRevisions = []) {
-  if (!client) return;
-  if (!client.knownShipPowerProtectionRevisions) client.knownShipPowerProtectionRevisions = new Map();
-  for (const [shipId, revision] of protectionRevisions) client.knownShipPowerProtectionRevisions.set(shipId, revision);
-}
-function collectSnapshotWiringLayoutRevisions(snapshot) {
-  const revisions = [];
-  for (const ship of snapshot?.ships || []) {
-    if (ship.powerWiring) revisions.push([ship.id, ship.powerWiringRevision || 0]);
-  }
-  return revisions;
-}
-function markSnapshotWiringLayoutWritten(client, layoutRevisions = []) {
-  if (!client) return;
-  if (!client.knownShipWiringLayoutRevisions) client.knownShipWiringLayoutRevisions = new Map();
-  for (const [shipId, revision] of layoutRevisions) client.knownShipWiringLayoutRevisions.set(shipId, revision);
-}
-
 function markSnapshotDesignsWritten(client, designRevisions = []) {
   const known = getKnownShipDesigns(client);
   for (const [shipId, revision] of designRevisions) known.set(shipId, revision);
@@ -1147,7 +998,7 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
     };
     if (sendStatic || options?.baselinePlayerIds instanceof Set && options.baselinePlayerIds.has(player.id)) {
       packet.design = player.design;
-      packet.stats = summarizeStats(player.stats || computeStats(player.design, player.wiring));
+      packet.stats = summarizeStats(player.stats || computeStats(player.design));
     }
     players.push(packet);
   }
@@ -1259,7 +1110,7 @@ function markSnapshotHeatTelemetryWritten(client, revisions = []) {
 function pruneClientKnownShips(client, shipIds = []) {
   if (!client) return;
   const keep = new Set(shipIds);
-  for (const key of ["knownShipDesignRevisions", "knownShipPowerRevisions", "knownShipPowerProtectionRevisions", "knownShipWiringLayoutRevisions", "knownShipHeatTelemetryRevisions"]) {
+  for (const key of ["knownShipDesignRevisions", "knownShipPowerRevisions", "knownShipHeatTelemetryRevisions"]) {
     const map = client[key];
     if (!(map instanceof Map)) continue;
     for (const id of [...map.keys()]) if (!keep.has(id)) map.delete(id);
@@ -1325,16 +1176,12 @@ module.exports = {
   collectSnapshotVisibleShipIds,
   markSnapshotVisibilityWritten,
   collectSnapshotPowerRevisions,
-  collectSnapshotPowerProtectionRevisions,
-  collectSnapshotWiringLayoutRevisions,
   collectSnapshotHeatTelemetryRevisions,
   collectSnapshotStationStaticRevisions,
   collectSnapshotStationComponentRevisions,
   collectSnapshotConditionStationIds,
   markSnapshotDesignsWritten,
   markSnapshotPowerWritten,
-  markSnapshotPowerProtectionWritten,
-  markSnapshotWiringLayoutWritten,
   markSnapshotHeatTelemetryWritten,
   markSnapshotStationStaticWritten,
   markSnapshotStationComponentWritten,
@@ -1342,5 +1189,5 @@ module.exports = {
   collectEntityDeltaBaselineIds,
   canViewShipInternals,
   canViewPlayerEconomy,
-  _test: { buildSwitchgearSnapshot, buildRuntimePowerThermalSnapshot, finiteOrNull }
+  _test: { buildRuntimePowerThermalSnapshot, finiteOrNull }
 };

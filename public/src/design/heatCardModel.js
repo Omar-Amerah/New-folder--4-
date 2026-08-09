@@ -3,7 +3,7 @@
 // This module answers one question: "what does the player need to know about
 // this component's heat, right now, to make the next design decision?" It is
 // deliberately NOT a diagnostics dump : engineering detail (capacities,
-// displacement, Power allocation, accumulated simulation totals) belongs in the
+// transfer detail and accumulated simulation totals) belongs in the
 // detailed Heat analysis panel, not in a card that appears under the cursor.
 //
 // Two rules shape everything below:

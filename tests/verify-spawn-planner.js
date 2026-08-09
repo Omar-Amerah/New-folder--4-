@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("assert");
-const { planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, invalidateSpawnPlan } = require("../src/server/spawnPlanner");
+const { planSpawnRegions, getSpawnRegionPlan, freezeSpawnPlan, invalidateSpawnPlan, reservationRadius } = require("../src/server/spawnPlanner");
 const { isInSafeZone } = require("../src/server/combat");
 const { validateGeneratedMap } = require("../src/server/mapValidation");
 const { WORLD_SIZES } = require("../src/server/config");
@@ -12,7 +12,7 @@ function room(players, mode = "solo", extra = {}) {
     mapSeed: extra.seed || 123456,
     rules: { gameMode: mode },
     map: extra.map || { seed: extra.seed || 123456, name: "test", asteroids: [], relays: [{ id: "A", x: world.width / 2, y: world.height / 2, radius: 160 }], clouds: [], safeZones: [] },
-    players: new Map(players.map((p) => [p.id, { shipCap: 3, stats: { radius: 52, fleetCount: p.shipCap || 1 }, ...p }]))
+    players: new Map(players.map((p) => [p.id, { shipCap: 3, stats: { radius: 52 }, ...p }]))
   };
 }
 function assertPlan(r) {
@@ -46,13 +46,14 @@ function assertPlan(r) {
   assert(validation.ok, validation.errors.join("; "));
   return plan;
 }
+assert.strictEqual(reservationRadius({ stats: { radius: 52 }}), 148, "spawn reservation uses one hull of clearance");
 for (const n of [1, 2, 3, 4, 5, 8, 12]) assertPlan(room(Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, team: `p${i + 1}` })), "solo"));
 assertPlan(room([{ id: "a", team: "blue" }, { id: "b", team: "red" }], "teams"));
 assertPlan(room(Array.from({ length: 8 }, (_, i) => ({ id: `p${i}`, team: i < 4 ? "blue" : "red" })), "teams"));
 assertPlan(room(Array.from({ length: 8 }, (_, i) => ({ id: `p${i}`, team: i < 7 ? "blue" : "red" })), "teams"));
 assertPlan(room(Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, team: i < 10 ? "blue" : "red" })), "teams"));
 assertPlan(room([{ id: "human", team: "blue" }, { id: "bot1", team: "red", isBot: true }, { id: "bot2", team: "red", isBot: true }], "teams"));
-assertPlan(room(Array.from({ length: 4 }, (_, i) => ({ id: `big${i}`, team: `big${i}`, shipCap: 30, stats: { radius: 90, fleetCount: 30 } })), "solo"));
+assertPlan(room(Array.from({ length: 4 }, (_, i) => ({ id: `big${i}`, team: `big${i}`, shipCap: 30, stats: { radius: 90 } })), "solo"));
 const obstructed = room([{ id: "a", team: "blue" }, { id: "b", team: "red" }], "teams");
 obstructed.map.asteroids.push({ id: "block-blue", x: 230, y: obstructed.world.height / 2, radius: 80 });
 assert(assertPlan(obstructed).spawns.some((s) => s.adjusted), "obstructed preferred position should be adjusted");
@@ -66,7 +67,7 @@ const soloPolicy = room(Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, tea
 const sp = assertPlan(soloPolicy); const z0 = sp.safeZones[0];
 assert(isInSafeZone(soloPolicy, z0.x, z0.y, soloPolicy.players.get(z0.ownerId)), "solo owner protected");
 assert(!isInSafeZone(soloPolicy, z0.x, z0.y, [...soloPolicy.players.values()].find((p) => p.id !== z0.ownerId)), "solo foreign player denied");
-const cached = room([{ id: "a", team: "blue" }, { id: "b", team: "red" }], "teams"); getSpawnRegionPlan(cached); const oldKey = cached.__spawnPlanKey; cached.players.set("c", { id: "c", team: "blue", shipCap: 3, stats: { radius: 52, fleetCount: 3 } }); invalidateSpawnPlan(cached); getSpawnRegionPlan(cached); assert.notStrictEqual(cached.__spawnPlanKey, oldKey, "layout changes invalidate cached plan");
+const cached = room([{ id: "a", team: "blue" }, { id: "b", team: "red" }], "teams"); getSpawnRegionPlan(cached); const oldKey = cached.__spawnPlanKey; cached.players.set("c", { id: "c", team: "blue", shipCap: 3, stats: { radius: 52 } }); invalidateSpawnPlan(cached); getSpawnRegionPlan(cached); assert.notStrictEqual(cached.__spawnPlanKey, oldKey, "layout changes invalidate cached plan");
 const stable = room([{ id: "blue1", team: "blue" }, { id: "blue2", team: "blue" }, { id: "blue3", team: "blue" }, { id: "red1", team: "red" }], "teams");
 freezeSpawnPlan(stable);
 const stableBeforeLeave = getSpawnRegionPlan(stable);

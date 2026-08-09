@@ -87,7 +87,7 @@ let peer;
     peer.send({
       type: "deploy",
       design: peer.latest.hello.defaultDesign,
-      wiring: peer.latest.hello.defaultWiring,
+      dataLinks: [],
       combatStyle: "hold"
     });
     await page.waitForFunction(() => window.__mfaState.phase === "active", null, { timeout: 10000 });

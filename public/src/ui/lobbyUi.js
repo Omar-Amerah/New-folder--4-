@@ -1095,7 +1095,7 @@ export function bindSettingsRecoveryControls() {
     try {
       const result = importBlueprints(JSON.parse(await file.text()), state.savedDesigns, state.loadouts);
       if (result.incompatibleVersion) {
-        notify.error("This export file uses an old blueprint format without wiring and cannot be imported.");
+        notify.error("This export file uses an old blueprint format and cannot be imported.");
         event.target.value = "";
         return;
       }

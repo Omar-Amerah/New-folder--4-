@@ -29,7 +29,7 @@ async function evalGate(locationLike) {
   const prevWindow = globalThis.window;
   globalThis.window = { location: locationLike, __mfaEnableDiagnostics: locationLike.__optIn === true };
   try {
-    const mod = await import(`./public/src/constants.js?diaggate=${Math.random()}`);
+    const mod = await import(`../public/src/constants.js?diaggate=${Math.random()}`);
     return mod.DIAGNOSTICS_ENABLED;
   } finally {
     globalThis.window = prevWindow;

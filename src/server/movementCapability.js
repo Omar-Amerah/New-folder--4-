@@ -60,23 +60,26 @@ function heatAdjustedMovementStats(ship, baseStats) {
     componentMultiplier: multiplier,
     isBlockedEngine
   });
+  const powerSummary = ship.powerAnalysis?.summary || {};
+  const livePowerGeneration = Number(powerSummary.availableGenerationMw);
+  const livePowerUse = Number(powerSummary.demandMw);
+  const powerGeneration = Number.isFinite(livePowerGeneration)
+    ? livePowerGeneration
+    : Number(baseStats.availablePower ?? baseStats.powerGeneration) || 0;
+  const powerUse = Number.isFinite(livePowerUse)
+    ? livePowerUse
+    : Number(baseStats.powerUse) || 0;
   const movement = calculateMovementStats({
     mass: baseStats.mass,
     thrust: baseStats.thrust,
     turnBonus: 0,
-    powerGeneration: baseStats.powerGeneration,
-    powerUse: baseStats.powerUse,
+    powerGeneration,
+    powerUse,
     engineThrustValues,
     engineMassValues,
     directionalTurnInputs,
     hullControlThrust: BALANCE.movement?.hullControlThrust,
-    movementPowerMultiplier: Math.max(
-      1,
-      calculateMovementPowerMultiplier(
-        baseStats.powerGeneration || 0,
-        baseStats.powerUse || 0
-      )
-    )
+    movementPowerMultiplier: calculateMovementPowerMultiplier(powerGeneration, powerUse)
   });
   const accelerationMultiplier = getCommandAuraMultiplier(ship, "accelerationMultiplier");
   const turnMultiplier = getCommandAuraMultiplier(ship, "turnRateMultiplier");

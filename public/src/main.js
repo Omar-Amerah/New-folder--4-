@@ -1,6 +1,6 @@
-// Bootstraps the browser client by wiring state, networking, UI, input, and rendering.
+// Bootstraps the browser client by connecting state, networking, UI, input, and rendering.
 
-import { applyShipEconomy, applyWiringInfrastructure } from "./constants.js";
+import { applyFleetCountRules } from "./constants.js";
 import { notify } from "./ui/toastUi.js";
 import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
@@ -10,7 +10,6 @@ import { renderBuildGrid, renderLocalStats, requestResetDesign, requestClearDesi
 import { renderSavedDesigns, initializeSavedBlueprintLibraryControls, handleSavedDesignPointerDown, handleSavedDesignPointerUp, handleSavedDesignKeyboardClick, confirmModalAction, closeConfirmModal, confirmDiscardAction, saveCurrentDesignAsCopy, refreshLoadedBlueprintPresentation } from "./ui/savedBlueprintsUi.js";
 import { openBlueprintDesigner, openBlueprintDesignerFromLobby, closeBlueprintDesigner, requestCloseBlueprintDesigner } from "./ui/designerScreenUi.js";
 import { initializeDesignerInspector } from "./ui/designerInspectorUi.js";
-import { bindPowerPriorityControls } from "./ui/wiringUi.js";
 import { renderPurchaseBar, setPurchaseQuantity, handlePurchasePointerDown, handlePurchasePointerUp, handlePurchaseKeyboardClick, handlePurchaseWheel, restoreActiveLoadout } from "./ui/purchaseUi.js";
 import { renderSideControls, handleShipGroupListClick, handleShipGroupListChange, beginRallyPointPlacement, resetRallyPointToSpawn, handleSelectedCombatStyleClick, handleMovementToggleClick } from "./ui/sidePanelUi.js";
 import { updateLobbyState, createGame, joinExistingGame, joinRoom, deployDesign, startDesign, closeLobby, restartMatch, returnToLobby, leaveLobby, openMainMenu, openLobbyManagement, openSettings, closeSettings, hideMenuScreens, saveServerSetting, clearServerSetting, sendRulesUpdate, bindKickButtonContainer, bindSettingsRecoveryControls } from "./ui/lobbyUi.js";
@@ -23,11 +22,9 @@ import { bindRoomRecoveryCard, renderRecoveryCard } from "./ui/roomRecoveryUi.js
 import { send, getConfiguredServerUrl, persistServerQueryParam } from "./network.js";
 import { applyComponentBalance } from "./design/parts.js";
 import { initLedger, openLedger, closeLedger } from "./ledger/fleetLedgerUi.js";
-import { applyFeatureFlagPresentation, WIRING_ENABLED } from "./featureFlags.js";
 import { initMusic } from "./audio/musicSystem.js";
 
 const loadedPreferences = loadPreferences().preferences;
-applyFeatureFlagPresentation();
 initMusic(loadedPreferences);
 if (!loadedPreferences.pilotName) loadedPreferences.pilotName = `Pilot-${Math.floor(100 + Math.random() * 900)}`;
 applyInterfacePreferences(loadedPreferences);
@@ -79,21 +76,14 @@ dom.rallyPointButton?.addEventListener("click", beginRallyPointPlacement);
 dom.resetRallyButton?.addEventListener("click", resetRallyPointToSpawn);
 dom.combatStyleControls?.addEventListener("click", handleSelectedCombatStyleClick);
 dom.movementToggleControls?.addEventListener("click", handleMovementToggleClick);
-dom.blueprintCostBanner?.addEventListener("click", () => {
-  if (dom.blueprintCostBreakdown) {
-    const open = dom.blueprintCostBreakdown.hidden;
-    dom.blueprintCostBreakdown.hidden = !open;
-    dom.blueprintCostBanner.setAttribute("aria-expanded", open ? "true" : "false");
-  }
-});
 dom.combatStyleSelect?.addEventListener("change", (e) => {
   state.combatStyle = e.target.value;
   import("./design/blueprintStorage.js").then((mod) => {
-    mod.persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
+    mod.persistDesign(state.design, state.dataLinks, state.combatStyle);
   });
   refreshLoadedBlueprintPresentation();
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: state.design, wiring: state.wiring, dataLinks: state.dataLinks, combatStyle: state.combatStyle });
+    send({ type: "deploy", design: state.design, dataLinks: state.dataLinks, combatStyle: state.combatStyle });
   }
 });
 dom.saveDesignButton?.addEventListener("click", () => {
@@ -258,7 +248,6 @@ async function initializeClient() {
   await loadComponentBalance();
   renderPalette();
   initializeDesignerInspector();
-  if (WIRING_ENABLED) bindPowerPriorityControls();
   initializeSavedBlueprintLibraryControls();
   restoreActiveLoadout();
   renderPartInspector();
@@ -327,8 +316,7 @@ async function loadComponentBalance() {
     return;
   }
 
-  applyShipEconomy(balance.shipPricing);
-  applyWiringInfrastructure(balance.wiringInfrastructure);
+  applyFleetCountRules(balance.shipPricing);
   const applied = applyComponentBalance(balance);
   if (!applied) return;
   renderPalette();

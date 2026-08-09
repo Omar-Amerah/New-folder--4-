@@ -1,14 +1,12 @@
 // Phase-locking for the designer's decorative overlay animations.
 //
-// The Heat flow overlay and the wiring overlay are both rebuilt wholesale
+// The Heat flow and Data Links overlays are rebuilt wholesale
 // (`replaceChildren()` + fresh SVG) whenever the pointer moves enough to change
-// what they show -- and the wiring overlay is rebuilt on every animation frame
-// while a cable is being dragged. Every recreated element starts its infinite
+// what they show. Every recreated element starts its infinite
 // CSS animation over at time zero, so a run of rebuilds pins those animations
 // near their first keyframe and they visibly stutter instead of pulsing. The
-// overloaded states are the ones that show it, because their overlays carry
-// infinite animations (the at-peak/above-sustained cable halos and the marching
-// heat-flow dashes).
+// active states are the ones that show it, because their overlays carry
+// infinite animations (the link pulses and marching heat-flow dashes).
 //
 // Anchoring each infinite animation's `startTime` to the document timeline
 // origin makes its phase a pure function of wall-clock time, so a rebuilt

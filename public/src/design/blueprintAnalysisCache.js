@@ -8,7 +8,7 @@
 
 import { computeStats } from "./componentStats.js";
 import { validateBlueprint } from "./blueprintValidation.js";
-import { normalizeDesignDetailed, normalizeWiring } from "./blueprintStorage.js";
+import { normalizeDesignDetailed } from "./blueprintStorage.js";
 import { normalizeRotation } from "./rotation.js";
 import { getBalanceStatus } from "../balanceStatus.js";
 
@@ -20,9 +20,8 @@ function currentBalanceRevision() {
 export const counters = {
   computeStats: 0,
   normalizeDesign: 0,
-  normalizeWiring: 0,
+  normalizeDataLinks: 0,
   validateBlueprint: 0,
-  powerFlow: 0, // incremented by a shim below
   thumbnailKey: 0,
   catalogueRebuild: 0,
   availabilityUpdate: 0,
@@ -33,9 +32,8 @@ export const counters = {
 export function resetBlueprintAnalysisCounters() {
   counters.computeStats = 0;
   counters.normalizeDesign = 0;
-  counters.normalizeWiring = 0;
+  counters.normalizeDataLinks = 0;
   counters.validateBlueprint = 0;
-  counters.powerFlow = 0;
   counters.thumbnailKey = 0;
   counters.catalogueRebuild = 0;
   counters.availabilityUpdate = 0;
@@ -43,7 +41,7 @@ export function resetBlueprintAnalysisCounters() {
   counters.cacheMiss = 0;
 }
 
-// The current editor Blueprint has a single cached entry keyed by design/wiring
+// The current editor Blueprint has a single cached entry keyed by design/Data Links
 // references and combat style. Replacing the arrays immutably is the normal way
 // to invalidate this; explicit invalidation is also provided for safety.
 let currentEntry = null;
@@ -60,22 +58,20 @@ function makeThumbnailKey(parts) {
     .join(";");
 }
 
-function analyseRaw({ blueprint, wiring, combatStyle = "hold" }) {
+function analyseRaw({ blueprint, dataLinks, combatStyle = "hold" }) {
   counters.normalizeDesign++;
   const { modules: normalizedBlueprint } = normalizeDesignDetailed(blueprint, { allowEmpty: true });
 
-  counters.normalizeWiring++;
-  const normalizedWiring = normalizeWiring(wiring, normalizedBlueprint);
-
+  counters.normalizeDataLinks++;
   counters.computeStats++;
-  const stats = computeStats(normalizedBlueprint, { wiring: normalizedWiring });
+  const stats = computeStats(normalizedBlueprint, { dataLinks });
 
   counters.validateBlueprint++;
   const validation = validateBlueprint(normalizedBlueprint, { requireThrust: true, stats });
 
   return {
     normalizedBlueprint,
-    normalizedWiring,
+    dataLinks,
     stats,
     validation,
     weaponSummary: `${stats.weaponDps} DPS`,
@@ -84,10 +80,10 @@ function analyseRaw({ blueprint, wiring, combatStyle = "hold" }) {
   };
 }
 
-function currentKey(design, wiring, combatStyle) {
+function currentKey(design, dataLinks, combatStyle) {
   return {
     design,
-    wiring,
+    dataLinks,
     combatStyle: combatStyle || "hold",
     balanceRevision: currentBalanceRevision()
   };
@@ -97,14 +93,14 @@ function currentMatches(entry, key) {
   if (!entry) return false;
   return (
     entry.key.design === key.design &&
-    entry.key.wiring === key.wiring &&
+    entry.key.dataLinks === key.dataLinks &&
     entry.key.combatStyle === key.combatStyle &&
     entry.key.balanceRevision === key.balanceRevision
   );
 }
 
-export function getCachedBlueprintAnalysis({ blueprint, wiring, combatStyle } = {}) {
-  const key = currentKey(blueprint, wiring, combatStyle);
+export function getCachedBlueprintAnalysis({ blueprint, dataLinks, combatStyle } = {}) {
+  const key = currentKey(blueprint, dataLinks, combatStyle);
   if (currentMatches(currentEntry, key)) {
     counters.cacheHit++;
     return currentEntry.value;
@@ -112,14 +108,14 @@ export function getCachedBlueprintAnalysis({ blueprint, wiring, combatStyle } = 
   return undefined;
 }
 
-export function analyseBlueprintOnce({ blueprint, wiring, combatStyle = "hold" } = {}) {
-  const key = currentKey(blueprint, wiring, combatStyle);
+export function analyseBlueprintOnce({ blueprint, dataLinks, combatStyle = "hold" } = {}) {
+  const key = currentKey(blueprint, dataLinks, combatStyle);
   if (currentMatches(currentEntry, key)) {
     counters.cacheHit++;
     return currentEntry.value;
   }
   counters.cacheMiss++;
-  const value = analyseRaw({ blueprint: blueprint || [], wiring, combatStyle });
+  const value = analyseRaw({ blueprint: blueprint || [], dataLinks, combatStyle });
   currentEntry = { key, value };
   return value;
 }
@@ -129,7 +125,7 @@ function savedMatches(entry, saved, balanceRevision) {
   return (
     entry.savedId === saved.id &&
     entry.blueprintRef === saved.blueprint &&
-    entry.wiringRef === saved.wiring &&
+    entry.dataLinksRef === saved.dataLinks &&
     entry.combatStyle === (saved.combatStyle || "hold") &&
     entry.updatedAt === saved.updatedAt &&
     entry.balanceRevision === balanceRevision
@@ -155,13 +151,13 @@ export function analyseSavedBlueprintOnce(saved) {
   counters.cacheMiss++;
   const value = analyseRaw({
     blueprint: saved?.blueprint,
-    wiring: saved?.wiring,
+    dataLinks: saved?.dataLinks,
     combatStyle: saved?.combatStyle || "hold"
   });
   savedCache.set(saved.id, {
     savedId: saved.id,
     blueprintRef: saved.blueprint,
-    wiringRef: saved.wiring,
+    dataLinksRef: saved.dataLinks,
     combatStyle: saved.combatStyle || "hold",
     updatedAt: saved.updatedAt,
     balanceRevision,
@@ -201,7 +197,7 @@ export function getBlueprintAnalysis(source) {
   }
   return analyseBlueprintOnce({
     blueprint: source.blueprint,
-    wiring: source.wiring,
+    dataLinks: source.dataLinks,
     combatStyle: source.combatStyle
   });
 }

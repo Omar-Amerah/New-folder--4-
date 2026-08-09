@@ -4,11 +4,11 @@ const { PARTS } = require("./components");
 const { computeStats } = require("./shipStats");
 const { DEFAULT_DESIGN } = require("./config");
 const { getOccupiedCells } = require("./footprint");
-const WiringRules = require("../../public/src/shared/wiringRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
 const StructuralConnectivity = require("../../public/src/shared/structuralConnectivity");
 const ComponentTransform = require("../../public/src/shared/componentTransform");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
+const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const { BALANCE } = require("./balanceConfig");
 
 function designIssue(code, inputIndex) {
@@ -80,43 +80,15 @@ function validateDesign(input) {
   return { ok: true, modules: clean, stats, issues: [] };
 }
 
-// Independently normalizes and validates client-supplied wiring against the
-// already-validated module list. The server never trusts client network ids,
-// connectivity results, connected-component lists, bonuses or powered states —
-// only raw segments are read, and everything else is re-derived from them.
-// Malformed, floating, duplicate or excess segments are dropped rather than
-// rejecting the blueprint (disconnected wiring is a designer warning, not a
-// blocking error).
-function validateWiring(modules, wiring) {
-  const { wiring: normalized, droppedSegments } = WiringRules.normalizeWiring(wiring, modules, PARTS);
-  return { ok: true, wiring: normalized, droppedSegments };
-}
-
-// Authoritative intact-design snapshot. Runtime damage/power allocation is
-// deliberately deferred; callers should compute this once at spawn boundaries.
-function analyzeShipPower(design, wiring) {
-  return WiringRules.analyzePowerNetworks(design, wiring, PARTS);
-}
-
-// The single boundary used by ship creation.  Returning fresh clones here makes
+// The single boundary used by ship creation. Returning fresh clones here makes
 // blueprint state a value: neither a later editor save nor another ship can
-// mutate an existing ship's design/wiring snapshot.
-function createShipBlueprintSnapshot(design, wiring) {
+// mutate an existing ship's design snapshot.
+function createShipBlueprintSnapshot(design, dataLinks = []) {
   const normalizedDesign = normalizeShipDesignSnapshot(design);
-  const normalizedWiring = validateWiring(normalizedDesign, wiring).wiring;
   return {
     design: normalizedDesign.map((part) => ({ ...part })),
-    wiring: WiringRules.cloneWiring(normalizedWiring)
+    dataLinks: DataSupportRules.normalizeDataLinks(normalizedDesign, dataLinks, PARTS)
   };
-}
-
-// Trusted generated wiring for standard/server-created blueprints. The shared
-// helper is the single authority used by both browser defaults and Node.
-function createGeneratedPowerWiring(design) {
-  return WiringRules.createGeneratedPowerWiring(normalizeShipDesignSnapshot(design), PARTS);
-}
-function createGeneratedDataWiring(design) {
-  return WiringRules.createGeneratedDataWiring(normalizeShipDesignSnapshot(design), PARTS);
 }
 
 // Shared with the browser designer (public/src/shared/structuralConnectivity.js)
@@ -195,11 +167,7 @@ function normalizeRotation(value, allowedRotations, x) { return RotationRules.no
 
 module.exports = {
   validateDesign,
-  validateWiring,
-  analyzeShipPower,
   createShipBlueprintSnapshot,
-  createGeneratedPowerWiring,
-  createGeneratedDataWiring,
   isConnected,
   normalizeShipDesignSnapshot,
   migrateLegacy11DesignSnapshot,

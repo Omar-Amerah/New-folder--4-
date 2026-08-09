@@ -24,8 +24,28 @@ global.window = { devicePixelRatio: 1 };
   // --- 1. Categories are well-formed ---
   const { CATEGORIES, getAllArticles, getArticleById, getArticlesByCategory, getRelatedArticles, searchArticles, validateArticles } = ledger;
 
+  const expectedCategories = [
+    ["start-here", "Start Here"],
+    ["building-ships", "Building Ships"],
+    ["combat", "Combat"],
+    ["heat", "Heat"],
+    ["movement", "Movement"],
+    ["sensors-detection", "Sensors & Detection"],
+    ["data-links", "Data Links"],
+    ["weapons", "Weapons"],
+    ["shields-armour", "Shields & Armour"],
+    ["drones", "Drones"],
+    ["command", "Command"],
+    ["economy-objectives", "Economy & Objectives"],
+    ["advanced-mechanics", "Advanced Mechanics"],
+    ["component-reference", "Component Reference"]
+  ];
   assert.ok(Array.isArray(CATEGORIES), "CATEGORIES must be an array");
-  assert.ok(CATEGORIES.length >= 14, `Expected at least 14 categories, got ${CATEGORIES.length}`);
+  assert.deepStrictEqual(
+    CATEGORIES.map((category) => [category.id, category.label]),
+    expectedCategories,
+    "Ledger categories must keep the learnability-first order"
+  );
   const catIds = new Set();
   for (const cat of CATEGORIES) {
     assert.ok(cat.id, `Category missing id: ${JSON.stringify(cat)}`);
@@ -67,13 +87,79 @@ global.window = { devicePixelRatio: 1 };
   ok("validateArticles clean");
 
   // --- 5. Manual articles exist for each category ---
-  const expectedManual = ["overview", "blueprint-designer", "power", "heat", "movement", "combat-styles", "defence", "drones", "support", "command", "economy", "multiplayer", "controls"];
+  const expectedManual = ["overview", "blueprint-designer", "power", "combat", "combat-styles", "heat", "movement", "sensors-detection", "support", "weapons", "defence", "drones", "command", "economy", "advanced-mechanics", "component-reference"];
   for (const id of expectedManual) {
     const article = getArticleById(id);
     assert.ok(article, `Missing manual article: ${id}`);
     assert.ok(article.howItWorks, `Manual article ${id} missing howItWorks`);
   }
   ok("manual articles present");
+
+  // --- 5b. The manual is substantive, searchable, and tied to live rules ---
+  const manualArticles = articles.filter((article) => !article.isComponent);
+  for (const article of manualArticles) {
+    assert.ok(article.howItWorks && article.howItWorks.length >= 100,
+      `Manual article ${article.id} needs a substantive mechanics explanation`);
+    assert.ok(article.practicalUse && article.practicalUse.length >= 40,
+      `Manual article ${article.id} needs practical guidance`);
+    assert.ok(Array.isArray(article.commonProblems) && article.commonProblems.length >= 2,
+      `Manual article ${article.id} needs at least two troubleshooting entries`);
+    assert.ok(Array.isArray(article.keywords) && article.keywords.length >= 4,
+      `Manual article ${article.id} needs useful search keywords`);
+  }
+
+  for (const id of ["targeting-and-arcs", "damage-and-destruction", "stations-infrastructure"]) {
+    assert.ok(getArticleById(id), `Missing comprehensive manual article: ${id}`);
+  }
+
+  const generatedBalance = (await import("../public/src/generatedBalance.js")).GENERATED_BALANCE;
+  const heatRules = require("../public/src/shared/heatRules.js");
+  const movementStats = await import("../public/src/shared/movementStats.js");
+  const statValue = (articleId, label) => getArticleById(articleId)?.importantStats
+    ?.find((stat) => stat.label === label)?.value;
+
+  const { computeStats } = require("../src/server/shipStats.js");
+  const { PARTS } = require("../src/server/components.js");
+  const pricingFixture = [
+    { type: "core", x: 7, y: 7, rotation: 0 },
+    { type: "frame", x: 7, y: 8, rotation: 0 },
+    { type: "armor", x: 7, y: 9, rotation: 0 }
+  ];
+  const expectedUnitCost = pricingFixture.reduce((sum, part) => sum + PARTS[part.type].cost, 0);
+  assert.strictEqual(computeStats(pricingFixture).unitCost, expectedUnitCost,
+    "Server fixture must prove that unit cost is the sum of component catalogue costs");
+  assert.strictEqual(statValue("ship-cost-formula", "Unit Cost"), "Sum Of Every Placed Component Cost",
+    "Ledger must state the authoritative server pricing rule");
+  assert.strictEqual(statValue("ship-cost-formula", "Purchase Clamp"), "None",
+    "Ledger must not invent unenforced minimum or maximum price clamps");
+  assert.strictEqual(statValue("heat", "Warm"), `${Math.round(heatRules.THRESHOLDS.warm * 100)}%`,
+    "Ledger Warm threshold must match Heat rules");
+  assert.strictEqual(statValue("heat", "Critical"), `${Math.round(heatRules.THRESHOLDS.critical * 100)}%`,
+    "Ledger Critical threshold must match Heat rules");
+  assert.strictEqual(statValue("command", "Aura Radius"), `${generatedBalance.commandAura.range} m`,
+    "Ledger aura radius must match live balance");
+  assert.strictEqual(statValue("sensors-detection", "Remembered Ship Contact"), `${generatedBalance.visibility.rememberedContactSeconds}s`,
+    "Ledger remembered-contact duration must match live balance");
+  assert.ok(statValue("movement", "Turn Caps").includes(String(movementStats.turnCapForMass(54))),
+    "Ledger Light turn cap must match movement authority");
+  assert.ok(statValue("movement", "Turn Caps").includes(String(movementStats.turnCapForMass(230))),
+    "Ledger Capital turn cap must match movement authority");
+
+  const effectiveManualText = JSON.stringify(manualArticles);
+  const staleClaims = [
+    /Placement Is Blocked[^.]*Disconnected/i,
+    /Overlapping Command Auras[^.]*Stack/i,
+    /WASD Or Edge[- ]Scroll/i,
+    /Victory Is Achieved[^.]*Every Relay[^.]*Or[^.]*Home Station/i,
+    /Base Ship Cost/i,
+    /Weapon Premiums/i,
+    /Allowed Price/i
+  ];
+  for (const claim of staleClaims) {
+    assert.ok(!claim.test(effectiveManualText), `Effective manual retains stale claim: ${claim}`);
+  }
+  assert.ok(!effectiveManualText.includes("\u2014"), "Shipped Fleet Ledger copy must not contain em dashes");
+  ok("manual completeness and authoritative rule contracts");
 
   // --- 6. Component articles are generated from PART_STATS ---
   const { PART_STATS } = await import("../public/src/design/parts.js");
@@ -85,6 +171,15 @@ global.window = { devicePixelRatio: 1 };
     assert.ok(article, `Missing component article for part: ${partId}`);
     assert.ok(article.importantStats && article.importantStats.length > 0, `Component article ${articleId} has no stats`);
   }
+  assert.ok(
+    articles.filter((article) => article.isComponent).every((article) => article.category === "component-reference"),
+    "Generated component articles must live only in Component Reference"
+  );
+  assert.deepStrictEqual(
+    articles.filter((article) => article.category === "component-reference" && !article.isComponent).map((article) => article.id),
+    ["component-reference"],
+    "Component Reference should have one manual landing article"
+  );
   ok("component articles generated from PART_STATS");
 
   // --- 7. Component article stats match authoritative balance ---
@@ -108,14 +203,50 @@ global.window = { devicePixelRatio: 1 };
   const missileResults = searchArticles("missile");
   assert.ok(missileResults.length > 0, "Search for 'missile' returned no results");
 
+  assert.ok(searchArticles("sensors detection").some((a) => a.id === "sensors-detection"),
+    "Search for 'sensors detection' must include the Sensors & Detection guide");
+  assert.ok(searchArticles("data links").some((a) => a.id === "support"),
+    "Search for 'data links' must include the Data Links guide");
+  assert.ok(searchArticles("emergency reserve").some((a) => a.id === "command"),
+    "Search must index mechanics prose, not only titles and keywords");
+  assert.ok(searchArticles("partial hull without shields").some((a) => a.id === "stations-infrastructure"),
+    "Search must index practical and troubleshooting content");
+
   const emptyResults = searchArticles("");
   assert.deepStrictEqual(emptyResults, [], "Empty search must return no results");
   ok("search functionality");
 
+  // Obsolete infrastructure concepts must not return through manual prose,
+  // generated component mechanics, keywords, stats, or related metadata.
+  const obsoleteInfrastructureTerm = /\b(?:wiring|wire|wires|cable|cables|overload|overloads|overloaded)\b/i;
+  for (const article of articles) {
+    assert.ok(!obsoleteInfrastructureTerm.test(JSON.stringify(article)),
+      `Article ${article.id} contains obsolete infrastructure terminology`);
+  }
+  ok("obsolete infrastructure articles and terminology removed");
+
   // --- 9. getArticlesByCategory works ---
+  const expectedLandingByCategory = {
+    "start-here": "overview",
+    "building-ships": "blueprint-designer",
+    combat: "combat",
+    heat: "heat",
+    movement: "movement",
+    "sensors-detection": "sensors-detection",
+    "data-links": "support",
+    weapons: "weapons",
+    "shields-armour": "defence",
+    drones: "drones",
+    command: "command",
+    "economy-objectives": "economy",
+    "advanced-mechanics": "advanced-mechanics",
+    "component-reference": "component-reference"
+  };
   for (const cat of CATEGORIES) {
     const catArticles = getArticlesByCategory(cat.id);
     assert.ok(catArticles.length > 0, `Category ${cat.id} has no articles`);
+    assert.strictEqual(catArticles[0].id, expectedLandingByCategory[cat.id],
+      `Category ${cat.id} must open with its landing article`);
   }
   ok("getArticlesByCategory");
 

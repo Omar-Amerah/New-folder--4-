@@ -45,11 +45,9 @@ function baseline(componentCount = 1) {
       heatTelemetryRevision: 1,
       chp: Array(componentCount).fill(100),
       componentHeat: Array.from({ length: componentCount }, () => [0, 0, 0, 100]),
-      componentPower: Array.from({ length: componentCount }, () => ["powered", 1, 1]),
-      powerRevision: 1, powerProtectionRevision: 1, powerRuntimeRevision: 3,
-      powerWiringRevision: 1, wiringRevision: 1,
-      powerWiring: { sections: [] }, powerWiringRuntime: { sections: [] },
-      powerProtection: {}, powerThermal: {}, combatStyle: "hold"
+      componentPower: Array.from({ length: componentCount }, () => ["powered", 1]),
+      powerRevision: 1, powerRuntimeRevision: 3,
+      powerThermal: {}, combatStyle: "hold"
     }],
     points: [{
       id: "A", x: 400, y: 400, radius: 100,
@@ -167,23 +165,6 @@ async function main() {
   });
   assert(result.changes.damage.selectedShipVitalsChanged);
   assert.deepStrictEqual(result.plan, ["updateSelectedShipVitals"]);
-
-  result = transition((next) => {
-    next.ships[0].powerRevision += 1;
-    next.ships[0].powerRuntimeRevision += 1;
-    next.ships[0].componentPower[0] = ["starved", 1, 0.5];
-  }, { view: "power" });
-  assert(result.changes.power.selectedAllocationChanged);
-  assert(!result.changes.power.selectedWiringLayoutChanged);
-  assert.deepStrictEqual(result.plan, ["updateSelectedShipPowerUi"]);
-
-  result = transition((next) => {
-    next.ships[0].wiringRevision += 1;
-    next.ships[0].powerWiringRevision += 1;
-    next.ships[0].powerWiring.sections.push({ id: "power:1", x1: 0, y1: 0, x2: 1, y2: 0 });
-  }, { view: "power" });
-  assert(result.changes.power.selectedWiringLayoutChanged);
-  assert.deepStrictEqual(result.plan, ["updateSelectedShipPowerUi"]);
 
   result = transition((next) => {
     next.players[0].rallyPoint = { x: 300, y: 400 };

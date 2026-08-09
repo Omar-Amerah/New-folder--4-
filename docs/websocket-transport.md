@@ -1,6 +1,6 @@
 # WebSocket transport
 
-The game server accepts WebSocket connections only on `/socket` and keeps protocol version 4 and MessagePack application messages unchanged.
+The game server accepts WebSocket connections only on `/socket` and speaks protocol version 6 with MessagePack application messages.
 
 ## Handshake
 

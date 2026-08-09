@@ -189,7 +189,7 @@ function snapshotFixture(disableGrouping) {
   room.disableSnapshotGrouping = disableGrouping;
   const player = {
     id: "p1", name: "Benchmark", team: "blue", ships: [], design: [],
-    wiring: { power: { sections: [], connections: [] }, data: { sections: [], connections: [] } },
+    dataLinks: [],
     connected: true, money: 1000, bank: 1000, earned: 1000, maxMoney: 1000,
     kills: 0, losses: 0, captures: 0
   };

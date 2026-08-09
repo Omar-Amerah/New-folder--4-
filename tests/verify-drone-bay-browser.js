@@ -7,6 +7,9 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 const { launchChromium, startServer, waitForServer, uniquePort } = require("./verify-pixi-browser-support.js");
 const droneBalance = require("../component-balance.json").drones;
+const { generateBalanceArtifacts } = require("../tools/generate-balance");
+
+generateBalanceArtifacts();
 
 const artifactDir = path.join(require("path").dirname(__dirname), "test-artifacts", "drone-bay");
 fs.mkdirSync(artifactDir, { recursive: true });
@@ -160,7 +163,7 @@ async function showCombatState(page, {
         { x: 7, y: 7, type: "core", rotation: 0 },
         { x: 7, y: 8, type: "engine", rotation: 0 }
       ];
-      state.wiring = window.WiringRules.emptyWiring();
+      state.dataLinks = [];
       state.blueprintView = "build";
       state.selectedPartCategory = "Weapons";
       state.selectedPart = "droneBay";
@@ -206,7 +209,7 @@ async function showCombatState(page, {
     const persisted = await page.evaluate(async () => {
       const storage = await import("/src/design/blueprintStorage.js");
       const { state } = await import("/src/state.js");
-      const envelope = storage.designEnvelope(state.design, state.wiring, state.combatStyle);
+      const envelope = storage.designEnvelope(state.design, state.dataLinks, state.combatStyle);
       const restored = storage.migrateDesignStorage(structuredClone(envelope));
       return restored.modules.find((part) => part.type === "droneBay");
     });

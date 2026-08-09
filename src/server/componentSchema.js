@@ -7,8 +7,6 @@ const BURN_THROUGH_WEAPON_FAMILIES = new Set(["beam"]);
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "swarmMissile", "projectile", "drone", "droneFighter", "droneOther", "decoy"]);
 const VALID_POWER_CATEGORIES = new Set(["command", "propulsion", "shields", "pointDefence", "weapons", "coolingSupport"]);
 const POWER_SOURCE_IDS = new Set(["core", "reactor", "nuclearReactor", "auxGenerator"]);
-const POWER_TIER_NAMES = ["light", "standard", "heavy"];
-const POWER_TIER_NUMERIC_FIELDS = ["sustainedCapacityMw", "peakCapacityMw", "costPerHostedCell", "heatCapacityDisplacement", "renderedThickness"];
 const VALID_SENSOR_ROLES = new Set(["omniSmall", "omniLarge", "directed"]);
 const VALID_AURA_TYPES = new Set(["command", "fireControl", "fleetDefence", "shield", "engineering", "propulsion", "ewar"]);
 const VALID_SHAPE_TYPES = new Set(["halfDiagonal", "wing", "bevel", "roundedCorner", "longWedge"]);
@@ -92,129 +90,6 @@ function validateThermalProfile(component, path, errors) {
   }
 }
 
-// The wiring infrastructure block is authoritative for cable cost and static
-// Heat displacement. Invalid values must fail loudly rather than being silently
-// repaired into a different balance.
-// Section 7D-2 activity-driven Power demand: standby fractions per demand role.
-const POWER_DEMAND_ROLES = ["command", "propulsion", "shields", "weapons", "pointDefence", "repair", "coolingSupport"];
-function validatePowerDemand(powerDemand, filePath, errors) {
-  const path = `${filePath}.powerDemand`;
-  if (!powerDemand || typeof powerDemand !== "object" || Array.isArray(powerDemand)) {
-    errors.push(`${path} must be an object.`);
-    return;
-  }
-  const fractions = powerDemand.standbyFractions;
-  if (!fractions || typeof fractions !== "object" || Array.isArray(fractions)) {
-    errors.push(`${path}.standbyFractions must be an object.`);
-    return;
-  }
-  for (const role of POWER_DEMAND_ROLES) {
-    const value = fractions[role];
-    if (!(Number.isFinite(value) && value >= 0 && value <= 1)) {
-      errors.push(`${path}.standbyFractions.${role} must be a finite number from 0 to 1.`);
-    }
-  }
-}
-
-// Section 7G runtime Power overload protection: the central provisional
-// protection balance. Every tuning constant lives here (never scattered
-// through server or UI files) and must be finite, non-negative and safely
-// ordered so runtime normalisation never has to repair a nonsensical value.
-const POWER_PROTECTION_NUMERIC_FIELDS = [
-  "overloadStartRatio", "recoveryStartRatio", "tripStressThreshold",
-  "baseStressPerSecond", "additionalStressPerSecondAtPeak", "recoveryPerSecond",
-  "criticalStressRatio", "tripCooldownSeconds", "retryIntervalSeconds",
-  "safeRecloseSustainedRatio", "maxAutomaticRetrySubsets", "maximumProtectionDeltaSeconds"
-];
-function validatePowerProtection(protection, filePath, errors) {
-  const path = `${filePath}.powerProtection`;
-  if (!protection || typeof protection !== "object" || Array.isArray(protection)) {
-    errors.push(`${path} must be an object.`);
-    return;
-  }
-  for (const field of POWER_PROTECTION_NUMERIC_FIELDS) {
-    if (!isFiniteNonNegative(protection[field])) errors.push(`${path}.${field} must be a finite non-negative number.`);
-  }
-  if (isFiniteNonNegative(protection.recoveryStartRatio) && isFiniteNonNegative(protection.overloadStartRatio)
-    && protection.recoveryStartRatio > protection.overloadStartRatio) {
-    errors.push(`${path}.recoveryStartRatio must be <= overloadStartRatio.`);
-  }
-  if (protection.criticalStressRatio !== undefined && isFiniteNonNegative(protection.criticalStressRatio) && protection.criticalStressRatio > 1) {
-    errors.push(`${path}.criticalStressRatio must be from 0 to 1.`);
-  }
-  if (protection.safeRecloseSustainedRatio !== undefined && isFiniteNonNegative(protection.safeRecloseSustainedRatio) && protection.safeRecloseSustainedRatio > 1) {
-    errors.push(`${path}.safeRecloseSustainedRatio must be from 0 to 1.`);
-  }
-  if (!(Number.isInteger(protection.maxAutomaticRetrySubsets) && protection.maxAutomaticRetrySubsets >= 1)) {
-    errors.push(`${path}.maxAutomaticRetrySubsets must be an integer >= 1.`);
-  }
-  if (!(typeof protection.maximumProtectionDeltaSeconds === "number" && Number.isFinite(protection.maximumProtectionDeltaSeconds) && protection.maximumProtectionDeltaSeconds > 0)) {
-    errors.push(`${path}.maximumProtectionDeltaSeconds must be a finite number greater than zero.`);
-  }
-}
-
-function validateWiringInfrastructure(infrastructure, filePath, errors) {
-  const path = `${filePath}.wiringInfrastructure`;
-  if (!infrastructure || typeof infrastructure !== "object" || Array.isArray(infrastructure)) {
-    errors.push(`${path} must be an object.`);
-    return;
-  }
-  const tiers = infrastructure.powerTiers;
-  if (!tiers || typeof tiers !== "object" || Array.isArray(tiers)) {
-    errors.push(`${path}.powerTiers must be an object.`);
-  } else {
-    for (const name of POWER_TIER_NAMES) {
-      const tier = tiers[name];
-      const tierPath = `${path}.powerTiers.${name}`;
-      if (!tier || typeof tier !== "object" || Array.isArray(tier)) {
-        errors.push(`${tierPath} must be an object.`);
-        continue;
-      }
-      for (const field of POWER_TIER_NUMERIC_FIELDS) {
-        if (!isFiniteNonNegative(tier[field])) errors.push(`${tierPath}.${field} must be a finite non-negative number.`);
-      }
-      if (isFiniteNonNegative(tier.sustainedCapacityMw) && isFiniteNonNegative(tier.peakCapacityMw)
-        && tier.peakCapacityMw < tier.sustainedCapacityMw) {
-        errors.push(`${tierPath}.peakCapacityMw must be >= sustainedCapacityMw.`);
-      }
-      if (typeof tier.inspectionLabel !== "string" || !tier.inspectionLabel.trim()) {
-        errors.push(`${tierPath}.inspectionLabel must be a non-empty string.`);
-      }
-      // Section 7D-1 dynamic cable Heat: coefficient is a finite Heat/second per
-      // hosted cell at sustained flow (>= 0); the utilisation exponent must be a
-      // finite number strictly greater than 1 so above-sustained flow is nonlinear.
-      if (!isFiniteNonNegative(tier.cableHeatAtSustainedPerHostedCell)) {
-        errors.push(`${tierPath}.cableHeatAtSustainedPerHostedCell must be a finite non-negative number.`);
-      }
-      if (!(Number.isFinite(tier.cableHeatUtilisationExponent) && tier.cableHeatUtilisationExponent > 1)) {
-        errors.push(`${tierPath}.cableHeatUtilisationExponent must be a finite number greater than 1.`);
-      }
-    }
-    const light = tiers.light; const standard = tiers.standard; const heavy = tiers.heavy;
-    if (light && standard && heavy) {
-      if (!(light.costPerHostedCell < standard.costPerHostedCell)) errors.push(`${path}.powerTiers light cost must be less than standard.`);
-      if (!(standard.costPerHostedCell < heavy.costPerHostedCell)) errors.push(`${path}.powerTiers standard cost must be less than heavy.`);
-      if (!(light.heatCapacityDisplacement < standard.heatCapacityDisplacement)) errors.push(`${path}.powerTiers light displacement must be less than standard.`);
-      if (!(standard.heatCapacityDisplacement < heavy.heatCapacityDisplacement)) errors.push(`${path}.powerTiers standard displacement must be less than heavy.`);
-    }
-  }
-  const data = infrastructure.data;
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    errors.push(`${path}.data must be an object.`);
-  } else {
-    if (!isFiniteNonNegative(data.costPerHostedCell)) errors.push(`${path}.data.costPerHostedCell must be a finite non-negative number.`);
-    if (!isFiniteNonNegative(data.heatCapacityDisplacement)) errors.push(`${path}.data.heatCapacityDisplacement must be a finite non-negative number.`);
-    if (typeof data.inspectionLabel !== "string" || !data.inspectionLabel.trim()) errors.push(`${path}.data.inspectionLabel must be a non-empty string.`);
-    if (tiers && tiers.light && isFiniteNonNegative(data.costPerHostedCell) && isFiniteNonNegative(tiers.light.costPerHostedCell)
-      && !(data.costPerHostedCell < tiers.light.costPerHostedCell)) {
-      errors.push(`${path}.data.costPerHostedCell must be significantly less than light Power cable cost.`);
-    }
-  }
-  if (!(typeof infrastructure.minimumComponentHeatCapacity === "number" && Number.isFinite(infrastructure.minimumComponentHeatCapacity) && infrastructure.minimumComponentHeatCapacity > 0)) {
-    errors.push(`${path}.minimumComponentHeatCapacity must be a positive finite number.`);
-  }
-}
-
 const AURA_STAT_KEYS = [
   "weaponAccuracyMultiplier", "weaponTrackingMultiplier", "turretAimSpeedMultiplier", "targetAcquisitionMultiplier",
   "pointDefenceTrackingMultiplier", "flakTrackingMultiplier", "interceptionReactionMultiplier",
@@ -238,7 +113,7 @@ function validateCommandAura(commandAura, filePath, errors) {
 const INFRASTRUCTURE_NUMERIC_FIELDS = [
   "maximumShipGridWidth", "maximumShipGridHeight", "hangarClearanceCells", "hangarCorridorLength",
   "launchSpeed", "releaseDistance", "repairRadius", "repairRatePerSecond", "repairDelaySeconds",
-  "productionBaseSeconds", "productionCostSecondsMultiplier", "launchRetrySeconds",
+  "productionBaseSeconds", "launchRetrySeconds",
   "captureRadius", "captureRestoreHpRatio", "hullScale", "shieldScale"
 ];
 
@@ -406,14 +281,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     }
   }
   validateFiniteMap(balance, filePath, errors);
-  if (balance.shipPricing) {
-    if (balance.shipPricing.minimum > balance.shipPricing.maximum) errors.push(`${filePath}.shipPricing minimum must be <= maximum.`);
-    for (const family of Object.keys(balance.shipPricing.weaponPremiums || {})) if (!VALID_WEAPON_FAMILIES.has(family)) errors.push(`${filePath}.shipPricing.weaponPremiums has unknown family ${family}.`);
-  }
   if (balance.economy && balance.economy.shipCap < 0) errors.push(`${filePath}.economy.shipCap must be non-negative.`);
-  validateWiringInfrastructure(balance.wiringInfrastructure, filePath, errors);
-  validatePowerDemand(balance.powerDemand, filePath, errors);
-  validatePowerProtection(balance.powerProtection, filePath, errors);
   validateCommandAura(balance.commandAura, filePath, errors);
   validateInfrastructure(balance.infrastructure, filePath, errors);
   const seen = new Set();
@@ -633,4 +501,4 @@ function validatePropulsionCapacitor(config, path, errors) {
   }
 }
 
-module.exports = { validateComponentBalance, assertValidComponentBalance, validateWiringInfrastructure, validatePowerProtection, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };
+module.exports = { validateComponentBalance, assertValidComponentBalance, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };

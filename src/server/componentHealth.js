@@ -307,7 +307,7 @@ function onComponentDestroyed(room, ship, index, now) {
   }
   if (module.type === "core") {
     ship.coreDestroyed = true;
-    requestComponentLifecycleRefresh(ship, { exposure: true, wiringTopology: true, wiringComponentIndex: index });
+    requestComponentLifecycleRefresh(ship, { exposure: true, componentState: true, componentIndex: index });
     return;
   }
   const heat = require("./heat");
@@ -316,8 +316,8 @@ function onComponentDestroyed(room, ship, index, now) {
     exposure: true,
     thermalRoutes: heat.isThermalRouteType(module.type),
     activeCoolers: module.type === "closedCycleCooler",
-    wiringTopology: true,
-    wiringComponentIndex: index
+    componentState: true,
+    componentIndex: index
   });
 }
 
@@ -328,9 +328,9 @@ function beginComponentLifecycleBatch(ship) {
 function requestComponentLifecycleRefresh(ship, flags = {}) {
   ship._componentLifecycleDirty ||= {};
   for (const [flag, value] of Object.entries(flags)) if (value) ship._componentLifecycleDirty[flag] = true;
-  if (Number.isInteger(flags.wiringComponentIndex)) {
-    ship._componentLifecycleDirty.wiringComponentIndices ||= new Set();
-    ship._componentLifecycleDirty.wiringComponentIndices.add(flags.wiringComponentIndex);
+  if (Number.isInteger(flags.componentIndex)) {
+    ship._componentLifecycleDirty.componentIndices ||= new Set();
+    ship._componentLifecycleDirty.componentIndices.add(flags.componentIndex);
   }
   if (!ship._componentLifecycleDepth) flushComponentLifecycleRefresh(ship);
 }
@@ -345,20 +345,9 @@ function flushComponentLifecycleRefresh(ship) {
   if (flags.exposure) heat.rebuildRuntimeExposure(ship);
   if (flags.thermalRoutes) heat.rebuildThermalNetworks(ship);
   if (flags.activeCoolers) heat.rebuildThermalNetworks(ship);
-  if (flags.wiringTopology) {
+  if (flags.componentState) {
     const componentPower = require("./componentPower");
-    const candidates = flags.wiringComponentIndices instanceof Set ? [...flags.wiringComponentIndices] : [];
-    const hasHostedWiring = !candidates.length || candidates.some((index) => componentPower.componentHostsWiring(ship, index));
-    if (!hasHostedWiring) {
-      componentPower.reallocateShipPower(ship, "component-lifecycle");
-      heat.refreshHeatSourceSignatures?.(ship);
-      return;
-    }
-    componentPower.rebuildShipWiringState(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
-    // Re-baseline the thermal source signatures only when the allocation above
-    // actually ran. A flush that changes heat states without reallocating (e.g.
-    // a future thermalCapacity-only event) must leave the old baselines in
-    // place so the next thermal tick still detects the change and reallocates.
+    componentPower.reallocateShipPower(ship, "component-lifecycle", { skipRuntimeStats: ship.alive === false });
     heat.refreshHeatSourceSignatures?.(ship);
   }
 }
@@ -434,10 +423,10 @@ function detonateComponent(room, ship, index, radius, damage, now) {
 }
 
 // Stat fields that depend on which components are still functional. Static
-// identity fields (unitCost, radius, maxHp, fleetCount, ...) are intentionally
+// identity fields (unitCost, radius, maxHp, ...) are intentionally
 // excluded so the ship keeps its footprint and price.
 const EFFECTIVE_STAT_KEYS = [
-  "mass", "shieldRegen", "powerGeneration", "powerUse", "power", "efficiency",
+  "mass", "shieldRegen", "powerGeneration", "powerUse", "power", "availablePower", "powerRatio", "powerStorageDischarge", "efficiency",
   "thrust", "effectiveThrust", "engineEfficiency", "thrustRatio", "energyStorage",
   "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight", "massClass", "speedCap", "turnCap",
   "powerEfficiency", "powerDebuff",
@@ -518,7 +507,7 @@ function repairShipComponents(room, ship, amount, now, emitterShip) {
       if (ship.design[idx].type === "core") ship.coreDestroyed = false;
       const heat = require("./heat");
       requestComponentLifecycleRefresh(ship, { thermalCapacity: true,
-        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), activeCoolers: ship.design[idx].type === "closedCycleCooler", wiringTopology: true, wiringComponentIndex: idx });
+        exposure: true, thermalRoutes: heat.isThermalRouteType(ship.design[idx].type), activeCoolers: ship.design[idx].type === "closedCycleCooler", componentState: true, componentIndex: idx });
     }
   }
   endComponentLifecycleBatch(ship);
@@ -544,7 +533,7 @@ function zeroAllComponents(ship) {
   if (ship.componentMeltdown) ship.componentMeltdown.fill(0);
   ship.hp = 0;
   markShipRepairCacheDirty(ship);
-  requestComponentLifecycleRefresh(ship, { thermalCapacity: true, exposure: true, thermalRoutes: true, wiringTopology: true });
+  requestComponentLifecycleRefresh(ship, { thermalCapacity: true, exposure: true, thermalRoutes: true, componentState: true });
   endComponentLifecycleBatch(ship);
 }
 

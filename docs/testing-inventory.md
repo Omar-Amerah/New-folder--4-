@@ -1,7 +1,5 @@
 # Test inventory
 
-Baseline commit: `1cbe39dad0a139b6c58476be60a124ef93ead972` (main, 2026-07-14).
-
 Every automated test in this repository is a standalone `verify-*.js` Node script in
 the `tests/` directory (no test framework). This document inventories all of them, what they
 actually exercise, what they depend on, and how they are (or were not) wired into
@@ -86,7 +84,7 @@ Key observations:
   which proves nothing about behaviour. A reader of the old `check` script could
   easily believe `tests/verify-runtime.js` was being executed; it was only parsed.
 - `tests/verify-blueprint-mobile-scroll.js` was wired to no script at all, and had two
-  bugs that meant it could never pass (see baseline review).
+  bugs that meant it could never pass; keep it out of the required groups until repaired.
 - `tools/debug/heatcheck.js` is dead: it needs `puppeteer-core` (not in `package.json`) and a
   hardcoded `C:/Program Files/...` Chrome path. Left in place, documented here;
   candidate for deletion in a later cleanup PR.
@@ -94,7 +92,7 @@ Key observations:
 ## Duplicates and near-duplicates
 
 - `test:pixi-browser` = `tests/verify-turret-render.js` + `tests/verify-pixi-lifecycle.js`;
-  both also have individual aliases. Not duplicate coverage, only duplicate wiring.
+  both also have individual aliases. Not duplicate coverage, only duplicate command paths.
 - `tests/verify-turret-render.js` (synthetic snapshots, injected angles) vs
   `tests/verify-live-turrets.js` (real protocol, no injection): deliberately complementary,
   not duplicates — the files themselves document this split.
@@ -155,7 +153,7 @@ stable target tie-breaking, point-defence protected-ship priority, destruction
 idempotency and swept projectile asteroid-first precedence with deterministic seed
 `1234`.
 
-## Catch-up Part 1 additions
+## Blueprint, lifecycle and map commands
 
 | Command | Purpose |
 |---|---|
@@ -170,34 +168,26 @@ idempotency and swept projectile asteroid-first precedence with deterministic se
 
 Only the commands above that are wired to executable verifier scripts are documented here.
 
-## Catch-up Part 2 focused commands
+## Focused command suites
 
 - `npm run test:selection` covers selected-fleet normalization, explicit empty selections, malformed destruct, duplicate collapse, mixed enemy/owned IDs, and self-destruct idempotency.
 - `npm run test:economy-sequence` runs a seeded economy sequence with income, purchase success/failures, replay/conflict, reward idempotency, and orphan checks.
 - `npm run test:bots` covers deterministic bot think intervals, movement offsets, safe empty objectives, winner stop, and failed bot purchases.
 - `npm run test:movement` covers movement command normalization and deterministic movement scenarios.
 
-## Completed Catch-up Parts 1–3
-
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
-
-## Section 8 catch-up truthful taxonomy
+## Current grouped-runner taxonomy
 
 - `npm run test:spawn-planner` now runs `tests/verify-spawn-planner.js`, a dedicated deterministic planner suite for solo counts 1, 2, 3, 4, 5, 8 and 12; 1v1; balanced teams; 7v1; 10v2; mixed human/bot rooms; large starter reservations; obstructed preferred positions; deterministic replay; and no-legal-placement failure reporting.
 - `npm run test:blueprint-parity` now runs `tests/verify-blueprint-parity.js`. It loads the server-normalized component catalogue into the client preview and compares authoritative design-time stats with explicit tolerances: exact for integer/stat fields, 1 unit for rounded acceleration/effective thrust, and 0.01 for rounded speed/turn displays. Client warnings remain display-only copy and are not an exact authoritative parity field.
 - `npm run test:component-indexes` now runs `tests/verify-component-indexes.js`, covering design creation, spawn, full and dynamic snapshots, component damage/destruction/repair deltas, heat deltas, reconnect reconstruction, ship removal, and new-ship cache isolation.
 - `npm run test:protocol` now executes only `tests/verify-runtime.js`, the combined real-network protocol smoke test. Dedicated purchase and movement protocol wrappers were removed because they did not add focused assertions.
-- `npm run test:objectives` and `npm run test:match-progression` still point at `tests/verify-maps-objectives.js`; this remains a focused map/objective invariant suite and broader objective/victory coverage is deferred to the Section 13 final regression pass rather than overstated here.
+- `npm run test:objectives` and `npm run test:match-progression` still point at `tests/verify-maps-objectives.js`; this remains a focused map/objective invariant suite and is not a full browser or forced-victory matrix.
 
-## Spawn/protocol correction before Section 8
+## Spawn and protocol test coverage
 
 `npm run test:spawn-planner` now exercises the real deterministic spawn/safe-zone plan for 1, 2, 3, 4, 5, 8 and 12 solo players; 1v1, balanced, 7v1 and 10v2 teams; mixed humans and bots; large ships; large starter quantities; obstructed preferred positions; deterministic replay; rematch/layout cache invalidation; impossible-layout diagnostics; and direct combat safe-zone policy checks.
 
-The duplicate protocol wrapper commands `test:purchases-protocol` and `test:movement-protocol` were removed because they only required `tests/verify-runtime.js` and did not provide dedicated purchase or movement protocol assertions. `npm run test:protocol` now truthfully runs the single real-network protocol smoke test, `tests/verify-runtime.js`, once. Focused purchase and movement protocol scenarios remain deferred until genuine harness-backed tests are added; broader final regression belongs to Section 13, while Section 8 is heat, power and component health.
+The duplicate protocol wrapper commands `test:purchases-protocol` and `test:movement-protocol` were removed because they only required `tests/verify-runtime.js` and did not provide dedicated purchase or movement protocol assertions. `npm run test:protocol` runs the single real-network protocol smoke test, `tests/verify-runtime.js`, once. Focused purchase and movement protocol scenarios are not currently registered because they need genuine harness-backed assertions.
 
 ## Section 8C focused heat commands
 
@@ -207,7 +197,7 @@ The duplicate protocol wrapper commands `test:purchases-protocol` and `test:move
 
 ## Section 8D required heat test taxonomy
 
-- Unit/runtime: `tests/verify-thermal-topology.js`, `tests/verify-heat-transfer.js`, `tests/verify-heat-cooling.js`, `tests/verify-heat-effects.js`, `tests/verify-power.js`, `tests/verify-component-health.js`, `tests/verify-meltdown.js` run in `npm run test:unit` and therefore `npm run test:all`.
+- Unit/runtime: `tests/verify-thermal-topology.js`, `tests/verify-heat-transfer.js`, `tests/verify-heat-cooling.js`, `tests/verify-heat-effects.js`, `tests/verify-component-health.js`, `tests/verify-meltdown.js` run in `npm run test:unit` and therefore `npm run test:all`.
 - Protocol/integration: `tests/verify-heat-protocol.js` runs in `npm run test:protocol` against real `server.js`, WebSockets and MessagePack.
 - Browser: `tests/verify-heat-browser.js` runs in `npm run test:browser` against the production frontend in Playwright Chromium; missing Chromium is a hard failure.
 - Soak: `tests/verify-heat-soak.js` runs in `npm run test:soak` with dedicated thermal assertions rather than aliasing the generic soak.
@@ -286,6 +276,6 @@ WebSocket transport hardening is documented in `docs/websocket-transport.md`. Th
 
 ## Section 6E Data-support balance validation
 
-- `tests/verify-data-support-balance.js` validates canonical reference ships, Data allocation invariants, redundancy, isolated networks, and deterministic fixture construction.
+- `tests/verify-data-support-balance.js` validates canonical reference ships, Data allocation invariants, redundancy, independent links, and deterministic fixture construction.
 - `tools/data-support-balance-report.js` provides deterministic informational balance output through `npm run balance:data-support` and optional `--json`.
 - `tools/run-tests.js unit` includes the Section 6E verifier in the browser-free unit group.

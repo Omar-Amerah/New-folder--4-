@@ -12,12 +12,11 @@
 @import url(./styles/blueprint-layout.css);
 @import url(./styles/build-preview.css);
 @import url(./styles/component-shapes.css);
-@import url(./styles/wiring-editor.css?v=data-analysis-restore-1);
-/* Data support stands alone: it must keep working once wiring is removed. */
+/* Data support is a standalone logical link model. */
 @import url(./styles/data-support.css?v=data-analysis-restore-1);
 
 /* Scale Blueprint interface chrome independently; the grid stage and all
-   geometry used for placement, Heat and Wiring remain at 100%. */
+   geometry used for placement and Heat remains at 100%. */
 .blueprint-designer-panel > .menu-head,
 .blueprint-designer-panel .designer-left-col,
 .blueprint-designer-panel .designer-right-col,

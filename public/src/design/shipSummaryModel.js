@@ -67,23 +67,14 @@ export function turnAsymmetry(stats) {
  */
 export function resolvePowerSummary(stats, powerSummary = null, options = {}) {
   const summary = (powerSummary && powerSummary.summary) ? powerSummary.summary : (powerSummary || {});
-  const flow = (powerSummary && powerSummary.summary) ? powerSummary : null;
-  const partNames = options.partNames || (globalThis.PART_DEFS || {});
-  const design = options.design || (stats && stats.design) || [];
-  const view = (flow && globalThis.PowerDiagnostics && globalThis.PowerDiagnostics.buildPowerBalanceView)
-    ? globalThis.PowerDiagnostics.buildPowerBalanceView(flow, { design, partNames, stats })
-    : null;
-
   const generation = Number(summary.availableGenerationMw ?? summary.totalGenerationMw ?? stats.powerGeneration) || 0;
   const requested = Number(summary.demandMw ?? summary.requestedDemandMw ?? stats.powerUse) || 0;
   const delivered = Number(summary.allocatedMw ?? summary.deliveredDemandMw ?? Math.min(generation, requested)) || 0;
   const unmet = Number(summary.unmetMw ?? summary.unmetDemandMw ?? Math.max(0, requested - delivered)) || 0;
   const spare = unmet > 0.0005 ? 0 : (Number(summary.spareGenerationMw ?? summary.reachableSpareMw ?? Math.max(0, generation - requested)) || 0);
-  const stranded = Math.max(0, Number(summary.strandedGenerationMw || 0) - Number(summary.spareGenerationMw || 0));
+  const efficiency = Math.max(0, Math.min(1, Number(summary.powerRatio ?? stats.powerRatio ?? stats.efficiency ?? stats.powerEfficiency) || 0));
   const hasShortfall = unmet > 0.0005;
   const fullyPowered = !hasShortfall && requested > 0.0005;
-  const loadShedCategories = [...(summary.loadShedCategories || [])];
-  const loadShedActive = view ? Boolean(view.loadShedActive) : false;
   const generationDeficit = hasShortfall && generation + 0.0005 < requested;
 
   const mw = (v) => `${(Math.round(Number(v || 0) * 10) / 10).toFixed(1)} MW`;
@@ -98,30 +89,21 @@ export function resolvePowerSummary(stats, powerSummary = null, options = {}) {
     allocatedMw: delivered,
     unmetMw: unmet,
     reachableSpareMw: spare,
-    strandedGenerationMw: stranded,
     generation,
     requested,
     delivered,
     spare,
     unmet,
-    stranded,
     overviewText,
     statusMessageText: overviewText,
     shortfall: hasShortfall,
     hasShortfall,
     fullyPowered,
-    efficiency: Number(stats.powerEfficiency) || 0,
-    penalty: Number(stats.powerDebuff) || 0,
-    loadShedActive,
-    loadShedCategories,
-    shedDetail: loadShedActive ? (view ? view.shedDetail : null) : null,
+    efficiency,
     generationDeficit,
-    overloadedSections: (summary.aboveSustainedSectionCount || 0) + (summary.atPeakSectionCount || 0),
-    preset: summary.preset ?? null,
     diagnosis: {
       hasShortfall,
       generationDeficit,
-      loadShedActive,
       unmetMw: unmet,
       statusMessage: overviewText
     }
@@ -133,7 +115,7 @@ const mw = (value) => `${Number(value || 0).toFixed(1)} MW`;
 /** Human list of the systems a Power shortfall is currently degrading. */
 function affectedSystems(stats, power) {
   const affected = [];
-  if (Number(stats.effectiveThrust || 0) > 0 || power.penalty > 0) affected.push("engines");
+  if (Number(stats.effectiveThrust || 0) > 0) affected.push("engines");
   if (Number(stats.maxShield || 0) > 0) affected.push("shields");
   if (Number(stats.weaponDps || 0) > 0) affected.push("weapons");
   if (Number(stats.repairRate || 0) > 0) affected.push("repair");
@@ -193,17 +175,11 @@ function statusMessages(stats, power, context) {
   }
 
   // Power
-  if (includePower && power.loadShedActive) {
-    add("power-shed", "warning", "Load shedding active");
-  }
   if (includePower && power.shortfall) {
     const affected = affectedSystems(stats, power);
     add("power-short", "bad", affected.length ? `${mw(power.unmet)} short · ${joinList(affected)} reduced` : `${mw(power.unmet)} short of demand`);
   } else if (includePower && power.requested > 0) {
     add("power-ok", "good", "Fully powered");
-  }
-  if (includePower && power.stranded > 0.0005) {
-    add("power-stranded", "warning", `${mw(power.stranded)} stranded on isolated network`);
   }
 
   // Mobility
@@ -233,11 +209,6 @@ function statusMessages(stats, power, context) {
   // Thermal : reported by the authoritative thermal analysis, not recomputed.
   if (context.overheatingCount > 0) {
     add("cooling", "warning", `Insufficient cooling for sustained combat · ${context.overheatingCount} component${context.overheatingCount === 1 ? "" : "s"} overheat`);
-  }
-
-  // Infrastructure
-  if (includePower && power.overloadedSections > 0) {
-    add("cable-overload", "warning", `${power.overloadedSections} Power cable section${power.overloadedSections === 1 ? "" : "s"} over its sustained rating`);
   }
 
   return sortStatusCallouts(messages);
@@ -309,13 +280,8 @@ function powerSection(stats, power, ledger) {
     statRow("power.demand", "Demand", mw(power.requested)),
     statRow("power.delivered", "Delivered", mw(power.delivered)),
     statRow("power.spare", "Spare", power.spare > 0 ? mw(power.spare) : null, { tone: "good" }),
-    statRow("power.stranded", "Stranded Generation", power.stranded > 0 ? mw(power.stranded) : null, { tone: "warning" }),
     statRow("power.unmet", "Unmet", power.unmet > 0 ? mw(power.unmet) : null, { tone: "bad" }),
     statRow("power.efficiency", "Efficiency", formatPercent(power.efficiency)),
-    // A zero penalty is not rendered at all : no "Power Penalty: None".
-    statRow("power.penalty", "Power Penalty", power.penalty > 0 ? `-${formatPercent(power.penalty)}` : null, { tone: "bad" }),
-    statRow("power.shed", "Load Shed", power.loadShedActive ? (power.shedDetail || (power.loadShedCategories.length ? power.loadShedCategories.map(c => globalThis.PowerDiagnostics ? globalThis.PowerDiagnostics.categoryLabel(c) : c).join(", ") : null)) : null, { tone: "warning" }),
-    statRow("power.overloaded", "Overloaded Sections", power.overloadedSections > 0 ? `${power.overloadedSections}` : null, { tone: "warning" }),
     statRow("power.storage", "Energy Storage", Number(stats.energyStorage || 0) > 0 ? `${round2(stats.energyStorage)} MJ` : null)
   ];
   const kept = ledger.take(rows);
@@ -387,7 +353,7 @@ function droneSquadText(stats) {
  * Build the Ship summary model.
  *
  * @param {object} stats computeStats() output (authoritative)
- * @param {object} context { design, powerSummary, overheatingCount, fleetCount }
+ * @param {object} context { design, powerSummary, overheatingCount }
  */
 export function buildShipSummaryModel(stats, context = {}) {
   const ledger = new StatLedger();

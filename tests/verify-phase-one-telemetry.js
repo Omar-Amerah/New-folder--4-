@@ -5,7 +5,6 @@ const { resetRoomTelemetry, getRoomTelemetry, telemetryDiagnostics, setCounter }
 const { updateShipSeparation } = require("../src/server/movement");
 const { updateBullets } = require("../src/server/projectiles");
 const { computeStats } = require("../src/server/shipStats");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
@@ -35,7 +34,7 @@ function makeShip(id, x, y) {
     radius: stats.radius,
     physicalRadius: Math.max(18, stats.radius * 0.56),
     design: LIGHT_DESIGN.map((p) => ({ ...p })),
-    wiring: createGeneratedPowerWiring(LIGHT_DESIGN),
+    dataLinks: [],
     stats,
     componentHp: null,
     commandState: "mainCore"

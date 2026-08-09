@@ -25,7 +25,7 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_PLAYERS_PER_ROOM = 6;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
-const ECONOMY = Object.freeze({ ...BALANCE.economy, ...BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...BALANCE.shipPricing.weaponPremiums }) });
+const ECONOMY = Object.freeze({ ...BALANCE.economy });
 
 const REWARDS = Object.freeze({ ...BALANCE.rewards });
 const INFRASTRUCTURE = Object.freeze({
@@ -177,22 +177,6 @@ const DEFAULT_DESIGN = Object.freeze([
   { x: 7, y: 9, type: "engine" }
 ]);
 
-const WiringRules = require("../../public/src/shared/wiringRules");
-const { PARTS } = require("./components");
-
-function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  Object.values(value).forEach(deepFreeze);
-  return value;
-}
-
-// Authoritative default Wiring v2 is generated once from DEFAULT_DESIGN using
-// shared browser/Node wiring rules.  It physically connects all default Power
-// sources and consumers. The standard ship has no Data-support source modules,
-// so Data wiring remains empty.
-const DEFAULT_WIRING = deepFreeze(WiringRules.createGeneratedPowerWiring(DEFAULT_DESIGN, PARTS));
-
 module.exports = {
   PORT,
   PUBLIC_DIR,
@@ -220,6 +204,5 @@ module.exports = {
   BOT_NAMES,
   MAP_NAMES,
   MAP_CLOUD_COLORS,
-  DEFAULT_DESIGN,
-  DEFAULT_WIRING
+  DEFAULT_DESIGN
 };

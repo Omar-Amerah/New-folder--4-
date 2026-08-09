@@ -7,7 +7,6 @@ const WINDOW_MS = 60_000;
 const MAX_SAMPLES = 2048;
 const SUBSYSTEM_NAMES = Object.freeze([
   "botsEconomyLifecycle",
-  "powerDemandProtection",
   "movementSeparationMap",
   "spatialIndex",
   "commandAuras",
@@ -25,7 +24,6 @@ const SUBSYSTEM_NAMES = Object.freeze([
 const PURCHASE_STAGE_NAMES = Object.freeze([
   "requestValidation",
   "designValidation",
-  "wiringNormalization",
   "statCalculation",
   "purchaseSignatureGeneration",
   "spawnPositionResolution",

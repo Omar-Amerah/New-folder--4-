@@ -1,6 +1,6 @@
 // RFC 6455 WebSocket framing parser/serializer, raw TCP socket upgrading, connection heartbeat, and close frame handling.
 
-const { WORLD, ECONOMY, DEFAULT_DESIGN, DEFAULT_WIRING, MAX_MESSAGE_BYTES } = require("./config");
+const { WORLD, ECONOMY, DEFAULT_DESIGN, MAX_MESSAGE_BYTES } = require("./config");
 const { WebSocketFrameParser, readFrame } = require("./wsFrameParser");
 const { PARTS } = require("./components");
 const { leaveRoom } = require("./players");
@@ -75,8 +75,7 @@ function createClient(socket) {
       startingMoney: ECONOMY.startingMoney,
       shipCap: ECONOMY.shipCap
     },
-    defaultDesign: DEFAULT_DESIGN,
-    defaultWiring: DEFAULT_WIRING
+    defaultDesign: DEFAULT_DESIGN
   });
 
   return client;

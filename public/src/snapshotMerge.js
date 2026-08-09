@@ -69,9 +69,8 @@ function isNullish(value) { return value === undefined || value === null; }
 // never inherited from an earlier cached snapshot, so redacted enemy data can
 // never survive a full->compact merge or a visibility change.
 const PRIVATE_SHIP_FIELDS = Object.freeze(ENTITY_DELTA.PRIVATE_SHIP_FIELDS || [
-  "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
-  "powerRuntimeRevision", "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
-  "powerWiring", "powerWiringRevision", "powerWiringRuntime", "chp", "chpD", "componentHeat",
+  "componentPower", "powerStatus", "powerThermal", "powerRevision",
+  "powerRuntimeRevision", "chp", "chpD", "componentHeat",
   "componentHeatD", "storageCharge", "componentHeatRevision", "heatTelemetryRevision"
 ]);
 
@@ -166,7 +165,7 @@ export function mergeCachedShipFields(previousShips, nextShips) {
     if (isNullish(merged.design)) merged.design = oldShip.design;
     // Carried fields are shared by reference: snapshots are treated as
     // immutable once merged, so cloning here would only produce GC churn.
-    for (const key of ["componentPower", "powerStatus", "powerThermal", "powerRevision", "powerRuntimeRevision", "wiringRevision", "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision", "powerWiring", "powerWiringRevision", "powerWiringRuntime", "storageCharge", "chpVisual", "componentHeatRevision", "heatTelemetryRevision"]) {
+    for (const key of ["componentPower", "powerStatus", "powerThermal", "powerRevision", "powerRuntimeRevision", "storageCharge", "chpVisual", "componentHeatRevision", "heatTelemetryRevision"]) {
       if (isNullish(merged[key])) merged[key] = oldShip[key];
     }
     if (isNullish(merged.chp)) {

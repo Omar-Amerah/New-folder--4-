@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
 import { uniqueRoom, waitForBrowserReady } from './verify-pixi-browser-support.js';
 const require = createRequire(import.meta.url);
 const { validateClientMessage } = require('../src/server/clientSchemas.js');
-const { validateDesign, createGeneratedPowerWiring } = require('../src/server/shipDesign.js');
+const { validateDesign } = require('../src/server/shipDesign.js');
 const { computeStats } = require('../src/server/shipStats.js');
 const { PARTS } = require('../src/server/components.js');
 export const CANONICAL_ACTIVE_MATCH_DESIGN = Object.freeze([
@@ -32,7 +32,6 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 export async function waitOutcome(page, predicate, timeoutMs, label){const start=Date.now();let last;while(Date.now()-start<timeoutMs){last=await page.evaluate(()=>({url:location.href,room:window.__mfaState?.room||null,readyState:window.__mfaState?.socket?.readyState??null,generation:window.__mfaState?.connectionGeneration??null,reconnect:window.__mfaState?.reconnect||null,myId:window.__mfaState?.myId||null,adminId:window.__mfaState?.adminId||null,phase:window.__mfaState?.phase||null,players:window.__mfaState?.snapshot?.players?.map(p=>({id:p.id,name:p.name,ready:p.ready,bot:p.bot}))||[],snapshotSequence:window.__mfaState?.snapshotNetwork?.snapshotSeq??null,stateEpoch:window.__mfaState?.snapshotNetwork?.stateEpoch??null,snapshotKind:window.__mfaState?.snapshotNetwork?.lastSnapshotKind??null,shipCount:window.__mfaState?.snapshot?.ships?.length??0,network:window.__mfaNetworkDiagnostics||{},renderer:window.__mfaRenderer?.diagnostics?.()||null})); if(last.network?.latestErrors?.length) throw new Error(`${label} failed with protocol error: ${JSON.stringify(last,null,2)}`); if(last.readyState===3) throw new Error(`${label} failed: socket closed ${JSON.stringify(last,null,2)}`); if(await predicate(last)) return last; await sleep(150);} throw new Error(`timeout waiting for ${label}: ${JSON.stringify(last,null,2)}`);}
 export async function setupActiveMatch(page,{baseUrl,room=uniqueRoom('act'),bots=3,startingMoney=12000,requireAdmin=true,design=CANONICAL_ACTIVE_MATCH_DESIGN,rules={},scenario='active'}={}){
   const designValidation=validateCanonicalDesign(design,startingMoney);
-  const wiring=createGeneratedPowerWiring(design);
   await page.goto(`${baseUrl}/index.html?room=${room}`,{waitUntil:'load'});
   await waitForBrowserReady(page, room, {}, 20000);
   const joined=await waitOutcome(page, s=>s.myId&&(!requireAdmin||s.myId===s.adminId),10000,`${scenario}: joined/admin`);
@@ -40,10 +39,10 @@ export async function setupActiveMatch(page,{baseUrl,room=uniqueRoom('act'),bots
   for(let i=0;i<bots;i++) await page.evaluate(()=>window.__mfaNetSend({type:'addBot'}));
   await page.evaluate(()=>window.__mfaNetSend({type:'startDesign'}));
   await waitOutcome(page,s=>s.phase==='design'&&s.players.length>=bots+1,10000,`${scenario}: design phase`);
-  await page.evaluate(({d,w})=>window.__mfaNetSend({type:'deploy',design:d,wiring:w,combatStyle:'hold'}),{d:design,w:wiring});
+  await page.evaluate(({d,dataLinks})=>window.__mfaNetSend({type:'deploy',design:d,dataLinks,combatStyle:'hold'}),{d:design,dataLinks:[]});
   await waitOutcome(page,s=>s.players.some(p=>p.id===s.myId&&p.ready) || s.phase==='active',10000,`${scenario}: deploy accepted`);
   const active=await waitOutcome(page,s=>s.phase==='active',20000,`${scenario}: active ships`);
-  await page.evaluate(({d,w,scenario})=>window.__mfaNetSend({type:'buyShip',design:d,wiring:w,count:1,requestId:`${scenario}-starter-${Date.now()}`,combatStyle:'hold'}),{d:design,w:wiring,scenario});
+  await page.evaluate(({d,dataLinks,scenario})=>window.__mfaNetSend({type:'buyShip',design:d,dataLinks,count:1,requestId:`${scenario}-starter-${Date.now()}`,combatStyle:'hold'}),{d:design,dataLinks:[],scenario});
   await sleep(1500);
   await page.evaluate(()=>{const s=window.__mfaState; const ship=s.snapshot?.ships?.find(sh=>sh.ownerId===s.myId&&sh.alive); if(ship&&window.__mfaTest?.setCamera){window.__mfaTest.setCamera(ship.x,ship.y,0.9);} window.__mfaTest?.frames?.(2);});
   await waitOutcome(page,s=>normalizeRendererDiagnostics(s.renderer).contextState==='active'&&normalizeRendererDiagnostics(s.renderer).activeShipViews>0&&normalizeRendererDiagnostics(s.renderer).textureEntries>0,15000,`${scenario}: pixi ship views`);

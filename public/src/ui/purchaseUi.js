@@ -151,7 +151,7 @@ export function buyPurchaseOption(optionId) {
   send({
     type: "buyShip",
     design: option.blueprint,
-    wiring: option.wiring,
+    dataLinks: option.dataLinks,
     combatStyle: option.combatStyle || state.combatStyle || "hold",
     count: state.purchaseQuantity,
     requestId
@@ -322,18 +322,17 @@ function makePurchaseOptionKey() {
   const balanceRevision = getBalanceStatus().serverRevision || getBalanceStatus().clientRevision || null;
   return {
     design: state.design,
-    wiring: state.wiring,
+    dataLinks: state.dataLinks,
     combatStyle: state.combatStyle || "hold",
     activeLoadoutId: state.activeLoadoutId,
     balanceRevision,
     blueprintRevision: state.presentationLocalRevision?.blueprint || 0,
-    wiringRevision: state.presentationLocalRevision?.wiring || 0,
     purchaseRevision: state.presentationLocalRevision?.purchase || 0,
     // Capture saved design object references so mutations / replacements are detected.
     savedRefs: visible.map((saved) => [
       saved.id,
       saved.blueprint,
-      saved.wiring,
+      saved.dataLinks,
       saved.updatedAt,
       saved.combatStyle || "hold"
     ])
@@ -343,9 +342,9 @@ function makePurchaseOptionKey() {
 function sameOptionKey(a, b) {
   if (!a || !b) return false;
   if (
-    a.design !== b.design || a.wiring !== b.wiring || a.combatStyle !== b.combatStyle
+    a.design !== b.design || a.dataLinks !== b.dataLinks || a.combatStyle !== b.combatStyle
     || a.activeLoadoutId !== b.activeLoadoutId || a.balanceRevision !== b.balanceRevision
-    || a.blueprintRevision !== b.blueprintRevision || a.wiringRevision !== b.wiringRevision
+    || a.blueprintRevision !== b.blueprintRevision
     || a.purchaseRevision !== b.purchaseRevision
   ) return false;
   if (a.savedRefs.length !== b.savedRefs.length) return false;
@@ -362,7 +361,7 @@ function sameOptionKey(a, b) {
 function buildPurchaseOptions() {
   const currentAnalysis = analyseBlueprintOnce({
     blueprint: state.design,
-    wiring: state.wiring,
+    dataLinks: state.dataLinks,
     combatStyle: state.combatStyle || "hold"
   });
 
@@ -371,7 +370,7 @@ function buildPurchaseOptions() {
     name: "Current Design",
     source: "editor",
     blueprint: currentAnalysis.normalizedBlueprint,
-    wiring: currentAnalysis.normalizedWiring,
+    dataLinks: currentAnalysis.dataLinks,
     combatStyle: currentAnalysis.combatStyle,
     stats: currentAnalysis.stats,
     validation: { ok: currentAnalysis.validation.ok, reason: currentAnalysis.validation.errors[0] || "" },
@@ -395,7 +394,7 @@ function buildPurchaseOptions() {
         name: saved.name,
         source: "saved",
         blueprint: analysis.normalizedBlueprint,
-        wiring: analysis.normalizedWiring,
+        dataLinks: analysis.dataLinks,
         combatStyle: saved.combatStyle || "hold",
         stats: analysis.stats,
         validation: { ok: analysis.validation.ok, reason: analysis.validation.errors[0] || "" },

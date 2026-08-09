@@ -1,7 +1,6 @@
 // Computes authoritative ship stats and ship costs from validated blueprint parts.
 
 const { PARTS } = require("./components");
-const { ECONOMY } = require("./config");
 const { BALANCE } = require("./balanceConfig");
 const { clampNumber, round } = require("./utils");
 const { designSensorProfile } = require("./sensorCapability");
@@ -9,7 +8,6 @@ const {
   calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs,
-  calculateSystemEfficiency,
   calculateMovementPowerMultiplier,
   effectiveStackedValue,
   massClassForMass,
@@ -19,32 +17,9 @@ const {
 } = require("../../public/src/shared/movementStats.js");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
-const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
-const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
+const UniversalPower = require("../../public/src/shared/universalPower.js");
 
-// Section 7A cost ordering: the component-derived ship price is computed
-// normally, then raw Power/Data infrastructure cost is added on top (never
-// multiplied by hull/mass/weapon premiums). Passing wiring is what turns the
-// infrastructure surcharge on; callers without wiring get the component price.
-function applyInfrastructureCost(costBreakdown, modules, wiring) {
-  if (!WIRING_ENABLED) return costBreakdown;
-  const componentsTotal = costBreakdown.total;
-  let powerWiring = 0; let dataWiring = 0;
-  if (wiring) {
-    const infra = WiringInfrastructureRules.computeInfrastructureCost(modules, wiring, PARTS, BALANCE.wiringInfrastructure);
-    powerWiring = infra.powerWiring; dataWiring = infra.dataWiring;
-  }
-  const presentation = WiringInfrastructureRules.infrastructureCostPresentation(componentsTotal, powerWiring, dataWiring);
-  costBreakdown.preInfrastructureShipCost = componentsTotal;
-  costBreakdown.powerWiring = presentation.powerWiring;
-  costBreakdown.dataWiring = presentation.dataWiring;
-  costBreakdown.totalInfrastructure = presentation.totalInfrastructure;
-  costBreakdown.infrastructurePercentage = presentation.infrastructurePercentage;
-  costBreakdown.total = Math.round(presentation.totalShipCost);
-  return costBreakdown;
-}
-
-function computeStats(modules, wiring = null) {
+function computeStats(modules) {
   const exhaustAnalysis = EngineExhaustRules.analyze(modules, PARTS);
   let cost = 0;
   let mass = 0;
@@ -142,27 +117,43 @@ function computeStats(modules, wiring = null) {
 
   repairRate = effectiveStackedValue(repairRateValues, BALANCE.repair.stackingMultiplier);
   const shieldStats = ShieldRules.calculateShieldStats(modules, PARTS);
-  const power = powerGeneration - powerUse;
-  const effectivePowerGeneration = WIRING_ENABLED ? powerGeneration : powerUse;
-  const efficiency = WIRING_ENABLED ? calculateSystemEfficiency(powerGeneration, powerUse) : 1;
+  const powerFlow = UniversalPower.calculateUniversalPower(modules, PARTS);
+  const availablePower = powerFlow.summary.availableGenerationMw;
+  const powerRatio = powerFlow.summary.powerRatio;
+  const power = availablePower - powerUse;
+  const efficiency = powerRatio;
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PARTS, {
     centerOfMass,
     leverSettings: BALANCE.movement?.maneuverThrusterLever,
     isBlockedEngine: (index, module, part) => ((part.thrust || 0) > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
   });
-  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration: effectivePowerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, hullControlThrust: BALANCE.movement?.hullControlThrust });
+  const movement = calculateMovementStats({ mass, thrust, turnBonus, powerGeneration: availablePower, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, hullControlThrust: BALANCE.movement?.hullControlThrust });
   const radius = clampNumber(24 + Math.max(maxX - minX, maxY - minY) * 9 + Math.sqrt(mass) * 1.6, 28, 76);
   // Data support is applied per weapon at runtime by componentData/combat.
   // Keep catalogue weapon-family totals base-only so support is not applied twice.
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
   const sensorProfile = designSensorProfile(modules, movement.massClass);
-  const costBreakdown = applyInfrastructureCost(calculateCostBreakdown({ cost, mass, maxHp, maxShield, repairRate, blaster, missile, railgun, beam }), modules, wiring);
-  const unitCost = costBreakdown.total;
-  const f = BALANCE.shipPricing.fleetCountFormulaInputs;
-  const fleetCount = clampNumber(Math.floor(f.base / Math.max(f.minimumDivisor, unitCost * f.unitCostMultiplier + mass * f.massMultiplier)), f.minimum, f.maximum);
+  const unitCost = cost;
+  const fleetRules = BALANCE.shipPricing?.fleetCountFormulaInputs || {
+    base: 260,
+    minimumDivisor: 58,
+    unitCostMultiplier: 0.72,
+    massMultiplier: 0.45,
+    minimum: 1,
+    maximum: 5
+  };
+  const fleetCount = clampNumber(
+    Math.floor((Number(fleetRules.base) || 260) / Math.max(
+      Number(fleetRules.minimumDivisor) || 58,
+      unitCost * (Number(fleetRules.unitCostMultiplier) || 0.72) +
+        mass * (Number(fleetRules.massMultiplier) || 0.45)
+    )),
+    Number(fleetRules.minimum) || 1,
+    Number(fleetRules.maximum) || 5
+  );
   const weapons = summarizeWeaponTotals(weaponTotals);
-  const warnings = shipWarnings({ powerGeneration, powerUse, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate,
+  const warnings = shipWarnings({ powerGeneration, powerUse, availablePower, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
     turnRateRight: movement.turnRateRight, repair, shield: maxShield, modules, speedCapped: movement.speedCapped, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
   if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
@@ -180,6 +171,9 @@ function computeStats(modules, wiring = null) {
     powerGeneration,
     powerUse,
     power,
+    availablePower: round(availablePower),
+    powerRatio: round(powerRatio),
+    powerStorageDischarge: round(powerFlow.summary.storageDischargeMw),
     efficiency: round(efficiency),
     thrust: round(thrust),
     effectiveThrust: round(movement.effectiveThrust),
@@ -245,41 +239,15 @@ function computeStats(modules, wiring = null) {
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     weapons,
     warnings,
-    costBreakdown,
+    fleetCount,
     repairRange: repair > 0 ? BALANCE.repair.repairRange : 0,
     radius: round(radius),
-    fleetCount,
     baseSensorRange: sensorProfile.baseRange,
     sensorRange: round(sensorProfile.omniRange),
     directedSensorRange: round(sensorProfile.directedRange),
     directedSensorArc: round(sensorProfile.directedArc),
     sensorComponentCount: sensorProfile.sensorComponentCount,
     directedSensorCount: sensorProfile.directedSensorCount
-  };
-}
-
-function calculateCostBreakdown(stats) {
-  const base = ECONOMY.baseShipCost;
-  const parts = stats.cost * ECONOMY.partCostMultiplier;
-  const mass = stats.mass * ECONOMY.massCostMultiplier;
-  const hull = stats.maxHp * ECONOMY.hullCostMultiplier;
-  const shield = stats.maxShield * ECONOMY.shieldCostMultiplier;
-  const repair = stats.repairRate * ECONOMY.repairCostMultiplier;
-  const weaponPremium =
-    stats.blaster * ECONOMY.weaponPremiums.blaster +
-    stats.missile * ECONOMY.weaponPremiums.missile +
-    stats.railgun * ECONOMY.weaponPremiums.railgun +
-    (stats.beam || 0) * (ECONOMY.weaponPremiums.beam || ECONOMY.weaponPremiums.railgun);
-  const total = base + parts + mass + hull + shield + repair + weaponPremium;
-  return {
-    base: Math.round(base),
-    parts: Math.round(parts),
-    mass: Math.round(mass),
-    hull: Math.round(hull),
-    shield: Math.round(shield),
-    repair: Math.round(repair),
-    weaponPremium: Math.round(weaponPremium),
-    total: Math.round(total)
   };
 }
 
@@ -342,19 +310,16 @@ function summarizeWeaponTotals(totals) {
 function shipWarnings(stats) {
   const warnings = [];
   const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.pointDefense || 0);
-  const hasReactor = stats.modules.some((module) => module.type === "reactor" || module.type === "nuclearReactor");
-  if (WIRING_ENABLED && stats.powerGeneration < stats.powerUse) warnings.push(`Power deficit: uses ${stats.powerUse} but generates ${stats.powerGeneration}`);
-  if (WIRING_ENABLED && !hasReactor && stats.powerUse > PARTS.core.powerGeneration) warnings.push("No reactor: high-power systems need stronger generation");
+  const availablePower = Number(stats.availablePower ?? stats.powerGeneration ?? 0);
+  const powerUse = Number(stats.powerUse || 0);
+  if (powerUse > availablePower + 0.0005) warnings.push(`Power shortage: ${availablePower.toFixed(1)} MW available for ${powerUse.toFixed(1)} MW demand.`);
   if (stats.effectiveThrust <= 0) warnings.push("No engines: this ship cannot move");
   if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
   if (stats.speedCapped) warnings.push("Extreme speed soft cap is active; additional thrust has reduced value.");
-  if (WIRING_ENABLED && stats.powerDebuff > 0.08 && stats.thrust > 0) warnings.push(`Underpowered systems: movement reduced ${Math.round(stats.powerDebuff * 100)}%. Add reactors.`);
   if (stats.effectiveThrust > 0 && (stats.mass > 85 || stats.turnRate < 0.85)) warnings.push("Heavy ship: turning will be slow");
   if (stats.effectiveThrust > 0 && (stats.turnRateLeft || 0) < 0.15) warnings.push("No meaningful left-turn capability");
   if (stats.effectiveThrust > 0 && (stats.turnRateRight || 0) < 0.15) warnings.push("No meaningful right-turn capability");
   if (stats.modules.some((module) => module.type === "maneuverThruster" && Math.abs((module.y || 0) - 7) < 0.75)) warnings.push("Manoeuvre thrusters near the centre provide weak torque");
-  if (WIRING_ENABLED && stats.repair > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Repair installed but power is insufficient");
-  if (WIRING_ENABLED && stats.shield > 0 && stats.powerGeneration < stats.powerUse) warnings.push("Shields installed but power is insufficient");
   if (weaponCount === 0) warnings.push("No weapons: this ship cannot attack.");
   const hasBackupCore = stats.modules.some((module) => module.type === "backupCore");
   if (hasBackupCore) warnings.push("Backup available: ship can survive main Core loss");
@@ -371,6 +336,9 @@ function summarizeStats(stats) {
     power: stats.power,
     powerGeneration: stats.powerGeneration,
     powerUse: stats.powerUse,
+    availablePower: stats.availablePower,
+    powerRatio: stats.powerRatio,
+    powerStorageDischarge: stats.powerStorageDischarge,
     thrust: stats.thrust,
     effectiveThrust: stats.effectiveThrust,
     engineEfficiency: stats.engineEfficiency,
@@ -401,7 +369,6 @@ function summarizeStats(stats) {
     frontArc: stats.frontArc,
     weaponDps: stats.weaponDps,
     warnings: stats.warnings,
-    costBreakdown: stats.costBreakdown,
     efficiency: stats.efficiency,
     baseSensorRange: stats.baseSensorRange,
     sensorRange: stats.sensorRange,
@@ -414,7 +381,6 @@ function summarizeStats(stats) {
 
 module.exports = {
   computeStats,
-  calculateCostBreakdown,
   weaponAccumulator,
   addWeaponStats,
   applyWeaponUtilityBonuses,
@@ -423,7 +389,6 @@ module.exports = {
   calculateMovementStats,
   calculateCenterOfMass,
   calculateDirectionalTurnInputs,
-  calculateSystemEfficiency,
   calculateMovementPowerMultiplier,
   effectiveStackedValue,
   softCap,

@@ -148,19 +148,6 @@
   margin: 0;
 }
 
-.designer-center-col:has(.blueprint-mode-context[data-mode="wiring"]) {
-  gap: 6px;
-}
-
-.designer-workspace:has(.blueprint-mode-context[data-mode="wiring"]) {
-  gap: 2px;
-}
-
-.blueprint-mode-context[data-mode="wiring"] + .forward-marker {
-  margin: 0 0 -1px;
-  line-height: 1;
-}
-
 .blueprint-designer-panel .menu-head {
   flex-shrink: 0;
   margin-bottom: 20px;
@@ -225,16 +212,6 @@
     padding-right: 0;
   }
 
-  /* Wiring is a drawing workspace: put its compact controls and grid before
-     the component catalogue and the longer Analysis content on narrow screens. */
-  .blueprint-designer-layout:has(.blueprint-mode-context[data-mode="wiring"]) .designer-center-col {
-    order: -2;
-  }
-
-  .blueprint-designer-layout:has(.blueprint-mode-context[data-mode="wiring"]) .designer-right-col {
-    order: -1;
-  }
-
   .designer-top {
     align-items: stretch;
   }
@@ -275,7 +252,6 @@
   background: rgba(5, 10, 18, .74);
   overflow: visible;
 }
-.blueprint-mode-context[data-mode="wiring"] { border-color: rgba(56,217,255,.28); }
 /* Build has no mode controls, and Heat controls live in the analysis inspector. */
 .blueprint-mode-context[data-mode="build"],
 .blueprint-mode-context[data-mode="heat"],

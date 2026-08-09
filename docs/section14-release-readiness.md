@@ -66,4 +66,4 @@ In-memory rooms do **not** survive a backend deployment restart. Players should 
 
 ## `release:check` contents
 
-`npm run release:check` is a fast local gate that composes existing checks: production build, balance validation, generated-file parity, protocol schema checks, deployment-health checks, static production-path checks, Section 14 security regressions, and quick lifecycle coverage. It does not install browsers, contact live deployments, run long soaks, or require internet access.
+`npm run release:check` is a fast local gate that composes existing checks: production build and balance validation, protocol schema checks, deployment-health checks, static production-path checks, Section 14 security regressions, and quick lifecycle coverage. The build regenerates the disposable balance artifacts before the checks run. It does not install browsers, contact live deployments, run long soaks, or require internet access.

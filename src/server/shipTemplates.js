@@ -1,182 +1,90 @@
 "use strict";
 
-// Immutable ship template system for multi-ship purchases.
-// Precomputes design-derived data once per purchase or cached blueprint revision.
-// Each spawned ship receives independent mutable runtime arrays and objects.
+// Immutable ship templates for multi-ship purchases.  Templates contain only
+// design data, explicit Data Links, and cloned runtime state; Power is universal
+// and has no persisted topology to cache.
 
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
 const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
-const { compareIdStrings } = require("./utils");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules.js");
-const { calculateCenterOfMass } = require("../../public/src/shared/movementStats.js");
-const WiringInfrastructureRules = require("../../public/src/shared/wiringInfrastructureRules.js");
-const { BALANCE } = require("./balanceConfig");
 const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
 const { initShipHeat } = require("./heat");
 const { buildThermalTopology } = require("./thermalTopology");
-const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 
-// Template cache keyed by player ID and design revision
 const templateCache = new Map();
 
-// Deterministic canonical serialization: recursively sort object keys so that
-// reordering keys in the wire payload cannot change the signature, while any
-// meaningful value change does. Arrays keep their order (wiring section/
-// connection arrays are explicitly sorted below before canonicalization).
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") {
-    const out = {};
-    for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
-    return out;
+    const result = {};
+    for (const key of Object.keys(value).sort()) result[key] = canonicalize(value[key]);
+    return result;
   }
   return value;
 }
 
-function canonicalBlueprintSignature(design, wiring) {
-  const blueprint = createShipBlueprintSnapshot(design, wiring);
-  const canonicalKind = (kind) => ({
-    sections: kind.sections.map((section) => canonicalize(section)).sort((a, b) => compareIdStrings(a.id, b.id)),
-    connections: kind.connections.map((connection) => canonicalize({ ...connection, sectionIds: [...connection.sectionIds] }))
-      .sort((a, b) => compareIdStrings(
-        `${a.sourceIndex}>${a.targetIndex}:${a.sectionIds.join(";")}`,
-        `${b.sourceIndex}>${b.targetIndex}:${b.sectionIds.join(";")}`
-      ))
-  });
+function canonicalBlueprintSignature(design, dataLinks = []) {
+  const blueprint = createShipBlueprintSnapshot(design, dataLinks);
   return canonicalize({
-    // Full normalized design parts — every field the normalizer preserves,
-    // including droneType, switchgearMode, switchgearRatingTier, and any
-    // future component-specific configuration.
-    design: blueprint.design.map((part) => canonicalize(part)),
-    wiring: {
-      version: blueprint.wiring.version,
-      power: canonicalKind(blueprint.wiring.power),
-      data: canonicalKind(blueprint.wiring.data),
-      // Power priority preset + custom priority order (and any future policy).
-      powerPolicy: blueprint.wiring.powerPolicy || null
-    }
+    design: blueprint.design,
+    dataLinks: blueprint.dataLinks
   });
 }
 
-function deepFreeze(obj) {
-  if (obj === null || typeof obj !== "object") return obj;
-  // Node.js rejects Object.freeze() for populated typed-array views. Runtime
-  // ships clone these buffers, so retaining the template view is safe and
-  // avoids sharing mutable per-ship state.
-  if (ArrayBuffer.isView(obj)) return obj;
-  if (Object.isFrozen(obj)) return obj;
-  
-  for (const key of Object.keys(obj)) {
-    const value = obj[key];
-    if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
-      deepFreeze(value);
-    }
-  }
-  
-  return Object.freeze(obj);
+function deepFreeze(value) {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  if (ArrayBuffer.isView(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
-function getTemplateKey(playerId, design, wiring, blueprintSignature) {
-  // Create a stable key from the complete canonical normalized design and wiring.
-  const signature = blueprintSignature || canonicalBlueprintSignature(design, wiring);
-  return `${playerId}:${JSON.stringify(signature)}`;
+function templateKey(playerId, design, dataLinks, signature) {
+  return `${playerId}:${JSON.stringify(signature || canonicalBlueprintSignature(design, dataLinks))}`;
 }
 
 function invalidatePlayerTemplates(playerId) {
-  for (const key of templateCache.keys()) {
-    if (key.startsWith(`${playerId}:`)) {
-      templateCache.delete(key);
-    }
-  }
+  for (const key of templateCache.keys()) if (key.startsWith(`${playerId}:`)) templateCache.delete(key);
 }
 
-function createImmutableShipTemplate(design, wiring, stats) {
-  const blueprint = createShipBlueprintSnapshot(design, wiring);
+function createImmutableShipTemplate(design, dataLinks, stats) {
+  const blueprint = createShipBlueprintSnapshot(design, dataLinks);
   const normalizedDesign = blueprint.design;
-  const normalizedWiring = blueprint.wiring;
-  
-  // Precompute component indexes and groups
+  const normalizedDataLinks = blueprint.dataLinks;
   const weaponIndices = [];
   const engineIndices = [];
   const droneBayIndices = [];
   const decoyLauncherIndices = [];
   const shieldIndices = [];
   const repairIndices = [];
-  
-  for (let i = 0; i < normalizedDesign.length; i++) {
+  const componentCellIndex = new Map();
+
+  for (let i = 0; i < normalizedDesign.length; i += 1) {
     const module = normalizedDesign[i];
     const part = PARTS[module.type] || {};
-    
     if (part.weapon) weaponIndices.push(i);
     if (part.category === "Engines" && part.thrust > 0) engineIndices.push(i);
     if (module.type === "droneBay") droneBayIndices.push(i);
     if (part.decoyConfig) decoyLauncherIndices.push(i);
     if (part.shieldRegen > 0) shieldIndices.push(i);
     if (part.repair > 0) repairIndices.push(i);
-  }
-  
-  // Precompute component topology
-  const componentCellIndex = new Map();
-  for (let i = 0; i < normalizedDesign.length; i++) {
-    const module = normalizedDesign[i];
-    const part = PARTS[module.type] || PARTS.frame;
-    const cells = getOccupiedCells(module.x, module.y, part.footprint || { width: 1, height: 1 }, module.rotation || 0);
-    for (const cell of cells) {
+    for (const cell of getOccupiedCells(module.x, module.y, part.footprint || { width: 1, height: 1 }, module.rotation || 0)) {
       componentCellIndex.set(cell.x * 15 + cell.y, i);
     }
   }
-  
-  // Precompute engine exhaust analysis
-  const alive = normalizedDesign.map(() => true);
-  const exhaustAnalysis = EngineExhaustRules.analyze(normalizedDesign, PARTS, { alive });
-  
-  // Precompute wiring infrastructure accounting
-  const infrastructure = BALANCE.wiringInfrastructure;
-  const wiringAccounting = WIRING_ENABLED
-    ? WiringInfrastructureRules.accountInfrastructure(
-      normalizedDesign,
-      normalizedWiring,
-      PARTS,
-      infrastructure
-    )
-    : { byComponentIndex: normalizedDesign.map(() => ({ powerDisplacement: 0, dataDisplacement: 0 })) };
-  
-  // Precompute component maximum HP
+
+  const exhaustAnalysis = EngineExhaustRules.analyze(normalizedDesign, PARTS, { alive: normalizedDesign.map(() => true) });
   const rawHp = normalizedDesign.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
-  const rawSum = rawHp.reduce((sum, hp, i) => (normalizedDesign[i].type === "core" ? sum : sum + hp), 0) || 1;
+  const rawSum = rawHp.reduce((sum, hp, i) => normalizedDesign[i].type === "core" ? sum : sum + hp, 0) || 1;
   const scale = (stats?.maxHp || rawSum) / rawSum;
-  const componentMaxHp = rawHp.map((hp, i) => (normalizedDesign[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale));
-  
-  // Precompute Power infrastructure host maps
-  const emptyHostKind = () => ({ bySectionId: new Map(), byComponentIndex: new Map() });
-  const infrastructureHostMaps = WIRING_ENABLED
-    ? WiringInfrastructureRules.mapHostedCells(normalizedDesign, normalizedWiring, PARTS)
-    : { power: emptyHostKind(), data: emptyHostKind() };
-  
-  // Precompute wiring minimum heat capacity
-  const wiringMinimumHeatCapacity = WiringInfrastructureRules.minimumCapacity(infrastructure);
-  const componentWiringDisplacement = wiringAccounting.byComponentIndex.map(
-    entry => entry.powerDisplacement + entry.dataDisplacement
-  );
-  
-  // Precompute base thermal profiles and capacities
-  const componentBaseThermals = normalizedDesign.map((module) =>
-    HeatRules.profile(module.type, PARTS[module.type] || {})
-  );
+  const componentMaxHp = rawHp.map((hp, i) => normalizedDesign[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale);
+  const componentBaseThermals = normalizedDesign.map((module) => HeatRules.profile(module.type, PARTS[module.type] || {}));
   const componentBaseHeatCapacity = componentBaseThermals.map((thermal) => thermal.capacity);
-  
-  // One immutable topology authority is shared by every ship spawned from
-  // this template.  Runtime Heat arrays remain in each cloned ship state.
   const thermalTopology = buildThermalTopology(normalizedDesign);
 
-  // Precompute a full-health runtime ship state once per template.
-  // spawnShip clones this instead of re-solving Power/Heat for every copy.
   const prebuilt = {
-    design: normalizedDesign,
-    wiring: normalizedWiring,
     componentMaxHp,
     componentHp: componentMaxHp.slice(),
     thermalTopology,
@@ -186,10 +94,6 @@ function createImmutableShipTemplate(design, wiring, stats) {
       const part = PARTS[module?.type] || {};
       return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
     }),
-    _infrastructureHostMaps: {
-      power: infrastructureHostMaps.power,
-      data: infrastructureHostMaps.data
-    },
     stats: { ...stats },
     hp: stats?.maxHp || 0,
     maxHp: stats?.maxHp || 0,
@@ -197,31 +101,21 @@ function createImmutableShipTemplate(design, wiring, stats) {
     componentAliveRevision: 1,
     dirtyComponents: new Set(),
     proximityChargeDetonated: normalizedDesign.map(() => 0),
-    proximityChargeRevision: 1
+    proximityChargeRevision: 1,
+    dataLinks: normalizedDataLinks
   };
+  prebuilt.design = normalizedDesign;
   initializeComponentPower(prebuilt);
   initShipHeat(prebuilt);
   const shield = effectiveShieldStats(prebuilt);
   prebuilt.maxShield = Math.max(0, shield.capacity);
   prebuilt.shield = prebuilt.maxShield;
   delete prebuilt.design;
-  delete prebuilt.wiring;
   delete prebuilt.stats;
-  // Create the immutable template
-  const template = deepFreeze({
+
+  return deepFreeze({
     design: normalizedDesign.map((part) => ({ ...part })),
-    wiring: {
-      version: normalizedWiring.version,
-      power: {
-        sections: normalizedWiring.power.sections.map((s) => ({ ...s })),
-        connections: normalizedWiring.power.connections.map((c) => ({ ...c }))
-      },
-      data: {
-        sections: normalizedWiring.data.sections.map((s) => ({ ...s })),
-        connections: normalizedWiring.data.connections.map((c) => ({ ...c }))
-      },
-      powerPolicy: normalizedWiring.powerPolicy ? { ...normalizedWiring.powerPolicy } : null
-    },
+    dataLinks: normalizedDataLinks.map((link) => ({ ...link })),
     stats: { ...stats },
     weaponIndices,
     engineIndices,
@@ -233,43 +127,26 @@ function createImmutableShipTemplate(design, wiring, stats) {
     exhaustAnalysis,
     componentMaxHp,
     thermalTopology,
-    infrastructureHostMaps: {
-      power: infrastructureHostMaps.power,
-      data: infrastructureHostMaps.data
-    },
-    wiringMinimumHeatCapacity,
-    componentWiringDisplacement,
     componentBaseHeatCapacity,
     radius: stats?.radius || 0,
     unitCost: stats?.unitCost || 0,
     maxHp: stats?.maxHp || 0,
     prebuiltShipState: prebuilt
   });
-  
-  return template;
 }
 
-function getOrCreateTemplate(playerId, design, wiring, stats, blueprintSignature) {
-  const key = getTemplateKey(playerId, design, wiring, blueprintSignature);
+function getOrCreateTemplate(playerId, design, dataLinks, stats, blueprintSignature) {
+  const key = templateKey(playerId, design, dataLinks, blueprintSignature);
   let template = templateCache.get(key);
-
   if (!template) {
-    template = createImmutableShipTemplate(design, wiring, stats);
+    template = createImmutableShipTemplate(design, dataLinks, stats);
     templateCache.set(key, template);
-    
-    // Limit cache size
-    if (templateCache.size > 128) {
-      const oldestKey = templateCache.keys().next().value;
-      templateCache.delete(oldestKey);
-    }
+    if (templateCache.size > 128) templateCache.delete(templateCache.keys().next().value);
   }
-  
   return template;
 }
 
-function clearTemplateCache() {
-  templateCache.clear();
-}
+function clearTemplateCache() { templateCache.clear(); }
 
 module.exports = {
   getOrCreateTemplate,

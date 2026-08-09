@@ -8,8 +8,7 @@ import { ownLiveShips, pruneSelection } from "../game/selection.js";
 import {
   renderShipDamagePanel,
   updateSelectedShipDamageUi as repaintSelectedShipDamage,
-  updateSelectedShipHeatUi as repaintSelectedShipHeat,
-  updateSelectedShipPowerUi as repaintSelectedShipPower
+  updateSelectedShipHeatUi as repaintSelectedShipHeat
 } from "./shipDamagePanelUi.js";
 import { STYLE_DESCRIPTIONS, selectedShipSummary, commonStyle } from "./section13bUi.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
@@ -93,7 +92,6 @@ export function updateSelectedShipVitals() {
 }
 export function updateSelectedShipDamageUi() { repaintSelectedShipDamage(); }
 export function updateSelectedShipHeatUi() { repaintSelectedShipHeat(); }
-export function updateSelectedShipPowerUi() { repaintSelectedShipPower(); }
 export function updateShipGroupUi() { bumpSelectedDiagnostic("shipGroupUpdateCount"); renderShipGroups(); }
 export function updateRallyUi() { bumpSelectedDiagnostic("rallyUpdateCount"); renderRallyControls(); }
 export function updateSelectionCommandUi() { bumpSelectedDiagnostic("selectionCommandUpdateCount"); renderSelectionControls(); }

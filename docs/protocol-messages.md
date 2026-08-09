@@ -1,6 +1,6 @@
 # Client-to-server message inventory
 
-`src/server/messages.js` accepts MessagePack WebSocket packets with a string `type`. JSON text frames are tolerated by the codec, but MessagePack remains the normal transport. Unknown message types are ignored after the join guard.
+`src/server/messages.js` accepts MessagePack WebSocket packets with a string `type`. Production text frames are rejected by the transport; MessagePack is the only application wire format. Unknown message types are ignored after the join guard.
 
 | Type | Join required | Phase/admin requirements | Handler/domain | Response/broadcast |
 |---|---:|---|---|---|
@@ -69,25 +69,17 @@ No client-to-server message shape changed. Combat snapshots continue to carry
 existing HP, shield, alive, projectile/effect and design-index-aligned weapon
 angle/target fields; Section 7 only tightened server-side validation and ordering.
 
-## Catch-up Part 1 protocol notes
+## Readiness, deployment and purchase semantics
 
-- `ready` in the design phase only records readiness; it does not carry or validate a blueprint. Older clients may still send `deploy` during design, which the server treats as the same validation-free readiness action.
+- `ready` in the design phase only records readiness; it does not carry or validate a blueprint. A design-phase `deploy` is treated as the same validation-free readiness action for compatibility.
 - `deploy` in the active phase now saves the player's editor blueprint and future-purchase combat style only. It does **not** mutate deployed ships; deployed-ship style changes must use `setCombatStyle`.
 - `buyShip` carries an immutable design and combat-style snapshot in the request. The server validates the submitted snapshot and executes the purchase from that payload rather than rereading later editor state.
 
-## Catch-up Part 2 selected-fleet and purchase safety
+## Selection and purchase safety
 
 Selected-fleet messages (`command`, `setCombatStyle`, `destruct`, and target-bearing movement commands) share one server-side selection contract. Omitted `shipIds` intentionally means all owned, living, non-removed ships only for commands that document all-fleet behavior; explicit `shipIds: []` means no ships; malformed selections are rejected and never fall back to all ships. Duplicate IDs collapse, unknown/enemy/dead/removed IDs are ignored safely, oversized arrays are rejected, and stale replaced sockets are rejected before command handling.
 
 Purchase responses remain authoritative. `purchaseResult` includes accepted request ID, result code, count, unit/total cost, created ship IDs, remaining money, active ship count, and cap. Later snapshots must agree, and enemy snapshots do not expose private economy fields.
-
-## Completed Catch-up Parts 1–3
-
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
 
 ## Protocol test suite
 
@@ -105,8 +97,8 @@ State messages may include `componentHeat` full tuples as `[heat, state, ratio, 
 
 `npm run test:heat-protocol` starts `server.js`, connects with real WebSockets, sends MessagePack client messages, receives MessagePack snapshots, verifies full `componentHeat` tuples, compact `componentHeatD` deltas, index alignment, reconnect reconstruction and reset/rematch cleanup. Direct snapshot-builder tests are unit coverage only and are not described as the protocol test.
 
-## Section 9A protocol compatibility and schemas
-Protocol version 4 makes compatibility negotiation explicit. `join` must include `protocolVersion`, `minProtocolVersion`, `maxProtocolVersion`, `frontendBuildSha` and `capabilities`; the server requires `messagepack` and accepts only compatible range 4..4. Stable error codes include `incompatible-protocol`, `missing-capability`, `invalid-payload`, `invalid-type`, `unknown-type`, `invalid-request`, `invalid-room`, `invalid-design`, `invalid-ship-ids`, `join-required`, `stale-attachment`, `bad-message`, `message-too-large` and `protocol-error`.
+## Protocol 6 compatibility and schemas
+Protocol version 6 makes compatibility negotiation explicit and exact. `join` must include `protocolVersion`, `minProtocolVersion`, `maxProtocolVersion`, `frontendBuildSha` and `capabilities`; the server accepts only compatible range `6..6` and requires `messagepack` plus `entityDeltaSnapshotsV1`. Stable error codes include `incompatible-protocol`, `missing-capability`, `invalid-payload`, `invalid-type`, `unknown-type`, `invalid-request`, `invalid-room`, `invalid-design`, `invalid-ship-ids`, `join-required`, `stale-attachment`, `bad-message`, `message-too-large` and `protocol-error`.
 
 The accepted client-message registry is `src/server/clientSchemas.js`: ping, join, deploy, buyShip, setCombatStyle, setOrbitDirection, setRallyPoint, resetRallyPoint, command, destruct, setTeam, addBot, setRules, setName, startDesign, kick, restart, returnToLobby, restartLobby, closeLobby and leaveLobby. Unknown fields are ignored only after generic bounds validation; domain handlers remain authoritative for permission and phase checks.
 

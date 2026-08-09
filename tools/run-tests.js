@@ -17,6 +17,7 @@
 const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { generateBalanceArtifacts } = require("./generate-balance");
 
 const ROOT = path.join(__dirname, "..");
 
@@ -32,7 +33,7 @@ const GROUPS = {
     "tests/verify-no-performance-rollout-branches.js",
     "tests/verify-module-boundaries.js",
     "tests/verify-module-imports.js",
-    "tests/verify-blueprint-storage.js",
+    "tests/verify-blueprint-storage-migration.js",
     "tests/verify-snapshot-merge.js",
     "tests/verify-snapshot-timeline.js",
     "tests/verify-projectile-snapshot-clock.js",
@@ -40,7 +41,6 @@ const GROUPS = {
     "tests/verify-phase-transition.js",
     "tests/verify-presentation-matrix.js",
     "tests/verify-hot-path-correctness.js",
-    "tests/verify-blueprint-parity.js",
     "tests/verify-rotation-parity.js",
     "tests/verify-component-flip.js",
     "tests/verify-component-flip-ux.js",
@@ -48,6 +48,7 @@ const GROUPS = {
     "tests/verify-ship-spawn-collision.js",
     "tests/verify-component-indexes.js",
     "tests/verify-movement-simplified.js",
+    "tests/verify-power-universal.js",
     "tests/verify-movement-formations.js",
     "tests/verify-movement-momentum.js",
     "tests/verify-movement-navigation.js",
@@ -71,26 +72,14 @@ const GROUPS = {
     "tests/verify-coolant-network.js",
     "tests/verify-coolant-layout.js",
     "tests/verify-heat-effects.js",
-    "tests/verify-heat-hover-card.js",
-    "tests/verify-thermal-parity.js",
     "tests/verify-phase-6a-heat-runtime.js",
     "tests/verify-phase-6b-drone-runtime.js",
     "tests/verify-phase-6c-visibility-runtime.js",
     "tests/verify-phase-6d-command-aura-runtime.js",
     "tests/verify-phase-6f-stations-objectives.js",
-    "tests/verify-shields.js",
-    "tests/verify-template-state-isolation.js",
-    "tests/verify-power.js",
-    "tests/verify-power-analysis.js",
     "tests/verify-data-support.js",
-    "tests/verify-data-support-runtime.js",
-    "tests/verify-data-support-lifecycle.js",
     "tests/verify-data-support-designer.js",
-    "tests/verify-data-support-reference-parity.js",
     "tests/verify-data-support-balance.js",
-    "tests/verify-power-runtime.js",
-    "tests/verify-power-damage.js",
-    "tests/verify-power-hardening.js",
     "tests/verify-component-health.js",
     "tests/verify-penetration-damage.js",
     "tests/verify-meltdown.js",
@@ -128,19 +117,17 @@ const GROUPS = {
     "tests/verify-sensor-fog-performance.js",
     "tests/verify-economy.js",
     "tests/verify-economy-sequence.js",
-    "tests/verify-purchase-signature.js",
     "tests/verify-bots.js",
     "tests/verify-shared-parity.js",
     "tests/verify-balance-revision.js",
     "tests/verify-canvas-removal.js",
-    "tests/verify-components.js",
-    "tests/verify-new-components.js",
+      "tests/verify-components.js",
+      "tests/verify-ship-cost.js",
+      "tests/verify-new-components.js",
     "tests/verify-burn-through-schema.js",
     "tests/verify-component-catalogue.js",
     "tests/verify-component-copy.js",
     "tests/verify-component-inspector.js",
-    "tests/verify-ship-summary.js",
-    "tests/verify-section13b-ui.js",
     "tests/verify-section14-security.js",
     "tests/verify-diagnostics-gating.js",
     "tests/verify-fleet-ledger.js",
@@ -190,15 +177,11 @@ const GROUPS = {
   browser: [
     "tests/verify-endgame-actions-browser.js",
     "tests/verify-deployment-controls-browser.js",
-    "tests/verify-blueprint-modes-browser.js",
-    "tests/verify-blueprint-information-polish-browser.js",
-    "tests/verify-ship-summary-browser.js",
     "tests/verify-movement-orbit-browser.js",
     "tests/verify-movement-toggles-browser.js",
     "tests/verify-data-links-editor.js",
     "tests/verify-live-turrets.js",
     "tests/verify-heat-browser.js",
-    "tests/verify-power-thermal-ui-browser.js",
     "tests/verify-renderer-input-browser.js",
     "tests/verify-ship-hull-outline-browser.js",
     "tests/verify-browser-websocket-payloads.js",
@@ -279,6 +262,8 @@ function main(argv) {
     for (const script of group) if (!scripts.includes(script)) scripts.push(script);
   }
 
+  generateBalanceArtifacts(ROOT);
+  console.log("Generated balance artifacts for the test run.");
   console.log(`Running ${scripts.length} test script(s) for group(s): ${requested.join(", ")}\n`);
   const results = [];
   for (const script of scripts) {

@@ -1,5 +1,4 @@
 const assert = require('assert');
-require('../public/src/shared/featureFlags.js');
 const HeatRules = require('../public/src/shared/heatRules');
 
 global.document = {

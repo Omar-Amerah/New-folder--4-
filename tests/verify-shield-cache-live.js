@@ -8,7 +8,6 @@ const { createRuntimeShip, destroyComponent } = require('./fixtures/dataSupportR
 const { updateRuntimeShield } = require('../src/server/runtimeShield');
 const { computeStats } = require('../src/server/shipStats');
 const { PARTS } = require('../src/server/components');
-const WiringRules = require('../public/src/shared/wiringRules');
 
 class Socket extends EventEmitter {
   constructor(pattern) {
@@ -52,16 +51,9 @@ async function mergeWritten(writes) {
   return snap;
 }
 
-function wiringFor(design, paths) {
-  let wiring = WiringRules.emptyWiring();
-  for (const [source, target, cells] of paths) wiring = WiringRules.addConnection(wiring, 'power', source, target, cells, design, PARTS);
-  return wiring;
-}
-
 function makeRoomWithShieldShip() {
   const design = [{ type: 'core', x: 0, y: 0 }, { type: 'reactor', x: 1, y: 0 }, { type: 'shield', x: 2, y: 0 }];
-  const wiring = wiringFor(design, [[0, 1, [{ x: 0, y: 0 }, { x: 1, y: 0 }]], [1, 2, [{ x: 1, y: 0 }, { x: 2, y: 0 }]]]);
-  const fixture = { key: 'shield-live', name: 'Shield live test', design, wiring, stats: { maxHp: 1000 } };
+  const fixture = { key: 'shield-live', name: 'Shield live test', design, dataLinks: [], stats: { maxHp: 1000 } };
   const ship = createRuntimeShip(fixture);
   ship.id = 's1';
   ship.ownerId = 'pa';

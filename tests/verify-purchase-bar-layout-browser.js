@@ -28,7 +28,7 @@ function makeManyDesigns(count) {
       id: `saved-${i}`,
       name: `Ship ${i + 1}`,
       blueprint: TEST_DESIGN.map((p) => ({ ...p })),
-      wiring: { power: { sections: [] } },
+      dataLinks: [],
       combatStyle: "hold",
       updatedAt: Date.now()
     });
@@ -61,7 +61,7 @@ function makeManyDesigns(count) {
         state.phase = "active";
         state.mine = { ready: true, money: 99999, activeShips: 0, shipCap: 20, team: "blue", income: 50 };
         state.design = designs[0].blueprint;
-        state.wiring = designs[0].wiring;
+        state.dataLinks = designs[0].dataLinks;
       }, makeManyDesigns(15));
 
       // Re-render the purchase bar by calling the module function
@@ -277,7 +277,7 @@ function makeManyDesigns(count) {
         state.phase = "active";
         state.mine = { ready: true, money: 99999, activeShips: 0, shipCap: 20, team: "blue", income: 50 };
         state.design = designs[0].blueprint;
-        state.wiring = designs[0].wiring;
+        state.dataLinks = designs[0].dataLinks;
       }, makeManyDesigns(12));
 
       await page.evaluate(async () => {
@@ -336,7 +336,7 @@ function makeManyDesigns(count) {
         state.phase = "active";
         state.mine = { ready: true, money: 99999, activeShips: 0, shipCap: 20, team: "blue", income: 50 };
         state.design = designs[0].blueprint;
-        state.wiring = designs[0].wiring;
+        state.dataLinks = designs[0].dataLinks;
       }, makeManyDesigns(10));
 
       await page.evaluate(async () => {
@@ -385,7 +385,7 @@ function makeManyDesigns(count) {
         state.phase = "active";
         state.mine = { ready: true, money: 99999, activeShips: 0, shipCap: 20, team: "blue", income: 50 };
         state.design = designs[0].blueprint;
-        state.wiring = designs[0].wiring;
+        state.dataLinks = designs[0].dataLinks;
       }, makeManyDesigns(8));
 
       await page.evaluate(async () => {

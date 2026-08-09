@@ -6,7 +6,6 @@ import { clampCameraToWorld, minimapWorldAt, screenToWorld, zoomCameraAtScreenPo
 import { selectAt, selectBox, selectAllOwnShips, ownLiveShips } from "./selection.js";
 import { rotateFocusedPart, flipFocusedPart, undoBlueprintEdit } from "../ui/designerUi.js";
 import { canUndoBlueprintEdit } from "../design/blueprintEditHistory.js";
-import { canUndoWiring, undoWiring } from "../ui/wiringUi.js";
 import { closeConfirmModal } from "../ui/savedBlueprintsUi.js";
 import { closeLedger } from "../ledger/fleetLedgerUi.js";
 import { setRallyPointFromWorld } from "../ui/sidePanelUi.js";
@@ -87,10 +86,6 @@ export function handleKeyDown(event) {
   const key = event.key.toLowerCase();
   const designerOpen = dom.blueprintDesignerScreen && !dom.blueprintDesignerScreen.hidden;
   if (designerOpen && key === "z" && (event.ctrlKey || event.metaKey) && !event.shiftKey && !eventComesFromEditableControl(event)) {
-    if (state.blueprintView === "wiring") {
-      if (canUndoWiring()) { event.preventDefault(); undoWiring(); }
-      return;
-    }
     if (canUndoBlueprintEdit()) { event.preventDefault(); undoBlueprintEdit(); }
     return;
   }

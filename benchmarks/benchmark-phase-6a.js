@@ -7,7 +7,6 @@ const fs = require("fs");
 const path = require("path");
 const { performance } = require("perf_hooks");
 const HeatRules = require("../public/src/shared/heatRules");
-const WiringRules = require("../public/src/shared/wiringRules");
 const { PARTS } = require("../src/server/components");
 const { getOccupiedCells } = require("../src/server/footprint");
 const { initComponentState } = require("../src/server/componentHealth");
@@ -55,7 +54,6 @@ function designFor(componentCount, scenario, shipIndex) {
     if (supportsMultiCell && scenario === "cold-idle-reactor" && i === 0) type = "reactor";
     else if (supportsMultiCell && scenario === "one-active-engine" && i === 0) type = "engine";
     else if (scenario === "sparse-weapon-combat" && i === 0) type = "blaster";
-    else if (supportsMultiCell && scenario === "cable-heat-heavy" && i === 0) type = "reactor";
     else if (i === componentCount - 1) type = "radiator";
     const rotation = (shipIndex + i) % 4 * 90;
     const part = PARTS[type] || PARTS.frame;
@@ -77,13 +75,13 @@ function designFor(componentCount, scenario, shipIndex) {
 }
 
 function makeShip(design, shipIndex) {
-  const wiring = WiringRules.emptyWiring();
+  const dataLinks = [];
   const ship = {
     id: `benchmark-${shipIndex}`,
     alive: true,
     design,
-    wiring,
-    stats: computeStats(design, wiring),
+    dataLinks,
+    stats: computeStats(design, { dataLinks }),
     x: 0,
     y: 0,
     angle: 0,
@@ -112,16 +110,16 @@ function templateRoom(player) {
 
 function makeTemplateFleet(shipCount, componentCount, scenario) {
   const design = designFor(componentCount, scenario, 0);
-  const wiring = WiringRules.emptyWiring();
-  const stats = computeStats(design, wiring);
-  const template = createImmutableShipTemplate(design, wiring, stats);
+  const dataLinks = [];
+  const stats = computeStats(design, { dataLinks });
+  const template = createImmutableShipTemplate(design, dataLinks, stats);
   const player = {
     id: `benchmark-template-${scenario}-${componentCount}`,
     team: "blue",
     shipCap: shipCount,
     ships: [],
     design,
-    wiring,
+    dataLinks,
     stats,
     rallyPoint: null
   };
@@ -150,19 +148,6 @@ function makeFleet(shipCount, componentCount, scenario, templateShared) {
   return { fleet, template: null, templateRoom: null };
 }
 
-function cableRates(ship) {
-  const rates = ship.design.map((_, index) => index % 3 === 0 ? 0.45 : 0.12);
-  const total = rates.reduce((sum, value) => sum + value, 0);
-  ship.componentPowerCableHeatRate = rates;
-  ship.powerCableHeatRate = total;
-  // WIRING_ENABLED is false in this checkout.  Keep this synthetic fixture in
-  // disabled-analysis mode after injecting deterministic rates so the benchmark
-  // exercises the Heat cable list without replacing the cable authority.
-  ship.powerCableThermalAnalysis = { mode: "disabled", sections: [], components: [], summary: { totalPowerCableHeatPerSecond: total, hottestSectionId: null } };
-  ship._powerCableThermalFlowRevision = ship.powerFlowRevision || 0;
-  Heat.refreshHeatRuntimeCableComponents(ship, rates, total);
-}
-
 function prepareFleet(fleet, scenario) {
   for (const [shipIndex, ship] of fleet.entries()) {
     if (scenario === "fully-warm-hot") {
@@ -172,8 +157,6 @@ function prepareFleet(fleet, scenario) {
       }
       Heat.refreshHeatRuntimeLists(ship);
       ship.hasActiveHeat = true;
-    } else if (scenario === "cable-heat-heavy") {
-      cableRates(ship);
     } else if (scenario === "damage-repair-churn") {
       ship.componentHeat[shipIndex % ship.componentHeat.length] = 35;
       Heat.refreshHeatRuntimeLists(ship);
@@ -224,7 +207,6 @@ function approximateRuntimeBytes(ship) {
     ship._thermalRuntime?.hotMembership,
     ship._thermalRuntime?.hotPositions,
     ship._thermalRuntime?.pendingInputMembership,
-    ship._thermalRuntime?.cableMembership,
     ship._thermalRuntime?.loadedGeneratorMembership,
     ship._thermalRuntime?.powerSourceMembership,
     ship._thermalRuntime?.dataSourceMembership,
@@ -247,10 +229,10 @@ function approximateRuntimeBytes(ship) {
     "componentHeatReceived", "componentHeatRemoved", "componentHeatTransferredOut",
     "componentHeatCooled", "componentHeatSentThroughFrame", "componentHeatRadiated",
     "componentVentedOverflowHeatThisTick", "componentTotalVentedOverflowHeat", "componentHeatInput",
-    "componentMeltdown", "componentPowerCableHeatRate", "componentPowerCableHeatGenerated"
+    "componentMeltdown"
   ].reduce((sum, field) => sum + ((ship[field]?.length || 0) * 8), 0);
   const reusableLists = [
-    "heatBearingComponents", "hotComponents", "pendingInputComponents", "cableComponents",
+    "heatBearingComponents", "hotComponents", "pendingInputComponents",
     "loadedGeneratorComponents", "lifecycleComponents", "workComponents", "touchedComponents",
     "candidateEdgeIds", "telemetryComponents", "telemetrySpareComponents"
   ].reduce((sum, field) => sum + ((ship._thermalRuntime?.[field]?.length || 0) * 8), 0);
@@ -347,7 +329,6 @@ function fixtureDefinitions() {
       ["sparse-weapon-combat", 250, 75],
       ["mixed-idle-active", 500, 150],
       ["fully-warm-hot", 250, 150],
-      ["cable-heat-heavy", 250, 150],
       ["damage-repair-churn", 250, 150],
       ["mixed-idle-active", 100, 225]
     ];
@@ -359,7 +340,6 @@ function fixtureDefinitions() {
     ["sparse-weapon-combat", 100, 15], ["sparse-weapon-combat", 250, 75], ["sparse-weapon-combat", 500, 150],
     ["mixed-idle-active", 250, 75], ["mixed-idle-active", 500, 150], ["mixed-idle-active", 1000, 225],
     ["fully-warm-hot", 100, 75], ["fully-warm-hot", 250, 150], ["fully-warm-hot", 500, 225],
-    ["cable-heat-heavy", 100, 75], ["cable-heat-heavy", 250, 150], ["cable-heat-heavy", 500, 225],
     ["damage-repair-churn", 100, 75], ["damage-repair-churn", 250, 150], ["damage-repair-churn", 500, 225],
     ["mixed-idle-active", 100, 225]
   ];

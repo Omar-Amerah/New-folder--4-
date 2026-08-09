@@ -1,62 +1,102 @@
 "use strict";
+
 const assert = require("assert");
 const DataRules = require("../public/src/shared/dataSupportRules");
-const WiringRules = require("../public/src/shared/wiringRules");
 const HeatRules = require("../public/src/shared/heatRules");
 const { PARTS } = require("../src/server/components");
 const fixtures = require("./fixtures/dataSupportReferenceShips");
 const harness = require("./fixtures/dataSupportRuntimeHarness");
-const Combat = require("../src/server/combat");
-const Projectiles = require("../src/server/projectiles");
-const close = (a, b, msg, eps = 1e-9) => assert(Math.abs(a - b) <= eps, `${msg}: ${a} !== ${b}`);
-const clone = (v) => JSON.parse(JSON.stringify(v));
-const budget = (t) => DataRules.nominalSupportBudget(t, PARTS);
-const profile = (f, i, a) => DataRules.effectiveWeaponProfile(PARTS[f.design[i].type].weapon, DataRules.weaponSupportForIndex(a, i));
+
+const close = (actual, expected, message, epsilon = 1e-9) => assert(Math.abs(actual - expected) <= epsilon, message + ": " + actual + " !== " + expected);
+const budget = (type) => DataRules.nominalSupportBudget(type, PARTS);
 const byType = fixtures.componentIndicesByType;
 
-function sharedAnalysis(f) { return WiringRules.analyzeWiring(f.design, f.wiring, PARTS).data.supportAnalysis; }
+function sharedAnalysis(fixture) {
+  return DataRules.analyzeDirectDataSupport(fixture.design, fixture.dataLinks, PARTS);
+}
+
 function assertFixtureAuthority() {
-  const refs = fixtures.allReferenceShips(); assert.deepEqual(refs, fixtures.allReferenceShips(), "repeated fixture construction is deeply equal");
-  refs[0].design[0].x = 99; assert.notEqual(fixtures.allReferenceShips()[0].design[0].x, 99, "returned fixtures are independently mutable clones");
-  for (const f of fixtures.allReferenceShips()) {
-    fixtures.validateReferenceFixture(f);
-    const a = sharedAnalysis(f); for (const s of a.sources) close(s.bonusPerWeapon * s.recipientCount, s.effectiveBudget, `${f.name} source ${s.sourceIndex} budget conservation`);
-    for (const w of a.weapons) Object.values(profile(f, w.weaponIndex, a)).forEach((v) => typeof v === "number" && assert(Number.isFinite(v), `${f.name} finite profile`));
+  const refs = fixtures.allReferenceShips();
+  assert.deepEqual(refs, fixtures.allReferenceShips(), "repeated direct-link fixture construction is deterministic");
+  refs[0].design[0].x = 99;
+  assert.notEqual(fixtures.allReferenceShips()[0].design[0].x, 99, "returned fixtures are independent clones");
+  for (const fixture of refs) {
+    fixtures.validateReferenceFixture(fixture);
+    const analysis = sharedAnalysis(fixture);
+    assert.equal(analysis.links.length, fixture.expectedLinkCount, fixture.name + " link count");
+    analysis.sourceAllocations.forEach((source) => {
+      close(source.bonusPerWeapon * source.recipientCount, source.effectiveBudget, fixture.name + " source budget conservation");
+    });
   }
 }
-function assertRuntimeSharedParity() {
-  for (const f of fixtures.allReferenceShips()) {
-    const shared = sharedAnalysis(f); const ship = harness.createRuntimeShip(f); harness.applyFullPower(ship); harness.initializeHeat(ship); harness.rebuildDataTopology(ship);
-    for (const s of shared.sources) { const r = harness.runtimeSourceAllocation(ship, s.sourceIndex); assert.equal(r.sourceType, s.sourceType, `${f.name} source type parity`); assert.deepEqual(r.eligibleWeaponIndices, s.eligibleWeaponIndices, `${f.name} recipient parity`); close(r.nominalBudget, s.nominalBudget, `${f.name} nominal budget`); close(r.effectiveBudget, r.nominalBudget * r.powerMultiplier * r.thermalMultiplier * r.operationalMultiplier, `${f.name} effective budget`); close(r.bonusPerWeapon, r.effectiveBudget / (r.recipientCount || 1), `${f.name} per-recipient amount`); }
-    for (const w of shared.weapons) { const r = harness.runtimeWeaponSupport(ship, w.weaponIndex); assert.deepEqual(r.sourceIndices, w.sourceIndices, `${f.name} source membership`); const rp = harness.effectiveWeaponStats(ship, w.weaponIndex); for (const k of ["range", "accuracy", "fireRate", "reload", "dps"]) typeof rp[k] === "number" && assert(Number.isFinite(rp[k]), `${f.name} effective ${k}`); }
+
+function assertRuntimeParity() {
+  for (const fixture of fixtures.allReferenceShips()) {
+    const shared = sharedAnalysis(fixture);
+    const ship = harness.createRuntimeShip(fixture);
+    const runtime = ship.runtimeDataSupport;
+    assert(!Object.prototype.hasOwnProperty.call(runtime, "networks"), fixture.name + " runtime has no physical Data network state");
+    assert.equal(typeof runtime.linkSignature, "string", fixture.name + " runtime tracks explicit Data Links");
+    assert(runtime.linkRevision >= 1, fixture.name + " runtime has a Data Link revision");
+    for (const source of shared.sourceAllocations) {
+      const actual = harness.runtimeSourceAllocation(ship, source.sourceIndex);
+      assert.deepEqual(actual.directWeaponIndices, source.directWeaponIndices, fixture.name + " direct recipient parity");
+      close(actual.nominalBudget, source.nominalBudget, fixture.name + " nominal budget parity");
+      close(actual.effectiveBudget, actual.nominalBudget * actual.sourceMultiplier, fixture.name + " effective budget parity");
+      close(actual.bonusPerWeapon, actual.recipientCount ? actual.effectiveBudget / actual.recipientCount : 0, fixture.name + " per-recipient budget parity");
+    }
+    for (const weapon of shared.weaponBonuses) {
+      const actual = harness.runtimeWeaponSupport(ship, weapon.weaponIndex);
+      assert.deepEqual(actual.sourceIndices, weapon.sourceIndices, fixture.name + " source membership parity");
+      for (const field of ["rangeBonus", "accuracyBonus", "fireRateBonus"]) close(actual[field], weapon[field], fixture.name + " " + field + " parity");
+    }
   }
 }
-function assertPrecisionRuntime() { const f = fixtures.precisionBuild(), ship = harness.createRuntimeShip(f); harness.applyFullPower(ship); const rail = byType(f, "railgun")[0], sensor = byType(f, "signalAmplifier")[0], targeting = byType(f, "targetingComputer")[0]; const s = harness.runtimeWeaponSupport(ship, rail), p = harness.effectiveWeaponStats(ship, rail); close(s.rangeBonus, budget("signalAmplifier") * harness.runtimeSourceAllocation(ship, sensor).powerMultiplier, "precision full Signal Amplifier range allocation"); close(s.accuracyBonus, budget("targetingComputer") * harness.runtimeSourceAllocation(ship, targeting).powerMultiplier, "precision full Targeting Computer accuracy allocation"); assert(p.accuracy <= 0.99, "accuracy cap"); assert(p.range > PARTS.railgun.weapon.range, "effective targeting range"); assert((p.projectileLifetime || p.range / (p.projectileSpeed || 1)) >= PARTS.railgun.weapon.range / (p.projectileSpeed || 1), "projectile lifetime/range behaviour"); const once = DataRules.effectiveWeaponProfile(PARTS.railgun.weapon, s); close(once.accuracy, p.accuracy, "support applied once"); harness.destroyComponent(ship, sensor); harness.destroyComponent(ship, targeting); const base = harness.effectiveWeaponStats(ship, rail); close(base.range, PARTS.railgun.weapon.range, "disabled support base range"); close(base.accuracy, PARTS.railgun.weapon.accuracy, "disabled support base accuracy"); }
-function assertBroadsideRuntime() { const f = fixtures.broadsideBuild(), ship = harness.createRuntimeShip(f); harness.applyFullPower(ship); const fc = byType(f, "fireControl")[0], blasters = byType(f, "blaster"); let total = 0; for (const i of blasters) { const w = harness.runtimeWeaponSupport(ship, i), p = harness.effectiveWeaponStats(ship, i); close(w.fireRateBonus, (budget("fireControl") / 4) * harness.runtimeSourceAllocation(ship, fc).powerMultiplier, "broadside split"); close(p.reload, 1000 / p.fireRate, "cooldown/reload own effective fire rate"); total += w.fireRateBonus; } close(total, harness.runtimeSourceAllocation(ship, fc).effectiveBudget, "broadside distributed budget"); harness.applyPartialPower(ship, fc, 0.5); { const r = harness.runtimeSourceAllocation(ship, fc); assert(r.powerMultiplier < 1, "production Power brownout reduces Fire Control multiplier"); close(r.effectiveBudget, r.nominalBudget * r.powerMultiplier * r.thermalMultiplier * r.operationalMultiplier, "partial Power reduces source budget through runtime formula"); } const disabledShip = harness.createRuntimeShip(f); harness.disconnectSourcePower(disabledShip, fc); blasters.forEach((i) => close(harness.effectiveWeaponStats(disabledShip, i).fireRate, PARTS.blaster.weapon.fireRate, "disabled Fire Control base fire rate")); }
-function assertMixedRuntime() { const f = fixtures.mixedSupportNetwork(), ship = harness.createRuntimeShip(f); harness.applyFullPower(ship); const sensorIndex = byType(f, "signalAmplifier")[0], targetingIndex = byType(f, "targetingComputer")[0], fcIndex = byType(f, "fireControl")[0]; const sensorMult = harness.runtimeSourceAllocation(ship, sensorIndex).powerMultiplier, targetingMult = harness.runtimeSourceAllocation(ship, targetingIndex).powerMultiplier, fcMult = harness.runtimeSourceAllocation(ship, fcIndex).powerMultiplier; for (const type of ["railgun", "blaster", "pointDefense"]) { const i = byType(f, type)[0], s = harness.runtimeWeaponSupport(ship, i), p = harness.effectiveWeaponStats(ship, i); close(s.rangeBonus, (budget("signalAmplifier") / 3) * sensorMult, `${type} range`); close(s.accuracyBonus, (budget("targetingComputer") / 3) * targetingMult, `${type} accuracy`); close(s.fireRateBonus, (budget("fireControl") / 3) * fcMult, `${type} fire-rate`); assert.equal(s.sourceIndices.length, 3, `${type} per-index support`); Object.values(p).forEach((v) => typeof v === "number" && assert(Number.isFinite(v), `${type} no NaN/Infinity`)); } }
-function assertRedundancyLifecycle() { const f = fixtures.redundantNetwork(), ship = harness.createRuntimeShip(f), blaster = byType(f, "blaster")[0], routeA = 11, routeB = 6; const baseline = clone(harness.runtimeWeaponSupport(ship, blaster)); const rev = () => [ship.runtimeDataSupport.topologyRevision, ship.runtimeDataSupport.allocationRevision]; harness.destroyComponent(ship, routeA); assert.deepEqual(harness.runtimeWeaponSupport(ship, blaster), baseline, "route B preserves support"); const afterA = rev(); harness.destroyComponent(ship, routeB); assert.notDeepEqual(harness.runtimeWeaponSupport(ship, blaster), baseline, "total route loss removes support"); harness.repairComponent(ship, routeB); assert.deepEqual(harness.runtimeWeaponSupport(ship, blaster), baseline, "production repair of surviving main route restores allocation"); harness.repairComponent(ship, routeA); assert.deepEqual(harness.runtimeWeaponSupport(ship, blaster), baseline, "repairing alternate route does not duplicate support"); harness.refreshDataAllocation(ship); assert.deepEqual(rev(), rev(), "no-op refresh stable"); assert(afterA[0] >= 1, "topology revision tracked"); }
-function assertIsolation() { const f = fixtures.isolatedNetworks(), ship = harness.createRuntimeShip(f), rail = byType(f, "railgun")[0], blaster = byType(f, "blaster")[0], sensor = byType(f, "signalAmplifier")[0], fc = byType(f, "fireControl")[0]; const r = harness.runtimeWeaponSupport(ship, rail), b = harness.runtimeWeaponSupport(ship, blaster); close(r.rangeBonus, budget("signalAmplifier") * harness.runtimeSourceAllocation(ship, sensor).powerMultiplier, "isolated rail range contribution"); close(r.fireRateBonus, 0, "isolated rail zero Fire Control leakage"); assert(!r.sourceIndices.includes(fc), "rail excludes Network 2 source"); close(b.fireRateBonus, budget("fireControl") * harness.runtimeSourceAllocation(ship, fc).powerMultiplier, "isolated blaster Fire Control contribution"); close(b.rangeBonus, 0, "isolated blaster zero range-source leakage"); assert(!b.sourceIndices.includes(sensor), "blaster excludes Network 1 source"); const beforeB = clone(b); harness.destroyComponent(ship, rail); for (const k of ["rangeBonus","accuracyBonus","fireRateBonus"]) close(harness.runtimeWeaponSupport(ship, blaster)[k], beforeB[k], "damage Network 1 leaves Network 2 allocation unchanged"); harness.repairComponent(ship, rail); for (const k of ["rangeBonus","accuracyBonus","fireRateBonus"]) close(harness.runtimeWeaponSupport(ship, blaster)[k], beforeB[k], "repair Network 1 leaves Network 2 allocation unchanged"); }
-function assertPowerHeatScenarios() { for (const f of fixtures.allReferenceShips()) { for (const si of f.expected.sources) { for (const mult of [1, 0.5, 0]) { const ship = harness.createRuntimeShip(f); harness.applyPartialPower(ship, si, mult); const r = harness.runtimeSourceAllocation(ship, si); if (mult < 1) assert(r.powerMultiplier < 1, `${f.name} production Power flow creates a reduced multiplier for ${mult}`); close(r.effectiveBudget, r.nominalBudget * r.powerMultiplier * r.thermalMultiplier * r.operationalMultiplier, `${f.name} authoritative Power formula ${mult}`); } const invalidShip = harness.createRuntimeShip(f); delete invalidShip.componentPower.byComponentIndex[si].operationalMultiplier; harness.refreshDataAllocation(invalidShip); close(harness.runtimeSourceAllocation(invalidShip, si).powerMultiplier, 0, `${f.name} invalid Power fails safe`); for (const state of [HeatRules.STATE.NORMAL, HeatRules.STATE.WARM, HeatRules.STATE.HOT, HeatRules.STATE.CRITICAL, HeatRules.STATE.OVERHEATED]) { const ship = harness.createRuntimeShip(f); harness.setSourceThermalState(ship, si, state); const r = harness.runtimeSourceAllocation(ship, si); close(r.effectiveBudget, r.nominalBudget * r.powerMultiplier * r.thermalMultiplier * r.operationalMultiplier, `${f.name} authoritative Heat formula ${state}`); } const lifecycleShip = harness.createRuntimeShip(f); harness.destroyComponent(lifecycleShip, si); close(harness.runtimeSourceAllocation(lifecycleShip, si).operationalMultiplier, 0, `${f.name} destroyed source disabled`); harness.repairComponent(lifecycleShip, si); assert(harness.runtimeSourceAllocation(lifecycleShip, si).operationalMultiplier > 0, `${f.name} repaired source rejoins`); } } }
 
-function assertCombatCodeConsumesRuntimeDataSupport() {
-  const f = fixtures.broadsideBuild();
-  const supported = harness.createRuntimeShip(f);
-  supported.id = "supported-attacker"; supported.ownerId = "p1"; supported.x = 0; supported.y = 0; supported.vx = 0; supported.vy = 0; supported.weaponCooldowns = supported.design.map(() => 0);
-  const target = harness.createRuntimeShip(fixtures.precisionBuild());
-  target.id = "target"; target.ownerId = "p2"; target.x = 420; target.y = 0; target.vx = 0; target.vy = 0; target.radius = 180; target.shield = 0;
-  const room = { bullets: [], effects: [], ships: new Map([[supported.id, supported], [target.id, target]]), players: new Map([["p1", { id: "p1", team: "a" }], ["p2", { id: "p2", team: "b" }]]), map: { safeZones: [], obstacles: [] }, world: { width: 2000, height: 2000 }, combatRandom: () => 0.5 };
-  const blaster = byType(f, "blaster")[0];
-  const effectiveFireRate = harness.effectiveWeaponStats(supported, blaster).fireRate;
-  for (let step = 0; step < 8 && !room.bullets.length; step += 1) Combat.updateShipWeapons(room, supported, [...room.ships.values()], 0.25, 1000 + step * 250);
-  assert(room.bullets.some((bullet) => bullet.ownerId === supported.ownerId), "production combat weapon update fires a Data-supported reference ship");
-  close(supported.weaponCooldowns[blaster], 1 / effectiveFireRate, "combat cooldown uses Data-supported effective fire rate", 1e-6);
-  const beforeHp = target.hp;
-  for (let step = 0; step < 20 && target.hp === beforeHp; step += 1) Projectiles.updateBullets(room, 0.05, 3000 + step * 50);
-  assert(target.hp < beforeHp, "production projectile update applies real combat damage");
+function assertLifecycleStates() {
+  const fixture = fixtures.broadsideBuild();
+  const fireControl = byType(fixture, "fireControl")[0];
+  const blasters = byType(fixture, "blaster");
+  const ship = harness.createRuntimeShip(fixture);
+  const baseline = blasters.map((index) => harness.runtimeWeaponSupport(ship, index).fireRateBonus);
+  assert(baseline.every((value) => value > 0), "baseline Fire Control support is active");
+  harness.disconnectSourcePower(ship, fireControl);
+  blasters.forEach((index) => {
+    close(harness.runtimeWeaponSupport(ship, index).fireRateBonus, 0, "unpowered source contributes nothing");
+    close(harness.effectiveWeaponStats(ship, index).fireRate, PARTS.blaster.weapon.fireRate, "unpowered source leaves base weapon rate");
+  });
+  ship.componentPowerState[fireControl] = 1;
+  harness.applyFullPower(ship);
+  blasters.forEach((index, position) => close(harness.runtimeWeaponSupport(ship, index).fireRateBonus, baseline[position], "re-enabled source restores support"));
+
+  const thermal = fixtures.precisionBuild();
+  const thermalShip = harness.createRuntimeShip(thermal);
+  const signal = byType(thermal, "signalAmplifier")[0];
+  const rail = byType(thermal, "railgun")[0];
+  harness.setSourceThermalState(thermalShip, signal, HeatRules.STATE.OVERHEATED);
+  assert.equal(harness.runtimeSourceAllocation(thermalShip, signal).thermalMultiplier, 0, "overheated source has no thermal output");
+  close(harness.runtimeWeaponSupport(thermalShip, rail).rangeBonus, 0, "overheated source contributes nothing");
 }
 
-function assertWiringRegression() { const f = fixtures.redundantNetwork(), a = sharedAnalysis(f), original = JSON.stringify(a.weaponBonusByIndex); let w = clone(f.wiring); w.data.sections = w.data.sections.filter((s) => s.id !== "7,0:8,0"); close(WiringRules.analyzeWiring(f.design, w, PARTS).data.supportAnalysis.supportedWeaponCount, a.supportedWeaponCount, "direct section-removal route regression"); w = clone(f.wiring); w.data.sections = w.data.sections.filter((s) => !["7,0:8,0", "7,1:8,1"].includes(s.id)); assert.notEqual(JSON.stringify(WiringRules.analyzeWiring(f.design, w, PARTS).data.supportAnalysis.weaponBonusByIndex), original, "both routes alter support"); }
+function assertDirectIndependence() {
+  const fixture = fixtures.redundantSupport();
+  const ship = harness.createRuntimeShip(fixture);
+  const fireControl = byType(fixture, "fireControl")[0];
+  const signal = byType(fixture, "signalAmplifier")[0];
+  const blaster = byType(fixture, "blaster")[0];
+  const baseline = harness.runtimeWeaponSupport(ship, blaster);
+  assert(baseline.sourceIndices.includes(fireControl) && baseline.sourceIndices.includes(signal), "both explicit sources support the weapon");
+  harness.destroyComponent(ship, fireControl);
+  const afterFireControl = harness.runtimeWeaponSupport(ship, blaster);
+  assert(afterFireControl.sourceIndices.includes(signal), "destroying one source keeps the other explicit link");
+  close(afterFireControl.rangeBonus, budget("signalAmplifier") / 2, "remaining source keeps its divided budget");
+  harness.destroyComponent(ship, signal);
+  const afterBoth = harness.runtimeWeaponSupport(ship, blaster);
+  close(afterBoth.rangeBonus, 0, "destroying the remaining source removes only its contribution");
+}
 
-assertFixtureAuthority(); assertRuntimeSharedParity(); assertPrecisionRuntime(); assertBroadsideRuntime(); assertMixedRuntime(); assertRedundancyLifecycle(); assertIsolation(); assertPowerHeatScenarios(); assertCombatCodeConsumesRuntimeDataSupport(); assertWiringRegression();
-console.log("Section 6E Data-support runtime/lifecycle balance verification passed.");
-for (const f of fixtures.allReferenceShips()) console.log(`${f.name}: ${f.design.length} components, ${f.summary.cost} cost, ${f.summary.mass} mass, ${f.summary.powerGeneration}/${f.summary.powerUse.toFixed(1)} MW, ${f.summary.dataCableSections} data sections`);
+assertFixtureAuthority();
+assertRuntimeParity();
+assertLifecycleStates();
+assertDirectIndependence();
+console.log("Direct Data Links runtime/lifecycle balance verification passed.");

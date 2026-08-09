@@ -27,7 +27,6 @@ const path = require("path");
 const assert = require("assert");
 const msgpack = require("@msgpack/msgpack");
 const { chromium } = require("playwright");
-const { createGeneratedPowerWiring, validateWiring, analyzeShipPower } = require("../src/server/shipDesign");
 const { launchChromium, uniquePort, uniqueRoom, defaultArtifactDir, waitForBrowserReady, writeJsonArtifact } = require("./verify-pixi-browser-support.js");
 
 const PORT = Number(process.env.TEST_PORT || uniquePort());
@@ -175,29 +174,6 @@ const ENEMY_DESIGN = [
   { x: 8, y: 5, type: "armor", rotation: 0 }
 ];
 
-const SHOOTER_WIRING = createGeneratedPowerWiring(SHOOTER_DESIGN);
-const ENEMY_WIRING = createGeneratedPowerWiring(ENEMY_DESIGN);
-
-function assertGeneratedPowerWiring(name, design, wiring, requiredTypes) {
-  assert.strictEqual(wiring.version, 3, `${name} wiring must use Wiring v3`);
-  assert(wiring.power.sections.length > 0, `${name} wiring has no physical Power sections`);
-  const normalized = validateWiring(design, wiring);
-  assert.strictEqual(normalized.droppedSegments?.length || 0, 0, `${name} wiring loses segments during server normalization`);
-  assert.deepStrictEqual(normalized.wiring, wiring, `${name} wiring changes during server normalization`);
-  const analysis = analyzeShipPower(design, normalized.wiring);
-  assert.strictEqual(analysis.invalidConnectionCount, 0, `${name} wiring contains invalid Power connections`);
-  for (const type of requiredTypes) {
-    const indices = design.map((part, index) => part.type === type ? index : -1).filter((index) => index >= 0);
-    assert(indices.length > 0, `${name} design has no ${type}`);
-    for (const index of indices) {
-      assert(analysis.connectedConsumerIndices.includes(index), `${name} ${type} at component ${index} is disconnected`);
-    }
-  }
-}
-
-assertGeneratedPowerWiring("shooter", SHOOTER_DESIGN, SHOOTER_WIRING, ["engine", "blaster"]);
-assertGeneratedPowerWiring("enemy", ENEMY_DESIGN, ENEMY_WIRING, ["engine"]);
-
 const results = [];
 function check(name, fn) {
   return Promise.resolve().then(fn).then(
@@ -318,13 +294,13 @@ async function main() {
       || enemy.latest.state?.rules?.asteroidDensity === "none", 10000, "asteroid-free map rules");
     await page.evaluate(() => window.__mfaNetSend({ type: "startDesign" }));
     await until(() => enemy.state()?.phase === "design", 10000, "design phase");
-    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "deploy", design, wiring, combatStyle: "hold" }),
-      { design: SHOOTER_DESIGN, wiring: SHOOTER_WIRING });
-    enemy.send({ type: "deploy", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, combatStyle: "hold" });
+    await page.evaluate(({ design, dataLinks }) => window.__mfaNetSend({ type: "deploy", design, dataLinks, combatStyle: "hold" }),
+      { design: SHOOTER_DESIGN, dataLinks: [] });
+    enemy.send({ type: "deploy", design: ENEMY_DESIGN, dataLinks: [], combatStyle: "hold" });
     await until(() => enemy.state()?.phase === "active", 15000, "match start");
-    await page.evaluate(({ design, wiring }) => window.__mfaNetSend({ type: "buyShip", design, wiring, count: 1, requestId: `lt-${Date.now()}-s`, combatStyle: "hold" }),
-      { design: SHOOTER_DESIGN, wiring: SHOOTER_WIRING });
-    enemy.send({ type: "buyShip", design: ENEMY_DESIGN, wiring: ENEMY_WIRING, count: 1, requestId: `lt-${Date.now()}-e`, combatStyle: "hold" });
+    await page.evaluate(({ design, dataLinks }) => window.__mfaNetSend({ type: "buyShip", design, dataLinks, count: 1, requestId: `lt-${Date.now()}-s`, combatStyle: "hold" }),
+      { design: SHOOTER_DESIGN, dataLinks: [] });
+    enemy.send({ type: "buyShip", design: ENEMY_DESIGN, dataLinks: [], count: 1, requestId: `lt-${Date.now()}-e`, combatStyle: "hold" });
 
     const shooterShip = await until(() => enemy.state()?.ships?.find((s) => s.ownerId === browserPlayerId && s.alive), 10000, "shooter ship spawn");
     const enemyShip = await until(() => enemy.state()?.ships?.find((s) => s.ownerId === enemyPlayerId && s.alive), 10000, "enemy ship spawn");
@@ -538,7 +514,7 @@ async function main() {
         enginePower: ship.design?.map((part, index) => part.type === "engine" || part.type === "maneuverThruster"
           ? { index, type: part.type, power: ship.componentPower?.[index] }
           : null).filter(Boolean),
-        powerNetworkSummary: ship.wiringStatus || ship.powerStatus,
+        powerStatus: ship.powerStatus,
         weaponAngles: ship.weaponAngles
       }))
     }));

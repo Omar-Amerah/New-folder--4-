@@ -165,7 +165,6 @@ function bumpStateEpoch(room, reason = "state-reset") {
     ship.dirtyComponents?.clear?.();
     ship.dirtyHeat?.clear?.();
     ship.dirtyPower = false;
-    ship.dirtyPowerProtection = false;
     ship._pdThreatSet = null;
     ship._targetAcquisitionSchedule = null;
     ship._targetAcquisitionOffsets = null;

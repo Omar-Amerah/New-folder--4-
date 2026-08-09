@@ -1,11 +1,9 @@
 // Handles localStorage persistence, blueprint validation wrappers, default designs, and versioned storage.
-// Schema v2 stores { modules, wiring } together; older storage versions/keys are
-// intentionally discarded (no migration) : stale data falls back to the default ship.
+// The current schema stores modules and explicit logical Data Links.
 
 import "../shared/componentTransform.js";
 import "../shared/dataSupportRules.js";
 import "../shared/droneBayRules.js";
-import "../shared/wiringRules.js";
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
@@ -15,15 +13,13 @@ import { computeStats } from "./componentStats.js";
 
 const ComponentTransform = globalThis.ComponentTransform;
 
-export const BLUEPRINT_STORAGE_VERSION = 2;
+export const BLUEPRINT_STORAGE_VERSION = 3;
+// Schema v2 stored physical Power/Data Wiring. The modules, logical Data
+// Links, combat style, and loadout references remain usable after Wiring was
+// removed, so v2 envelopes are intentionally readable and normalized into v3.
+const LEGACY_WIRING_STORAGE_VERSION = 2;
 export const MAX_SAVED_DESIGNS = 24;
 export const MAX_LOADOUTS = 8;
-
-function wiringRules() {
-  // Loaded as a classic shared script (public/src/shared/wiringRules.js) before
-  // the module entry point, exactly like HeatRules/EngineExhaustRules.
-  return globalThis.WiringRules || null;
-}
 
 export function defaultDesign() {
   return [
@@ -47,71 +43,6 @@ export function defaultDesign() {
 
     { x: 7, y: 9, type: "engine" }
   ];
-}
-
-export function defaultWiring() {
-  const modules = defaultDesign();
-  const rules = wiringRules();
-  if (!rules?.createGeneratedPowerWiring) throw new Error("WiringRules.createGeneratedPowerWiring must load before defaultWiring()");
-  return rules.createGeneratedPowerWiring(modules, PART_STATS);
-}
-
-export function normalizeWiring(wiring, modules) {
-  const rules = wiringRules();
-  if (!rules) return preservedWiringFallback(wiring);
-  return rules.normalizeWiring(wiring, modules, PART_STATS).wiring;
-}
-
-// If the shared engine script is unavailable (stale-cached index.html, a test
-// importing this module without the shim), preserve bounded v2 routes rather
-// than returning empty wiring : otherwise the next
-// persistDesign() would permanently wipe the user's saved wiring. Real
-// normalization happens once the engine is present again.
-const FALLBACK_POWER_TIERS = new Set(["light", "standard", "heavy"]);
-
-function fallbackTier(kind, value) {
-  if (kind === "power" && FALLBACK_POWER_TIERS.has(value)) return value;
-  return "standard";
-}
-
-const DEFAULT_POWER_POLICY = Object.freeze({
-  preset: "balanced",
-  customOrder: Object.freeze(["propulsion", "shields", "pointDefence", "command", "weapons", "coolingSupport"])
-});
-
-function fallbackPowerPolicy(policy) {
-  const source = policy && typeof policy === "object" && !Array.isArray(policy) ? policy : {};
-  const preset = ["balanced", "defensive", "offensive", "mobility", "custom"].includes(source.preset) ? source.preset : "balanced";
-  const order = Array.isArray(source.customOrder)
-    ? source.customOrder.filter((value) => DEFAULT_POWER_POLICY.customOrder.includes(value))
-    : [];
-  const seen = new Set(order);
-  for (const category of DEFAULT_POWER_POLICY.customOrder) if (!seen.has(category)) { seen.add(category); order.push(category); }
-  return { preset, customOrder: order };
-}
-
-// Fallback preserves bounded Wiring v2/v3 routes when the shared engine script
-// is unavailable, always emitting the current v3 shape so a later persist does
-// not wipe user routes. Real migration/normalization happens once the engine
-// is present again.
-function preservedWiringFallback(wiring) {
-  const empty = () => ({ sections: [], connections: [] });
-  const version = wiring?.version;
-  if (version !== 2 && version !== 3) return { version: 3, power: empty(), data: empty(), powerPolicy: fallbackPowerPolicy(null) };
-  const kind = (value, wiringKind) => ({
-    sections: Array.isArray(value?.sections) ? value.sections.slice(0, 480).map((section) => ({
-      id: String(section?.id || ""), x1: Math.trunc(Number(section?.x1)), y1: Math.trunc(Number(section?.y1)),
-      x2: Math.trunc(Number(section?.x2)), y2: Math.trunc(Number(section?.y2)),
-      // Fallback preserves reserved Power tier schema values; it does not
-      // implement tier capacity or gameplay. Data wiring remains standard-only.
-      tier: fallbackTier(wiringKind, section?.tier)
-    })) : [],
-    connections: Array.isArray(value?.connections) ? value.connections.slice(0, 240).map((connection) => ({
-      sourceIndex: Math.trunc(Number(connection?.sourceIndex)), targetIndex: Math.trunc(Number(connection?.targetIndex)),
-      sectionIds: Array.isArray(connection?.sectionIds) ? connection.sectionIds.slice(0, 224).map(String) : []
-    })) : []
-  });
-  return { version: 3, power: kind(wiring.power, "power"), data: kind(wiring.data, "data"), powerPolicy: fallbackPowerPolicy(wiring?.powerPolicy) };
 }
 
 function nowIso() { return new Date().toISOString(); }
@@ -153,6 +84,11 @@ function isEnvelope(value, kind) {
 }
 function isCurrentEnvelope(value, kind) {
   return isEnvelope(value, kind) && value.schemaVersion === BLUEPRINT_STORAGE_VERSION;
+}
+function isSupportedStorageEnvelope(value, kind) {
+  if (!isEnvelope(value, kind)) return false;
+  const version = Number(value.schemaVersion);
+  return version === BLUEPRINT_STORAGE_VERSION || version === LEGACY_WIRING_STORAGE_VERSION;
 }
 
 export function makeDesignPart(x, y, type, previousRotation = 0, previousFlipped = false) {
@@ -315,37 +251,13 @@ export function normalizeDesign(input, options = {}) {
 }
 
 
-function normalizedDesignKey(modules) { return JSON.stringify(normalizeDesignDetailed(modules, { allowEmpty: true }).modules); }
-function isEmptyWiringValue(wiring) {
-  return (wiring?.version === 2 || wiring?.version === 3)
-    && (!Array.isArray(wiring?.power?.sections) || wiring.power.sections.length === 0)
-    && (!Array.isArray(wiring?.power?.connections) || wiring.power.connections.length === 0)
-    && (!Array.isArray(wiring?.data?.sections) || wiring.data.sections.length === 0)
-    && (!Array.isArray(wiring?.data?.connections) || wiring.data.connections.length === 0);
-}
-function isRecognizedUntouchedStockDefault(modules) {
-  const current = normalizedDesignKey(defaultDesign());
-  const normalized = normalizedDesignKey(modules);
-  if (Array.isArray(modules) && modules.length === defaultDesign().length && normalized === current) return true;
-  const previous = defaultDesign().map((part) => ({ ...part, x: part.x - 4, y: part.y - 4 }));
-  return Array.isArray(modules) && modules.length === previous.length && normalized === normalizedDesignKey(previous);
-}
-function normalizeStoredWiringForDesign(wiring, modules) {
-  // Narrow bug migration: exact untouched stock/default blueprints saved while
-  // default Wiring v2 was empty receive the trusted generated default wiring.
-  // Custom, imported, or modified designs remain user-authored and are never
-  // silently auto-wired.
-  if (isEmptyWiringValue(wiring) && isRecognizedUntouchedStockDefault(modules)) return normalizeWiring(defaultWiring(), modules);
-  return normalizeWiring(wiring, modules);
-}
-
 function defaultCurrentDesign() {
   const modules = defaultDesign();
-  return { modules, wiring: normalizeWiring(defaultWiring(), modules), dataLinks: [], combatStyle: "hold" };
+  return { modules, dataLinks: [], combatStyle: "hold" };
 }
 
-function savedDesignSummary(blueprint, wiring) {
-  const stats = computeStats(blueprint, { wiring });
+function savedDesignSummary(blueprint, dataLinks) {
+  const stats = computeStats(blueprint, { dataLinks });
   return { cost: stats.unitCost, weapons: `${stats.weaponDps} DPS`, speed: Math.round(stats.maxSpeed) };
 }
 function normalizeSavedDesign(design, index) {
@@ -358,7 +270,7 @@ function normalizeSavedDesign(design, index) {
       id: String(design.id || `saved-${index}`).slice(0, 64),
       name: String(design.name || `Design ${index + 1}`).slice(0, 28),
       blueprint: [],
-      wiring: normalizeWiring(design.wiring, []),
+      dataLinks: [],
       invalid: true,
       invalidReason: detailed.issues[0].message,
       invalidCode: detailed.issues[0].code,
@@ -372,15 +284,13 @@ function normalizeSavedDesign(design, index) {
   }
   if (!blueprint.length) return null;
   const validation = validateBlueprint(blueprint, { requireThrust: true, normalizationIssues: detailed.issues });
-  const wiring = normalizeStoredWiringForDesign(design.wiring, blueprint);
-  const summary = savedDesignSummary(blueprint, wiring);
+  const dataLinks = globalThis.DataSupportRules?.normalizeDataLinks(blueprint, design.dataLinks, PART_STATS) || [];
+  const summary = savedDesignSummary(blueprint, dataLinks);
   return {
     id: String(design.id || `saved-${index}`).slice(0, 64),
     name: String(design.name || `Design ${index + 1}`).slice(0, 28),
     blueprint,
-    // Each saved design keeps an independent, normalized copy of its wiring.
-    wiring,
-    dataLinks: (globalThis.DataSupportRules?.normalizeDataLinks(blueprint, design.dataLinks, PART_STATS) || []),
+    dataLinks,
     invalid: !validation.ok,
     invalidReason: validation.errors[0] || "Invalid blueprint.",
     combatStyle: safeStyle(design.combatStyle, "hold"),
@@ -392,10 +302,9 @@ function normalizeSavedDesign(design, index) {
   };
 }
 
-// Build a normalized current-design result from a { modules, wiring?, combatStyle? }
+// Build a normalized current-design result from a { modules, dataLinks?, combatStyle? }
 // payload, preserving component-specific configuration (drone type via
-// normalizeDesignDetailed) and valid wiring + Power priority policy
-// (via normalizeStoredWiringForDesign, which never auto-wires custom designs).
+// normalizeDesignDetailed) and explicit Data Links
 // Returns null when the payload has no usable modules.
 function buildCurrentDesignFromPayload(payload) {
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return null;
@@ -408,7 +317,6 @@ function buildCurrentDesignFromPayload(payload) {
     modules,
     normalizationIssues: detailed.issues,
     needsAttention: detailed.issues.length > 0,
-    wiring: normalizeStoredWiringForDesign(payload.wiring, modules),
     dataLinks,
     combatStyle: safeStyle(payload.combatStyle, "hold")
   };
@@ -416,26 +324,25 @@ function buildCurrentDesignFromPayload(payload) {
 
 // Recognize a payload from a KNOWN older current-design format:
 //  - a bare array of modules (oldest storage),
-//  - a pre-envelope object storing { modules|design, wiring?, combatStyle? },
+//  - a pre-envelope object storing { modules|design, dataLinks?, combatStyle? },
 //  - an older versioned "current-design" envelope (schemaVersion < current).
-// Returns a { modules, wiring, combatStyle } payload, or null if unrecognized.
+// Returns a { modules, dataLinks, combatStyle } payload, or null if unrecognized.
 function legacyCurrentDesignPayload(value) {
-  if (Array.isArray(value)) return { modules: value, wiring: null, combatStyle: "hold" };
+  if (Array.isArray(value)) return { modules: value, dataLinks: [], combatStyle: "hold" };
   if (!value || typeof value !== "object") return null;
   if (isEnvelope(value, "current-design") && Number(value.schemaVersion) < BLUEPRINT_STORAGE_VERSION) {
     return value.payload && typeof value.payload === "object" ? value.payload : null;
   }
   if (!Object.hasOwn(value, "schemaVersion")) {
-    if (Array.isArray(value.modules)) return { modules: value.modules, wiring: value.wiring ?? null, combatStyle: value.combatStyle };
-    if (Array.isArray(value.design)) return { modules: value.design, wiring: value.wiring ?? null, combatStyle: value.combatStyle };
+    if (Array.isArray(value.modules)) return { modules: value.modules, dataLinks: value.dataLinks ?? [], combatStyle: value.combatStyle };
+    if (Array.isArray(value.design)) return { modules: value.design, dataLinks: value.dataLinks ?? [], combatStyle: value.combatStyle };
   }
   return null;
 }
 
-// Storage schema v2 loads v2 "current-design" envelopes directly, migrates known
-// older formats (legacy arrays, pre-envelope objects, v1 envelopes) into the
-// current { modules, wiring, combatStyle } shape while preserving specialised
-// component settings, valid wiring and combat style, and refuses to silently
+// Storage schema v3 loads current envelopes directly and migrates known older
+// formats into the current { modules, dataLinks, combatStyle } shape while
+// preserving specialised component settings and combat style, and refuses to silently
 // overwrite an unknown FUTURE schema. Anything genuinely unmigratable resolves
 // to the default ship (with a warning) so startup never crashes.
 export function migrateDesignStorage(value) {
@@ -478,12 +385,11 @@ function backupPreMigrationDesign(original) {
     }
   } catch { /* storage full/unavailable : best effort */ }
 }
-export function designEnvelope(design, wiring, dataLinks, combatStyle = "hold", timestamps = {}) {
+export function designEnvelope(design, dataLinks, combatStyle = "hold", timestamps = {}) {
   const modules = normalizeDesign(design, { allowEmpty: true });
   const rules = globalThis.DataSupportRules;
   return envelope("current-design", {
     modules,
-    wiring: normalizeWiring(wiring, modules),
     dataLinks: rules?.normalizeDataLinks(modules, dataLinks, PART_STATS) || [],
     combatStyle: safeStyle(combatStyle, "hold")
   }, timestamps);
@@ -506,15 +412,15 @@ export function loadDesign() {
   else if (result.migrated && typeof console !== "undefined") console.info("[mfa] Migrated an older saved current design into the current format.");
   return result;
 }
-export function persistDesign(design, wiring, dataLinks, combatStyle = "hold") {
-  const env = designEnvelope(design, wiring, dataLinks, combatStyle);
+export function persistDesign(design, dataLinks, combatStyle = "hold") {
+  const env = designEnvelope(design, dataLinks, combatStyle);
   const ok = writeJson(LOCAL_DESIGN_KEY, env);
   if (ok && validateBlueprint(env.payload.modules).ok) writeJson(LOCAL_DESIGN_BACKUP_KEY, env);
   return ok;
 }
 
 export function migrateSavedDesignsStorage(value) {
-  if (!isCurrentEnvelope(value, "saved-designs")) return [];
+  if (!isSupportedStorageEnvelope(value, "saved-designs")) return [];
   const list = Array.isArray(value.payload) ? value.payload : [];
   return list.map(normalizeSavedDesign).filter(Boolean).slice(0, MAX_SAVED_DESIGNS);
 }
@@ -535,7 +441,7 @@ function normalizeLoadoutList(value) {
   }));
 }
 export function migrateLoadoutsStorage(value) {
-  if (!isCurrentEnvelope(value, "loadouts")) return [];
+  if (!isSupportedStorageEnvelope(value, "loadouts")) return [];
   return normalizeLoadoutList(value.payload);
 }
 export function loadoutsEnvelope(loadouts, timestamps = {}) { return envelope("loadouts", normalizeLoadoutList(loadouts), timestamps); }
@@ -571,7 +477,7 @@ export function importBlueprints(value, existingDesigns = [], existingLoadouts =
     designIdMap: {},
     warnings: []
   });
-  if (isEnvelope(value, "blueprint-export") && value.schemaVersion !== BLUEPRINT_STORAGE_VERSION) {
+  if (isEnvelope(value, "blueprint-export") && !isSupportedStorageEnvelope(value, "blueprint-export")) {
     return { ...baseResult(), incompatibleVersion: true };
   }
   const source = isEnvelope(value, "blueprint-export") ? value.payload : value;

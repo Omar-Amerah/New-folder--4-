@@ -133,7 +133,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
 // 12. Spawned ships are immediately queryable.
 {
   const room = activeRoom("PH4BSPAWN");
-  const player = { id: "p1", team: 1, ships: [], design: [], wiring: {}, stats: { maxHp: 100, mass: 1, radius: 20 }, connected: true, purchaseRequests: new Map(), money: 0 };
+  const player = { id: "p1", team: 1, ships: [], dataLinks: [], design: [], stats: { maxHp: 100, mass: 1, radius: 20 }, connected: true, purchaseRequests: new Map(), money: 0 };
   room.players.set("p1", player);
   const ship = {
     id: "s1", ownerId: "p1", team: 1, x: 500, y: 500, vx: 0, vy: 0, angle: 0,
@@ -325,15 +325,15 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     { x: 7, y: 9, type: "engine", rotation: 0 },
     { x: 7, y: 5, type: "blaster", rotation: 0 }
   ];
-  const wiring = { version: 1, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: null };
-  const stats = computeStats(design, wiring);
+  const dataLinks = [];
+  const stats = computeStats(design);
   const player = {
     id: "p1",
     team: 1,
     ready: true,
     connected: true,
     design,
-    wiring,
+    dataLinks,
     stats,
     ships: [],
     shipCap: 12,
@@ -393,7 +393,7 @@ function activeShipAndPlayer(room, id, playerId = "p1", team = 1) {
     ready: true,
     connected: true,
     design: [],
-    wiring: { version: 1, power: { sections: [], connections: [] }, data: { sections: [], connections: [] }, powerPolicy: null },
+    dataLinks: [],
     stats: { maxHp: 100, mass: 1, radius: 1 },
     ships: [],
     shipCap: 12,

@@ -10,15 +10,12 @@ import { state, DEFAULT_THERMAL_LOAD_MODE } from "../state.js";
 import { PART_DEFS, PART_STATS, isRotatablePart, partCategory, partDescription, partIconMarkup } from "../design/parts.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { openArticle } from "../ledger/fleetLedgerUi.js";
-import { estimatePartEffectiveCost } from "../design/componentStats.js";
 import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 import { getOccupiedCells } from "../design/footprint.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
-import { WIRING_INFRASTRUCTURE } from "../constants.js";
-import { solveBlueprintPower } from "../design/powerAllocationAnalysis.js";
 import { getCachedDesignDataSupport, getDesignSourceAllocation } from "../design/dataSupportAnalysis.js";
 import { buildComponentInspectorModel, powerRequirementState, dataRequirementState } from "../design/componentInspectorModel.js";
-import { WIRING_ENABLED } from "../featureFlags.js";
+import { calculateUniversalPower } from "../shared/universalPower.js";
 import { sortStatusCallouts } from "../design/statusCalloutOrder.js";
 
 export function renderPartInspector() {
@@ -43,14 +40,14 @@ export function renderPartInspector() {
     name: def.name,
     description: partDescription(type, stat),
     category: partCategory(type),
-    effectiveCost: `$${estimatePartEffectiveCost(type, state.design).toLocaleString()}`,
+    effectiveCost: `$${Number(stat.cost || 0).toLocaleString()}`,
     prediction: thermalPredictionFor(type),
     droneType: placed?.droneType || globalThis.DroneBayRules?.normalizeDroneType?.(placed?.droneType) || null,
     thermalNote: thermalNoteFor(type),
     requirementStatus: requirementStatusFor(placed),
     includePowerRequirements: true,
     includeDataRequirements: true,
-    automaticDataLinks: !WIRING_ENABLED,
+    automaticDataLinks: false,
     launchEdge,
     preferredLaunchEdge
   });
@@ -188,8 +185,7 @@ function requirementsMarkup(model) {
 }
 
 // Resolve whether the selected *placed* component currently meets its Power and
-// Data dependencies, using the same authoritative Blueprint solvers the Power and
-// Wiring analysis panels use. Unplaced palette components report no status.
+// explicit Data Link dependencies. Unplaced palette components report no status.
 function requirementStatusFor(placed) {
   if (!placed) return {};
   const design = Array.isArray(state.design) ? state.design : [];
@@ -199,24 +195,18 @@ function requirementStatusFor(placed) {
   const stat = PART_STATS[placed.type] || PART_STATS.frame;
 
   if ((stat.powerUse || 0) > 0) {
-    if (WIRING_ENABLED) {
-      try {
-        const flow = solveBlueprintPower(design, state.wiring || null, PART_STATS, WIRING_INFRASTRUCTURE);
-        const entry = flow?.byComponentIndex?.find((item) => item.componentIndex === index) || null;
-        status.power = powerRequirementState(entry);
-      } catch { status.power = { state: "unplaced", reason: null }; }
-    } else {
-      const totalGen = design.reduce((sum, m) => sum + (Number(PART_STATS[m?.type]?.powerGeneration) || 0), 0);
-      const totalUse = design.reduce((sum, m) => sum + (Number(PART_STATS[m?.type]?.powerUse) || 0), 0);
-      status.power = totalGen >= totalUse
-        ? { state: "met", reason: null }
-        : { state: "unmet", reason: "This component is not receiving enough Power." };
-    }
+    const flow = calculateUniversalPower(design, PART_STATS);
+    status.power = powerRequirementState(flow.byComponentIndex[index] || {
+      componentIndex: index,
+      requestedMw: Number(stat.powerUse) || 0,
+      allocatedMw: 0,
+      unmetMw: Number(stat.powerUse) || 0
+    });
   }
 
   if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus) {
     try {
-      const analysis = getCachedDesignDataSupport(design, state.wiring || null, PART_STATS, {
+      const analysis = getCachedDesignDataSupport(design, PART_STATS, {
         thermalLoadMode: state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE,
         dataLinks: state.dataLinks
       });
@@ -415,7 +405,7 @@ function attachAccordionHandlers(type) {
 function thermalPredictionFor(type) {
   const placed = state.design.filter((part) => part.type === type);
   if (!placed.length) return null;
-  const analysis = analyzeDesignHeat(state.design, state.wiring || null, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
+  const analysis = analyzeDesignHeat(state.design, state.dataLinks, state.thermalLoadMode || DEFAULT_THERMAL_LOAD_MODE);
   return placed
     .map((part) => analysis.predictions.get(part))
     .filter(Boolean)

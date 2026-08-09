@@ -14,7 +14,7 @@ const { createGameServer } = require("../server");
     const performance = health.performance;
     assert.ok(performance?.subsystems, "health exposes subsystem timing telemetry");
     for (const name of [
-      "botsEconomyLifecycle", "powerDemandProtection", "movementSeparationMap",
+      "botsEconomyLifecycle", "movementSeparationMap",
       "support", "drones", "weapons", "projectiles", "heat", "objectives"
     ]) {
       const summary = performance.subsystems[name];

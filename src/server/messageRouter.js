@@ -55,7 +55,7 @@ function handleMessage(client, message) {
   }
 
   const { joinRoom, maybeStartMatch, balanceTeam, isAdmin, kickPlayer, restartFromEnd, returnToLobbyPhase, closeLobby, leaveLobby, startDesignPhase, isCurrentAttachment, findReservedNameOwner } = require("./players");
-  const { validateDesign, validateWiring } = require("./shipDesign");
+  const { validateDesign } = require("./shipDesign");
   const { recordPurchaseStage } = require("./performanceTelemetry");
   const { computeStats } = require("./shipStats");
   const { validateBuildShip, sanitizeRequestId, sanitizeTeam, sanitizeName, sanitizeCombatStyle, sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validation");
@@ -73,8 +73,8 @@ function handleMessage(client, message) {
       return;
     }
     client.protocol = { protocolVersion: message.protocolVersion, minProtocolVersion: message.minProtocolVersion, maxProtocolVersion: message.maxProtocolVersion, frontendBuildSha: message.frontendBuildSha || null, capabilities: message.capabilities || [] };
-    // Older protocol-4 clients do not report selection focus. Preserve their
-    // historical all-detail snapshots until they refresh to the focused stream.
+    // Protocol-6 clients may omit the optional selection-focus capability.
+    // Preserve all-detail snapshots for that capability profile.
     client.telemetryFocusShipId = client.protocol.capabilities.includes("telemetry-focus-v1") ? null : undefined;
     client.telemetryLastWrittenFocusId = null;
     client.telemetryLastWrittenAt = 0;
@@ -140,22 +140,20 @@ function handleMessage(client, message) {
       send(client, { type: "error", message: design.reason });
       return;
     }
-    // Server-side wiring normalization: only raw segments are accepted, and
-    // networks/connectivity are re-derived — client results are never trusted.
-    // A deploy without a wiring field keeps the player's previous wiring
-    // (re-normalized against the new modules) instead of wiping it. Stats are
-    // recomputed WITH the normalized wiring so infrastructure cost is part of
-    // the authoritative price and affordability check.
-    const deployWiring = validateWiring(design.modules, message.wiring !== undefined ? message.wiring : client.player.wiring).wiring;
-    const deployStats = computeStats(design.modules, deployWiring);
+    // Data Links are normalized against the validated module list. A deploy
+    // without a Data Link field keeps the player's previous explicit links,
+    // re-normalized against the new modules.
+    const DataSupportRules = require("../../public/src/shared/dataSupportRules");
+    const { PARTS } = require("./components");
+    const deployDataLinks = DataSupportRules.normalizeDataLinks(design.modules, message.dataLinks !== undefined ? message.dataLinks : client.player.dataLinks, PARTS);
+    const deployStats = computeStats(design.modules);
     const validation = validateBuildShip(client.room, client.player, deployStats);
     if (!validation.ok) {
       send(client, { type: "error", message: validation.reason });
       return;
     }
     client.player.design = design.modules;
-    client.player.wiring = deployWiring;
-    client.player.dataLinks = require("../../public/src/shared/dataSupportRules").normalizeDataLinks(design.modules, message.dataLinks || [], require("./components").PARTS);
+    client.player.dataLinks = deployDataLinks;
     client.player.stats = deployStats;
     const combatStyle = sanitizeCombatStyle(message.combatStyle, sanitizeCombatStyle(client.player.combatStyle));
     client.player.combatStyle = combatStyle;
@@ -190,17 +188,16 @@ function handleMessage(client, message) {
     }
     const combatStyleRaw = message.combatStyle || client.player.combatStyle;
     const combatStyle = sanitizeCombatStyle(combatStyleRaw, client.player.combatStyle || "hold");
-    const purchaseWiring = validateWiring(purchaseDesign.modules, message.wiring).wiring;
-    if (message.wiring !== undefined) client.player.wiring = purchaseWiring;
-    // Affordability and the deducted cost must include infrastructure, so stats
-    // are recomputed against the normalized purchase wiring.
-    const purchaseStats = computeStats(purchaseDesign.modules, purchaseWiring);
+    const DataSupportRules = require("../../public/src/shared/dataSupportRules");
+    const { PARTS } = require("./components");
+    const purchaseDataLinks = DataSupportRules.normalizeDataLinks(purchaseDesign.modules, message.dataLinks !== undefined ? message.dataLinks : client.player.dataLinks, PARTS);
+    const purchaseStats = computeStats(purchaseDesign.modules);
     const result = executePurchase(client.room, client.player, {
       requestId,
       count,
       stats: purchaseStats,
       design: purchaseDesign.modules,
-      wiring: purchaseWiring,
+      dataLinks: purchaseDataLinks,
       combatStyle,
       combatStyleRaw
     }, now);

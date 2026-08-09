@@ -6,7 +6,7 @@
 `server.js` continues to own static HTTP serving and the `/socket` upgrade. The endpoint remains a plain RFC 6455 WebSocket; no Socket.IO subprotocol is introduced.
 
 ### 2. WebSocket frame handling
-`src/server/websocketServer.js` owns frame parsing/writing and connection close behavior. Client frames must be masked, unfragmented, use no RSV bits, and use binary opcode `0x2` for MessagePack application messages. Ping frames are answered with pong frames; malformed control frames, reserved opcodes, unmasked frames, unsupported fragmentation and oversized frames are closed with stable RFC close codes.
+`src/server/websocketServer.js` owns frame parsing/writing and connection close behavior. Client frames must be masked, use no RSV bits, and use binary opcode `0x2` for MessagePack application messages. Fragmented binary messages are reassembled before decode. Ping frames are answered with pong frames; malformed control frames, reserved opcodes, unmasked frames and oversized frames are closed with stable RFC close codes.
 
 ### 3. MessagePack encoding
 `src/server/wsCodec.js` and `public/src/network.js` define MessagePack as the production wire format. Server outbound messages and snapshots are binary MessagePack frames. The production browser client fails explicitly when the MessagePack bundle is absent; it does not silently downgrade to JSON. JSON text frames are legacy-incompatible and are rejected by the server transport.
@@ -20,14 +20,14 @@ A WebSocket transport receives a temporary `connectionId` such as `c1` in `hello
 A joined room slot receives a stable `playerId` such as `pl1` in `joined`. Ownership, economy, ships, admin state and snapshots continue to key on `playerId`, never `connectionId`.
 
 ### 6. Protocol negotiation
-Protocol version 4 is current. The server accepts client protocol range 4..4 and requires the `messagepack` capability. Build-SHA differences are diagnostic-only and do not block compatible protocol versions.
+Protocol version 6 is current and exact. The server accepts only client protocol range `6..6` and requires the `messagepack` and `entityDeltaSnapshotsV1` capabilities. Build-SHA differences are diagnostic-only and do not block an otherwise compatible protocol.
 
 | Field | Meaning |
 | --- | --- |
 | `protocolVersion` | Peer preferred protocol. |
 | `minProtocolVersion` / `maxProtocolVersion` | Peer compatible range. |
 | `frontendBuildSha` / `backendBuildSha` | Diagnostic build IDs; mismatch is allowed. |
-| `capabilities` | Required/optional behavior flags such as `messagepack`, `resume-v1`, `heartbeat-v1`. |
+| `capabilities` | Required/optional behavior flags such as `messagepack`, `entityDeltaSnapshotsV1`, `resume-v1`, and `heartbeat-v1`. |
 
 Rejected clients receive `type:"error"` with stable codes (`incompatible-protocol`, `missing-capability`) before gameplay snapshots are authorized.
 
@@ -55,10 +55,7 @@ Application ping/pong remains the browser-compatible liveness mechanism. `server
 
 No module should both parse frames and mutate gameplay state; no gameplay module should inspect resume credentials except through player lifecycle helpers.
 
-## Reserved for Section 9B snapshot delivery
-Section 9B will define snapshot epochs, sequence numbers, baselines, resync requests, snapshot backpressure, sequence-gap browser scenarios and network-performance metrics. Those are intentionally not implemented here.
-
-## Section 9B snapshot recovery contract
+## Snapshot recovery contract
 
 Rooms now carry a monotonic `stateEpoch` and per-epoch `snapshotSeq`. Every state packet is explicit: `snapshotKind` is `full` or `compact`, compact packets declare `baseSnapshotSeq`, and snapshots include `staticRevision`, `staticRevisions`, `simulationTimeMs`, `serverTimeMs`, and `createdAtMs`. A full snapshot is the only baseline-establishing packet and contains the authorized room, phase, rules, world/map/safe zones, players, ships and designs, component HP/heat arrays, weapon angles, objectives, bullets, effects, winner/control-victory state, and protocol identifiers. Compact snapshots may omit static room fields but must extend the immediately accepted sequence and may be rejected atomically.
 

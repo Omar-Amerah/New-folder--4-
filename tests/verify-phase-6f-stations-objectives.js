@@ -17,7 +17,7 @@ const { clearStationWeaponRuntime } = require("../src/server/stationCombat");
 const { clearRoomRuntimeScratch, bumpStateEpoch } = require("../src/server/rooms");
 const { createMovementRuntime } = require("../src/server/movementRuntime");
 const { PARTS } = require("../src/server/components");
-const benchmark = require("../benchmark-phase-6f");
+const benchmark = require("../benchmarks/benchmark-phase-6f");
 
 const {
   ALL_SCENARIOS,

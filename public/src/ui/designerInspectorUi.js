@@ -2,7 +2,6 @@
 
 import { dom } from "./dom.js";
 import { state } from "../state.js";
-import { WIRING_ENABLED } from "../featureFlags.js";
 const INSPECTOR_TABS = [
   ["design", "designerDesignTab", "designerDesignPanel"],
   ["analysis", "designerAnalysisTab", "designerAnalysisPanel"],
@@ -10,14 +9,10 @@ const INSPECTOR_TABS = [
 ];
 const ANALYSIS_TABS = [
   ["heat", "analysisHeatTab", "analysisHeatPanel"],
-  ["power", "analysisPowerTab", "analysisPowerPanel"],
-  ["wiring", "analysisWiringTab", "analysisWiringPanel"],
   ["data", "analysisDataTab", "analysisDataPanel"],
   ["movement", "analysisMovementTab", "analysisMovementPanel"]
 ];
-const AVAILABLE_ANALYSIS_TABS = WIRING_ENABLED
-  ? ANALYSIS_TABS.filter(([key]) => key !== "power")
-  : ANALYSIS_TABS.filter(([key]) => key !== "power" && key !== "wiring");
+const AVAILABLE_ANALYSIS_TABS = ANALYSIS_TABS;
 
 function applyTabState(entries, activeKey) {
   for (const [key, tabKey, panelKey] of entries) {
@@ -32,7 +27,6 @@ function applyTabState(entries, activeKey) {
 
 function analysisForBlueprintView(view = state.blueprintView) {
   if (view === "heat") return "heat";
-  if (WIRING_ENABLED && view === "wiring") return "wiring";
   if (view === "dataLinks") return "data";
   return "movement";
 }
@@ -40,7 +34,7 @@ function analysisForBlueprintView(view = state.blueprintView) {
 // Each Blueprint view has an inspector section that reads on it: Build wants the
 // component palette in Design, while the analysis views want their own readout.
 function inspectorForBlueprintView(view = state.blueprintView) {
-  if (view === "heat" || view === "wiring" || view === "dataLinks") return "analysis";
+  if (view === "heat" || view === "dataLinks") return "analysis";
   return "design";
 }
 

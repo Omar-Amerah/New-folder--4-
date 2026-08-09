@@ -37,9 +37,9 @@ function refreshShipSpatialIndex(room, now) {
 
 function buyShip(room, player, now, options = {}) {
   if (!player.ready) return null;
-  const stats = options.stats || player.stats || computeStats(player.design, player.wiring);
-  const blueprint = createShipBlueprintSnapshot(options.design || player.design, options.wiring !== undefined ? options.wiring : player.wiring);
-  const { design, wiring } = blueprint;
+  const stats = options.stats || player.stats || computeStats(player.design);
+  const blueprint = createShipBlueprintSnapshot(options.design || player.design, options.dataLinks !== undefined ? options.dataLinks : player.dataLinks);
+  const { design, dataLinks } = blueprint;
   if (!options.prevalidated) {
     const validation = options.starter
       ? validateBuildShip(room, player, stats)
@@ -93,7 +93,7 @@ function buyShip(room, player, now, options = {}) {
   const reservations = createSpawnReservations(room, player.id, requestId, plan.placements, now);
   let ship;
   try {
-    ship = spawnShip(room, player, now, activeCount, { stats, design, wiring, combatStyle, combatStyleRaw: options.combatStyleRaw, spawnPoint: plan.placements[0], requestId });
+    ship = spawnShip(room, player, now, activeCount, { stats, design, dataLinks, combatStyle, combatStyleRaw: options.combatStyleRaw, spawnPoint: plan.placements[0], requestId });
     if (process.env.NODE_ENV !== "production") assertNoShipOverlap(room, ship);
     applyRallyPoint(room, player, [ship]);
   } catch (error) {
@@ -155,7 +155,7 @@ function executePurchase(room, player, request, now) {
   }
 
   const validationStart = performance.now();
-  const canonicalBlueprint = canonicalBlueprintSignature(request.design, request.wiring);
+  const canonicalBlueprint = canonicalBlueprintSignature(request.design, request.dataLinks);
   const signature = JSON.stringify({
     count: request.count,
     combatStyle: request.combatStyle || "",
@@ -183,7 +183,7 @@ function executePurchase(room, player, request, now) {
 
   // Reuse the already-normalised canonical blueprint for the template cache key.
   const templateStart = performance.now();
-  const template = getOrCreateTemplate(player.id, request.design, request.wiring, validation.shipStats, canonicalBlueprint);
+  const template = getOrCreateTemplate(player.id, request.design, request.dataLinks, validation.shipStats, canonicalBlueprint);
   const combatStyle = request.combatStyle || player.combatStyle || "hold";
   recordPurchaseStage("statCalculation", performance.now() - templateStart);
 
@@ -372,7 +372,7 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   if (!player.ready) {
     return { ok: false, code: "invalid-design", reason: "Invalid design: save a blueprint first." };
   }
-  const shipStats = stats || player.stats || computeStats(player.design, player.wiring);
+  const shipStats = stats || player.stats || computeStats(player.design);
   if (shipStats.thrust <= 0) {
     return { ok: false, code: "invalid-design", reason: "Invalid design: add at least one engine." };
   }

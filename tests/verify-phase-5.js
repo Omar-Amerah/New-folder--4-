@@ -303,7 +303,7 @@ async function run() {
     const client = attach(room, "p1", modernCapabilities());
     delivery.sendFullSnapshot(client, 1000, "reconnect");
     const enemy = ships[1];
-    enemy.componentPower = { byComponentIndex: [{ state: "on", networkId: "n", operationalMultiplier: 1 }] };
+    enemy.componentPower = { byComponentIndex: [{ state: "on", operationalMultiplier: 1 }] };
     enemy.powerRevision = 1;
     enemy.powerStatus = { state: "ok" };
     room.simulationTimeMs += 50;
@@ -479,7 +479,7 @@ async function run() {
     const bayClear = baysCleared.shipsPatch.clearStateFields.find(([id]) => id === target.id);
     assert.ok(bayClear && bayClear[1].includes("droneBays") && bayClear[1].includes("decoyLaunchers"), "empty bays and launchers explicitly clear prior state");
 
-    target.componentPower = { byComponentIndex: [{ state: "on", networkId: "n", operationalMultiplier: 1 }] };
+    target.componentPower = { byComponentIndex: [{ state: "on", operationalMultiplier: 1 }] };
     target.powerRevision = 1;
     target.powerStatus = { state: "ok" };
     room.simulationTimeMs += 50;
@@ -498,14 +498,14 @@ async function run() {
     assert.equal(cleared.snapshot.ships[0].droneBays, undefined, "merged empty bays remove old bays");
     assert.equal(cleared.snapshot.ships[0].componentPower, undefined, "merged private clear removes old power state");
 
-    target.componentPower = { byComponentIndex: [{ state: "on", networkId: "n2", operationalMultiplier: 0.5 }] };
+    target.componentPower = { byComponentIndex: [{ state: "on", operationalMultiplier: 0.5 }] };
     target.powerRevision = 2;
     target.powerStatus = { state: "recovered" };
     room.simulationTimeMs += 50;
     delivery.broadcastSnapshot(room, 1450);
     const reappeared = await mergePackets(packetList(client));
     assert.ok(reappeared.snapshot.ships[0].componentPower, "private field reappears after an explicit clear");
-    assert.equal(reappeared.snapshot.ships[0].componentPower[0][2], 0.5);
+    assert.equal(reappeared.snapshot.ships[0].componentPower[0][1], 0.5);
   }
   {
     const { room, ships } = roomFixture({ ships: 1 });

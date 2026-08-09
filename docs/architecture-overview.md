@@ -1,7 +1,5 @@
 # Architecture overview (as-built)
 
-Baseline commit: `1cbe39dad0a139b6c58476be60a124ef93ead972`.
-
 This documents the architecture **as it exists today**, not a redesign. Modular
 Fleet Arena is an authoritative-server multiplayer browser game: a dependency-light
 Node server simulates everything; browsers render interpolated snapshots with PixiJS.
@@ -18,7 +16,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 │ ES modules, vendored     │──────────▶│  • HTTP static file server (same public/)│
 │ pixi + msgpack bundles)  │  /socket  │  • hand-rolled RFC 6455 WebSocket server │
 └──────────────────────────┘           │  • 30 Hz simulation tick                 │
-                                       │  • 15 Hz MessagePack snapshot broadcast  │
+                                       │  • 20 Hz MessagePack snapshot broadcast  │
                                        └─────────────────────────────────────────┘
 ```
 
@@ -32,10 +30,10 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
   and mutates rooms; clients never simulate authoritatively.
 - **Client rendering role.** The client stores the latest snapshot, interpolates
   visual ship poses between snapshots (`visualShips`, `renderInterpolation.js`),
-  and renders with Pixi at display refresh rate, independent of the 30 Hz
+  and renders with Pixi at display refresh rate, independent of the 20 Hz
   snapshot rate.
 - **Tick cadence.** Simulation (`TICK_HZ`) and snapshot broadcast (`SNAPSHOT_HZ`)
-  run as separate timers. `TICK_HZ` remains 30 Hz, while `SNAPSHOT_HZ` is 20 Hz.
+  run as separate timers. `TICK_HZ` is 30 Hz and `SNAPSHOT_HZ` is 20 Hz.
   This keeps the simulation steady and prevents snapshot build/encode from
   stalling the tick loop. Timers are `unref()`ed. Rooms idle-expire after 15 min empty.
 
@@ -44,9 +42,9 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | Module | Responsibility |
 |---|---|
 | `server.js` (root) | HTTP static serving with in-memory gzip cache, `/component-balance.generated.json`, `/debug/turrets` (dev-only diagnostics), WebSocket upgrade handshake, tick + snapshot + room-cleanup loops, per-room `tickRoom` orchestration |
-| `config.js` | Ports, world sizes, tick rates, economy constants, default rules, default design, shared generated default Wiring v2 Power topology, MIME map |
+| `config.js` | Ports, world sizes, tick rates, economy constants, default rules, default design, MIME map |
 | `websocketServer.js` | RFC 6455 frame parse/serialize (masked client frames, 16/64-bit lengths), client registry, heartbeat pong, close frames, 64 KiB message cap |
-| `wsCodec.js` | MessagePack encode/decode for the wire (binary opcode 0x2; JSON text frames tolerated inbound) |
+| `wsCodec.js` | MessagePack encode/decode for the wire (binary opcode 0x2; production text frames are rejected by the transport) |
 | `messages.js` | Outbound send/broadcast (encode-once fan-out, per-team snapshot payload caching) and the **inbound message router** (`handleMessage`): join/deploy/buyShip/command/setTeam/setRules/kick/restart/… |
 | `rooms.js` | Room creation, room-code generation, closed-code TTL, seeded map generation (asteroids, capture points, safe zones, clouds), rules updates |
 | `players.js` | Join/leave/reconnect (10 s grace), name/team sanitisation, admin promotion, kick, phase transitions (lobby ↔ design ↔ active ↔ end) |
@@ -58,8 +56,8 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | `projectiles.js` | Bullet simulation and hits |
 | `heat.js` | Component heat generation, conduction network, dissipation, overheat states |
 | `componentHealth.js` | Per-component HP, penetration, meltdown, engine exhaust state |
-| `componentData.js` | Derived Section 6A/6B/6C Data-support topology and allocation; reads authoritative per-component Power and Heat runtime state, treats disconnected or missing Power as zero output, and never persists runtime support into blueprints |
-| `componentPower.js` | Damage-aware Power/Wiring runtime projection and per-component operational Power allocation used by movement, shields, Heat and Data-support lifecycle refreshes |
+| `componentData.js` | Derived explicit Data Link allocation; reads authoritative per-component Power and Heat runtime state, treats inactive sources as zero output, and never persists runtime support into blueprints |
+| `componentPower.js` | Damage-aware per-component Power allocation used by movement, shields, Heat and Data-support lifecycle refreshes |
 | `economy.js` | Income ticks, purchase validation, `buyShip`, fleet cost |
 | `objectives.js` | Relay capture, capture rewards, and the full-control victory countdown |
 | `snapshots.js` | Snapshot assembly: shared-per-room arrays + per-team economy visibility; static vs dynamic fields; component HP/heat delta encoding |
@@ -74,7 +72,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 - **Global state** — `state.js`: one big mutable `state` object (socket, snapshot,
   design, selection, camera, UI flags…). Everything imports it.
 - **Network** — `network.js`: WebSocket connect/close/error, MessagePack
-  encode/decode (vendored UMD global, JSON fallback), server-URL resolution.
+  encode/decode (vendored UMD global; missing MessagePack is fatal), server-URL resolution.
 - **Message handling** — `messages.js`: routes `hello`/`joined`/`state`/`notice`/
   `purchaseResult`/…; merges snapshots (re-attaching static fields the server
   omitted from dynamic snapshots: designs, map, rules, stats; applying `chpD`
@@ -84,7 +82,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
   panels, saved blueprints, loadouts.
 - **Designer** — `design/*.js` + `ui/designerUi.js` + `ui/designerScreenUi.js`:
   blueprint grid editing, rotation, footprints, validation, cost, thermal analysis
-  preview, localStorage blueprint persistence. `defaultDesign()` and `defaultWiring()` restore the standard ship with deterministic physical Power wiring; Data is empty by default, exact untouched stock-empty saves receive a narrow migration, and custom designs are not auto-wired.
+  preview, localStorage blueprint persistence. `defaultDesign()` restores the standard ship and Data Links are stored as explicit source-to-weapon pairs.
 - **Game input** — `game/input.js` (pointer/keys: right-click orders, marquee
   select, Space/middle-drag pan, wheel zoom), `game/commands.js`,
   `game/selection.js` (selecting ships re-enables camera follow).
@@ -105,12 +103,14 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 Shared modules use UMD-style wrappers so both the browser (`<script>`/ESM) and the
 server (`require`) consume the same logic:
 
-- `protocolVersion.js` — **protocol version 2** (authoritative per-design-index
-  `ship.weaponAngles` + build identification). Client rejects newer-than-supported
-  protocols; build-SHA skew is reported but non-blocking.
+- `protocolVersion.js` — **protocol version 6** (canonical entity-delta snapshots,
+  authoritative per-design-index `ship.weaponAngles`, and build identification).
+  Client and server accept only protocol range `6..6`; `messagepack` and
+  `entityDeltaSnapshotsV1` are required capabilities. Build-SHA skew is reported
+  but non-blocking.
 - `turretRules.js` — turret traverse rates/limits shared by server fire control and
   client rendering.
-- `dataSupportRules.js` — Section 6A allocation engine shared by server runtime Data support and verifiers; Section 6C lifecycle tests now run in browser-free CI and cover real Power, Heat, damage, and repair paths while Section 6D presentation remains deferred.
+- `dataSupportRules.js` — Shared allocation engine used by server runtime Data support, designer analysis and verifiers; lifecycle tests cover real Power, Heat, damage and repair paths, and the Section 6D Data Links presentation is implemented in the client designer.
 - `heatRules.js` — heat state thresholds/curves shared by server heat sim and client
   heat display; `componentHeatSnapshot.js` — the `[heat,state,ratio,capacity]`
   tuple + delta stride format used on the wire by both ends.
@@ -131,7 +131,7 @@ server (`require`) consume the same logic:
 ```
 user input (pointer/keys/UI)
   → client intent message            game/input.js, ui/*, network.js send()
-  → WebSocket frame (MessagePack)    binary opcode 0x2; JSON tolerated
+  → WebSocket frame (MessagePack)    binary opcode 0x2; production binary only
   → server framing + decode          websocketServer.js, wsCodec.js
   → message router                   messages.js handleMessage()
   → validation/sanitisation          validation.js, shipDesign.js, economy.js
@@ -139,7 +139,7 @@ user input (pointer/keys/UI)
   → simulation tick (30 Hz)          server.js tickRoom(): bots, economy,
                                      movement, separation, collisions, support,
                                      weapons, heat, bullets, capture, control victory
-  → snapshot build (15 Hz)           snapshots.js: shared arrays once per room,
+  → snapshot build (20 Hz)           snapshots.js: shared arrays once per room,
                                      static fields only on "static" snapshots,
                                      component HP/heat deltas otherwise
   → MessagePack broadcast            messages.js broadcastSnapshot(), one encode
@@ -176,30 +176,31 @@ restart or close) — driven by `players.js` and `maybeStartMatch`.
   `shared/`. Component geometry consistency between server hitboxes/turret barrel
   positions and client art is asserted indirectly by browser tests only.
 - **R6 — Split deployments + protocol skew.** Frontend (Netlify) and backend deploy
-  independently; a stale backend is a real failure mode. Mitigated by
-  `protocolVersion.js` + build-SHA reporting, but only protocol *newness* blocks.
+  independently; a stale backend is a real failure mode. Protocol negotiation now
+  requires exact range `6..6` plus the required MessagePack/entity-delta
+  capabilities. Build-SHA differences are diagnostic; incompatible protocol or
+  balance revisions are not silently accepted.
 - **R7 — In-memory room persistence.** A server restart drops all rooms/matches;
   closed-room codes and reconnect grace live in process memory only.
-- **R8 — Name-based reconnect identity.** Reconnection matches players by
-  case-insensitive name within a room (`players.js`); a joiner with the same name
-  can adopt a disconnected player's fleet — spoofable identity, no tokens.
-- **R9 — Static vs delta snapshot reconstruction (partly mitigated in Section 1).** Dynamic snapshots omit designs,
-  map, rules and stats; the client re-attaches them from caches keyed by ship id.
-  The merge logic now lives in pure `public/src/snapshotMerge.js` helpers with
-  deterministic tests for malformed and incomplete deltas. Broader reconnect race
-  coverage remains deferred.
+- **R8 — Reconnect credentials.** Stable room player IDs and private, room-scoped
+  resume credentials are authoritative. Display names never authorize reconnect;
+  stale or replaced sockets cannot mutate the reclaimed slot.
+- **R9 — Snapshot delivery complexity.** Protocol-6 full and compact entity-delta
+  snapshots use per-connection epochs, sequences, baselines and privacy filtering.
+  The client applies them through pure atomic merge helpers; changes to this path
+  require protocol, privacy and reconnect regression coverage.
 - **R10 — Browser tests depend on Playwright binaries.** All five browser tests
   need a Chromium install (portable resolution in `verify-pixi-browser-support.js`:
   `PW_CHROME` → `/opt/pw-browsers/*` → Playwright default). Without a browser the
   suite fails with an environment error — visible, but easily misread as an app
   failure. CI installs Chromium explicitly.
 - **R11 — Hand-rolled WebSocket framing.** `websocketServer.js` implements RFC 6455
-  by hand (no fragmentation/continuation-frame support, 64 KiB cap). Fine for the
-  game's message sizes, but a protocol edge case (fragmented client frames from a
-  proxy) would be silently dropped.
+  by hand with fragmentation support and bounded frame/message buffers. Parser
+  changes still require the focused handshake, fragmentation, fuzz and lifecycle
+  checks.
 
-These are review inputs for later sections; none are addressed in this PR beyond
-what test determinism strictly required.
+These are current maintenance constraints. Verify them against the owning modules
+and focused tests before changing a boundary.
 
 ## Section 6: movement and commands
 
@@ -218,22 +219,6 @@ and control victory in that order. Target acquisition, per-weapon fallback, poin
 projectile impacts and destruction now use explicit deterministic tie-breaks and
 idempotent finalization; see [combat-targeting-weapons.md](combat-targeting-weapons.md).
 
-## Catch-up Part 1 architecture updates
-
-Blueprint persistence is isolated in `public/src/design/blueprintStorage.js` with versioned envelopes and safe read/write helpers. Active-match editor saves are isolated from deployed ships: server `deploy` during active play updates only future purchase state, while `setCombatStyle` remains the explicit deployed-ship mutation command.
-
-## Catch-up Part 2 architecture notes
-
-Selected-fleet command authorization is centralized in `src/server/selection.js`, keeping command, style, destruct, focus, repair, and rally-adjacent movement semantics consistent. Bot decisions derive deterministic random streams from map seed, bot ID, and decision sequence so one bot's random consumption does not perturb another bot. Economy mutations remain server-authoritative through the atomic purchase executor and reward finalizer.
-
-## Completed Catch-up Parts 1–3
-
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
-
 ## Deterministic spawn planner
 
 Server spawning is planned by `src/server/spawnPlanner.js`. The planner sorts stable player IDs, groups players by solo sector or team side, reserves a radius large enough for the starter fleet, and performs a bounded deterministic fallback search when a preferred slot intersects another reservation, an asteroid, a relay, or world bounds. Blue and red teams use mirrored side treatment; solo players are distributed around deterministic sectors. Failures include the map seed, player IDs, team layout, and attempted positions.
@@ -250,8 +235,8 @@ Heat is authoritative on the server and component-index aligned with immutable s
 
 Runtime heat keeps immutable design indexes and physical adjacency. A Heat Sink's thermal mass belongs to the Heat Sink itself — neighbours inherit none of it, so heat has to actually reach a sink by conduction or through a Heat Pipe coolant network; a damaged sink loses its own capacity in proportion to its health, and that is the only capacity recalculated after sink destruction or repair. Whole-ship aggregates include living components only; destroyed components may retain tuple heat for display/history. Internal transfer is debugged separately from cooling/radiation so conservation checks use generated heat minus actual heat leaving the ship. Thermal updates retain normal stalled elapsed time through bounded substeps and clamp excessive backlog at 1.6 seconds.
 
-## Section 9A networking architecture update
-The transport contract is now explicit: `/socket` upgrades to raw WebSocket, application data is production MessagePack only, client traffic is schema-validated before dispatch, and protocol version 4 join negotiation gates gameplay. The hand-rolled parser was hardened rather than replaced so deployment remains dependency-light and existing `/socket` MessagePack behavior is preserved.
+## Networking architecture
+The transport contract is explicit: `/socket` upgrades to raw WebSocket, application data is production MessagePack only, client traffic is schema-validated before dispatch, and exact protocol-6 join negotiation gates gameplay. Full and compact entity-delta snapshots are canonical; the hand-rolled parser supports bounded fragmentation and remains dependency-light.
 
 ## Section 10A renderer interaction model
 
@@ -259,7 +244,7 @@ Camera math now lives in `public/src/game/camera.js`; input, selection, Pixi, an
 
 ## Section 10B1 renderer performance notes
 
-Renderer internals now use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios, long-running soak, visibility/background-tab behaviour, context-loss recovery, and CI performance artifacts remain deferred to Section 10B2; see `docs/renderer-performance.md`.
+Renderer internals use bounded pools, conservative pure-geometry culling, lease-owned texture caches, deterministic structural revision keys, and explicit Low/Medium/High quality profiles. Static Pixi map resources rebuild only for epoch/static-revision/quality/resize causes, while compact snapshots, HP/heat deltas, weapon-angle changes, and selection changes remain dynamic updates. Detailed browser performance scenarios and CI artifacts are documented in `docs/renderer-performance.md`.
 
 ## Section 10B2 Chromium renderer verification
 
@@ -285,24 +270,24 @@ WebSocket transport hardening is documented in `docs/websocket-transport.md`. Th
 
 ### Runtime Data-support flow
 
-Physical Wiring v2 Data networks feed server combat through `src/server/componentData.js`. Runtime ships derive `ship.runtimeDataSupport` from their design and Wiring v2 topology; combat then resolves effective weapon profiles by design index so Data support affects only weapons on the same physical Data network. `shipStats.computeStats()` keeps weapon-family summaries base-only, preventing global support leakage or double application.
+Explicit Data Links feed server combat through `src/server/componentData.js`. Each support source has a budget; every linked weapon receives the source budget divided by the number of linked weapons. `shipStats.computeStats()` keeps weapon-family summaries base-only, preventing global support leakage or double application.
 
 ### Section 6C Data-support lifecycle ordering
 
-The server updates Data support after the authoritative runtime Wiring and component Power state are current: surviving Wiring v2 projection, component Power allocation, then Data-support allocation. This ordering lets support sources use `componentPower.byComponentIndex[sourceIndex].operationalMultiplier` rather than ship-wide or recipient Power state.
+The server updates Data support after authoritative component Power and Heat state are current. This lets support sources use `componentPower.byComponentIndex[sourceIndex].operationalMultiplier` rather than ship-wide or recipient Power state.
 
-`src/server/componentData.js` owns derived `runtimeDataSupport` state with separate topology and allocation signatures/revisions. Full topology rebuilds are event-driven by component alive/destroyed boundaries and physical wiring changes. Lightweight allocation refreshes handle source Power multiplier changes and Heat performance tier changes without rebuilding Wiring. Derived Data-support state is runtime-only and is not persisted into blueprints.
+`src/server/componentData.js` owns derived `runtimeDataSupport` state with link and allocation revisions. Refreshes handle source Power multiplier changes, Heat performance tier changes, and component lifecycle changes. Derived Data-support state is runtime-only and is not persisted into blueprints.
 
 ### Section 6D Blueprint Designer Data-support inspection
 
-Section 6D is implemented in the client designer without changing Section 6A allocation formulas, Section 6B runtime combat authority, or Section 6C lifecycle semantics. `public/src/design/dataSupportAnalysis.js` derives designer Data predictions from authoritative Wiring v2 physical sections, shared Power analysis, and one shared Heat prediction per design/wiring/scenario. `public/src/design/dataSupportPresentation.js` provides client-side unit-aware formatting for range metres and percentage accuracy/fire-rate support.
+Section 6D is implemented in the client designer without changing runtime allocation or lifecycle semantics. `public/src/design/dataSupportAnalysis.js` derives designer Data predictions from explicit Data Links, shared Power analysis, and one shared Heat prediction per design/link/scenario. `public/src/design/dataSupportPresentation.js` provides client-side unit-aware formatting for range metres and percentage accuracy/fire-rate support.
 
-The Wiring Data inspector in `public/src/ui/wiringUi.js` reuses `state.thermalLoadMode`, so Heat and Data scenario controls stay synchronized. It uses separate cached base and vulnerability analyses keyed by deterministic design, wiring, catalogue, and scenario signatures; changing selection or hover state does not recompute physical Wiring, Power, Heat, allocation, or failure analysis.
+The Data Links inspector in `public/src/ui/dataLinksUi.js` reuses `state.thermalLoadMode`, so Heat and Data scenario controls stay synchronized. It uses separate cached base and vulnerability analyses keyed by deterministic design, link, catalogue, and scenario signatures; changing selection or hover state does not recompute Power, Heat, allocation, or failure analysis.
 
-Designer source-destruction vulnerability is represented by an operational multiplier override for the selected source, not by removing physical Data sections or legacy connection metadata. Section/host failures still derive a failed physical wiring projection. Vulnerability topology comparisons use deterministic memberships and source-to-weapon allocation signatures, and severity is category based so metre and percentage losses are not summed together.
+Designer source-destruction vulnerability is represented by an operational multiplier override for the selected source. Vulnerability comparisons use deterministic source-to-weapon allocation signatures, and severity is category based so metre and percentage losses are not summed together.
 
-The Data overlay adds non-colour-only classes, outlines, dashed states, and ARIA descriptions for selected networks, selected sources, selected weapons, vulnerability states, source status, and weapon support states while preserving widened SVG hit targets used by normal cable editing. Browser verification now exercises the production frontend rather than only module import smoke checks. Section 6E and Section 7 remain deferred.
+The Data overlay adds non-colour-only classes, outlines, dashed states, and ARIA descriptions for selected sources, selected weapons, vulnerability states, source status, and weapon support states. Browser verification exercises the production frontend rather than only module import smoke checks. Section 6E is complete; Section 7 combat authority is documented in `combat-targeting-weapons.md`.
 
 ### Section 6E Data-support balance validation
 
-Section 6E ships canonical Data-support reference fixtures, browser-free balance invariants, deterministic reporting, and final competitive conclusions while preserving the existing Section 6A–6D authorities. Section 7 remains deferred.
+Section 6E ships canonical Data-support reference fixtures, browser-free balance invariants, deterministic reporting, and final competitive conclusions while preserving the existing Section 6A–6D authorities. No physical Wiring or route-graph assumptions belong in this Data-support contract.

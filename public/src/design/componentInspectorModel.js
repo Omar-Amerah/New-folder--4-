@@ -95,8 +95,7 @@ const CATEGORY_BADGES = {
   Power: "POWER",
   Command: "COMMAND",
   "Heat Components": "HEAT",
-  Support: "SUPPORT",
-  "Power Infrastructure": "POWER INFRA"
+  Support: "SUPPORT"
 };
 
 /** `WEAPON · 1×1` : category and footprint in one compact badge. */
@@ -552,7 +551,7 @@ export function requirementsFor(type, stat, context = {}) {
       label: "Power",
       icon: "⚡",
       summary: `${stat.powerUse} MW`,
-      detail: `Draws ${stat.powerUse} MW from a connected Power network. It stops working when that draw is not met.`,
+      detail: `Draws ${stat.powerUse} MW from the ship-wide Power pool. It operates proportionally when that draw is not fully available.`,
       status: status.power?.state || "unplaced",
       failureText: status.power?.reason || null
     });
@@ -564,10 +563,10 @@ export function requirementsFor(type, stat, context = {}) {
       id: "data",
       label: "Data",
       icon: "◇",
-      summary: automatic ? "Automatic links" : "Cable link",
+      summary: automatic ? "Automatic links" : "Explicit links",
       detail: automatic
         ? "Automatically links to compatible weapons. Its fixed bonus is split evenly between them, so each additional linked weapon receives a smaller share."
-        : "Supports only weapons joined to it by Data cable. Its bonus is split evenly between every weapon on that network.",
+        : "Supports only weapons joined to it by explicit Data Links. Its bonus is split evenly between every linked weapon.",
       status: status.data?.state || "unplaced",
       failureText: status.data?.reason || null
     });
@@ -581,9 +580,9 @@ export function powerRequirementState(entry) {
   if (!entry) return { state: "unplaced", reason: null };
   if (!FAILED_POWER_STATES.has(entry.state)) return { state: "met", reason: null };
   const reason = entry.state === "disconnected"
-    ? "Not connected to any Power network."
+    ? "Not connected to the ship-wide Power pool."
     : entry.state === "unpowered"
-      ? "Connected, but receiving no Power."
+      ? "Receiving no Power from the ship-wide pool."
       : `Receiving ${Number(entry.allocatedMw || 0).toFixed(1)} MW of ${Number(entry.requestedMw || 0).toFixed(1)} MW.`;
   return { state: "unmet", reason };
 }
@@ -745,7 +744,7 @@ function advancedSections(type, stat, family, ledger, context) {
 
   if (family === "power" || family === "command") {
     push("power", "Power Details", [
-      statRow("power.category", "Priority Band", powerBandLabel(stat.powerCategory)),
+      statRow("power.category", "Power Category", powerCategoryLabel(stat.powerCategory)),
       statRow(
         "power.storage",
         "Energy Storage",
@@ -945,7 +944,7 @@ export function commandAuraSection(stat, ledger, context = {}) {
   };
 }
 
-function powerBandLabel(powerCategory) {
+function powerCategoryLabel(powerCategory) {
   const labels = {
     propulsion: "Propulsion",
     shields: "Shields",

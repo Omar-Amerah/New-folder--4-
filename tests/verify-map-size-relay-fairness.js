@@ -71,7 +71,7 @@ function makeSoloRoom(count, seed) {
     id: `solo-${index + 1}`,
     team: `solo-${index + 1}`,
     shipCap: 1,
-    stats: { radius: 52, fleetCount: 1 }
+    stats: { radius: 52 }
   }));
   const room = {
     world,

@@ -121,9 +121,6 @@ function shipPrivateSignature(entry) {
   // without bumping a revision still receive the change.
   return signature([
     entry?.powerRevision || 0,
-    entry?.powerProtectionRevision || 0,
-    entry?.wiringRevision || 0,
-    entry?.powerWiringRevision || 0,
     entry?.componentHeatRevision || 0,
     entry?.heatTelemetryRevision || 0,
     entry?.chpD,

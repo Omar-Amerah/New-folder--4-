@@ -43,7 +43,6 @@
   const REVISION_SECTIONS = [
     "components", "shipPricing", "economy", "rewards", "movement",
     "projectiles", "missileGuidance", "fleetLimits", "capture", "repair", "drones",
-    "wiringInfrastructure", "powerDemand", "powerProtection"
   ];
 
   function computeBalanceRevision(balance) {

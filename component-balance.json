@@ -26,83 +26,13 @@
     "homeStationSensorRange": 1400,
     "relayStationSensorRange": 950
   },
-  "shipCostLimits": {
-    "minimum": 300,
-    "maximum": 2000,
-    "unit": "$"
-  },
-  "wiringInfrastructure": {
-    "powerTiers": {
-      "light": {
-        "sustainedCapacityMw": 4,
-        "peakCapacityMw": 7,
-        "costPerHostedCell": 1,
-        "heatCapacityDisplacement": 2,
-        "cableHeatAtSustainedPerHostedCell": 0.35,
-        "cableHeatUtilisationExponent": 2.2,
-        "renderedThickness": 1,
-        "inspectionLabel": "Light Cable"
-      },
-      "standard": {
-        "sustainedCapacityMw": 10,
-        "peakCapacityMw": 16,
-        "costPerHostedCell": 2,
-        "heatCapacityDisplacement": 4,
-        "cableHeatAtSustainedPerHostedCell": 0.55,
-        "cableHeatUtilisationExponent": 2.2,
-        "renderedThickness": 2,
-        "inspectionLabel": "Standard Cable"
-      },
-      "heavy": {
-        "sustainedCapacityMw": 24,
-        "peakCapacityMw": 36,
-        "costPerHostedCell": 5,
-        "heatCapacityDisplacement": 8,
-        "cableHeatAtSustainedPerHostedCell": 0.9,
-        "cableHeatUtilisationExponent": 2.2,
-        "renderedThickness": 4,
-        "inspectionLabel": "Heavy Bus"
-      }
-    },
-    "data": {
-      "costPerHostedCell": 0.25,
-      "heatCapacityDisplacement": 1,
-      "inspectionLabel": "Data Cable"
-    },
-    "minimumComponentHeatCapacity": 10
-  },
-  "powerDemand": {
-    "standbyFractions": {
-      "command": 1,
-      "propulsion": 0.15,
-      "shields": 0.15,
-      "weapons": 0.1,
-      "pointDefence": 0.1,
-      "repair": 0.1,
-      "coolingSupport": 0.15
-    }
-  },
-  "powerProtection": {
-    "overloadStartRatio": 1,
-    "recoveryStartRatio": 0.95,
-    "tripStressThreshold": 1,
-    "baseStressPerSecond": 0.12,
-    "additionalStressPerSecondAtPeak": 0.38,
-    "recoveryPerSecond": 0.25,
-    "criticalStressRatio": 0.75,
-    "tripCooldownSeconds": 4,
-    "retryIntervalSeconds": 2,
-    "safeRecloseSustainedRatio": 0.9,
-    "maxAutomaticRetrySubsets": 1024,
-    "maximumProtectionDeltaSeconds": 0.25
-  },
   "movement": {
     "requiresThrust": true,
     "noEngineMaxSpeed": "0 m/s",
     "noEngineAcceleration": "0 m/s^2",
     "effectiveThrust": "Engine thrust stacks with gentler diminishing returns: 100%, 96%, 92%, 88%, 85%, 82%, etc. (falloff 0.96 per engine).",
     "effectiveTurn": "Positive turn modules stack with softer diminishing returns: 100%, 92%, 85%, etc.",
-    "powerEfficiency": "Power displays as use/generated. If underpowered, movement is multiplied by pow(powerGeneration / max(powerUse, 1), 1.8), clamped to a minimum 18%, so deficits become severe quickly. Shield/system efficiency also drops with pow(ratio, 1.35).",
+    "powerEfficiency": "Power uses one ship-wide pool. Functioning generators and available battery discharge are compared with active demand; shortages scale active systems by pow(ratio, 1.8), clamped to a minimum 18% for movement. Surplus power can grant up to 8% bonus movement.",
     "massClasses": [
       {
         "name": "Light",
@@ -841,7 +771,7 @@
       "id": "refractoryArmor",
       "name": "Refractory Armour",
       "category": "Structure",
-      "cost": 19.2,
+      "cost": 19,
       "mass": 10,
       "hull": 165,
       "armorFlatReduction": 3,
@@ -2585,21 +2515,6 @@
     "purpose": "Authoritative gameplay balance source. Units are documented in notes; generated public copy is not manually maintained."
   },
   "shipPricing": {
-    "minimum": 300,
-    "maximum": 2000,
-    "unit": "currency",
-    "baseShipCost": 48,
-    "partCostMultiplier": 1.32,
-    "massCostMultiplier": 0,
-    "hullCostMultiplier": 0,
-    "shieldCostMultiplier": 0.05,
-    "repairCostMultiplier": 0.8,
-    "weaponPremiums": {
-      "blaster": 18,
-      "missile": 32,
-      "railgun": 48,
-      "beam": 42
-    },
     "fleetCountFormulaInputs": {
       "base": 260,
       "minimumDivisor": 58,
@@ -2704,7 +2619,6 @@
       "selfRepairRatePerSecond": 9,
       "productionBaseSeconds": 0.6,
       "productionSecondsPerModule": 0.05,
-      "productionCostSecondsMultiplier": 0.0002,
       "launchRetrySeconds": 0.5
     },
     "relayStation": {

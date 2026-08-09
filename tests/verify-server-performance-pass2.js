@@ -27,7 +27,7 @@ const { decodeBinary } = require("../src/server/wsCodec");
 const { BALANCE } = require("../src/server/balanceConfig");
 
 function player(id, team) {
-  return { id, name: id, team, ships: [], design: [], wiring: { power: { sections: [], connections: [] }, data: { sections: [], connections: [] } }, connected: true, money: 0, bank: 0, earned: 0, maxMoney: 1000, kills: 0, losses: 0, captures: 0 };
+  return { id, name: id, team, ships: [], design: [], dataLinks: [], connected: true, money: 0, bank: 0, earned: 0, maxMoney: 1000, kills: 0, losses: 0, captures: 0 };
 }
 
 function runtimeRoom() {
@@ -443,8 +443,6 @@ function ship(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "frame" }]) {
   for (const client of [c1, c3]) {
     client.knownShipDesignRevisions = new UnfingerprintableRevisionMap([["sentinel", 1]]);
     client.knownShipPowerRevisions = new UnfingerprintableRevisionMap([["sentinel", 1]]);
-    client.knownShipPowerProtectionRevisions = new UnfingerprintableRevisionMap([["sentinel", 1]]);
-    client.knownShipWiringLayoutRevisions = new UnfingerprintableRevisionMap([["sentinel", 1]]);
   }
   room.clients = new Set([c1, c3]);
   broadcastSnapshot(room, 1100, true);
@@ -453,8 +451,6 @@ function ship(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "frame" }]) {
   for (const client of [c1, c3]) {
     client.knownShipDesignRevisions = new Map(client.knownShipDesignRevisions);
     client.knownShipPowerRevisions = new Map(client.knownShipPowerRevisions);
-    client.knownShipPowerProtectionRevisions = new Map(client.knownShipPowerProtectionRevisions);
-    client.knownShipWiringLayoutRevisions = new Map(client.knownShipWiringLayoutRevisions);
   }
 
   c1.socket.writes.length = 0;

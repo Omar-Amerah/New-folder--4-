@@ -279,7 +279,7 @@ function getVisibleContactsForTeam(room, teamId, now) {
 
 const LEAK_SENSITIVE_SHIP_FIELDS = [
   "componentPower", "powerStatus", "powerThermal", "chp", "chpD", "componentHeat", "componentHeatD",
-  "wiringStatus", "switchgear", "powerProtection", "powerWiring", "powerWiringRuntime", "storageCharge"
+  "storageCharge"
 ];
 const LEAK_SENSITIVE_STATION_FIELDS = [
   "hp", "maxHp", "shield", "maxShield", "componentHp", "productionQueue", "conditionKnown"

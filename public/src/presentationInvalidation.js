@@ -20,7 +20,6 @@ export function invalidatePresentation(reason, detail = null) {
   const revisions = state.presentationLocalRevision;
   if (revisions) {
     if (key === "blueprint-edit") revisions.blueprint += 1;
-    if (key === "wiring-edit") revisions.wiring += 1;
     if (key === "purchase-catalogue") revisions.purchase += 1;
     if (key === "telemetry-component" || key === "panel-mode") revisions.telemetry += 1;
     if (key === "rally" || key === "rally-mode") revisions.rally += 1;

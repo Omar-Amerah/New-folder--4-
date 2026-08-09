@@ -6,25 +6,19 @@ const { updateRuntimeShield } = require("../src/server/runtimeShield");
 const { resetRoomTelemetry, getRoomTelemetry } = require("../src/server/roomTelemetry");
 const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
-const { rebuildShipWiringState } = require("../src/server/componentPower");
+const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const WiringRules = require("../public/src/shared/wiringRules");
 const { PARTS } = require("../src/server/components");
 const HeatRules = require("../public/src/shared/heatRules");
 
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 
-function wiringFor(design, paths) {
-  let wiring = WiringRules.emptyWiring();
-  for (const path of paths) wiring = WiringRules.addConnection(wiring, "power", path[0], path[1], path[2], design, PARTS);
-  return wiring;
-}
-
-function makeShip(design, paths = []) {
-  const ship = { design, wiring: wiringFor(design, paths), stats: computeStats(design), shield: 0, alive: true };
+function makeShip(design) {
+  const dataLinks = [];
+  const ship = { design, dataLinks, stats: computeStats(design, { dataLinks }), shield: 0, alive: true };
   initComponentState(ship);
   initShipHeat(ship);
-  rebuildShipWiringState(ship, "test");
+  initializeComponentPower(ship);
   return ship;
 }
 
@@ -34,7 +28,7 @@ function makeRoom() {
 
 function run() {
   const design = [at("reactor", 0, 0), at("shield", 1, 0)];
-  const ship = makeShip(design, [[0, 1, [{x:0, y:0}, {x:1, y:0}]]]);
+  const ship = makeShip(design);
   const room = makeRoom();
 
   // --- Cache miss on first call, hit on second -----------------------------
@@ -60,7 +54,7 @@ function run() {
   assert(after.capacity < before.capacity, "destroyed shield must reduce capacity");
 
   // --- Heat state change invalidates cache ---------------------------------
-  const ship2 = makeShip(design, [[0, 1, [{x:0, y:0}, {x:1, y:0}]]]);
+  const ship2 = makeShip(design);
   ship2._shieldStatsCache = null;
   resetRoomTelemetry(room);
   const base = effectiveShieldStats(ship2, room);
@@ -73,7 +67,7 @@ function run() {
   assert(hot.recharge < base.recharge, "heat must reduce recharge");
 
   // --- Runtime shield update uses the cache --------------------------------
-  const ship3 = makeShip(design, [[0, 1, [{x:0, y:0}, {x:1, y:0}]]]);
+  const ship3 = makeShip(design);
   ship3._shieldStatsCache = null;
   resetRoomTelemetry(room);
   updateRuntimeShield(ship3, 0.1, 1000, room);

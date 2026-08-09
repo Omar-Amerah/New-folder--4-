@@ -48,26 +48,21 @@ function purchaseFixture(id = "p") {
     { x: 7, y: 9, type: "engine", rotation: 0 },
     { x: 7, y: 5, type: "blaster", rotation: 0 }
   ];
-  const wiring = {
-    version: 1,
-    power: { sections: [], connections: [] },
-    data: { sections: [], connections: [] },
-    powerPolicy: null
-  };
-  const stats = computeStats(design, wiring);
+  const dataLinks = [];
+  const stats = computeStats(design);
   const player = {
     id, name: id, team: id, ready: true, client: {}, removed: false,
-    design, wiring, stats, ships: [], shipCap: 12, money: 100000,
+    design, dataLinks, stats, ships: [], shipCap: 12, money: 100000,
     spent: 0, deployedFleetCost: 0, shipsBuilt: 0, combatStyle: "hold",
     purchaseRequests: new Map(), rallyPoint: null
   };
   r.players.set(id, player);
-  return { r, player, design, wiring, stats };
+  return { r, player, design, dataLinks, stats };
 }
 
 function purchase(fixture, requestId, count = 1, now = 1000) {
   return executePurchase(fixture.r, fixture.player, {
-    requestId, count, design: fixture.design, wiring: fixture.wiring,
+    requestId, count, design: fixture.design, dataLinks: fixture.dataLinks,
     stats: fixture.stats, combatStyle: "hold"
   }, now);
 }

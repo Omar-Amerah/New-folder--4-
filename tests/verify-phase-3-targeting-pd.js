@@ -18,23 +18,14 @@ let testShipCounter = 0;
   const TargetingTelemetry = require("../src/server/targetingTelemetry");
   const RoomTelemetry = require("../src/server/roomTelemetry");
   const PointDefenceThreats = require("../src/server/pointDefenceThreats");
-  const WiringRules = require("../public/src/shared/wiringRules");
   const { updateShipWeapons } = require("../src/server/combat");
   const { updateStationWeapons } = require("../src/server/stationCombat");
   const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
   const { getShipComponentIndexes } = require("../src/server/componentIndexes");
   const { getEffectiveWeaponStatsCached, getEffectiveWeaponStatsInternal, ensureEffectiveWeaponProfileCache } = require("../src/server/componentData");
 
-  function makeTestShip(design, wiring = null, ownerId = "p1") {
-    let shipWiring = wiring;
-    if (!shipWiring) {
-      try {
-        shipWiring = WiringRules.createGeneratedPowerWiring(design, PARTS);
-      } catch (_) {
-        shipWiring = { power: [], data: [] };
-      }
-    }
-    const stats = computeStats(design, shipWiring);
+  function makeTestShip(design, dataLinks = [], ownerId = "p1") {
+    const stats = computeStats(design, { dataLinks });
     const ship = {
       id: `test-ship-${(testShipCounter += 1)}`,
       ownerId,
@@ -45,7 +36,7 @@ let testShipCounter = 0;
       vx: 0,
       vy: 0,
       design,
-      wiring: shipWiring,
+      dataLinks,
       stats,
       alive: true,
       hp: stats.maxHp,

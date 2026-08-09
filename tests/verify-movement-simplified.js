@@ -17,7 +17,6 @@ const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { computeDesignCollisionRadius, findShipHullOverlap } = require("../src/server/componentGeometry");
 const { getMaxEffectiveWeaponRange } = require("../src/server/componentData");
 
@@ -60,7 +59,7 @@ function makeShip({
     radius: stats.radius,
     physicalRadius: physicalRadius ?? computeDesignCollisionRadius(design, stats),
     design: design.map((part) => ({ ...part })),
-    wiring: createGeneratedPowerWiring(design),
+    dataLinks: [],
     stats: { ...stats, ...(mass ? { mass } : {}) },
     combatStyle,
     combatStyleRaw: combatStyle,

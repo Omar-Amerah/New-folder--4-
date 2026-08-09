@@ -9,14 +9,13 @@
 // | player.ready                              | Lobby player status; deployment controls |
 // | player.connected                          | Lobby player status; scoreboard |
 // | player identity/team                      | Lobby player rows; Team HUD; scoreboard |
-// | player kills/losses/captures/fleet count  | Scoreboard |
+// | player kills/losses/captures/active ships | Scoreboard |
 // | room phase                                | Critical phase presentation |
 // | room rules                                | Lobby rules; Fleet HUD; purchase availability |
 // | ship membership/owner/alive/group         | Fleet HUD; ship groups |
 // | selected ship hull/shield/alive           | Selected vitals |
 // | selected component HP/alive revisions     | Selected Damage presentation; world hull renderer |
 // | ship/component Heat revisions             | Heat HUD; selected Heat presentation |
-// | selected Power/runtime/protection revisions| Selected Power presentation |
 // | selected design revision           | Selected static component geometry |
 // | player rally point / placement mode       | Rally controls |
 // | points/relay owner/progress                | Relay HUD; relay status |
@@ -264,10 +263,6 @@ function selectedTelemetryChanges(previousIndex, nextIndex, selectedIds) {
     componentAlive: false,
     heat: false,
     componentHeat: false,
-    powerAllocation: false,
-    powerRuntime: false,
-    powerProtection: false,
-    wiringLayout: false,
     staticGeometry: false,
     command: false,
     drones: false
@@ -295,30 +290,6 @@ function selectedTelemetryChanges(previousIndex, nextIndex, selectedIds) {
       next,
       ["componentHeatRevision", "heatStateRevision", "heatTelemetryRevision"],
       (left, right) => primitiveArrayChanged(left?.componentHeat, right?.componentHeat)
-    );
-    result.powerAllocation ||= recordRevisionChanged(
-      previous,
-      next,
-      ["powerRevision"],
-      (left, right) => primitiveArrayChanged(left?.componentPower, right?.componentPower)
-    );
-    result.powerRuntime ||= recordRevisionChanged(
-      previous,
-      next,
-      ["powerRuntimeRevision", "heatTelemetryRevision"],
-      (left, right) => left?.powerWiringRuntime !== right?.powerWiringRuntime || left?.powerThermal !== right?.powerThermal
-    );
-    result.powerProtection ||= recordRevisionChanged(
-      previous,
-      next,
-      ["powerProtectionRevision"],
-      (left, right) => left?.powerProtection !== right?.powerProtection
-    );
-    result.wiringLayout ||= recordRevisionChanged(
-      previous,
-      next,
-      ["powerWiringRevision", "wiringRevision"],
-      (left, right) => left?.powerWiring !== right?.powerWiring
     );
     result.staticGeometry ||= previous.designRevision !== next.designRevision;
     result.drones ||= droneBaysChanged(previous, next);
@@ -493,12 +464,6 @@ export function emptyPresentationChanges() {
       selectedStaticGeometryChanged: false,
       dronesChanged: false
     },
-    power: {
-      selectedAllocationChanged: false,
-      selectedRuntimeChanged: false,
-      selectedProtectionChanged: false,
-      selectedWiringLayoutChanged: false
-    },
     latency: { changed: false },
     purchase: {
       availabilityChanged: false,
@@ -630,11 +595,7 @@ export function derivePresentationChanges({
   changes.damage.dronesChanged = telemetry.drones;
   changes.heat.selectedShipChanged = telemetry.heat;
   changes.heat.selectedComponentsChanged = telemetry.componentHeat;
-  changes.power.selectedAllocationChanged = telemetry.powerAllocation;
-  changes.power.selectedRuntimeChanged = telemetry.powerRuntime;
-  changes.power.selectedProtectionChanged = telemetry.powerProtection;
-  changes.power.selectedWiringLayoutChanged = telemetry.wiringLayout;
-  changes.selection.commandChanged = telemetry.command;
+   changes.selection.commandChanged = telemetry.command;
 
   changes.purchase.availabilityChanged = changes.economy.affordabilityChanged || changes.phase.changed;
   changes.purchase.pendingChanged = previousLocalState?.pendingPurchaseCount !== nextLocalState?.pendingPurchaseCount;
@@ -664,7 +625,6 @@ export function changesForLocalInvalidation(reason) {
       changes.selection.changed = true;
       break;
     case "blueprint-edit":
-    case "wiring-edit":
     case "purchase-catalogue":
       changes.purchase.catalogueChanged = true;
       changes.purchase.deploymentChanged = true;
@@ -709,7 +669,6 @@ export function changesForLocalInvalidation(reason) {
 
 function activeSelectedOperation(view) {
   if (view === "heat") return "updateSelectedShipHeatUi";
-  if (view === "power") return "updateSelectedShipPowerUi";
   return "updateSelectedShipDamageUi";
 }
 
@@ -762,15 +721,6 @@ export function buildPresentationUpdatePlan(changes, shipStatusView = "damage") 
     shipStatusView === "heat"
     && (changes.heat.selectedShipChanged || changes.heat.selectedComponentsChanged || changes.damage.selectedComponentAliveChanged || changes.damage.selectedStaticGeometryChanged)
   ) add("updateSelectedShipHeatUi");
-  if (
-    shipStatusView === "power"
-    && (
-      changes.power.selectedAllocationChanged || changes.power.selectedRuntimeChanged
-      || changes.power.selectedProtectionChanged || changes.power.selectedWiringLayoutChanged
-      || changes.damage.selectedComponentAliveChanged || changes.damage.selectedStaticGeometryChanged
-    )
-  ) add("updateSelectedShipPowerUi");
-
   if (!changes.phase.changed) {
     if (
       changes.lobby.visibilityChanged || changes.lobby.connectionStateChanged

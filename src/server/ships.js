@@ -5,7 +5,6 @@ const { sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validatio
 const { performanceNow, seededRandom, rngRange, hashString, compareIdStrings } = require("./utils");
 const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
-const { createShipBlueprintSnapshot, createGeneratedPowerWiring } = require("./shipDesign");
 const { recordPurchaseStage } = require("./performanceTelemetry");
 const { createMovementRuntime } = require("./movementRuntime");
 
@@ -18,7 +17,7 @@ class SpawnPlacementError extends Error {
 }
 
 function clonePrebuiltShipState(prebuilt) {
-  return cloneValue(prebuilt, new Set(["design", "wiring", "stats", "thermalTopology", "_thermalRuntime"]));
+  return cloneValue(prebuilt, new Set(["design", "stats", "thermalTopology", "_thermalRuntime"]));
 }
 
 function cloneValue(value, skipKeys = null) {
@@ -50,11 +49,10 @@ function spawnShip(room, player, now, index = 0, options = {}) {
   const { initShipHeat } = require("./heat");
   
   // Use the immutable template when available; otherwise initialize from the
-  // player's current design and wiring.
+  // player's current design and Data Links.
   const template = options.template;
-  const stats = template ? template.stats : { ...(options.stats || player.stats || computeStats(player.design, player.wiring)) };
+  const stats = template ? template.stats : { ...(options.stats || player.stats || computeStats(player.design)) };
   const design = template ? template.design : (options.design || player.design);
-  const wiring = template ? template.wiring : (options.wiring !== undefined ? options.wiring : player.wiring);
   const dataLinks = template ? template.dataLinks : (options.dataLinks !== undefined ? options.dataLinks : (player.dataLinks || []));
   
   const spawn = getPlayerSpawn(room, player.id);
@@ -104,7 +102,6 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     maxShield: 0,
     stats,
     design,
-    wiring,
     dataLinks,
     cost: stats.unitCost,
     radius: stats.radius,
@@ -248,7 +245,6 @@ function addBot(room, requester) {
   const color = COLORS[room.colorCursor % COLORS.length];
   room.colorCursor += 1;
   const design = chooseBotDesign(room.nextBotId);
-  const wiring = createGeneratedPowerWiring(design);
   const team = chooseBotTeam(room, requester, id);
   const name = BOT_NAMES[(room.nextBotId - 2) % BOT_NAMES.length];
   const player = {
@@ -260,8 +256,8 @@ function addBot(room, requester) {
     ai: { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 },
     ready: false,
     design,
-    wiring,
-    stats: computeStats(design, wiring),
+    dataLinks: [],
+    stats: computeStats(design),
     ships: [],
     money: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     bank: room.rules?.startingMoney ?? ECONOMY.startingMoney,
@@ -308,7 +304,7 @@ function updateBots(room, now) {
     const rng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:bot:${seq}`)) >>> 0);
     ai.decisionSeq = seq + 1;
     ai.nextThinkAt = now + rngRange(rng, 900, 1700);
-    const currentCost = player.stats?.unitCost || computeStats(player.design, player.wiring).unitCost;
+    const currentCost = player.stats?.unitCost || computeStats(player.design).unitCost;
     if (player.money >= currentCost) {
       // Station mode has no instant spawn: everything a player or bot buys is
       // built and launched by their home station.

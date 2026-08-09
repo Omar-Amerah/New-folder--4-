@@ -347,7 +347,7 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
       state.dataLinks = [{ sourceIndex: 1, targetIndex: 2 }, { sourceIndex: 4, targetIndex: 3 }];
       const saved = storage.normalizeSavedDesignsForTests
         ? null
-        : JSON.parse(JSON.stringify([{ id: "a", name: "A", blueprint: state.design, wiring: state.wiring, dataLinks: state.dataLinks, combatStyle: "hold" }]));
+        : JSON.parse(JSON.stringify([{ id: "a", name: "A", blueprint: state.design, dataLinks: state.dataLinks, combatStyle: "hold" }]));
       const envelope = storage.savedDesignsEnvelope(saved);
       return envelope.payload[0].dataLinks.map((l) => `${l.sourceIndex}:${l.targetIndex}`).sort();
     });
@@ -361,7 +361,7 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
       state.phase = "active";
       state.dataLinks = [{ sourceIndex: 1, targetIndex: 2 }];
       const net = await import("/src/network.js");
-      net.send({ type: "deploy", design: state.design, wiring: state.wiring, dataLinks: state.dataLinks, combatStyle: "hold" });
+      net.send({ type: "deploy", design: state.design, dataLinks: state.dataLinks, combatStyle: "hold" });
       return sent.length;
     });
     assert.ok(deployPayloads >= 1, "deploy message is sent");

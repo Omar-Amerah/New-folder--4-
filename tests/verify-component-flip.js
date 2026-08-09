@@ -140,8 +140,6 @@ const cellKeys = (cells) => cells.map((cell) => `${cell.x},${cell.y}`).sort();
   globalThis.EngineExhaustRules = EngineExhaust;
   globalThis.HeatRules = HeatRules;
   globalThis.DataSupportRules = require("../public/src/shared/dataSupportRules.js");
-  globalThis.PowerPolicyRules = require("../public/src/shared/powerPolicyRules.js");
-  globalThis.WiringRules = require("../public/src/shared/wiringRules.js");
 
   const parts = await import("../public/src/design/parts.js");
   parts.applyServerParts(PARTS);
@@ -269,7 +267,7 @@ const cellKeys = (cells) => cells.map((cell) => `${cell.x},${cell.y}`).sort();
   }
 
   // 12. Duplicate/copy keeps the mirror.
-  const saved = [{ id: "d1", name: "Mirrored", blueprint: mirroredDesign, wiring: null, combatStyle: "hold" }];
+  const saved = [{ id: "d1", name: "Mirrored", blueprint: mirroredDesign, dataLinks: [], combatStyle: "hold" }];
   const exported = storage.exportBlueprints(saved, []);
   const imported = storage.importBlueprints(JSON.parse(JSON.stringify(exported)), [], []);
   assert.equal(imported.acceptedDesigns, 1, `import accepted the mirrored blueprint: ${imported.warnings.join("; ")}`);

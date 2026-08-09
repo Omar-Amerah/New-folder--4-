@@ -11,7 +11,6 @@ globalThis.performance = globalThis.performance || { now: () => Date.now() };
 globalThis.localStorage = globalThis.localStorage || { getItem(){return null}, setItem(){}, removeItem(){} };
 globalThis.document = globalThis.document || { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], body: null, addEventListener(){}, removeEventListener(){}, activeElement: null, visibilityState: 'visible' };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener(){}, removeEventListener(){} };
-await import('../public/src/shared/featureFlags.js');
 const { state } = await import('../public/src/state.js');
 const { recordOrderQueue, clearOrderQueues, pruneOrderQueues, orderQueuePath, MAX_QUEUED_WAYPOINTS } =
   await import('../public/src/game/orderQueue.js');

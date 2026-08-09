@@ -268,7 +268,7 @@ function carrierRoom() {
 // including construction and encoding rather than only aggregate snapshot time.
 {
   recordRoomTick({ durations: {
-    botsEconomyLifecycle: 1, powerDemandProtection: 2, movementSeparationMap: 3,
+    botsEconomyLifecycle: 1, movementSeparationMap: 3,
     spatialIndex: 0.5, support: 0.25, drones: 4, weapons: 5,
     projectiles: 6, heat: 2.5, objectives: 0.1
   } });

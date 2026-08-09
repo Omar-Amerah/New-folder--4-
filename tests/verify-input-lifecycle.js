@@ -8,7 +8,6 @@ const documentHandlers=new Map(); const windowHandlers=new Map();
 function target(){return { setPointerCapture(){}, releasePointerCapture(){}, hasPointerCapture(){return false}, getBoundingClientRect(){return {left:0,top:0,width:800,height:600}}, addEventListener(t,h){listeners.set(t,(listeners.get(t)||0)+1); this['on'+t]=h;}, removeEventListener(t){listeners.set(t,(listeners.get(t)||1)-1);} };}
 globalThis.document={getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener(t,h){documentHandlers.set(t,h);},removeEventListener(t){documentHandlers.delete(t);},visibilityState:'visible',activeElement:null};
 globalThis.window={addEventListener(t,h){windowHandlers.set(t,h);},removeEventListener(t){windowHandlers.delete(t);},devicePixelRatio:1};
-await import('../public/src/shared/featureFlags.js');
 const { state } = await import('../public/src/state.js'); const input=await import('../public/src/game/input.js');
 const c1=target(); const c2=target(); state.snapshot={ships:[]}; state.world={width:2000,height:1200}; state.camera={x:1000,y:600,zoom:1,follow:true};
 const u1=input.bindArenaPointerListeners(c1); input.bindArenaPointerListeners(c1); assert.equal(listeners.get('pointerdown'),1);

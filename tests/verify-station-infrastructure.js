@@ -473,12 +473,12 @@ function makeStationRoom(code, { money = 5000, shipCap = 4, isBot = false } = {}
     shipCap,
     ships: [],
     design: [{ x: 7, y: 7, type: "core", rotation: 0 }, { x: 7, y: 6, type: "engine", rotation: 0 }],
-    wiring: null,
+    dataLinks: [],
     combatStyle: "hold",
     client: {},
     purchaseRequests: new Map()
   };
-  player.stats = computeStats(player.design, player.wiring);
+  player.stats = computeStats(player.design);
   room.players.set(player.id, player);
   createStationsForRoom(room, 0);
   return { room, player };
@@ -490,7 +490,7 @@ function runSnapshotChecks() {
   const home = room.stations.find((s) => s.stationType === "home");
   home.team = player.team;
   enqueueStationProduction(room, player, {
-    template: { design: player.design, wiring: player.wiring, stats: player.stats },
+    template: { design: player.design, dataLinks: player.dataLinks, stats: player.stats },
     request: { requestId: "req-1", combatStyle: "hold" },
     validation: { count: 1, totalCost: player.stats.unitCost }
   }, 0);
@@ -534,7 +534,7 @@ function runProductionChecks() {
   const home = room.stations.find((s) => s.stationType === "home");
   home.team = player.team;
   const enqueue = (requestId, count = 1) => enqueueStationProduction(room, player, {
-    template: { design: player.design, wiring: player.wiring, stats: player.stats },
+    template: { design: player.design, dataLinks: player.dataLinks, stats: player.stats },
     request: { requestId, combatStyle: "hold" },
     validation: { count, totalCost: player.stats.unitCost * count }
   }, 0);
@@ -788,7 +788,7 @@ function runHangarDoorChecks() {
   // corridor. Clearance follows the door plane, not an enemy's radius.
   const blocker = spawnShip(prodRoom, player, 0, 0, {
     design: player.design,
-    wiring: player.wiring,
+    dataLinks: player.dataLinks,
     stats: player.stats,
     spawnPoint: {
       x: prodHome.hangars[1].mouth.x + outward.x * 40,
@@ -818,16 +818,15 @@ function runHangarDoorChecks() {
   assert(cfg.productionSecondsPerModule > 0, "productionSecondsPerModule is configured");
   const buildSeconds = (moduleCount) => {
     const design = Array.from({ length: moduleCount }, (_, i) => ({ x: i % 15, y: Math.floor(i / 15), type: "armor", rotation: 0 }));
-    const stats = computeStats(design, null);
+    const stats = computeStats(design);
     const queued = enqueueStationProduction(
       makeStationRoom(`SZ${moduleCount}`).room,
       { ...player, ships: [], money: 100000, shipCap: 8 },
-      { template: { design, wiring: null, stats }, request: { requestId: `s${moduleCount}` }, validation: { count: 1, totalCost: stats.unitCost } },
+      { template: { design, dataLinks: [], stats }, request: { requestId: `s${moduleCount}` }, validation: { count: 1, totalCost: stats.unitCost } },
       0
     );
     const unaccelerated = cfg.productionBaseSeconds
-      + moduleCount * cfg.productionSecondsPerModule
-      + stats.unitCost * cfg.productionCostSecondsMultiplier;
+      + moduleCount * cfg.productionSecondsPerModule;
     const expectedDuration = Math.round(Math.max(0.2, unaccelerated / 2) * 100) / 100;
     assert(
       queued.buildDurationSeconds === expectedDuration,

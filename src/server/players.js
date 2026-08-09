@@ -1,7 +1,7 @@
 // Handles player join, leave, name updates, team assignment, re-connection matching, and admin promotion checks.
 
 const crypto = require("crypto");
-const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN, DEFAULT_WIRING } = require("./config");
+const { COLORS, ECONOMY, TEAM_NAMES, DEFAULT_DESIGN } = require("./config");
 const { sanitizeName, sanitizeTeam } = require("./validation");
 const { performanceNow } = require("./utils");
 const { invalidateRelationshipCache, revalidateTelemetryFocusForRoom, isTelemetryFocusEligible } = require("./relationships");
@@ -169,11 +169,7 @@ function joinRoom(client, message) {
     ai: null,
     ready: false,
     design: DEFAULT_DESIGN.map((part) => ({ ...part })),
-    wiring: {
-      version: DEFAULT_WIRING.version,
-      power: { sections: DEFAULT_WIRING.power.sections.map((section) => ({ ...section })), connections: DEFAULT_WIRING.power.connections.map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] })) },
-      data: { sections: DEFAULT_WIRING.data.sections.map((section) => ({ ...section })), connections: DEFAULT_WIRING.data.connections.map((connection) => ({ ...connection, sectionIds: [...connection.sectionIds] })) }
-    },
+    dataLinks: [],
     stats: computeStats(DEFAULT_DESIGN),
     ships: [],
     money: room.rules.startingMoney,
@@ -493,7 +489,7 @@ function maybeStartMatch(room, now) {
   const { broadcastRoom, broadcastSnapshot } = require("./messages");
   const players = [...room.players.values()].filter((player) => !player.removed && !player.isBot ? (player.connected !== false || player.disconnectTimeout) : !player.removed);
   if (!players.length || players.some((player) => !player.ready)) return;
-  // Final designs can change fleet radius/count after the design-phase arena was
+  // Final designs can change ship radius after the design-phase arena was
   // prepared. Regenerate once against the complete ready roster before freezing
   // the plan, so the authoritative safe zones, relay fairness, and station
   // centres describe the same final deployment. maybeStartMatch is phase-guarded,

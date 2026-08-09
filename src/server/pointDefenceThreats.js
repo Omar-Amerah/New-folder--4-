@@ -215,7 +215,7 @@ function _entityRelevantRevisions(entity) {
     componentAliveRevision: entity?.componentAliveRevision || 1,
     heatStateRevision: entity?.heatStateRevision || 0,
     powerRevision: entity?.powerRevision || 0,
-    dataSupportTopology: entity?.runtimeDataSupport?.topologyRevision || 0,
+    dataSupportLinks: entity?.runtimeDataSupport?.linkRevision || 0,
     dataSupportAllocation: entity?.runtimeDataSupport?.allocationRevision || 0,
     weaponProfileRevision: entity?.effectiveWeaponProfileCache?.revision || 0
   };

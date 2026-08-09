@@ -2,10 +2,8 @@
 
 import { GENERATED_BALANCE } from "./generatedBalance.js";
 
-// Blueprint storage moved to new keys when wiring was added (schema v2).
-// Old keys ("modular-fleet-design-v2", "...-saved-designs-v1", "...-loadouts-v1",
-// "...-design-last-good-v1") are intentionally never read: users with old data
-// simply start from the current default ship with its default wiring.
+// Blueprint storage uses a current schema containing modules and explicit
+// logical Data Links only.
 export const LOCAL_DESIGN_KEY = "modular-fleet-design-v3";
 export const LOCAL_NAME_KEY = "modular-fleet-name-v1";
 export const LOCAL_TEAM_KEY = "modular-fleet-team-v1";
@@ -70,23 +68,9 @@ export const HIDDEN_PARTS = new Set([
   "directedSensor"
 ]);
 
-export let SHIP_ECONOMY = Object.freeze({ ...GENERATED_BALANCE.shipPricing, weaponPremiums: Object.freeze({ ...GENERATED_BALANCE.shipPricing.weaponPremiums }) });
-export function applyShipEconomy(economy) { SHIP_ECONOMY = Object.freeze({ ...economy, weaponPremiums: Object.freeze({ ...(economy?.weaponPremiums || {}) }) }); }
-
-// Authoritative wiring infrastructure balance (Power cable tiers, Data cable,
-// minimum Heat capacity). Loaded from the same balance file as the server so
-// cable cost and Heat displacement match client preview and server totals.
-export let WIRING_INFRASTRUCTURE = GENERATED_BALANCE.wiringInfrastructure;
-export function applyWiringInfrastructure(infrastructure) {
-  if (infrastructure && typeof infrastructure === "object" && !Array.isArray(infrastructure)) WIRING_INFRASTRUCTURE = infrastructure;
-}
-
-// Authoritative activity-driven Power demand balance (per-role standby
-// fractions). Loaded from the same balance file as the server so Blueprint
-// prediction demand matches runtime demand for the same activity.
-export let POWER_DEMAND = GENERATED_BALANCE.powerDemand;
-export function applyPowerDemand(powerDemand) {
-  if (powerDemand && typeof powerDemand === "object" && !Array.isArray(powerDemand)) POWER_DEMAND = powerDemand;
+export let FLEET_COUNT_RULES = Object.freeze({ ...(GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs || {}) });
+export function applyFleetCountRules(shipPricing) {
+  FLEET_COUNT_RULES = Object.freeze({ ...(shipPricing?.fleetCountFormulaInputs || {}) });
 }
 
 export function syncUrlParams() {

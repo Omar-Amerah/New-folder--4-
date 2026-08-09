@@ -130,7 +130,7 @@ let browser;
       state.socket = { readyState: WebSocket.OPEN };
       state.myId = "presentation-player";
       state.selectedShipIds = new Set(["presentation-ship"]);
-      state.shipStatusView = "power";
+      state.shipStatusView = "damage";
 
       const componentCount = 150;
       const design = Array.from({ length: componentCount }, (_, index) => ({
@@ -171,12 +171,9 @@ let browser;
           heat: 0, heatNow: 0, heatMax: 1000, hot: 0, overheated: 0,
           heatRevision: 1, componentHeatRevision: 1, heatStateRevision: 1, heatTelemetryRevision: 1,
           componentHeat: Array.from({ length: componentCount }, () => [0, 0, 0, 100]),
-          componentPower: Array.from({ length: componentCount }, () => ["powered", 1, 1]),
-          powerRevision: 1, powerProtectionRevision: 1, powerRuntimeRevision: 3,
-          wiringRevision: 1, powerWiringRevision: 1,
-          powerWiring: { sections: [{ id: "power:1", x1: 7, y1: 7, x2: 8, y2: 7, tier: "standard" }] },
-          powerWiringRuntime: { sections: [{ id: "power:1", flowMw: 1 }] },
-          powerProtection: {}, powerThermal: {}, combatStyle: "hold"
+          componentPower: Array.from({ length: componentCount }, () => ["powered", 1]),
+          powerRevision: 1, powerRuntimeRevision: 3,
+          powerThermal: {}, combatStyle: "hold"
         }],
         points: [{
           id: "A", x: 400, y: 400, radius: 100,
@@ -211,10 +208,8 @@ let browser;
         catalogue: diagnostics.purchaseCatalogueBuildCount,
         affordability: diagnostics.purchaseAffordabilityUpdateCount,
         staticGeometry: diagnostics.selectedStaticGeometryBuildCount,
-        staticWiring: diagnostics.selectedStaticWiringBuildCount,
         dynamic: diagnostics.selectedDynamicRedrawCount,
         selectedHeat: diagnostics.selectedHeatUpdateCount,
-        selectedPower: diagnostics.selectedPowerUpdateCount,
         selectedDamage: diagnostics.selectedDamageUpdateCount,
         selectedVitals: diagnostics.selectedVitalsUpdateCount,
         rally: diagnostics.rallyUpdateCount || 0,
@@ -330,26 +325,6 @@ let browser;
       });
       const heat = counts();
 
-      state.shipStatusView = "power";
-      invalidatePresentation("panel-mode");
-      resetDiagnostics();
-      compact((message) => {
-        const ship = message.ships[0];
-        ship.powerRevision += 1;
-        ship.powerRuntimeRevision += 1;
-        ship.componentPower[0] = ["starved", 1, 0.5];
-      });
-      const power = counts();
-
-      resetDiagnostics();
-      compact((message) => {
-        const ship = message.ships[0];
-        ship.wiringRevision += 1;
-        ship.powerWiringRevision += 1;
-        ship.powerWiring.sections.push({ id: "power:2", x1: 8, y1: 7, x2: 9, y2: 7, tier: "standard" });
-      });
-      const wiring = counts();
-
       resetDiagnostics();
       compact((message) => {
         message.players[0].rallyPoint = { x: 222, y: 333 };
@@ -404,7 +379,7 @@ let browser;
 
       return {
         stable, lobbyStatus, position, latency, selection, money, vitals, damage,
-        heat, power, wiring, rally, objectiveProgress, playerScore, winner,
+        heat, rally, objectiveProgress, playerScore, winner,
         purchasePending, updaterIsolation, comparatorIsolation
       };
     });
@@ -413,7 +388,6 @@ let browser;
     assert.equal(report.stable.lobbyPatch, 0);
     assert.equal(report.stable.catalogue, 0);
     assert.equal(report.stable.staticGeometry, 0);
-    assert.equal(report.stable.staticWiring, 0);
     assert.equal(report.stable.dynamic, 0);
     assert.equal(report.lobbyStatus.lobbyRebuild, 0);
     assert(report.lobbyStatus.lobbyPatch >= 1);
@@ -427,7 +401,6 @@ let browser;
     assert.equal(report.latency.selectionHud, 0);
     assert.equal(report.latency.economy, 0);
     assert.equal(report.selection.selectionHud, 1);
-    assert.equal(report.selection.selectedPower, 1);
     assert.equal(report.selection.catalogue, 0);
     assert.equal(report.selection.lobbyRebuild, 0);
     assert.equal(report.money.economy, 1);
@@ -443,11 +416,6 @@ let browser;
     assert.equal(report.heat.heatHud, 1);
     assert.equal(report.heat.selectedHeat, 1);
     assert.equal(report.heat.staticGeometry, 0);
-    assert.equal(report.power.selectedPower, 1);
-    assert.equal(report.power.staticWiring, 0);
-    assert.equal(report.wiring.selectedPower, 1);
-    // Wiring remains disabled, so the action must not build static geometry.
-    assert.equal(report.wiring.staticWiring, 0);
     assert.equal(report.rally.rally, 1);
     assert.equal(report.rally.catalogue, 0);
     assert.equal(report.objectiveProgress.relayStatus, 1);

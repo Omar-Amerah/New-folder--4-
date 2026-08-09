@@ -5,7 +5,6 @@ const { INFRASTRUCTURE } = require("./config");
 const { angleDifference, clampNumber, rotateToward, performanceNow } = require("./utils");
 const { areEntityAllies } = require("./relationships");
 const { computeStats } = require("./shipStats");
-const { createGeneratedPowerWiring } = require("./shipDesign");
 const { initComponentState, isComponentAlive, repairShipComponents } = require("./componentHealth");
 const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
 const { initShipHeat } = require("./heat");
@@ -43,9 +42,8 @@ const {
 } = require("./stationTemplates");
 
 function buildStationTemplate(design) {
-  const wiring = createGeneratedPowerWiring(design);
-  const stats = computeStats(design, wiring);
-  return Object.freeze({ design: design.map((m) => Object.freeze({ ...m })), wiring, stats });
+  const stats = computeStats(design);
+  return Object.freeze({ design: design.map((m) => Object.freeze({ ...m })), dataLinks: [], stats });
 }
 
 const homeStationTemplate = buildStationTemplate(buildHomeStationDesign());
@@ -380,7 +378,7 @@ function normalizeHomeStationDurability(station, target) {
 
 function createStationEntity(room, template, x, y, angle, stationType, team, ownerId, now) {
   const design = template.design.map((m) => ({ ...m }));
-  const wiring = template.wiring; // wiring is treated as immutable; component power builds per-entity runtime state
+  const dataLinks = template.dataLinks || [];
   const stats = template.stats;
   const station = {
     id: `st${room.nextEntityId++}`,
@@ -392,7 +390,7 @@ function createStationEntity(room, template, x, y, angle, stationType, team, own
     y,
     angle,
     design,
-    wiring,
+    dataLinks,
     stats,
     hp: stats.maxHp,
     maxHp: stats.maxHp,
@@ -546,8 +544,7 @@ function stationBuildSeconds(template) {
   const modules = Array.isArray(template?.design) ? template.design.length : 0;
   const perModule = Number(cfg.productionSecondsPerModule) || 0;
   const base = Number(cfg.productionBaseSeconds) || 0;
-  const costTerm = (Number(template?.stats?.unitCost) || 0) * (Number(cfg.productionCostSecondsMultiplier) || 0);
-  return Math.max(0.2, (base + modules * perModule + costTerm) / 2);
+  return Math.max(0.2, (base + modules * perModule) / 2);
 }
 
 function enqueueStationProduction(room, player, item, now) {
@@ -613,11 +610,11 @@ function round2(value) {
 // zone. In station mode they must use the same production queue as human
 // purchases so a bot fleet is gated by hangar throughput too.
 function enqueueBotProduction(room, player, now) {
-  const stats = player.stats || computeStats(player.design, player.wiring);
+  const stats = player.stats || computeStats(player.design);
   if (!(stats.unitCost > 0) || player.money < stats.unitCost) return null;
   const { canonicalBlueprintSignature, getOrCreateTemplate } = require("./shipTemplates");
-  const signature = canonicalBlueprintSignature(player.design, player.wiring);
-  const template = getOrCreateTemplate(player.id, player.design, player.wiring, stats, signature);
+  const signature = canonicalBlueprintSignature(player.design, player.dataLinks);
+  const template = getOrCreateTemplate(player.id, player.design, player.dataLinks, stats, signature);
   const result = enqueueStationProduction(room, player, {
     template,
     request: { requestId: `bot:${player.id}:${room.nextEntityId}`, combatStyle: player.combatStyle || "hold" },

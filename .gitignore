@@ -2,6 +2,8 @@
 public/client.js
 public/blueprint-fix.js
 public/vendor/
+public/component-balance.generated.json
+public/src/generatedBalance.js
 node_modules/
 .gemini/
 

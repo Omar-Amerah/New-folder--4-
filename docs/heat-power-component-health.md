@@ -28,7 +28,7 @@ Thermal states are runtime states, distinct from designer presentation bands. Ru
 
 ## Aggregate power
 
-Power allocation uses nominal live generator output through CRITICAL. NORMAL, WARM, HOT and CRITICAL generators supply their full nominal MW; OVERHEATED or destroyed generators supply zero MW until they cool below the recovery boundary or are repaired. Network-level available generation, load ratio, efficiency and component Power multipliers are refreshed from that effective source output without rebuilding Wiring topology.
+Power allocation uses nominal live generator output through CRITICAL. NORMAL, WARM, HOT and CRITICAL generators supply their full nominal MW; OVERHEATED or destroyed generators supply zero MW until they cool below the recovery boundary or are repaired. Aggregate available generation, demand, and per-component Power multipliers are refreshed from that effective source output.
 
 ## Battery and capacitor current behaviour
 
@@ -68,13 +68,13 @@ Focused commands:
 
 The broader suites (`test:unit`, `test:integration`, `test:protocol`, `test:browser`, `test:soak`) continue to cover shared parity, runtime protocol, production Chromium and long-running simulation behaviour.
 
-## Deferred wiring
+## Future extensions
 
 Section 8C does not redesign the Heat interface, rebalance heat, change HUD layout, alter arrow rendering or introduce production test-only controls. Future work may add deeper electrical storage modelling, richer telemetry dashboards or additional production browser scenarios without changing these snapshot and parity contracts.
 
 ## Section 8D cleanup policy
 
-Effective thermal capacity is a component's own base profile capacity, HP-scaled for Heat Sinks and reduced by any hosted Wiring displacement. There is no adjacency bonus: standing next to a Heat Sink never raises a component's capacity, so a sink's storage is only usable once heat is actually transferred into it. `recalculateEffectiveThermalCapacities(ship)` reapplies HP scaling whenever component lifecycle changes; a destroyed sink drops out of aggregate capacity and a repaired sink returns without creating heat. Stored component heat is clamped to the existing `capacity * 1.25` policy after capacity changes.
+Effective thermal capacity is a component's own base profile capacity, HP-scaled for Heat Sinks. There is no adjacency bonus: standing next to a Heat Sink never raises a component's capacity, so a sink's storage is only usable once heat is actually transferred into it. `recalculateEffectiveThermalCapacities(ship)` reapplies HP scaling whenever component lifecycle changes; a destroyed sink drops out of aggregate capacity and a repaired sink returns without creating heat. Stored component heat is clamped to the existing `capacity * 1.25` policy after capacity changes.
 
 Destroyed components retain stored heat in their component tuple, but authoritative whole-ship heat (`heatNow`, `heatMax`, pressure and hot counts) includes only living components. Client diagnostics therefore compare the same living set when component HP is available and report `insufficientData` instead of warning when HP is unavailable.
 

@@ -10,7 +10,6 @@ const { computeStats } = require("../src/server/shipStats");
 const { initComponentState, bumpComponentAliveRevision, markComponentDamageChanged } = require("../src/server/componentHealth");
 const { reallocateShipPower } = require("../src/server/componentPower");
 const HeatRules = require("../public/src/shared/heatRules");
-const WiringRules = require("../public/src/shared/wiringRules");
 const { RoomSpatialIndex, buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 const { resetRoomTelemetry, getRoomTelemetry } = require("../src/server/roomTelemetry");
 const { invalidateRelationshipCache } = require("../src/server/relationships");
@@ -51,16 +50,8 @@ function designFor(types) {
 
 function makeShip(id, ownerId, x, y, types) {
   const design = designFor(types.includes("reactor") ? types : [...types, "reactor"]);
-  let wiring;
-  try {
-    wiring = WiringRules.createGeneratedPowerWiring(design, PARTS);
-  } catch (_) {
-    // These fixtures intentionally overlap several aura footprints to exercise
-    // same-position priority ties; the runtime fixture does not test wiring
-    // validity, so use the existing unconnected-test fallback.
-    wiring = { power: [], data: [] };
-  }
-  const stats = computeStats(design, wiring);
+  const dataLinks = [];
+  const stats = computeStats(design, { dataLinks });
   const ship = {
     id,
     ownerId,
@@ -73,7 +64,7 @@ function makeShip(id, ownerId, x, y, types) {
     physicalRadius: Math.max(20, Number(stats.radius) || 20),
     design,
     designRevision: 1,
-    wiring,
+    dataLinks,
     stats,
     alive: true,
     removed: false,
@@ -227,12 +218,8 @@ function setHeat(ship, componentIndex, state) {
 
 function replaceDesign(ship, types) {
   ship.design = designFor(types.includes("reactor") ? types : [...types, "reactor"]);
-  try {
-    ship.wiring = WiringRules.createGeneratedPowerWiring(ship.design, PARTS);
-  } catch (_) {
-    ship.wiring = { power: [], data: [] };
-  }
-  ship.stats = computeStats(ship.design, ship.wiring);
+  ship.dataLinks = [];
+  ship.stats = computeStats(ship.design);
   ship.designRevision = (Number(ship.designRevision) || 1) + 1;
   initComponentState(ship);
   ship.componentHeatState = ship.design.map(() => HeatRules.STATE.NORMAL);

@@ -47,16 +47,8 @@ Income is calculated on the server from base income plus fully owned relays. Tea
 
 Capture rewards are awarded once when relay ownership flips; all players on the capturing team receive the configured capture bonus. Kill bounties are awarded once in `destroyShip` to the credited attacker when attacker and victim owners differ. Self-destruction and environmental/no-attacker destruction do not pay a bounty. Match rewards are finalized once by the winner finalizer and are display-only within the current room; they do not create long-term progression.
 
-## Catch-up Part 2 completion notes
+## Purchase and reward safety
 
 The purchase executor now snapshots and restores all persistent transaction state if spawning fails: created ships are removed from the room map and player array, entity IDs and effects are rewound, accounting fields (`money`, `spent`, `deployedFleetCost`, `shipsBuilt`) and `lastBuildError` are restored, and failed spawn requests do not enter the successful idempotency path. Request IDs remain bounded and replay-safe: identical successful replays return the original result without charging or spawning again, while conflicting reuse is rejected.
 
 Reward finalization is guarded in the reward layer so repeated calls for the same winner team do not add money/earned twice or replace reward history with a second calculation.
-
-## Completed Catch-up Parts 1–3
-
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.

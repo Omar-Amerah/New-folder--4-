@@ -1,6 +1,5 @@
 const { sanitizeRoomCode } = require('./validation');
-const { MAX_SEGMENTS_PER_KIND, POINT_MAX } = require('../../public/src/shared/wiringRules');
-const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_WIRE_SEGMENTS = MAX_SEGMENTS_PER_KIND;
+const MAX_TYPE = 32, MAX_STRING = 256, MAX_ARRAY = 64, MAX_DEPTH = 8, MAX_DESIGN = 256, MAX_SHIP_IDS = 64, MAX_COMBAT_SHIP_IDS = 360, MAX_DATA_LINKS = MAX_DESIGN * MAX_DESIGN;
 const TYPES = ['ping','join','ready','deploy','buyShip','setCombatStyle','setOrbitDirection','setMovementToggles','setDroneBayMode','setTelemetryFocus','setRallyPoint','resetRallyPoint','command','stop','rotate','destruct','setTeam','setColor','addBot','setRules','setName','startDesign','kick','restart','returnToLobby','restartLobby','closeLobby','leaveLobby','requestFullState'];
 // The five live stances plus the legacy names sanitizeCombatStyle() still maps
 // onto them. Deliberately permissive: an unrecognised style rejects the entire
@@ -33,17 +32,14 @@ function validShipIds(v){ return Array.isArray(v)&&v.length<=MAX_SHIP_IDS&&v.eve
 const SELECTION_WIDE_TYPES=new Set(['setCombatStyle','setOrbitDirection','setMovementToggles']);
 function validCombatShipIds(v){ return Array.isArray(v)&&v.length<=MAX_COMBAT_SHIP_IDS&&v.every(id); }
 function validDesign(v){ return Array.isArray(v)&&v.length>0&&v.length<=MAX_DESIGN&&v.every((e)=>isPlainObject(e)&&str(e.part||e.type||e.id||'x',128)); }
-// Wiring v2 separates canonical physical sections (which own tier) from
-// logical terminal connections (which reference ordered section ids).
-function validWireSection(s){return isPlainObject(s)&&Object.keys(s).every(k=>['id','x1','y1','x2','y2','tier'].includes(k))&&str(s.id,64)&&['x1','y1','x2','y2'].every(k=>int(s[k],0,POINT_MAX))&&(s.tier===undefined||str(s.tier,32));}
-function validWireConnection(c){return isPlainObject(c)&&Object.keys(c).every(k=>['sourceIndex','targetIndex','sectionIds'].includes(k))&&int(c.sourceIndex,0,MAX_DESIGN-1)&&int(c.targetIndex,0,MAX_DESIGN-1)&&Array.isArray(c.sectionIds)&&c.sectionIds.length>0&&c.sectionIds.length<=224&&c.sectionIds.every(id=>str(id,64));}
-function validWireKind(k){return isPlainObject(k)&&Object.keys(k).every(key=>['sections','connections'].includes(key))&&Array.isArray(k.sections)&&k.sections.length<=480&&k.sections.every(validWireSection)&&Array.isArray(k.connections)&&k.connections.length<=MAX_WIRE_SEGMENTS&&k.connections.every(validWireConnection);}
-// Optional Wiring v3 Power policy. Shape is validated loosely; the server always
-// re-normalizes it deterministically, so untrusted contents cannot leak through.
-function validPowerPolicy(p){return p===undefined||(isPlainObject(p)&&Object.keys(p).every(k=>['preset','customOrder'].includes(k))&&(p.preset===undefined||str(p.preset,32))&&(p.customOrder===undefined||(Array.isArray(p.customOrder)&&p.customOrder.length<=16&&p.customOrder.every(c=>str(c,32)))));}
-// Accept Wiring v2 and v3 payloads. Older v2 clients keep working (the server
-// migrates them up); v3 clients may include the Power policy.
-function validWiring(v){return isPlainObject(v)&&(v.version===2||v.version===3)&&Object.keys(v).every(k=>['version','power','data','powerPolicy'].includes(k))&&validWireKind(v.power)&&validWireKind(v.data)&&validPowerPolicy(v.powerPolicy);}
+function validDataLink(link){
+  return isPlainObject(link)
+    && Object.keys(link).every((key) => key === 'sourceIndex' || key === 'targetIndex')
+    && int(link.sourceIndex, 0, MAX_DESIGN - 1)
+    && int(link.targetIndex, 0, MAX_DESIGN - 1)
+    && link.sourceIndex !== link.targetIndex;
+}
+function validDataLinks(value){ return Array.isArray(value) && value.length <= MAX_DATA_LINKS && value.every(validDataLink); }
 function validRules(v){ return isPlainObject(v)&&Object.keys(v).length<=32; }
 function fail(code,message){ return {ok:false,code,message}; }
 function checkRequired(m, fields){ for(const f of fields) if(!Object.prototype.hasOwnProperty.call(m,f)) return fail('invalid-payload',`Missing required field: ${f}`); return null; }
@@ -53,8 +49,8 @@ function validateSpecific(m){
     case 'join': { const miss=checkRequired(m,['name','room','protocolVersion','capabilities']); if(miss)return miss; if(!str(m.name,32))return fail('invalid-payload','Invalid name'); if(m.room !== '' && (!str(m.room,64)||!sanitizeRoomCode(m.room)))return fail('invalid-room','Invalid room code'); if(!int(m.protocolVersion,1,99))return fail('incompatible-protocol','Invalid protocol version'); if(m.minProtocolVersion!==undefined&&!int(m.minProtocolVersion,1,99))return fail('incompatible-protocol','Invalid protocol range'); if(m.maxProtocolVersion!==undefined&&!int(m.maxProtocolVersion,1,99))return fail('incompatible-protocol','Invalid protocol range'); if(!Array.isArray(m.capabilities)||m.capabilities.length>16||m.capabilities.some((c)=>!str(c,32)))return fail('missing-capability','Invalid capabilities'); return null; }
     case 'ready': return null;
     case 'requestFullState': if(m.epoch!==undefined&&!int(m.epoch,0,Number.MAX_SAFE_INTEGER))return fail('invalid-resync-request','Invalid epoch'); if(m.sequence!==undefined&&!int(m.sequence,0,Number.MAX_SAFE_INTEGER))return fail('invalid-resync-request','Invalid sequence'); if(m.reason!==undefined&&(!str(m.reason,64)||!RESYNC.has(m.reason)))return fail('invalid-resync-request','Invalid resync reason'); return null;
-    case 'deploy': { const miss=checkRequired(m,['design']); if(miss)return miss; if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
-    case 'buyShip': { const miss=checkRequired(m,['requestId','design']); if(miss)return miss; if(!reqId(m.requestId))return fail('invalid-request','Invalid request id'); if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.count!==undefined&&!int(m.count,1,5))return fail('invalid-request','Invalid purchase quantity'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
+     case 'deploy': { const miss=checkRequired(m,['design']); if(miss)return miss; if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.dataLinks!==undefined&&!validDataLinks(m.dataLinks))return fail('invalid-data-links','Invalid Data Links payload'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
+     case 'buyShip': { const miss=checkRequired(m,['requestId','design']); if(miss)return miss; if(!reqId(m.requestId))return fail('invalid-request','Invalid request id'); if(!validDesign(m.design))return fail('invalid-design','Invalid design payload'); if(m.dataLinks!==undefined&&!validDataLinks(m.dataLinks))return fail('invalid-data-links','Invalid Data Links payload'); if(m.count!==undefined&&!int(m.count,1,5))return fail('invalid-request','Invalid purchase quantity'); if(m.combatStyle!==undefined&&!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); return null; }
     case 'setMovementToggles': { const miss=checkRequired(m,['toggles']); if(miss)return miss; if(!m.toggles||typeof m.toggles!=='object'||Array.isArray(m.toggles))return fail('invalid-toggles','Invalid movement toggles'); for(const k of Object.keys(m.toggles)){ if(!MOVEMENT_TOGGLES.has(k))return fail('invalid-toggles','Unknown movement toggle'); if(typeof m.toggles[k]!=='boolean')return fail('invalid-toggles','Movement toggles must be booleans'); } if(m.requestId!==undefined&&!reqId(m.requestId))return fail('invalid-request','Invalid request id'); const hasScope=Object.prototype.hasOwnProperty.call(m,'scope'); const hasShipIds=Object.prototype.hasOwnProperty.call(m,'shipIds'); if(hasScope&&hasShipIds)return fail('invalid-selection','Cannot specify both scope and shipIds for movement toggles'); if(hasScope&&m.scope!=='all-owned')return fail('invalid-selection','Invalid movement toggle scope'); if(hasShipIds&&!validCombatShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(!hasScope&&!hasShipIds)return fail('invalid-selection','Missing movement toggle target'); return null; }
     case 'setCombatStyle': { const miss=checkRequired(m,['combatStyle']); if(miss)return miss; if(!COMBAT.has(m.combatStyle))return fail('invalid-combat-style','Invalid combat style'); if(m.orbitDirection!==undefined&&!orbitDirection(m.orbitDirection))return fail('invalid-orbit-direction','Invalid orbit direction'); if(m.requestId!==undefined&&!reqId(m.requestId))return fail('invalid-request','Invalid request id'); const hasScope=Object.prototype.hasOwnProperty.call(m,'scope'); const hasShipIds=Object.prototype.hasOwnProperty.call(m,'shipIds'); if(hasScope&&hasShipIds)return fail('invalid-selection','Cannot specify both scope and shipIds for combat style'); if(hasScope&&m.scope!=='all-owned')return fail('invalid-selection','Invalid combat style scope'); if(hasShipIds&&!validCombatShipIds(m.shipIds))return fail('invalid-selection','Invalid ship selection'); if(!hasScope&&!hasShipIds)return fail('invalid-selection','Missing combat style target'); return null; }
     // A direction-only change. It is its own message rather than a second
@@ -87,18 +83,16 @@ function validateClientMessage(message){
   if(message.room!==undefined&&message.room!==''&&(typeof message.room!=='string'||!sanitizeRoomCode(message.room)))return fail('invalid-room','Invalid room code');
   if(message.shipIds!==undefined&&!SELECTION_WIDE_TYPES.has(message.type)&&!validShipIds(message.shipIds))return fail('invalid-selection','Invalid ship selection');
   if(message.design!==undefined&&!validDesign(message.design))return fail('invalid-design','Invalid design payload');
-  if(message.wiring!==undefined){
-    if(message.type!=='deploy'&&message.type!=='buyShip')return fail('invalid-payload','Wiring is only accepted on blueprint messages');
-    if(!validWiring(message.wiring))return fail('invalid-wiring','Invalid wiring payload');
-  }
-  // Design, wiring segment lists and combat-style ship lists may legitimately
+  if(message.dataLinks!==undefined && message.type!=='deploy' && message.type!=='buyShip')return fail('invalid-payload','Data Links are only accepted on blueprint messages');
+  // Design, Data Link lists and combat-style ship lists may legitimately
   // exceed the generic MAX_ARRAY bound; they are validated by type-specific
   // checks above.
-  const generic=message.wiring===undefined?{...message}:{...message,wiring:0};
+  const generic={...message};
   if(message.design!==undefined)generic.design=0;
+  if(message.dataLinks!==undefined)generic.dataLinks=0;
   if(SELECTION_WIDE_TYPES.has(message.type)&&message.shipIds!==undefined)generic.shipIds=0;
   if(!finiteNumbers(generic)||tooLongStrings(generic))return fail('invalid-payload','Message fields exceed protocol limits');
   const specific=validateSpecific(message); if(specific)return specific;
   return {ok:true,schema:SCHEMAS[message.type]};
 }
-module.exports={SCHEMAS,validateClientMessage,limits:{MAX_TYPE,MAX_STRING,MAX_ARRAY,MAX_DEPTH,MAX_DESIGN,MAX_SHIP_IDS,MAX_WIRE_SEGMENTS}};
+module.exports={SCHEMAS,validateClientMessage,limits:{MAX_TYPE,MAX_STRING,MAX_ARRAY,MAX_DEPTH,MAX_DESIGN,MAX_SHIP_IDS,MAX_DATA_LINKS}};

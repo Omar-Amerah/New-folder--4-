@@ -6,7 +6,6 @@ const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { getVisibilityState } = require("../src/server/visibility");
 
 const DESIGN = [
@@ -33,7 +32,7 @@ function attacker(style) {
     combatStyle: style,
     radius: stats.radius,
     design: DESIGN.map((module) => ({ ...module })),
-    wiring: createGeneratedPowerWiring(DESIGN),
+    dataLinks: [],
     stats
   };
   initComponentState(ship);

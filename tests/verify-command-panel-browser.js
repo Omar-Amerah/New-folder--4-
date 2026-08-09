@@ -64,7 +64,7 @@ async function setup(page) {
     };
     renderSideControls();
     updateEconomyUi();
-    return { expectedCost: computeStats(state.design, { wiring: state.wiring }).unitCost };
+    return { expectedCost: computeStats(state.design, { dataLinks: state.dataLinks }).unitCost };
   });
 }
 

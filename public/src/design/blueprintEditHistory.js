@@ -1,7 +1,7 @@
-// Runtime-only physical Blueprint Designer undo history.
+// Runtime-only Blueprint Designer undo history.
 
 import { state } from "../state.js";
-import { normalizeDesignDetailed, normalizeWiring } from "./blueprintStorage.js";
+import { normalizeDesignDetailed } from "./blueprintStorage.js";
 
 export const MAX_BLUEPRINT_EDIT_HISTORY = 20;
 
@@ -11,17 +11,11 @@ function cloneDesign(design) {
   return Array.isArray(design) ? design.map((part) => ({ ...part })) : [];
 }
 
-function cloneWiring(wiring, design) {
-  const rules = globalThis.WiringRules;
-  const cloned = rules?.cloneWiring ? rules.cloneWiring(wiring) : JSON.parse(JSON.stringify(wiring ?? null));
-  return normalizeWiring(cloned, design);
-}
-
 export function captureBlueprintEditSnapshot(source = state) {
   const design = cloneDesign(source.design);
   return {
     design,
-    wiring: cloneWiring(source.wiring, design),
+    dataLinks: Array.isArray(source.dataLinks) ? source.dataLinks.map((link) => ({ ...link })) : [],
     loadedEditorBlueprintId: source.loadedEditorBlueprintId ?? null
   };
 }
@@ -29,7 +23,7 @@ export function captureBlueprintEditSnapshot(source = state) {
 export function restoreBlueprintEditSnapshot(target = state, snapshot) {
   const design = cloneDesign(snapshot?.design);
   target.design = design;
-  target.wiring = cloneWiring(snapshot?.wiring, design);
+  target.dataLinks = Array.isArray(snapshot?.dataLinks) ? snapshot.dataLinks.map((link) => ({ ...link })) : [];
   target.loadedEditorBlueprintId = snapshot?.loadedEditorBlueprintId ?? null;
   return target;
 }
@@ -47,40 +41,13 @@ function canonicalDesign(design) {
   }));
 }
 
-function canonicalWiring(wiring, design) {
-  const normalized = normalizeWiring(wiring, design);
-  const bucket = (value) => ({
-    sections: (Array.isArray(value?.sections) ? value.sections : []).map((section) => ({
-      id: String(section.id || ""),
-      x1: Math.trunc(Number(section.x1)),
-      y1: Math.trunc(Number(section.y1)),
-      x2: Math.trunc(Number(section.x2)),
-      y2: Math.trunc(Number(section.y2)),
-      tier: section.tier || "standard"
-    })),
-    connections: (Array.isArray(value?.connections) ? value.connections : []).map((connection) => ({
-      sourceIndex: Math.trunc(Number(connection.sourceIndex)),
-      targetIndex: Math.trunc(Number(connection.targetIndex)),
-      sectionIds: Array.isArray(connection.sectionIds) ? connection.sectionIds.map(String) : []
-    }))
-  });
-  const policy = normalized.powerPolicy && typeof normalized.powerPolicy === "object" ? normalized.powerPolicy : {};
-  return {
-    version: normalized.version || 3,
-    power: bucket(normalized.power),
-    data: bucket(normalized.data),
-    powerPolicy: {
-      preset: String(policy.preset || "balanced"),
-      customOrder: Array.isArray(policy.customOrder) ? policy.customOrder.map(String) : []
-    }
-  };
-}
-
 export function canonicalBlueprintEditSnapshot(snapshot) {
   const design = canonicalDesign(snapshot?.design);
   return {
     design,
-    wiring: canonicalWiring(snapshot?.wiring, design),
+    dataLinks: (Array.isArray(snapshot?.dataLinks) ? snapshot.dataLinks : [])
+      .map((link) => ({ sourceIndex: Math.trunc(Number(link.sourceIndex)), targetIndex: Math.trunc(Number(link.targetIndex)) }))
+      .sort((a, b) => a.sourceIndex - b.sourceIndex || a.targetIndex - b.targetIndex),
     loadedEditorBlueprintId: snapshot?.loadedEditorBlueprintId ?? null
   };
 }

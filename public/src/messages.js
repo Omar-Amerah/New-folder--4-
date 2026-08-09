@@ -3,10 +3,9 @@
 import { state } from "./state.js";
 import { dom } from "./ui/dom.js";
 import { applyServerParts } from "./design/parts.js";
-import { normalizeDesign, normalizeWiring, defaultWiring } from "./design/blueprintStorage.js";
+import { normalizeDesign } from "./design/blueprintStorage.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
 import { closeBlueprintDesigner } from "./ui/designerScreenUi.js";
-import { resetWiringEditorState } from "./ui/wiringUi.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderSavedDesigns } from "./ui/savedBlueprintsUi.js";
@@ -23,8 +22,7 @@ import {
   updateSelectionCommandUi,
   updateSelectedShipVitals,
   updateSelectedShipDamageUi,
-  updateSelectedShipHeatUi,
-  updateSelectedShipPowerUi
+  updateSelectedShipHeatUi
 } from "./ui/sidePanelUi.js";
 import {
   updateRelayStatus,
@@ -89,7 +87,6 @@ function presentationHandlers() {
     updateSelectedShipVitals,
     updateSelectedShipDamageUi,
     updateSelectedShipHeatUi,
-    updateSelectedShipPowerUi,
     updateLobbyVisibility: lobbyUi.updateLobbyVisibility,
     updateLobbyRules: lobbyUi.updateLobbyRules,
     updateLobbyPlayerRows: lobbyUi.updateLobbyPlayerRows,
@@ -192,7 +189,7 @@ export function synchronizePhasePresentation(previousPhase, nextPhase) {
 const protocolReportedFor = new Set();
 export function checkServerProtocol(info) {
   const protocol = globalThis.MFAProtocol || {};
-  const maxSupported = protocol.MAX_SUPPORTED_PROTOCOL ?? 2;
+  const maxSupported = protocol.MAX_SUPPORTED_PROTOCOL ?? 6;
   const anglesMin = protocol.WEAPON_ANGLES_PROTOCOL ?? 2;
   const version = Number.isFinite(Number(info?.protocolVersion)) ? Number(info.protocolVersion) : null;
   const backendSha = info?.buildSha || "unknown";
@@ -302,8 +299,6 @@ export function handleServerMessage(message) {
     state.connectionId = message.connectionId || message.id;
     applyServerParts(message.parts || {});
     state.design = normalizeDesign(state.design);
-    state.wiring = normalizeWiring(state.wiring, state.design);
-    resetWiringEditorState();
     invalidateHeatAnalysisCache();
     state.hoveredHeatPartIndex = null;
     renderPalette();
@@ -315,7 +310,7 @@ export function handleServerMessage(message) {
     state.rules = { ...state.rules, ...(message.economy || {}) };
     if (!localStorage.getItem(LOCAL_DESIGN_KEY)) {
       state.design = normalizeDesign(message.defaultDesign || state.design);
-      state.wiring = normalizeWiring(message.defaultWiring || defaultWiring(), state.design);
+      state.dataLinks = [];
       invalidateHeatAnalysisCache();
       state.hoveredHeatPartIndex = null;
       renderBuildGrid();

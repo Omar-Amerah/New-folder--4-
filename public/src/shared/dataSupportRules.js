@@ -24,28 +24,8 @@
     && value >= 0 && value < modules.length && predicate(modules[value], value);
   const uniqueValidIndices = (values, modules, predicate) => [...new Set((Array.isArray(values) ? values : [])
     .filter((index) => isValidComponentIndex(index, modules, predicate)))].sort(numericSort);
-  function fallbackNetworkId(sectionIds, sourceIndices, weaponIndices) {
-    const encode = (prefix, values) => `${prefix}${values.length ? values.join(".") : "none"}`;
-    return `data-${encode("sec-", sectionIds)}-${encode("src-", sourceIndices)}-${encode("wpn-", weaponIndices)}`;
-  }
-
   function isDataSupportSource(type) { return Object.prototype.hasOwnProperty.call(DATA_SOURCE_INFO, type); }
   function supportDescriptorForType(type) { const value = DATA_SOURCE_INFO[type]; return value ? { ...value } : null; }
-  function automaticDataNetworks(design, catalogue) {
-    const modules = modulesOf(design);
-    const sourceIndices = modules.map((module, index) => isDataSupportSource(module?.type) ? index : -1).filter((index) => index >= 0);
-    const weaponIndices = modules.map((module, index) => isWeapon(module, catalogue) ? index : -1).filter((index) => index >= 0);
-    if (!sourceIndices.length && !weaponIndices.length) return [];
-    return [{
-      id: "automatic-data-links",
-      label: "Automatic Data Links",
-      mode: "automatic",
-      sourceIndices,
-      weaponIndices,
-      componentIndices: [...new Set([...sourceIndices, ...weaponIndices])].sort(numericSort),
-      sectionIds: []
-    }];
-  }
   function nominalSupportBudget(type, catalogue) {
     const descriptor = DATA_SOURCE_INFO[type];
     if (!descriptor) return 0;
@@ -63,84 +43,6 @@
     return { connectedWeaponIndices: recipients, recipientCount: recipients.length, bonusPerWeapon: recipients.length ? effectiveBudget / recipients.length : 0 };
   }
 
-  function analyzeDataSupport(design, dataNetworks, catalogue, options = {}) {
-    const modules = modulesOf(design);
-    const rawNetworks = Array.isArray(dataNetworks) ? dataNetworks : [];
-    const normalized = rawNetworks.map((network) => {
-      const sourceIndices = uniqueValidIndices(network?.sourceIndices, modules, (module) => isDataSupportSource(module?.type));
-      const weaponIndices = uniqueValidIndices(network?.weaponIndices, modules, (module) => isWeapon(module, catalogue));
-      const sectionIds = [...new Set((Array.isArray(network?.sectionIds) ? network.sectionIds : []).filter((id) => typeof id === "string"))].sort(stringSort);
-      const identity = typeof network?.id === "string" && network.id ? network.id : fallbackNetworkId(sectionIds, sourceIndices, weaponIndices);
-      return { id: identity, label: typeof network?.label === "string" ? network.label : identity, sourceIndices, weaponIndices, sectionIds };
-    }).filter((network) => network.sourceIndices.length || network.weaponIndices.length)
-      .sort((a, b) => stringSort(a.sectionIds.join(";"), b.sectionIds.join(";")) || stringSort(a.id, b.id));
-
-    const parent = normalized.map((_, index) => index);
-    const find = (index) => parent[index] === index ? index : (parent[index] = find(parent[index]));
-    const union = (a, b) => { const x = find(a); const y = find(b); if (x !== y) parent[Math.max(x, y)] = Math.min(x, y); };
-    const owners = new Map();
-    normalized.forEach((network, index) => [...network.sourceIndices.map((i) => `s:${i}`), ...network.weaponIndices.map((i) => `w:${i}`)].forEach((key) => {
-      if (owners.has(key)) union(index, owners.get(key)); else owners.set(key, index);
-    }));
-    const grouped = new Map();
-    normalized.forEach((network, index) => { const root = find(index); if (!grouped.has(root)) grouped.set(root, []); grouped.get(root).push(network); });
-    const warnings = [];
-    const networks = [...grouped.values()].map((members) => {
-      const sourceIndices = [...new Set(members.flatMap((item) => item.sourceIndices))].sort(numericSort);
-      const weaponIndices = [...new Set(members.flatMap((item) => item.weaponIndices))].sort(numericSort);
-      const sectionIds = [...new Set(members.flatMap((item) => item.sectionIds))].sort(stringSort);
-      const ids = members.map((item) => item.id).sort(stringSort);
-      if (members.length > 1) warnings.push({ code: "merged-overlapping-data-domains", networkIds: ids });
-      return { id: members.length === 1 ? members[0].id : fallbackNetworkId(sectionIds, sourceIndices, weaponIndices), label: members[0].label, sourceIndices, weaponIndices,
-        componentIndices: [...new Set([...sourceIndices, ...weaponIndices])].sort(numericSort), sectionIds };
-    }).sort((a, b) => stringSort(a.id, b.id));
-    networks.forEach((network, index) => { network.label = network.label || `Data Network ${String.fromCharCode(65 + index)}`; });
-
-    const domainBySource = new Map(); const domainByWeapon = new Map();
-    networks.forEach((network) => { network.sourceIndices.forEach((i) => domainBySource.set(i, network)); network.weaponIndices.forEach((i) => domainByWeapon.set(i, network)); });
-    const allSources = modules.map((module, index) => isDataSupportSource(module?.type) ? index : -1).filter((i) => i >= 0);
-    const allWeapons = modules.map((module, index) => isWeapon(module, catalogue) ? index : -1).filter((i) => i >= 0);
-    const sourceAllocations = allSources.map((sourceIndex) => {
-      const module = modules[sourceIndex]; const part = partFor(catalogue, module.type); const network = domainBySource.get(sourceIndex) || null;
-      const connectedWeaponIndices = network ? [...network.weaponIndices] : [];
-      const eligible = typeof options.isSourceEligible === "function" ? Boolean(options.isSourceEligible(sourceIndex, module, part, network)) : true;
-      const eligibleWeaponIndices = connectedWeaponIndices.filter((index) => typeof options.isWeaponEligible !== "function" || options.isWeaponEligible(index, modules[index], partFor(catalogue, modules[index].type), network));
-      const rawMultiplier = typeof options.sourceMultiplier === "function" ? options.sourceMultiplier(sourceIndex, module, part, network) : undefined;
-      const sourceMultiplier = normalizeSourceMultiplier(rawMultiplier); const nominalBudget = nominalSupportBudget(module.type, catalogue);
-      const effectiveBudget = eligible ? nominalBudget * sourceMultiplier : 0;
-      const allocation = allocateSourceBudget({ effectiveBudget }, eligibleWeaponIndices);
-      const descriptor = DATA_SOURCE_INFO[module.type];
-      return { sourceIndex, sourceType: module.type, networkId: network?.id || null, networkLabel: network?.label || null, ...descriptor,
-        nominalBudget, sourceMultiplier, effectiveBudget, connectedWeaponIndices, eligibleWeaponIndices: [...allocation.connectedWeaponIndices],
-        recipientCount: allocation.recipientCount, bonusPerWeapon: allocation.bonusPerWeapon,
-        status: !eligible || sourceMultiplier === 0 ? "disabled" : allocation.recipientCount ? "active" : "idle-no-weapons" };
-    });
-    // Index allocations once. The previous weapon-side scan searched every
-    // source and then linearly searched each source's recipients, which became
-    // cubic on large Data networks and multiplied the cost of failure analysis.
-    const allocationsByWeapon = new Map();
-    sourceAllocations.forEach((source) => source.eligibleWeaponIndices.forEach((weaponIndex) => {
-      if (!allocationsByWeapon.has(weaponIndex)) allocationsByWeapon.set(weaponIndex, []);
-      allocationsByWeapon.get(weaponIndex).push(source);
-    }));
-    const weaponBonuses = allWeapons.map((weaponIndex) => {
-      const module = modules[weaponIndex]; const network = domainByWeapon.get(weaponIndex) || null;
-      const eligible = typeof options.isWeaponEligible !== "function" || options.isWeaponEligible(weaponIndex, module, partFor(catalogue, module.type), network);
-      const contributions = (allocationsByWeapon.get(weaponIndex) || []).map((source) => ({
-        sourceIndex: source.sourceIndex, sourceType: source.sourceType, bonusField: source.bonusField, amount: source.bonusPerWeapon
-      })).sort((a, b) => a.sourceIndex - b.sourceIndex);
-      const totals = { rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0 };
-      contributions.forEach((item) => { totals[item.bonusField] += item.amount; });
-      return { weaponIndex, weaponType: module.type, networkId: network?.id || null, networkLabel: network?.label || null, ...totals,
-        sourceIndices: contributions.map((item) => item.sourceIndex), contributions,
-        status: !eligible ? "ineligible" : !network ? "disconnected" : contributions.some((item) => item.amount !== 0) ? "supported" : "connected-unsupported" };
-    });
-    const sourceAllocationByIndex = Array(modules.length).fill(null); sourceAllocations.forEach((item) => { sourceAllocationByIndex[item.sourceIndex] = { ...item, connectedWeaponIndices: [...item.connectedWeaponIndices], eligibleWeaponIndices: [...item.eligibleWeaponIndices] }; });
-    const weaponBonusByIndex = Array(modules.length).fill(null); weaponBonuses.forEach((item) => { weaponBonusByIndex[item.weaponIndex] = { ...item, sourceIndices: [...item.sourceIndices], contributions: item.contributions.map((entry) => ({ ...entry })) }; });
-    return { version: 1, networkCount: networks.length, activeSourceCount: sourceAllocations.filter((item) => item.status === "active").length,
-      supportedWeaponCount: weaponBonuses.filter((item) => item.status === "supported").length, networks, sources: sourceAllocations, weapons: weaponBonuses,
-      sourceAllocations, weaponBonuses, sourceAllocationByIndex, weaponBonusByIndex, warnings };
-  }
   function weaponSupportForIndex(analysis, weaponIndex) {
     const value = analysis?.weaponBonusByIndex?.[weaponIndex];
     return value ? { ...value, sourceIndices: [...value.sourceIndices], contributions: value.contributions.map((item) => ({ ...item })) }
@@ -277,13 +179,13 @@
     const sourceAllocationByIndex = Array(modules.length).fill(null); sourceAllocations.forEach((item) => { sourceAllocationByIndex[item.sourceIndex] = { ...item, directWeaponIndices: [...item.directWeaponIndices], eligibleWeaponIndices: [...item.eligibleWeaponIndices] }; });
     const weaponBonusByIndex = Array(modules.length).fill(null); weaponBonuses.forEach((item) => { weaponBonusByIndex[item.weaponIndex] = { ...item, sourceIndices: [...item.sourceIndices], contributions: item.contributions.map((entry) => ({ ...entry })) }; });
     const links = [...bySource].flatMap(([sourceIndex, targets]) => targets.map((targetIndex) => ({ sourceIndex, targetIndex }))).sort((a, b) => a.sourceIndex - b.sourceIndex || a.targetIndex - b.targetIndex);
-    return { version: 1, topologyMode: "direct-links", linkCount: links.length, activeSourceCount: sourceAllocations.filter((item) => item.status === "active").length,
+    return { version: 1, linkCount: links.length, activeSourceCount: sourceAllocations.filter((item) => item.status === "active").length,
       supportedWeaponCount: weaponBonuses.filter((item) => item.status === "supported").length, links, sources: sourceAllocations, weapons: weaponBonuses,
       sourceAllocations, weaponBonuses, sourceAllocationByIndex, weaponBonusByIndex, warnings: [] };
   }
 
   // isWeapon is part of the contract: the Data Links editor needs the same
   // "can this component receive support?" test the allocator uses.
-  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, isWeapon, supportDescriptorForType, automaticDataNetworks, nominalSupportBudget,
-    normalizeSourceMultiplier, allocateSourceBudget, analyzeDataSupport, analyzeDirectDataSupport, normalizeDataLinks, validateDataLinks, weaponSupportForIndex, effectiveWeaponProfile };
+  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, isWeapon, supportDescriptorForType, nominalSupportBudget,
+    normalizeSourceMultiplier, allocateSourceBudget, analyzeDirectDataSupport, normalizeDataLinks, validateDataLinks, weaponSupportForIndex, effectiveWeaponProfile };
 }));

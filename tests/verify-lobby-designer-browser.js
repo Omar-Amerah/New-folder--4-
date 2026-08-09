@@ -89,7 +89,7 @@ async function run() {
     ]);
     const analysis = analyseBlueprintOnce({
       blueprint: state.design,
-      wiring: state.wiring,
+      dataLinks: state.dataLinks,
       combatStyle: state.combatStyle || "hold"
     });
     return {
@@ -117,7 +117,7 @@ async function run() {
       import("/src/ui/savedBlueprintsUi.js")
     ]);
     const before = state.savedDesigns.length;
-    const ok = await saveCurrentDesignAsCopy({ skipWiringWarning: true });
+    const ok = await saveCurrentDesignAsCopy();
     return { before, after: state.savedDesigns.length, ok };
   });
   assert.equal(savedCount.ok, true, "saving a blueprint from the lobby should succeed");

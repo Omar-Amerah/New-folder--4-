@@ -3,8 +3,7 @@
 // Owner and allied viewers may receive full internal ship detail. Enemy viewers
 // receive only a safe public visual representation (the design needed to render
 // the hull and weapons) plus externally observable dynamics — never per-component
-// HP/Heat, Power allocation, power status/thermal, wiring, switchgear or
-// protection. Redaction holds for full AND compact snapshots, survives reconnect
+// HP/Heat, Power allocation, or power status/thermal. Redaction holds for full AND compact snapshots, survives reconnect
 // / forced resync, and the client merge can never restore private fields cached
 // from an earlier full-detail snapshot.
 
@@ -17,9 +16,7 @@ const {
 } = require("../src/server/snapshots");
 
 const PRIVATE_FIELDS = [
-  "componentPower", "powerStatus", "powerThermal", "powerRevision", "wiringRevision",
-  "wiringStatus", "switchgear", "powerProtection", "powerProtectionRevision",
-  "powerWiring", "powerWiringRevision", "powerWiringRuntime",
+  "componentPower", "powerStatus", "powerThermal", "powerRevision", "powerRuntimeRevision",
   "chp", "chpD", "componentHeat", "componentHeatD"
 ];
 
@@ -47,8 +44,8 @@ function makeShip(id, ownerId) {
     design: [{ type: "core", x: 7, y: 7, rotation: 0 }, { type: "engine", x: 7, y: 8, rotation: 0 }],
     componentHp: [10, 20], componentMaxHp: [10, 20], componentHeat: [1, 2], componentHeatState: [0, 0],
     componentThermals: [{ capacity: 10 }, { capacity: 20 }],
-    componentPower: { byComponentIndex: [{ state: "ok", networkId: 1, operationalMultiplier: 1 }, { state: "ok", networkId: 1, operationalMultiplier: 1 }] },
-    powerStatus: {}, powerRevision: 1, wiringRevision: 1, powerProtectionRevision: 1,
+    componentPower: { byComponentIndex: [{ state: "ok", operationalMultiplier: 1 }, { state: "ok", operationalMultiplier: 1 }] },
+    powerStatus: {}, powerRevision: 1, powerRuntimeRevision: 1,
     dirtyComponents: new Set(), dirtyHeat: new Set()
   };
 }
@@ -107,7 +104,7 @@ function shipEntry(snapshot, id) {
   assert.deepStrictEqual(entry.chpVisual, [10, 10], "enemy receives only quantized visual component condition");
   assert.ok(entry.hp !== undefined && entry.shield !== undefined && entry.radius !== undefined, "enemy keeps observable combat fields");
   assertNoPrivateFields(entry, "enemy full snapshot");
-  console.log("PASS: enemy receives no private component/Heat/Power/wiring fields in a full snapshot");
+  console.log("PASS: enemy receives no private component/Heat/Power fields in a full snapshot");
 })();
 
 // 4. Compact snapshots remain redacted for enemies (dirty component/heat state
@@ -154,7 +151,7 @@ function shipEntry(snapshot, id) {
       id: "shipA", detail: "full",
       design: [{ type: "core" }], chp: [10, 20], componentHeat: [[1, 0, 0, 10], [2, 0, 0, 20]],
       chpVisual: [10, 4],
-      componentPower: [["ok", 1, 1]], powerStatus: {}, switchgear: [], powerProtection: {}
+      componentPower: [["ok", 1]], powerStatus: {}
     }]
   };
   // Next compact snapshot: same ship now redacted (enemy), private fields omitted.

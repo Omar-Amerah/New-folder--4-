@@ -5,6 +5,7 @@ const { TEAM_COLORS, MAP_CLEARANCES, WORLD } = require("./config");
 const { validateRelaySpawnGeometry } = require("./mapFairness");
 const DEFAULT_SHIP_RADIUS = 46;
 const STARTER_SPACING = 96;
+const SPAWN_RESERVATION_HULL_COUNT = 1;
 const MAX_FALLBACK_ATTEMPTS = 72;
 // Four world units is enough to avoid floating-point re-contact without
 // turning launch placement into an artificial wide-spread formation.
@@ -431,7 +432,7 @@ function getPlannedSpawn(room, playerId) {
 }
 
 function planKey(room) {
-  return JSON.stringify({ seed: room.mapSeed || room.map?.seed || 0, mode: room.rules?.gameMode, world: [room.world?.width, room.world?.height], ids: [...room.players.values()].map((p) => [p.id, p.team, p.shipCap, p.stats?.radius, p.stats?.fleetCount, p.isBot]).sort() });
+  return JSON.stringify({ seed: room.mapSeed || room.map?.seed || 0, mode: room.rules?.gameMode, world: [room.world?.width, room.world?.height], ids: [...room.players.values()].map((p) => [p.id, p.team, p.stats?.radius, p.isBot]).sort() });
 }
 
 function invalidateSpawnPlan(room) {
@@ -444,8 +445,7 @@ function invalidateSpawnPlan(room) {
 
 function reservationRadius(player, options = {}) {
   const radius = Math.max(DEFAULT_SHIP_RADIUS, options.shipRadius || player.stats?.radius || DEFAULT_SHIP_RADIUS);
-  const count = Math.max(1, Math.min(30, options.starterQuantity || player.stats?.fleetCount || 1));
-  return Math.ceil(radius + STARTER_SPACING * Math.sqrt(count));
+  return Math.ceil(radius + STARTER_SPACING * Math.sqrt(SPAWN_RESERVATION_HULL_COUNT));
 }
 
 function preferredSlots(world, solo, player, players, seed, radius, edgeRadius = radius) {

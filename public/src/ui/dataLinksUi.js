@@ -1,6 +1,6 @@
 // Data Links view: connects Data-support sources to weapons as logical links,
-// drawn as dashed lines. There is no cable and no routing : a link is just a
-// (source, weapon) pair, so this owns no wiring state or wiring DOM.
+// drawn as dashed lines. A link is just an explicit (source, weapon) pair, so
+// this owns no route state.
 //
 // Two ways to connect, both hit-testing the component's whole footprint:
 //   - click a source to arm it, then click weapons to toggle each link
@@ -15,7 +15,7 @@ import { persistDesign } from "../design/blueprintStorage.js";
 import { getOccupiedCells } from "../design/footprint.js";
 // Link edits change predicted weapon stats, so the ship summary is re-rendered
 // alongside the overlay. designerUi imports this module too; the cycle is the
-// same shape the wiring editor already uses and resolves at call time.
+// same shape the designer already uses and resolves at call time.
 import { renderLocalStats } from "./designerUi.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -32,7 +32,7 @@ function svgEl(tag, attrs = {}) {
   return el;
 }
 // Footprint geometry in grid units. Derived from the component catalogue so
-// Data Links needs nothing from the wiring rules.
+// Data Links needs only the component catalogue and footprint geometry.
 function componentCells(index) {
   const module = state.design?.[index];
   if (!module) return [];
@@ -337,7 +337,7 @@ const WARNING_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none
 // One cached prediction backs every Data presentation, so the grid overlay and
 // the analysis tab can never report different numbers for the same blueprint.
 export function currentDataSupportAnalysis(options = {}) {
-  return getCachedDesignDataSupport(state.design, state.wiring, PART_STATS, {
+  return getCachedDesignDataSupport(state.design, PART_STATS, {
     thermalLoadMode: state.thermalLoadMode || "full",
     dataLinks: state.dataLinks,
     ...options
@@ -478,7 +478,7 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
 
   body += `<section class="data-panel-section data-inspection-card" data-data-inspector="overview">
     <div class="data-card-header">
-      <span class="data-network-title">DATA SUPPORT</span>
+      <span class="data-support-title">DATA SUPPORT</span>
       <span class="data-badge ${statusClass}">${escapeHtml(statusText)}</span>
     </div>
     <div class="data-summary-stats" data-data-inspector="status">
@@ -486,7 +486,7 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
       <div class="data-stat-cell"><span class="data-stat-label">Weapons</span><strong class="data-stat-value">${supportedWeapons.length} / ${weapons.length} supported</strong></div>
       <div class="data-stat-cell"><span class="data-stat-label">Delivered</span><strong class="data-stat-value ${deliveredSummaryText === "None" ? "data-stat-none" : "data-stat-active"}">${escapeHtml(deliveredSummaryText)}</strong></div>
     </div>
-    <div class="data-infra-note">Each Data source divides one fixed support budget across its linked weapons, so linking more weapons gives every weapon a smaller share.</div>
+    <div class="data-link-note">Each Data source divides one fixed support budget across its linked weapons, so linking more weapons gives every weapon a smaller share.</div>
   </section>`;
 
   body += `<div class="data-components-card" data-data-inspector="components-card">
@@ -523,13 +523,13 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
     body += `</div>`;
   }
 
-  body += `<details class="data-details" data-data-inspector="infrastructure">
-    <summary aria-controls="data-infra-content"><span>Link details</span></summary>
-    <div id="data-infra-content" class="data-infra-details">
-      <div class="data-infra-row"><span>Direct links</span><strong>${(analysis?.links || []).length}</strong></div>
-      <div class="data-infra-row"><span>Sources fitted</span><strong>${sources.length}</strong></div>
-      <div class="data-infra-row"><span>Weapons fitted</span><strong>${weapons.length}</strong></div>
-      <div class="data-infra-note">Data links are free and weightless: they add no cost, no mass and no heat, and have no capacity or overload limit.</div>
+  body += `<details class="data-details" data-data-inspector="link-details">
+    <summary aria-controls="data-link-details"><span>Link details</span></summary>
+    <div id="data-link-details" class="data-link-details">
+      <div class="data-link-row"><span>Direct links</span><strong>${(analysis?.links || []).length}</strong></div>
+      <div class="data-link-row"><span>Sources fitted</span><strong>${sources.length}</strong></div>
+      <div class="data-link-row"><span>Weapons fitted</span><strong>${weapons.length}</strong></div>
+      <div class="data-link-note">Data links are free and weightless: they add no cost, no mass and no heat.</div>
     </div>
   </details>`;
 
@@ -546,7 +546,7 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
 }
 
 // The Blueprint's Data analysis tab is the only host for these cards. It owns
-// no wiring DOM, so Data support keeps working once wiring is removed.
+// no route DOM, so Data support remains a standalone logical editor.
 // `thermalAnalysis` is the designer's already-computed prediction, passed in so
 // the tab does not run a second thermal pass.
 export function renderDataAnalysisPanel(host = dom.dataAnalysisSummary, { thermalAnalysis, selectedLinkKey } = {}) {
@@ -587,7 +587,7 @@ function isDataLinksWeaponTargetValid(sourceIndex, targetIndex) {
 // the design is persisted and the whole designer presentation is refreshed.
 function commitDataLinks(next) {
   state.dataLinks = rules().normalizeDataLinks(state.design, next, PART_STATS);
-  persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
+  persistDesign(state.design, state.dataLinks, state.combatStyle);
   refreshDataLinksPresentation();
   renderLocalStats();
 }

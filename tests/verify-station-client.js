@@ -35,7 +35,6 @@ globalThis.document = globalThis.document || {
   visibilityState: 'visible'
 };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {} };
-await import('../public/src/shared/featureFlags.js');
 
 // --- Lobby control -----------------------------------------------------------
 const html = fs.readFileSync('public/index.html', 'utf8');

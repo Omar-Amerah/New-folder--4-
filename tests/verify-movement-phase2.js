@@ -24,7 +24,6 @@ const {
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { heatAdjustedMovementStats } = require("../src/server/movementCapability");
 const { REST_SPEED } = require("../src/server/movementTuning");
 
@@ -53,7 +52,7 @@ function makeShip(x, y, angle = 0) {
     radius: stats.radius,
     physicalRadius: Math.max(18, stats.radius * 0.56),
     design: DESIGN.map((part) => ({ ...part })),
-    wiring: createGeneratedPowerWiring(DESIGN),
+    dataLinks: [],
     stats,
     combatStyle: "hold"
   };

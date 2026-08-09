@@ -33,7 +33,6 @@ const { validateClientMessage } = require("../src/server/clientSchemas");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower, effectiveShieldStats } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
 const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 const { getMaxEffectiveWeaponRange } = require("../src/server/componentData");
@@ -86,7 +85,7 @@ function makeShip(x, y, angle = 0, design = GUNSHIP, ownerId = "p1", toggles = n
     radius: stats.radius,
     physicalRadius: computeDesignCollisionRadius(design, stats),
     design: design.map((part) => ({ ...part })),
-    wiring: createGeneratedPowerWiring(design),
+    dataLinks: [],
     stats,
     combatStyle: "hold",
     weaponAngles: [],

@@ -18,7 +18,7 @@
 // the anchor tile: a mirrored component covers exactly the cells it covered
 // before, so pressing Flip can never move a component or change its footprint.
 // Because every catalogue footprint is a full W x H rectangle, the mirror is
-// cell-set invariant today : occupancy, connectivity, wiring and heat adjacency
+// cell-set invariant today : occupancy, connectivity and heat adjacency
 // therefore read the same cells whether or not they pass the flag. That is a
 // property of rectangular footprints, not a licence to skip the flag: any future
 // non-rectangular shape mask must be mirrored through transformLocalOffset()

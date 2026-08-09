@@ -4,7 +4,7 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { formatSpeed } from "../design/statFormatting.js";
-import { normalizeDesign, normalizeDesignDetailed, normalizeWiring, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
+import { normalizeDesign, normalizeDesignDetailed, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
 import { PART_STATS } from "../design/parts.js";
 import { notify } from "./toastUi.js";
 import { renderLoadoutManager } from "./purchaseUi.js";
@@ -16,10 +16,8 @@ import { playerMap } from "./matchStatusUi.js";
 import { loadPreferences } from "../localPreferences.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats, clearPhysicalBlueprintHistory, handleBlueprintConfirmModalAction, closeBlueprintConfirmModalIfPending } from "./designerUi.js";
 import { confirmPendingDesignerClose, cancelPendingDesignerClose } from "./designerScreenUi.js";
-import { resetWiringEditorState, wiringReadinessWarning } from "./wiringUi.js";
 import { analyseBlueprintOnce, analyseSavedBlueprintOnce } from "../design/blueprintAnalysisCache.js";
 let modalReturnFocus = null;
-let pendingUnwiredSave = false;
 let persistSavedDesignsImpl = persistSavedDesigns;
 let persistDesignImpl = persistDesign;
 
@@ -43,8 +41,7 @@ export function previewColor() {
 // Dirty detection compares canonical, order-insensitive keys rather than raw
 // JSON.stringify output. Stringifying the arrays reported "unsaved changes" for
 // edits that changed nothing about the ship: a replaced part lands at the end of
-// the modules array, wiring sections come back in a different order after an
-// undo, and object key order differs between freshly placed parts and parts
+// the modules array, and object key order differs between freshly placed parts
 // rehydrated from storage.
 
 function moduleIdentity(part) {
@@ -55,27 +52,9 @@ function moduleKey(part) {
   return `${moduleIdentity(part)},${part?.rotation || 0},${part?.flipped === true ? "m" : ""},${part?.droneType || ""}`;
 }
 
-function sectionKey(section) {
-  const a = `${Math.trunc(Number(section?.x1))},${Math.trunc(Number(section?.y1))}`;
-  const b = `${Math.trunc(Number(section?.x2))},${Math.trunc(Number(section?.y2))}`;
-  // A wire drawn end-to-start is the same wire.
-  const [first, second] = a <= b ? [a, b] : [b, a];
-  return `${first}|${second}|${section?.tier || "standard"}`;
-}
-
-function wiringKindKey(kindValue, moduleRef) {
-  const sections = (kindValue?.sections || []).map(sectionKey).sort();
-  const connections = (kindValue?.connections || []).map((connection) => {
-    const ids = (connection?.sectionIds || []).map(String).slice().sort().join(";");
-    return `${moduleRef(connection?.sourceIndex)}>${moduleRef(connection?.targetIndex)}|${ids}`;
-  }).sort();
-  return `${sections.join("/")}#${connections.join("/")}`;
-}
-
-// Data links are (source, weapon) module-index pairs, resolved to positional
-// identities like wiring connections are. Without them in the key, adding or
-// removing a link left the editor looking clean, so the loaded blueprint could
-// never be re-saved with its links.
+// Data links are (source, weapon) module-index pairs resolved to positional
+// identities. Without them in the key, adding or removing a link would leave
+// the editor looking clean.
 function dataLinksKey(dataLinks, moduleRef) {
   return (Array.isArray(dataLinks) ? dataLinks : [])
     .map((link) => `${moduleRef(link?.sourceIndex)}>${moduleRef(link?.targetIndex)}`)
@@ -83,31 +62,26 @@ function dataLinksKey(dataLinks, moduleRef) {
     .join("/");
 }
 
-function editorStateKey(modules, wiring, combatStyle, dataLinks) {
+function editorStateKey(modules, combatStyle, dataLinks) {
   const list = Array.isArray(modules) ? modules : [];
-  // Connection endpoints are module indexes into this exact array, so resolve
-  // them to positional identities before sorting anything.
+  // Link endpoints are module indexes into this exact array, so resolve them to
+  // positional identities before sorting anything.
   const identities = list.map(moduleIdentity);
   const moduleRef = (index) => identities[index] ?? `#${index}`;
   const normalized = normalizeDesignDetailed(list, { allowEmpty: true }).modules.map(moduleKey).sort();
-  const normalizedWiring = normalizeWiring(wiring, list) || {};
-  const policy = normalizedWiring.powerPolicy || {};
   return [
     normalized.join("/"),
-    wiringKindKey(normalizedWiring.power, moduleRef),
-    wiringKindKey(normalizedWiring.data, moduleRef),
-    `${policy.preset || "balanced"}:${(policy.customOrder || []).join(",")}`,
     combatStyle || "hold",
     dataLinksKey(dataLinks, moduleRef)
   ].join("\n");
 }
 
 function currentEditorKey() {
-  return editorStateKey(state.design, state.wiring, state.combatStyle, state.dataLinks);
+  return editorStateKey(state.design, state.combatStyle, state.dataLinks);
 }
 
 function savedEditorKey(saved) {
-  return editorStateKey(saved.blueprint, saved.wiring, saved.combatStyle, saved.dataLinks);
+  return editorStateKey(saved.blueprint, saved.combatStyle, saved.dataLinks);
 }
 
 // Baseline for a design that no saved blueprint backs. See isEditorDirty().
@@ -409,9 +383,7 @@ export function duplicateSavedDesign(id) {
     id: makeDesignId(),
     name: `${source.name} copy`.slice(0, 28),
     blueprint: copyBlueprint,
-    // Independent wiring and Data-link copies so editing the duplicate never
-    // touches the source.
-    wiring: normalizeWiring(source.wiring, copyBlueprint),
+    // Independent Data-link copies so editing the duplicate never touches the source.
     dataLinks: savedDataLinksCopy(copyBlueprint, source.dataLinks),
     invalid: Boolean(source.invalid),
     invalidReason: source.invalidReason || "Invalid blueprint.",
@@ -448,7 +420,6 @@ export function deleteSavedDesign(id) {
 }
 
 export function openDeleteDesignModal(saved) {
-  pendingUnwiredSave = false;
   state.pendingDirtyAction = null;
   modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.pendingDeleteDesignId = saved.id;
@@ -464,7 +435,6 @@ export function openDeleteDesignModal(saved) {
 export function closeConfirmModal() {
   if (cancelPendingDesignerClose()) return;
   if (closeBlueprintConfirmModalIfPending()) return;
-  pendingUnwiredSave = false;
   state.pendingDeleteDesignId = null;
   state.pendingKickTargetId = null;
   state.pendingServerLeaveAction = null;
@@ -489,19 +459,9 @@ export function confirmModalAction() {
       dom.confirmModal.hidden = true;
     }
     modalReturnFocus = null;
-    void saveCurrentDesign({ skipWiringWarning: true }).then((saved) => {
+    void saveCurrentDesign().then((saved) => {
       if (saved) action();
     });
-    return;
-  }
-  if (pendingUnwiredSave) {
-    pendingUnwiredSave = false;
-    if (dom.confirmModal) {
-      delete dom.confirmModal.dataset.intent;
-      dom.confirmModal.hidden = true;
-    }
-    modalReturnFocus = null;
-    void saveCurrentDesign({ skipWiringWarning: true });
     return;
   }
   if (handleBlueprintConfirmModalAction()) return;
@@ -558,13 +518,9 @@ function doLoadSavedDesign(id, editSource = true) {
   if (!saved) return;
   const valid = normalizeDesign(saved.blueprint);
   state.design = valid;
-  // Load an independent copy of the saved wiring alongside the modules, and
-  // drop wiring-editor selection/undo state that referenced the old design.
-  state.wiring = normalizeWiring(saved.wiring, valid);
   // Data links are stored as component indices, so they only mean anything
   // against the modules they were saved with. Re-normalize against those.
   state.dataLinks = globalThis.DataSupportRules?.normalizeDataLinks(valid, saved.dataLinks, PART_STATS) || [];
-  resetWiringEditorState();
   clearPhysicalBlueprintHistory();
   invalidateHeatAnalysisCache();
   state.hoveredHeatPartIndex = null;
@@ -577,9 +533,9 @@ function doLoadSavedDesign(id, editSource = true) {
     dom.combatStyleSelect.value = state.combatStyle;
   }
 
-  // Save design to localStorage (schema v2: modules + wiring)
+  // Save the loaded design to localStorage.
   import("../design/blueprintStorage.js").then((mod) => {
-    mod.persistDesign(state.design, state.wiring, state.dataLinks, state.combatStyle);
+    mod.persistDesign(state.design, state.dataLinks, state.combatStyle);
   });
 
   // Re-draw grid and update UI
@@ -599,7 +555,6 @@ function openDirtyEditorModal(pendingAction) {
   state.pendingKickTargetId = null;
   state.pendingBlueprintDestructiveAction = null;
   state.pendingServerLeaveAction = null;
-  pendingUnwiredSave = false;
   modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   if (dom.confirmModal) dom.confirmModal.dataset.intent = "dirty-editor";
   if (dom.confirmModalTitle) dom.confirmModalTitle.textContent = "Unsaved Changes";
@@ -656,41 +611,19 @@ function savedDataLinksCopy(blueprint, dataLinks) {
   return rules.normalizeDataLinks(blueprint, dataLinks, PART_STATS) || [];
 }
 
-export async function saveCurrentDesignAsCopy({ skipWiringWarning = false } = {}) {
+export async function saveCurrentDesignAsCopy() {
   state.loadedEditorBlueprintId = null;
-  return saveCurrentDesign({ skipWiringWarning });
+  return saveCurrentDesign();
 }
 
-export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
+export async function saveCurrentDesign() {
   const blueprint = state.design.map((part) => ({ ...part }));
-  // Saved designs keep an independent copy of the wiring arrays.
-  const wiring = normalizeWiring(state.wiring, blueprint);
   const dataLinks = savedDataLinksCopy(blueprint, state.dataLinks);
-  const analysis = analyseBlueprintOnce({ blueprint, wiring, combatStyle: state.combatStyle || "hold" });
+  const analysis = analyseBlueprintOnce({ blueprint, dataLinks, combatStyle: state.combatStyle || "hold" });
   const stats = analysis.stats;
   const validation = analysis.validation;
   if (!validation.ok) {
     notify.warning(validation.errors[0] || "Cannot save invalid blueprint.");
-    return false;
-  }
-  const wiringWarning = wiringReadinessWarning();
-  if (wiringWarning && !skipWiringWarning) {
-    pendingUnwiredSave = true;
-    modalReturnFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : dom.saveDesignButton;
-    state.pendingDeleteDesignId = null;
-    state.pendingKickTargetId = null;
-    state.pendingBlueprintDestructiveAction = null;
-    state.pendingWiringClearNetwork = null;
-    dom.confirmModal.dataset.intent = "wiring-warning";
-    dom.confirmModalTitle.textContent = wiringWarning.kind === "no-wiring"
-      ? "Save blueprint without wiring?"
-      : "Save blueprint with incomplete wiring?";
-    dom.confirmModalMessage.textContent = `${wiringWarning.message} Save it anyway?`;
-    dom.confirmAcceptButton.textContent = "Save Anyway";
-    dom.confirmModal.hidden = false;
-    dom.confirmCancelButton?.focus?.();
     return false;
   }
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);
@@ -699,7 +632,6 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
     state.savedDesigns = state.savedDesigns.map((design) => design.id === existing.id ? {
       ...design,
       blueprint,
-      wiring,
       dataLinks,
       combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
@@ -718,7 +650,6 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
       id,
       name,
       blueprint,
-      wiring,
       dataLinks,
       combatStyle: state.combatStyle || "hold",
       cost: stats.unitCost,
@@ -738,7 +669,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   }
   const repaired = state.designNeedsAttention;
   if (repaired) {
-    const repairedOk = persistDesignImpl(state.design, state.wiring, state.dataLinks, state.combatStyle);
+    const repairedOk = persistDesignImpl(state.design, state.dataLinks, state.combatStyle);
     if (!repairedOk) {
       notify.warning("Could not save repaired blueprint. Please try again.");
       return false;
@@ -750,7 +681,7 @@ export async function saveCurrentDesign({ skipWiringWarning = false } = {}) {
   }
   
   if (state.phase === "active" && state.socket && state.socket.readyState === WebSocket.OPEN) {
-    send({ type: "deploy", design: blueprint, wiring, dataLinks: state.dataLinks, combatStyle: state.combatStyle || "hold" });
+    send({ type: "deploy", design: blueprint, dataLinks: state.dataLinks, combatStyle: state.combatStyle || "hold" });
   }
 
   captureEditorBaseline();

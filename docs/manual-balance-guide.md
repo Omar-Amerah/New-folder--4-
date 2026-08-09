@@ -1,11 +1,11 @@
 # Manual balance guide
 
-`component-balance.json` at the repository root is the only authoritative gameplay balance source. The Netlify build validates it and copies it to `public/component-balance.generated.json`; do not manually edit the generated public copy.
+`component-balance.json` at the repository root is the only authoritative gameplay balance source. The Netlify build and grouped test runner validate it and generate the disposable `public/component-balance.generated.json` and `public/src/generatedBalance.js` outputs; do not manually edit those files.
 
 ## Sections
 
 - `components`: direct component cost, mass, hull, power, shield, thrust, turning, repair, utility and weapon values; generic component heat is intentionally unsupported.
-- `shipPricing`: inputs for the ship-price and per-design fleet-count formulas. The formulas remain in code so future edits change inputs, not implementation.
+- `shipPricing`: inputs for the per-design fleet-count formula. Ship price is the sum of direct component costs; the fleet formula remains in code so future edits change inputs, not implementation.
 - `economy`: starting money, income, maximum money, kill/capture rewards and ship cap.
 - `rewards`: post-match reward inputs.
 - `movement`, `power`, `heat`, `projectiles`, `missileGuidance`, `combatStyles`, `fleetLimits`, `capture`, and `repair`: gameplay inputs used by their named systems when present.
@@ -14,11 +14,11 @@ Units are documented in the JSON notes: currency `$`, mass tonnes, hull HP, shie
 
 ## Direct values vs formulas
 
-Component entries are direct per-part values. Ship price, fleet count, movement scaling, stacked shield regeneration, stacked repair, and missile turn behaviour still use code formulas with adjustable inputs from `component-balance.json`.
+Component entries are direct per-part values. Ship price is the sum of `component.cost` for the design. Movement scaling, stacked shield regeneration, stacked repair, and missile turn behaviour still use code formulas with adjustable inputs from `component-balance.json`.
 
 ## Validating an edit
 
-Run `npm run balance:check` after editing. Run `npm run build` to refresh the generated frontend copy.
+Run `npm run balance:check` after editing. Run `npm run balance:generate` for a standalone balance/client test, or `npm run build` for the full frontend build. The grouped test runner generates these outputs automatically.
 
 ## Readable summary
 

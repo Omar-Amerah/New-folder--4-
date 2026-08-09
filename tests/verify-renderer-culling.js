@@ -1,5 +1,4 @@
 const assert = require('assert');
-require('../public/src/shared/featureFlags.js');
 global.document = { getElementById: () => ({ getContext: () => ({}), addEventListener() {}, removeEventListener() {} }), querySelector: () => null };
 global.window = {};
 (async () => {

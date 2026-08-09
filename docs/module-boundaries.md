@@ -4,7 +4,7 @@ Section 1 makes the native ES-module frontend the only production frontend path 
 
 ## Server dependency groups
 
-- **Transport:** `server.js` owns HTTP/static serving and upgrade wiring; `src/server/websocketServer.js` owns frame parsing/writing and client lifecycle; `src/server/wsCodec.js` owns MessagePack encoding/decoding. Outbound `send`, `sendPlayer`, `broadcastRoom`, and `broadcastSnapshot` still live in `src/server/messages.js` and are treated as transport-adjacent helpers until a later router split.
+- **Transport:** `server.js` owns HTTP/static serving and upgrade handling; `src/server/websocketServer.js` owns frame parsing/writing and client lifecycle; `src/server/wsCodec.js` owns MessagePack encoding/decoding. Outbound `send`, `sendPlayer`, `broadcastRoom`, and `broadcastSnapshot` still live in `src/server/messages.js` and are treated as transport-adjacent helpers until a later router split.
 - **Application/message handling:** `src/server/messages.js` validates connection state, phase/admin requirements, sanitizes input, and dispatches to domain modules.
 - **Room/player lifecycle:** `rooms.js` owns room creation, codes, map/rule updates, and closed-code TTL. `players.js` owns join/reconnect/leave, admin promotion, teams, phase transitions, and match start/restart flow.
 - **Simulation domains:** `movement.js`, `combat.js`, `projectiles.js`, `heat.js`, `componentHealth.js`, `economy.js`, `objectives.js`, `ships.js`, `shipStats.js`, and `shipDesign.js` own authoritative gameplay state.
@@ -58,12 +58,12 @@ Necessary exceptions remain documented warnings: shared UMD modules under `publi
 - Persistent/local-owned: saved blueprints, active room key, server URL preference.
 - Stable collections: `selectedShipIds` and other Maps/Sets should be cleared/mutated, not replaced, to preserve module references.
 
-## Resolved and deferred risks
+## Resolved and current boundaries
 
 - Resolved: the regex-stripped `public/client.js` build path was removed; `netlify-build.js` now vendors assets and emits build SHA only.
 - Resolved: snapshot static/delta merge logic is isolated in `public/src/snapshotMerge.js` and directly tested.
 - Guarded: missing imports fail `npm run check` through `verify-module-boundaries.js` and the temporary-fixture regression in `verify-module-imports.js`.
-- Deferred: broad UI/client cycles, server router extraction, and transport-neutral send/broadcast extraction remain for later sections because changing them safely requires larger protocol/lifecycle test coverage.
+- Current boundary: broad UI/client cycles, server router extraction, and transport-neutral send/broadcast extraction remain intentionally separate from the current ownership model because changing them safely requires larger protocol/lifecycle test coverage.
 
 ## Section 4 map/objective boundaries
 
@@ -77,16 +77,8 @@ target selection, support/repair, turret diagnostics, damage and destruction.
 Shared turret geometry remains in `public/src/shared/turretRules.js` and is
 consumed by both server muzzle rules and client rendering.
 
-## Completed Catch-up Parts 1–3
-
-Catch-up Parts 1–3 are now represented by required, behavior-named suites instead of aliases that overstate coverage. Production-path HTTP checks remain smoke coverage; protocol coverage uses the real `server.js` process, real WebSockets, and MessagePack; browser coverage launches Playwright Chromium against the production frontend; soak coverage runs a sustained deterministic high-entity server simulation with bounded-state and performance assertions. The Part 3 combat catch-up adds deterministic coverage for focus targeting, weapon-specific fallback, turret/muzzle geometry invariants, projectile lifetime and swept collision safety, point-defence priority, repair conservation, damage/reward idempotency, safe-zone firing blocks, and cleanup bounds without changing weapon balance values.
-
-## Deliberately deferred to Sections 8–13
-
-The catch-up does not start the Section 8 heat/power redesign or any later redesign topics. Deferred work remains limited to future review sections for deeper heat/power policy, AI difficulty, economy or movement rebalancing, map redesign, renderer or camera redesign, major HUD work, persistent accounts, and database-backed persistence. Existing player-facing rules are clarified as current policy rather than rebalanced.
-
-## Section 9A networking ownership
-`protocol.js` owns compatibility policy; `clientSchemas.js` owns accepted client-message shapes and limits; `websocketServer.js` owns frame compliance and connection buffers; `messages.js` owns schema-gated dispatch; `players.js` owns stable player identity and attachment generation. Snapshot epoch/resync ownership is reserved for Section 9B.
+## Networking ownership
+`protocol.js` owns compatibility policy; `clientSchemas.js` owns accepted client-message shapes and limits; `websocketServer.js` owns frame compliance and connection buffers; `messages.js` owns schema-gated dispatch; `players.js` owns stable player identity and attachment generation. Snapshot epoch/resync ownership is shared by `snapshotDelivery.js`, `snapshotEntityDelta.js`, `snapshots.js`, and client `snapshotMerge.js`.
 
 ## Renderer/camera/input ownership
 

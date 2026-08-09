@@ -20,7 +20,6 @@ const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { createGeneratedPowerWiring } = require("../src/server/shipDesign");
 const { computeDesignCollisionRadius } = require("../src/server/componentGeometry");
 const { validateClientMessage } = require("../src/server/clientSchemas");
 
@@ -53,7 +52,7 @@ function makeShip({ x, y, ownerId = "p1", team = "A" }) {
     radius: stats.radius,
     physicalRadius: computeDesignCollisionRadius(GUNSHIP, stats),
     design: GUNSHIP.map((part) => ({ ...part })),
-    wiring: createGeneratedPowerWiring(GUNSHIP),
+    dataLinks: [],
     stats: { ...stats },
     combatStyle: "hold",
     combatStyleRaw: "hold",

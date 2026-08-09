@@ -1,89 +1,56 @@
 "use strict";
+
 const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
-globalThis.DataSupportRules = require("../public/src/shared/dataSupportRules.js");
-globalThis.WiringRules = require("../public/src/shared/wiringRules.js");
-globalThis.HeatRules = require("../public/src/shared/heatRules.js");
-globalThis.WIRING_ENABLED = true;
-vm.runInThisContext(fs.readFileSync("public/src/design/dataSupportAnalysis.js", "utf8").replace(/export /g, "").replace(/^import \{ WIRING_ENABLED \} from "\.\.\/featureFlags\.js";\n/m, ""), { filename: "public/src/design/dataSupportAnalysis.js" });
-const A = globalThis.DesignDataSupportAnalysis;
-const { PARTS: PART_STATS } = require("../src/server/components.js");
-const close = (a,b,m) => assert(Math.abs(a-b) < 1e-9, `${m}: ${a} !== ${b}`);
-const m = (type,x,y) => ({ type,x,y,rotation:0 });
-const path = (w, kind, cells, d) => globalThis.WiringRules.addPath(w, kind, cells, d, PART_STATS);
-const budget = (type) => globalThis.DataSupportRules.nominalSupportBudget(type, PART_STATS);
-const poweredPair = (sourceType="fireControl", weaponType="railgun") => {
-    const d=[m("reactor",0,1),m(sourceType,0,0),m(weaponType,1,0)]; let w=globalThis.WiringRules.emptyWiring();
-    w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0}],d); return {d,w};
-  };
-  let {d,w}=poweredPair(); let r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"});
-  assert.equal(r.networks.length,1); assert.deepEqual(r.sources.map(s=>s.sourceIndex),[1]); assert.deepEqual(r.weapons.map(x=>x.weaponIndex),[2]);
-  close(r.sources[0].nominalBudget,budget("fireControl"),"nominal catalogue budget"); close(r.sources[0].predictedPowerMultiplier,1,"power multiplier"); close(r.sources[0].predictedThermalMultiplier,1,"heat multiplier"); close(r.sources[0].effectiveBudget,budget("fireControl"),"effective budget"); close(r.sources[0].bonusPerWeapon,budget("fireControl"),"per weapon"); close(r.weapons[0].effectiveProfile.fireRate, PART_STATS.railgun.weapon.fireRate*(1+budget("fireControl")),"effective railgun fire rate");
-  d=[m("reactor",1,2),m("fireControl",1,1),m("blaster",1,0),m("missile",0,1),m("pointDefense",2,1)]; w=globalThis.WiringRules.emptyWiring(); w=path(w,"power",[{x:1,y:2},{x:1,y:1}],d); w=path(w,"data",[{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:1,y:1},{x:0,y:1}],d); w=path(w,"data",[{x:1,y:1},{x:2,y:1}],d); r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); close(r.sources[0].bonusPerWeapon,budget("fireControl")/3,"third split"); assert(r.sources[0].recipientCount===3);
-  d=[m("auxGenerator",0,1),m("fireControl",0,0),m("signalAmplifier",1,0),m("targetingComputer",2,0),m("railgun",3,0),m("auxGenerator",1,1),m("auxGenerator",2,1)]; w=globalThis.WiringRules.emptyWiring(); w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:1,y:1},{x:1,y:0}],d); w=path(w,"power",[{x:2,y:1},{x:2,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0},{x:3,y:0}],d); r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const gun=r.weapons[0]; assert(gun.fireRateBonus > 0, "fire-rate contribution present"); assert(gun.rangeBonus > 0, "range contribution present"); assert(gun.accuracyBonus > 0, "accuracy contribution present");
-  d=[m("reactor",0,1),m("fireControl",0,0),m("railgun",1,0),m("signalAmplifier",5,0),m("beamEmitter",6,0),m("reactor",5,1)]; w=globalThis.WiringRules.emptyWiring(); w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:5,y:1},{x:5,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0}],d); w=path(w,"data",[{x:5,y:0},{x:6,y:0}],d); r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); assert.equal(r.networks.length,2); assert(!r.weapons.find(x=>x.weaponIndex===2).sourceIndices.includes(3));
-  d=[m("fireControl",0,0),m("railgun",1,0)]; w=globalThis.WiringRules.emptyWiring(); w=path(w,"data",[{x:0,y:0},{x:1,y:0}],d); r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); assert.equal(r.sources[0].predictedPowerMultiplier,0); assert.equal(r.sources[0].effectiveBudget,0); assert.equal(r.sources[0].status,"unpowered"); close(r.weapons[0].effectiveProfile.fireRate,PART_STATS.railgun.weapon.fireRate,"base stats");
-  d=[m("smallReactor",0,1),m("fireControl",0,0),m("heavyEngine",1,0),m("railgun",2,0)]; w=globalThis.WiringRules.emptyWiring(); w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d); r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const p=globalThis.WiringRules.analyzeWiring(d,w,PART_STATS).power.networkByComponent.get(1).availableEfficiency; close(r.sources[0].predictedPowerMultiplier,p,"partial power matches shared analysis");
-  const idle=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const full=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"full"}); assert(Number.isFinite(idle.sources[0].predictedThermalMultiplier)); assert(Number.isFinite(full.weapons[0].effectiveProfile.fireRate));
-  const vul=A.analyzeDataVulnerabilities(...Object.values(poweredPair()),PART_STATS); assert(vul.some(v=>v.kind==="section"));
+const DataRules = require("../public/src/shared/dataSupportRules");
+const HeatRules = require("../public/src/shared/heatRules");
+const { PARTS } = require("../src/server/components");
 
-  // Source operational override: failed source stays in topology but contributes zero.
-  d=[m("reactor",0,1),m("fireControl",0,0),m("signalAmplifier",1,0),m("railgun",2,0)]; w=globalThis.WiringRules.emptyWiring();
-  w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d);
-  const intact=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"});
-  const failed=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle", sourceOperationalMultiplier:(i)=>i===1?0:1});
-  assert.equal(failed.networks.length, intact.networks.length, "source failure preserves physical topology");
-  assert.equal(failed.sourceAllocationByIndex[1].effectiveBudget, 0, "failed Fire Control budget zero");
-  assert(failed.sourceAllocationByIndex[2].effectiveBudget > 0, "Signal Amplifier remains active on same network");
-  assert.equal(failed.weaponBonusByIndex[3].fireRateBonus, 0, "railgun loses only fire-rate support");
-  assert(failed.weaponBonusByIndex[3].rangeBonus > 0, "railgun keeps range support");
-  const sourceV=A.analyzeDataVulnerabilities(d,w,PART_STATS,intact).find(v=>v.kind==="source" && v.componentIndex===1);
-  assert(sourceV.lostFireRateBonus > 0 && sourceV.lostRangeBonus === 0, "source vulnerability uses operational override");
-  // Legacy connection metadata must not be authority for source destruction.
-  const metaOnly=globalThis.WiringRules.cloneWiring(w); metaOnly.data.connections=[];
-  assert.equal(A.analyzeDesignDataSupport(d,metaOnly,PART_STATS,{thermalLoadMode:"idle"}).weaponBonusByIndex[3].sourceIndices.length, 2);
-  // Duplicate source redundancy is partial, not full redundancy.
-  d=[m("reactor",0,1),m("fireControl",0,0),m("fireControl",1,0),m("railgun",2,0)]; w=globalThis.WiringRules.emptyWiring();
-  w=path(w,"power",[{x:0,y:1},{x:0,y:0}],d); w=path(w,"power",[{x:0,y:1},{x:1,y:1},{x:1,y:0}],d); w=path(w,"data",[{x:0,y:0},{x:1,y:0},{x:2,y:0}],d);
-  r=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); const oneDown=A.analyzeDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle", sourceOperationalMultiplier:(i)=>i===1?0:1});
-  assert(oneDown.weaponBonusByIndex[3].fireRateBonus > 0 && oneDown.weaponBonusByIndex[3].fireRateBonus < r.weaponBonusByIndex[3].fireRateBonus);
-  assert.notEqual(A.analyzeDataVulnerabilities(d,w,PART_STATS,r).find(v=>v.kind==="source"&&v.componentIndex===1).severity, "redundant");
-  // Unit-aware presentation.
-  vm.runInThisContext(fs.readFileSync("public/src/design/dataSupportPresentation.js", "utf8").replace(/export /g, ""), { filename: "public/src/design/dataSupportPresentation.js" });
-  const P = { formatDataSupportValue: globalThis.formatDataSupportValue };
-  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:40}), "+40 m");
-  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:20}), "+20 m");
-  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:75}), "+75 m");
-  assert.equal(P.formatDataSupportValue({bonusField:"accuracyBonus",amount:.04}), "+4.0%");
-  assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.038}), "+3.8%");
-  assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.075}), "+7.5%");
-  for (const rendered of ["+40 m", "+20 m", "+4.0%", "+3.8%", P.formatDataSupportValue({bonusField:"rangeBonus",amount:40}), P.formatDataSupportValue({bonusField:"fireRateBonus",amount:.038})]) {
-    assert(!rendered.includes("++"), `duplicate sign not allowed in ${rendered}`);
-    assert(!/4000%|2000%/.test(rendered), `range values must not be rendered as percentages in ${rendered}`);
-  }
-  assert.equal(P.formatDataSupportValue({bonusField:"rangeBonus",amount:sourceV.lostRangeBonus || 20}), sourceV.lostRangeBonus ? P.formatDataSupportValue({bonusField:"rangeBonus",amount:sourceV.lostRangeBonus}) : "+20 m");
-  assert.equal(P.formatDataSupportValue({bonusField:"fireRateBonus",amount:sourceV.lostFireRateBonus}), P.formatDataSupportValue({ bonusField: "fireRateBonus", amount: budget("fireControl") }));
-  // Cache reuse and scenario invalidation.
-  A.resetDataSupportAnalysisCaches(); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"}); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"idle"});
-  assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,1); A.getCachedDesignDataSupport(d,w,PART_STATS,{thermalLoadMode:"full"}); assert.equal(A.getDataSupportAnalysisCacheCounters().baseRuns,2);
-  const cached=A.getCachedDataVulnerabilities(d,w,PART_STATS,r); A.getCachedDataVulnerabilities(d,w,PART_STATS,r); assert.equal(A.getDataSupportAnalysisCacheCounters().vulnerabilityRuns,1);
+globalThis.DataSupportRules = DataRules;
+globalThis.HeatRules = HeatRules;
+vm.runInThisContext(
+  fs.readFileSync("public/src/design/dataSupportAnalysis.js", "utf8").replace(/export /g, ""),
+  { filename: "public/src/design/dataSupportAnalysis.js" }
+);
 
-  // Dense 15x15 Auto-data wiring must not rerun complete ship Power/thermal
-  // analysis once per section and host. That synchronous fan-out used to lock
-  // up or crash the designer immediately after Auto-wire committed 224 sections.
-  const dense=[];
-  for(let y=0;y<15;y+=1) for(let x=0;x<15;x+=1) dense.push(m(x===0&&y===0?"signalAmplifier":"blaster",x,y));
-  const denseWiring=globalThis.WiringRules.createGeneratedDataWiring(dense,PART_STATS);
-  assert.equal(denseWiring.data.sections.length,224,"dense Auto-data produces a bounded spanning network");
-  let repeatedThermalRuns=0;
-  const previousThermal=globalThis.DesignThermalAnalysis;
-  globalThis.DesignThermalAnalysis={analyzeDesignHeat:()=>{repeatedThermalRuns+=1; return null;}};
-  const denseBase=A.analyzeDesignDataSupport(dense,denseWiring,PART_STATS,{thermalAnalysis:{predictions:new Map()},sourcePowerMultiplier:1,sourceThermalMultiplier:1});
-  const denseFailures=A.analyzeDataVulnerabilities(dense,denseWiring,PART_STATS,denseBase);
-  if(previousThermal===undefined) delete globalThis.DesignThermalAnalysis; else globalThis.DesignThermalAnalysis=previousThermal;
-  assert.equal(repeatedThermalRuns,0,"Data failure analysis reuses the completed ship thermal prediction");
-  assert.equal(denseFailures.filter(item=>item.kind==="section").length,224,"every dense Data section still receives failure analysis");
-  assert(denseFailures.some(item=>item.kind==="source"&&item.lostRangeBonus>0),"dense source failure still reports concrete support loss");
+const Analysis = globalThis.DesignDataSupportAnalysis;
+const at = (type, x, y = 0) => ({ type, x, y, rotation: 0 });
+const budget = (type) => DataRules.nominalSupportBudget(type, PARTS);
+const close = (actual, expected, message) => assert(Math.abs(actual - expected) < 1e-9, message + ": " + actual + " !== " + expected);
 
-  console.log("Data-support designer analysis verification passed.");
+const design = [
+  at("fireControl", 0, 0),
+  at("signalAmplifier", 14, 14),
+  at("railgun", 1, 13),
+  at("blaster", 13, 1)
+];
+const links = [{ sourceIndex: 0, targetIndex: 2 }, { sourceIndex: 0, targetIndex: 3 }, { sourceIndex: 1, targetIndex: 2 }];
+const analysis = Analysis.analyzeDesignDataSupport(design, PARTS, { thermalLoadMode: "idle", dataLinks: links });
+assert.equal(analysis.mode, "direct-links");
+assert(!Object.prototype.hasOwnProperty.call(analysis, "networks"));
+close(analysis.sources[0].bonusPerWeapon, budget("fireControl") / 2, "designer divides one source budget across explicit links");
+close(analysis.weapons[0].fireRateBonus, budget("fireControl") / 2, "designer preserves the divided Fire Control contribution");
+close(analysis.weapons[0].rangeBonus, budget("signalAmplifier"), "designer stacks independent source contributions");
+close(analysis.weapons[1].fireRateBonus, budget("fireControl") / 2, "designer applies the same divided source budget to its second link");
+
+const destroyed = Analysis.analyzeDesignDataSupport(design, PARTS, {
+  dataLinks: links,
+  sourceOperationalMultiplier: (index) => index === 0 ? 0 : 1
+});
+assert.equal(destroyed.sources[0].status, "destroyed");
+close(destroyed.weapons[1].fireRateBonus, 0, "destroyed source contributes nothing");
+close(destroyed.weapons[0].rangeBonus, budget("signalAmplifier"), "destroying one source preserves another direct contribution");
+
+const overheated = Analysis.analyzeDesignDataSupport(design, PARTS, {
+  dataLinks: links,
+  sourceThermalMultiplier: (index) => index === 1 ? 0 : 1
+});
+assert.equal(overheated.sources[1].status, "overheated");
+close(overheated.weapons[0].rangeBonus, 0, "overheated source contributes nothing");
+
+const vulnerabilities = Analysis.analyzeDataVulnerabilities(design, PARTS, analysis);
+assert(vulnerabilities.some((item) => item.componentIndex === 0), "failure analysis reports source-local support loss");
+assert(vulnerabilities.every((item) => item.kind === "source"), "failure analysis contains no physical route failures");
+
+console.log("Direct Data Links designer analysis verification passed.");

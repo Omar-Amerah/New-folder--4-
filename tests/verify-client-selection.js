@@ -4,7 +4,6 @@ globalThis.localStorage = globalThis.localStorage || { getItem(){return null}, s
 const fakeElement = () => ({ textContent:'', hidden:false, style:{ setProperty(){} }, classList:{ add(){}, remove(){}, toggle(){} }, replaceChildren(){}, append(){}, addEventListener(){}, removeEventListener(){}, querySelector(){ return null; }, querySelectorAll(){ return []; } });
 globalThis.document = globalThis.document || { getElementById: () => fakeElement(), querySelector: () => null, querySelectorAll: () => [], body: null, addEventListener(){}, removeEventListener(){}, activeElement: null, visibilityState: 'visible' };
 globalThis.window = globalThis.window || { devicePixelRatio: 1, addEventListener(){}, removeEventListener(){} };
-await import('../public/src/shared/featureFlags.js');
 const { state } = await import('../public/src/state.js');
 const { selectAt, selectBox, selectAllOwnShips, pruneSelection, resetSelectionForEpoch, findShipAt } = await import('../public/src/game/selection.js');
 function reset(){ state.myId='p1'; state.selectedShipIds=new Set(); state.activeShipGroup=null; state.visualShips=new Map(); state.snapshot={ players:[{id:'p1',team:'blue'},{id:'p2',team:'red'}], points:[], ships:[

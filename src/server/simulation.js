@@ -7,8 +7,6 @@ const { updateBullets } = require("./projectiles");
 const { updateStations, updateStationLaunchControl } = require("./stations");
 const { updateCapturePoints, updateControlVictory } = require("./objectives");
 const { updateShipHeat } = require("./heat");
-const { updateShipPowerDemand } = require("./componentPower");
-const { updateShipPowerProtection } = require("./powerProtection");
 const { assertComponentHpConsistency, isComponentAssertionEnabled } = require("./componentHealth");
 const { updateDroneBays } = require("./drones");
 const { updateDecoyLaunchers } = require("./decoys");
@@ -16,10 +14,10 @@ const { buildRoomSpatialIndex, shipBroadPhaseRadius, publishSpatialTelemetry } =
 const { updateStationWeapons } = require("./stationCombat");
 const { updateCommandAuras, invalidateCommandAuraMovement } = require("./commandAuras");
 const { updateRuntimeShield } = require("./runtimeShield");
+const { updateShipPower } = require("./componentPower");
 const { recordRoomTick, recordRoomTelemetry } = require("./performanceTelemetry");
 const { resetRoomTelemetry, bump, setCounter, recordDuration } = require("./roomTelemetry");
 const { performanceNow } = require("./utils");
-const { WIRING_ENABLED } = require("../../public/src/shared/featureFlags");
 const {
   beginMovementContactStep,
   buildMovementContactPairs
@@ -70,14 +68,6 @@ function tickRoom(room, dt, now) {
   const ships = getLiveShips(room, room._liveShipScratch || (room._liveShipScratch = []));
   setCounter(room, "liveShips", ships.length);
   const movementContactStepId = beginMovementContactStep(room, ships, now);
-  // Section 7D-2: refresh activity-driven Power demand once per ship, before any
-  // gameplay system consumes this cycle's operational multipliers / section flow.
-  startedAt = performanceNow();
-  if (WIRING_ENABLED) for (const ship of ships) updateShipPowerDemand(ship, room, now);
-  // Section 7G: runtime Power overload protection reads the freshly solved
-  // section flows; only trip/retry connectivity transitions re-solve Power.
-  if (WIRING_ENABLED) for (const ship of ships) updateShipPowerProtection(ship, dt);
-  durations.powerDemandProtection = performanceNow() - startedAt;
   // Build spatial index before movement and drone updates to ensure static asteroid data is available
   buildRoomSpatialIndex(room, ships, now);
   // Command auras are authoritative and rely on the spatial index; update before
@@ -85,6 +75,11 @@ function tickRoom(room, dt, now) {
   startedAt = performanceNow();
   updateCommandAuras(room, ships, now);
   durations.commandAuras = performanceNow() - startedAt;
+  startedAt = performanceNow();
+  // Battery charge/discharge is the only time-based part of the universal
+  // Power pool. Run it before shields, movement, and combat consume the result.
+  for (const ship of ships) updateShipPower(ship, dt, "simulation-tick");
+  durations.power = performanceNow() - startedAt;
   // Shield is an explicit runtime stage. It consumes the authoritative
   // Power/Heat/aura state and is independent of movement substeps.
   startedAt = performanceNow();

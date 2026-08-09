@@ -8,18 +8,10 @@
 // real designerUi/partPaletteUi modules run unmodified.
 const assert = require("node:assert/strict");
 
-globalThis.MfaFeatureFlags = require("../public/src/shared/featureFlags.js");
-globalThis.WiringRules = require("../public/src/shared/wiringRules.js");
 globalThis.DataSupportRules = require("../public/src/shared/dataSupportRules.js");
 globalThis.EngineExhaustRules = require("../public/src/shared/engineExhaust.js");
 globalThis.HeatRules = require("../public/src/shared/heatRules.js");
 globalThis.TurretRules = require("../public/src/shared/turretRules.js");
-globalThis.PowerPolicyRules = require("../public/src/shared/powerPolicyRules.js");
-globalThis.PowerAllocationRules = require("../public/src/shared/powerAllocationRules.js");
-globalThis.PowerDemandRules = require("../public/src/shared/powerDemandRules.js");
-globalThis.PowerFlowRules = require("../public/src/shared/powerFlowRules.js");
-globalThis.WiringInfrastructureRules = require("../public/src/shared/wiringInfrastructureRules.js");
-globalThis.PowerCableThermalRules = require("../public/src/shared/powerCableThermalRules.js");
 
 class FakeElement {
   constructor(tag = "div", id = "") {
@@ -71,9 +63,9 @@ function matches(el, sel) {
 }
 
 const ids = ["buildGrid", "buildGridStage", "buildInteractionGuide", "rotationIndicator", "emptyGridInstruction",
-  "blueprintBuildTab", "blueprintHeatTab", "blueprintWiringTab", "wiringToolbar", "wiringStatusPanel", "heatToolbar",
+  "blueprintBuildTab", "blueprintHeatTab", "blueprintDataLinksTab", "dataLinksToolbar", "heatToolbar",
   "blueprintThermalHud", "blueprintHeatLegend", "thermalLoadModes", "thermalScenarioLabel", "heatFlowViewControls",
-  "showAllHeatFlows", "heatFlowHint", "heatFlowOverlayHost", "wiringOverlayHost", "heatContextCard",
+  "showAllHeatFlows", "heatFlowHint", "heatFlowOverlayHost", "dataLinksOverlayHost", "heatContextCard",
   "undoBlueprintEditButton", "resetButton", "clearGridButton", "confirmModal", "confirmModalTitle",
   "confirmModalMessage", "confirmCancelButton", "confirmAcceptButton", "partPalette", "partInspector", "statsGrid",
   "blueprintCostLabel", "blueprintCostStatus", "combatStyleSelect", "saveDesignButton", "savedDesignList"];
@@ -115,7 +107,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
   state.mine = { money: 9999 };
   state.rules = { startingMoney: 9999 };
   state.design = storage.defaultDesign();
-  state.wiring = storage.normalizeWiring(storage.defaultWiring(), state.design);
+  state.dataLinks = [];
   state.loadedEditorBlueprintId = null;
   state.blueprintView = "build";
   state.hoveredCell = null;
