@@ -34,6 +34,7 @@ const {
 const { getSpawnRegionPlan, invalidateSpawnPlan } = require("./spawnPlanner");
 const PointDefenceThreats = require("./pointDefenceThreats");
 const TargetingCadence = require("./targetingCadence");
+const { normalizeAiDesignMode } = require("./aiBlueprints");
 
 const rooms = new Map();
 const closedRoomCodes = new Map();
@@ -262,6 +263,13 @@ function setRoomRules(room, requester, updates) {
     player.maxMoney = Math.max(ECONOMY.maxMoney, room.rules.startingMoney);
   }
 
+  if (previous.rules.aiDesignMode !== room.rules.aiDesignMode) {
+    // Bots have no editor connection to resubmit a design. Changing this
+    // lobby rule therefore refreshes their selected base profile immediately,
+    // before the next design phase freezes the roster.
+    require("./ships").refreshBotDesigns(room);
+  }
+
   const { broadcastSnapshot } = require("./messages");
   broadcastSnapshot(room, performanceNow(), true);
 }
@@ -290,7 +298,8 @@ function sanitizeRoomRules(input, playerCount = 1) {
   const asteroidDensity = sanitizeAsteroidDensity(input.asteroidDensity);
   const infrastructureMode = sanitizeInfrastructureMode(input.infrastructureMode);
   const visibilityMode = sanitizeVisibilityMode(input.visibilityMode);
-  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode, visibilityMode };
+  const aiDesignMode = normalizeAiDesignMode(input.aiDesignMode ?? input.botDesignMode);
+  return { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode, visibilityMode, aiDesignMode };
 }
 
 function sanitizeAsteroidDensity(value) {

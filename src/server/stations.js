@@ -573,6 +573,8 @@ function enqueueStationProduction(room, player, item, now) {
     requestId: item.request.requestId,
     template: item.template,
     combatStyle: item.request.combatStyle,
+    aiRole: item.aiRole || null,
+    aiBlueprintId: item.aiBlueprintId || null,
     unitCost: item.validation.totalCost / item.validation.count,
     quantityRemaining: item.validation.count,
     buildStartedAt: now,
@@ -609,16 +611,20 @@ function round2(value) {
 // Bots buy through buyShip() in Classic, which spawns instantly at the safe
 // zone. In station mode they must use the same production queue as human
 // purchases so a bot fleet is gated by hangar throughput too.
-function enqueueBotProduction(room, player, now) {
-  const stats = player.stats || computeStats(player.design);
+function enqueueBotProduction(room, player, now, options = {}) {
+  const design = options.design || player.design;
+  const dataLinks = options.dataLinks !== undefined ? options.dataLinks : (player.dataLinks || []);
+  const stats = options.stats || computeStats(design);
   if (!(stats.unitCost > 0) || player.money < stats.unitCost) return null;
   const { canonicalBlueprintSignature, getOrCreateTemplate } = require("./shipTemplates");
-  const signature = canonicalBlueprintSignature(player.design, player.dataLinks);
-  const template = getOrCreateTemplate(player.id, player.design, player.dataLinks, stats, signature);
+  const signature = canonicalBlueprintSignature(design, dataLinks);
+  const template = getOrCreateTemplate(player.id, design, dataLinks, stats, signature);
   const result = enqueueStationProduction(room, player, {
     template,
-    request: { requestId: `bot:${player.id}:${room.nextEntityId}`, combatStyle: player.combatStyle || "hold" },
-    validation: { count: 1, totalCost: stats.unitCost }
+    request: { requestId: `bot:${player.id}:${room.nextEntityId}`, combatStyle: options.combatStyle || player.combatStyle || "hold" },
+    validation: { count: 1, totalCost: stats.unitCost },
+    aiRole: options.aiRole,
+    aiBlueprintId: options.aiBlueprintId
   }, now);
   return result.ok ? result : null;
 }
@@ -705,6 +711,8 @@ function spawnQueuedShip(room, station, queueItem, now) {
   const ship = spawnShip(room, player, now, active, {
     template: queueItem.template,
     combatStyle: queueItem.combatStyle,
+    aiRole: queueItem.aiRole,
+    aiBlueprintId: queueItem.aiBlueprintId,
     spawnPoint: { x: spawn.x, y: spawn.y, ok: true, angle: launchAngle },
     requestId: queueItem.requestId
   });

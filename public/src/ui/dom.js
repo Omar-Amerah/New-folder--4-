@@ -41,6 +41,7 @@ export const dom = {
   asteroidDensitySelect: document.getElementById("asteroidDensitySelect"),
   infrastructureModeSelect: document.getElementById("infrastructureModeSelect"),
   visibilityModeSelect: document.getElementById("visibilityModeSelect"),
+  aiDesignModeSelect: document.getElementById("aiDesignModeSelect"),
   stationPanel: document.getElementById("stationPanel"),
   stationPanelKind: document.getElementById("stationPanelKind"),
   stationPanelFocus: document.getElementById("stationPanelFocus"),

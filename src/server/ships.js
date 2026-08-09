@@ -7,6 +7,15 @@ const { invalidateRelationshipCache } = require("./relationships");
 const { computeStats } = require("./shipStats");
 const { recordPurchaseStage } = require("./performanceTelemetry");
 const { createMovementRuntime } = require("./movementRuntime");
+const {
+  AI_DESIGN_MODES,
+  normalizeAiDesignMode,
+  getAiBlueprintPool,
+  cloneAiBlueprint,
+  chooseInitialAiBlueprint,
+  blueprintForDesign,
+  ROLE_LABELS
+} = require("./aiBlueprints");
 
 class SpawnPlacementError extends Error {
   constructor(reason = "no-clear-spawn") {
@@ -84,6 +93,8 @@ function spawnShip(room, player, now, index = 0, options = {}) {
     angle: spawn.angle,
     combatStyle: options.combatStyle || "hold",
     combatStyleRaw: options.combatStyleRaw || options.combatStyle || "hold",
+    aiRole: options.aiRole || null,
+    aiBlueprintId: options.aiBlueprintId || null,
     // Which way round this hull orbits, whether or not it is orbiting yet. It
     // is carried like the stance rather than derived from it, so selecting Orbit
     // later already has a direction to use.
@@ -241,10 +252,16 @@ function addBot(room, requester) {
   const { invalidateSpawnPlan } = require("./spawnPlanner");
   if (room.players.size >= (room.rules?.maxPlayers ?? MAX_PLAYERS_PER_ROOM)) return;
 
+  const botSequence = room.nextBotId;
   const id = `bot${room.nextBotId++}`;
   const color = COLORS[room.colorCursor % COLORS.length];
   room.colorCursor += 1;
-  const design = chooseBotDesign(room.nextBotId);
+  const initialBlueprint = chooseInitialAiBlueprint(
+    room.rules?.aiDesignMode,
+    botSequence,
+    room.rules?.startingMoney ?? ECONOMY.startingMoney
+  );
+  const design = initialBlueprint.design;
   const team = chooseBotTeam(room, requester, id);
   const name = BOT_NAMES[(room.nextBotId - 2) % BOT_NAMES.length];
   const player = {
@@ -253,11 +270,12 @@ function addBot(room, requester) {
     color,
     team,
     isBot: true,
-    ai: { nextThinkAt: 0, objectiveId: null, decisionSeq: 0 },
+    ai: createBotAiState(room.rules?.aiDesignMode, botSequence, initialBlueprint),
     ready: false,
     design,
     dataLinks: [],
-    stats: computeStats(design),
+    stats: initialBlueprint.stats || computeStats(design),
+    combatStyle: initialBlueprint.combatStyle,
     ships: [],
     money: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     bank: room.rules?.startingMoney ?? ECONOMY.startingMoney,
@@ -289,6 +307,90 @@ function addBot(room, requester) {
 }
 
 function updateBots(room, now) {
+  if (room.winner) return;
+
+  const { buyShip } = require("./economy");
+  const { usesStationInfrastructure } = require("./rooms");
+  const stationMode = usesStationInfrastructure(room);
+
+  for (const player of room.players.values()) {
+    if (!player.isBot || !player.ready) continue;
+    const ai = player.ai || (player.ai = createBotAiState(room.rules?.aiDesignMode, 0, null));
+    if (now < (Number(ai.nextThinkAt) || 0)) continue;
+    const seq = ai.decisionSeq || 0;
+    const rng = seededRandom(((room.mapSeed || room.map?.seed || 0) ^ hashString(`${player.id}:bot:${seq}`)) >>> 0);
+    ai.decisionSeq = seq + 1;
+    ai.nextThinkAt = now + rngRange(rng, 900, 1700);
+
+    let context = buildBotBattlefieldContext(room, player, player.ships.filter((ship) => ship.alive), now, stationMode);
+    const blueprint = chooseBotBlueprint(room, player, context, rng);
+    const activeCount = player.ships.filter((ship) => ship.alive).length;
+    const queuedCount = countQueuedBotShips(room, player.id);
+    if (blueprint
+      && player.money >= blueprint.stats.unitCost
+      && activeCount + queuedCount < player.shipCap) {
+      const purchaseOptions = {
+        design: blueprint.design,
+        dataLinks: blueprint.dataLinks,
+        stats: blueprint.stats,
+        combatStyle: blueprint.combatStyle,
+        combatStyleRaw: blueprint.combatStyle,
+        aiRole: blueprint.role,
+        aiBlueprintId: blueprint.id,
+        silent: true
+      };
+      const purchased = stationMode
+        ? require("./stations").enqueueBotProduction(room, player, now, purchaseOptions)
+        : buyShip(room, player, now, purchaseOptions);
+      if (purchased) {
+        if (purchased.ownerId) {
+          purchased.aiRole = blueprint.role;
+          purchased.aiBlueprintId = blueprint.id;
+        }
+        rememberBotBlueprint(ai, blueprint.id);
+      }
+    }
+
+    const ships = player.ships.filter((ship) => ship.alive);
+    if (ships.length === 0) continue;
+    context = buildBotBattlefieldContext(room, player, ships, now, stationMode);
+    ai.objectiveId = context.objective?.relayId || context.objective?.id || null;
+    issueBotOrders(room, player, ships, context, rng, now);
+  }
+}
+
+function createBotAiState(mode, sequence, initialBlueprint) {
+  return {
+    nextThinkAt: 0,
+    objectiveId: null,
+    decisionSeq: 0,
+    designMode: normalizeAiDesignMode(mode),
+    blueprintSequence: Number(sequence) || 0,
+    initialBlueprintId: initialBlueprint?.id || null,
+    recentBlueprintIds: [],
+    commandByRole: Object.create(null)
+  };
+}
+
+function refreshBotDesigns(room) {
+  const mode = normalizeAiDesignMode(room.rules?.aiDesignMode);
+  for (const player of room.players.values()) {
+    if (!player.isBot) continue;
+    const sequence = Number(player.ai?.blueprintSequence) || Number(String(player.id).replace(/\D/g, "")) || 0;
+    const blueprint = chooseInitialAiBlueprint(mode, sequence, room.rules?.startingMoney ?? ECONOMY.startingMoney);
+    player.design = blueprint.design.map((part) => ({ ...part }));
+    player.dataLinks = [];
+    player.stats = blueprint.stats || computeStats(player.design);
+    player.combatStyle = blueprint.combatStyle;
+    player.ai = createBotAiState(mode, sequence, blueprint);
+  }
+}
+
+function chooseBotDesign(sequence = 0, mode = AI_DESIGN_MODES.STANDARD) {
+  return chooseInitialAiBlueprint(mode, sequence, ECONOMY.startingMoney).design;
+}
+
+function legacyUpdateBots(room, now) {
   if (room.winner) return;
 
   const { buyShip } = require("./economy");
@@ -344,9 +446,338 @@ function updateBots(room, now) {
   }
 }
 
-function chooseBotDesign() {
+function legacyChooseBotDesign() {
   return DEFAULT_DESIGN.map((part) => ({ ...part }));
 }
+
+const BOT_COMBAT_ROLES = new Set(["assault", "artillery", "defence", "demolition", "recon", "siege"]);
+
+function rememberBotBlueprint(ai, blueprintId) {
+  const recent = Array.isArray(ai.recentBlueprintIds) ? ai.recentBlueprintIds : (ai.recentBlueprintIds = []);
+  recent.push(blueprintId);
+  if (recent.length > 8) recent.splice(0, recent.length - 8);
+}
+
+function countQueuedBotShips(room, playerId) {
+  let count = 0;
+  for (const station of room.stations || []) {
+    for (const item of station?.productionQueue || []) {
+      if (item?.playerId !== playerId) continue;
+      count += Math.max(1, Number(item.quantityRemaining) || 1);
+    }
+  }
+  return count;
+}
+
+function botRoleForShip(ship) {
+  if (ROLE_LABELS[ship?.aiRole]) return ship.aiRole;
+  return blueprintForDesign(ship?.design)?.role || "assault";
+}
+
+function botRoleCounts(room, player) {
+  const counts = Object.create(null);
+  for (const ship of player.ships || []) {
+    if (!ship.alive) continue;
+    const role = botRoleForShip(ship);
+    counts[role] = (counts[role] || 0) + 1;
+  }
+  for (const station of room.stations || []) {
+    for (const item of station?.productionQueue || []) {
+      if (item?.playerId !== player.id) continue;
+      const role = ROLE_LABELS[item.aiRole] ? item.aiRole : "assault";
+      counts[role] = (counts[role] || 0) + Math.max(1, Number(item.quantityRemaining) || 1);
+    }
+  }
+  return counts;
+}
+
+function botObjectiveId(objective) {
+  return objective?.relayId || objective?.id || null;
+}
+
+function botObjectiveTeam(objective, stationMode) {
+  return stationMode ? (objective?.team || null) : (objective?.ownerTeam || null);
+}
+
+function botObjectiveNeedsAction(objective, player, stationMode) {
+  if (!objective) return false;
+  if (stationMode) {
+    if (objective.state === "neutral") return true;
+    return objective.team !== player.team;
+  }
+  return objective.ownerTeam !== player.team || (Number(objective.progress) || 0) < 0.98;
+}
+
+function botObjectivePriority(objective, player, stationMode) {
+  if (stationMode) {
+    if (objective.state === "neutral") return 0;
+    if (objective.team !== player.team) return 1;
+    return 2;
+  }
+  if (!objective.ownerTeam) return 0;
+  if (objective.ownerTeam !== player.team) return 1;
+  return 2;
+}
+
+function getBotObjectiveList(room, stationMode) {
+  return ((stationMode ? room.stations : room.points) || [])
+    .filter((objective) => objective && (stationMode ? objective.stationType === "relay" : true));
+}
+
+function getEnemyHomeStation(room, player) {
+  return (room.stations || []).find((station) => station?.stationType === "home"
+    && station.state !== "destroyed"
+    && station.team !== player.team);
+}
+
+function chooseBotObjective(room, player, ships, stationMode) {
+  const objectives = getBotObjectiveList(room, stationMode);
+  const actionable = objectives
+    .filter((objective) => botObjectiveNeedsAction(objective, player, stationMode))
+    .sort((a, b) => {
+      const priority = botObjectivePriority(a, player, stationMode) - botObjectivePriority(b, player, stationMode);
+      if (priority) return priority;
+      const distance = distanceToFleet(ships, a) - distanceToFleet(ships, b);
+      return distance || compareIdStrings(String(botObjectiveId(a)), String(botObjectiveId(b)));
+    });
+  if (actionable[0]) return actionable[0];
+  // Once every relay is secure, station-mode bots must attack the enemy home
+  // instead of circling a friendly relay forever. Classic mode ends through
+  // relay control, so it keeps no equivalent fallback target.
+  return stationMode ? getEnemyHomeStation(room, player) : null;
+}
+
+function buildBotBattlefieldContext(room, player, ships, now, stationMode) {
+  const { areEnemies } = require("./combat");
+  const { canTeamTargetEntity, usesSensorVisibility, isPointVisibleToTeam } = require("./visibility");
+  const { effectiveSensorProfile } = require("./sensorCapability");
+  const allEnemyShips = getLiveShips(room)
+    .filter((ship) => areEnemies(room, player.id, ship.ownerId));
+  const visibleEnemies = allEnemyShips
+    .filter((ship) => canTeamTargetEntity(room, player.team, ship, now));
+  const objectives = getBotObjectiveList(room, stationMode);
+  const objective = chooseBotObjective(room, player, ships, stationMode);
+  const damagedShips = ships
+    .filter((ship) => ship.hp < ship.maxHp * 0.88 || ship.shield < ship.maxShield * 0.35)
+    .sort((a, b) => (a.hp / Math.max(1, a.maxHp)) - (b.hp / Math.max(1, b.maxHp)));
+  const sensorVisibility = usesSensorVisibility(room);
+  const hiddenEnemyCount = Math.max(0, allEnemyShips.length - visibleEnemies.length);
+  const reconObjectives = sensorVisibility
+    ? objectives
+      .filter((point) => !isPointVisibleToTeam(room, player.team, point.x, point.y, now, 0))
+      .sort((a, b) => distanceToFleet(ships, a) - distanceToFleet(ships, b))
+    : [];
+  const sensorRange = ships.reduce(
+    (best, ship) => Math.max(best, Number(effectiveSensorProfile(ship, room).omniRange) || 0),
+    0
+  );
+  const objectiveEnemy = stationMode
+    && objective?.stationType
+    && objective.state !== "neutral"
+    && objective.team !== player.team;
+  const objectiveNeedsCapture = objectives.some((point) => {
+    if (stationMode) return point.state === "neutral";
+    return !point.ownerTeam || point.ownerTeam !== player.team || (Number(point.progress) || 0) < 0.98;
+  });
+
+  return {
+    stationMode,
+    objectives,
+    objective,
+    objectiveEnemy,
+    objectiveNeedsCapture,
+    allEnemyShips,
+    visibleEnemies,
+    hiddenEnemyCount,
+    sensorNeed: sensorVisibility && hiddenEnemyCount > 0 && visibleEnemies.length === 0,
+    reconObjective: reconObjectives[0] || objective || null,
+    sensorRange,
+    damagedShips,
+    roleCounts: botRoleCounts(room, player)
+  };
+}
+function botRoleWeights(context) {
+  const weights = {
+    assault: 1.5,
+    artillery: 1,
+    capture: 1.5,
+    defence: 0.7,
+    demolition: 0.8,
+    recon: 0.5,
+    siege: 0.8,
+    support: 1
+  };
+  if (context.objectiveNeedsCapture) {
+    weights.capture += 4;
+    weights.assault += 1.5;
+    weights.support += 0.5;
+  }
+  if (context.objectiveEnemy) {
+    weights.demolition += 4;
+    weights.siege += 3;
+    weights.assault += 2;
+  }
+  if (context.visibleEnemies.length) {
+    weights.assault += 3;
+    weights.artillery += 2;
+    weights.siege += 2;
+    weights.defence += 1;
+  }
+  if (context.sensorNeed) weights.recon += 5;
+  if (context.damagedShips.length) weights.support += 4;
+  return weights;
+}
+
+function chooseBotBlueprint(room, player, context, rng) {
+  const mode = normalizeAiDesignMode(room.rules?.aiDesignMode);
+  const pool = getAiBlueprintPool(mode);
+  if (!pool.length) return null;
+  if (mode !== AI_DESIGN_MODES.BETTER) return cloneAiBlueprint(pool[0]);
+
+  const affordable = pool.filter((blueprint) => blueprint.stats.unitCost <= Math.max(0, Number(player.money) || 0));
+  if (!affordable.length) return null;
+  const weights = botRoleWeights(context);
+  const roleCounts = context.roleCounts || {};
+  const recent = new Set(player.ai?.recentBlueprintIds || []);
+  let best = null;
+  let bestScore = -Infinity;
+  for (const blueprint of affordable) {
+    const roleCount = Number(roleCounts[blueprint.role]) || 0;
+    const dps = Number(blueprint.stats.weaponDps) || 0;
+    const cost = Math.max(1, Number(blueprint.stats.unitCost) || 1);
+    let score = (weights[blueprint.role] || 0) * 10;
+    score += roleCount === 0 ? 4 : -roleCount * 1.25;
+    if (recent.has(blueprint.id)) score -= 3.5;
+    score += Math.min(3, dps / cost * 4);
+    score += Math.min(2, (Number(blueprint.stats.repairRate) || 0) / 20);
+    score += Math.min(2, (Number(blueprint.stats.sensorRange) || 0) / 900);
+    if (blueprint.role === "capture" && context.objectiveNeedsCapture) score += 4;
+    if (blueprint.role === "recon" && context.sensorNeed) score += 6;
+    if (blueprint.role === "support" && context.damagedShips.length) score += 4;
+    // Spend up to the current budget without making every early purchase a
+    // capital ship. The role score wins when the battlefield calls for one.
+    score -= Math.max(0, cost / Math.max(1, Number(player.money) || 1) - 0.75) * 2;
+    score += rng() * 1.25;
+    if (score > bestScore) {
+      best = blueprint;
+      bestScore = score;
+    }
+  }
+  return cloneAiBlueprint(best);
+}
+
+function chooseBotEnemy(group, enemies, role) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const enemy of enemies || []) {
+    const distance = distanceToFleet(group, enemy);
+    const threat = (Number(enemy.cost) || Number(enemy.stats?.unitCost) || 0)
+      + (Number(enemy.stats?.weaponDps) || 0) * 2;
+    let score;
+    if (role === "artillery" || role === "siege") {
+      score = threat - distance * 0.04;
+    } else if (role === "demolition" || role === "assault" || role === "defence") {
+      score = -distance + threat * 0.08;
+    } else {
+      score = -distance;
+    }
+    if (score > bestScore || (score === bestScore && compareIdStrings(String(enemy.id), String(best?.id)) < 0)) {
+      best = enemy;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function hasRepairCapability(ships) {
+  return (ships || []).some((ship) => (Number(ship.stats?.repair) || 0) > 0 || (Number(ship.stats?.repairRate) || 0) > 0);
+}
+
+function chooseBotRepairTarget(group, damagedShips) {
+  const selected = new Set((group || []).map((ship) => ship.id));
+  return (damagedShips || []).find((ship) => !selected.has(ship.id)) || null;
+}
+
+function botObjectiveDestination(room, objective, role) {
+  if (!objective) return { x: room.world.width / 2, y: room.world.height / 2 };
+  const offsetByRole = {
+    capture: 0,
+    assault: 65,
+    demolition: 45,
+    defence: 150,
+    artillery: 230,
+    recon: 0,
+    siege: 190,
+    support: 180
+  };
+  const offset = offsetByRole[role] ?? 90;
+  if (!offset) return { x: objective.x, y: objective.y };
+  const angle = Math.atan2(objective.y - room.world.height / 2, objective.x - room.world.width / 2);
+  return {
+    x: Math.max(0, Math.min(room.world.width, objective.x + Math.cos(angle) * offset)),
+    y: Math.max(0, Math.min(room.world.height, objective.y + Math.sin(angle) * offset))
+  };
+}
+
+function planBotRole(room, player, group, role, context) {
+  const objective = context.objective;
+  const objectiveAttackable = Boolean(objective?.stationType
+    && objective.state !== "neutral"
+    && objective.team !== player.team);
+
+  if (role === "support" && hasRepairCapability(group)) {
+    const repairTarget = chooseBotRepairTarget(group, context.damagedShips);
+    if (repairTarget) return { targetId: repairTarget.id, x: repairTarget.x, y: repairTarget.y };
+  }
+
+  // A capture group remains physically on the relay while the assault group
+  // peels off to deal with defenders. This is the important difference between
+  // merely travelling to a point and actually taking it under pressure.
+  if (role === "capture" && objective && !objectiveAttackable && context.objectiveNeedsCapture) {
+    return { ...botObjectiveDestination(room, objective, role) };
+  }
+
+  if (objectiveAttackable && BOT_COMBAT_ROLES.has(role)) {
+    return { targetId: objective.id, x: objective.x, y: objective.y };
+  }
+
+  if (role === "recon" && context.sensorNeed) {
+    return { ...botObjectiveDestination(room, context.reconObjective, role) };
+  }
+
+  const enemy = chooseBotEnemy(group, context.visibleEnemies, role);
+  if (enemy && BOT_COMBAT_ROLES.has(role)) {
+    return { targetId: enemy.id, x: enemy.x, y: enemy.y };
+  }
+
+  if (objective) return botObjectiveDestination(room, objective, role);
+  if (enemy) return { targetId: enemy.id, x: enemy.x, y: enemy.y };
+  return { x: room.world.width / 2, y: room.world.height / 2 };
+}
+
+function issueBotOrders(room, player, ships, context, rng, now) {
+  const { commandShips } = require("./movement");
+  const groups = new Map();
+  for (const ship of ships) {
+    const role = botRoleForShip(ship);
+    ship.aiRole = role;
+    if (!groups.has(role)) groups.set(role, []);
+    groups.get(role).push(ship);
+  }
+
+  const ai = player.ai || (player.ai = createBotAiState(room.rules?.aiDesignMode, 0, null));
+  for (const [role, group] of groups) {
+    const plan = planBotRole(room, player, group, role, context, rng);
+    const shipIds = group.map((ship) => ship.id).sort(compareIdStrings);
+    const targetPart = plan.targetId ? `target:${plan.targetId}` : `move:${Math.round(plan.x / 32)},${Math.round(plan.y / 32)}`;
+    const signature = `${role}:${targetPart}:${shipIds.join(",")}`;
+    const previous = ai.commandByRole?.[role];
+    if (previous?.signature === signature && now - previous.at < 2600) continue;
+    commandShips(room, player, plan.x, plan.y, { shipIds, targetId: plan.targetId || null });
+    ai.commandByRole[role] = { signature, at: now };
+  }
+}
+
 function chooseBotTeam(room, requester, fallbackId) {
   if (room.rules?.gameMode === "solo") return fallbackId;
 
@@ -423,6 +854,10 @@ module.exports = {
   addBot,
   updateBots,
   chooseBotDesign,
+  chooseBotBlueprint,
+  refreshBotDesigns,
+  botRoleForShip,
+  buildBotBattlefieldContext,
   chooseBotTeam,
   getPlayerSpawn,
   getPlayerRallyPoint,

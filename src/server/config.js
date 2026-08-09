@@ -85,7 +85,10 @@ const DEFAULT_ROOM_RULES = Object.freeze({
   gameMode: "teams",
   asteroidDensity: "medium",
   infrastructureMode: "stations",
-  visibilityMode: "sensors"
+  visibilityMode: "sensors",
+  // Keep the stock hull as the compatibility default. Hosts can opt bots into
+  // the validated role-based designs exported in aiblueprints.json.
+  aiDesignMode: "standard"
 });
 
 

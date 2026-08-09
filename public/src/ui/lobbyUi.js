@@ -171,6 +171,7 @@ function renderRulesReadOnly(rules) {
   const visibilityValue = rules.visibilityMode === "dark"
     ? "Full Dark"
     : rules.visibilityMode === "sensors" ? "Sensor Fog" : "Full Visibility";
+  const aiDesignValue = rules.aiDesignMode === "better" ? "Better designs" : "Standard design";
   return `
     <dl class="game-rules-grid">
       <div class="game-rule"><dt>Mode</dt><dd>${modeValue}</dd></div>
@@ -180,6 +181,7 @@ function renderRulesReadOnly(rules) {
       <div class="game-rule"><dt>Asteroid density</dt><dd>${densityValue}</dd></div>
       <div class="game-rule"><dt>Infrastructure</dt><dd>${infrastructureValue}</dd></div>
       <div class="game-rule"><dt>Visibility</dt><dd>${visibilityValue}</dd></div>
+      <div class="game-rule"><dt>AI designs</dt><dd>${aiDesignValue}</dd></div>
     </dl>
   `;
 }
@@ -211,8 +213,9 @@ export function updateRulesControls(interaction = getLobbyInteractionState()) {
       setRuleControlValue(dom.asteroidDensitySelect, rules.asteroidDensity);
       setRuleControlValue(dom.infrastructureModeSelect, rules.infrastructureMode || "stations");
       setRuleControlValue(dom.visibilityModeSelect, rules.visibilityMode || "sensors");
+      setRuleControlValue(dom.aiDesignModeSelect, rules.aiDesignMode || "standard");
     } else {
-      const nextSignature = `${rules.gameMode}|${rules.startingMoney}|${rules.maxPlayers}|${rules.mapSize}|${rules.asteroidDensity}|${rules.infrastructureMode}|${rules.visibilityMode}|${phase}`;
+      const nextSignature = `${rules.gameMode}|${rules.startingMoney}|${rules.maxPlayers}|${rules.mapSize}|${rules.asteroidDensity}|${rules.infrastructureMode}|${rules.visibilityMode}|${rules.aiDesignMode}|${phase}`;
       if (nextSignature !== lastRulesReadOnlySignature) {
         lastRulesReadOnlySignature = nextSignature;
         dom.rulesReadOnly.innerHTML = renderRulesReadOnly(rules);
@@ -880,9 +883,10 @@ export function sendRulesUpdate() {
   const asteroidDensity = dom.asteroidDensitySelect?.value || "medium";
   const infrastructureMode = dom.infrastructureModeSelect?.value || "stations";
   const visibilityMode = dom.visibilityModeSelect?.value || "sensors";
+  const aiDesignMode = dom.aiDesignModeSelect?.value || "standard";
   send({
     type: "setRules",
-    rules: { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode, visibilityMode }
+    rules: { startingMoney, maxPlayers, mapSize, gameMode, asteroidDensity, infrastructureMode, visibilityMode, aiDesignMode }
   });
 }
 

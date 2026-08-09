@@ -185,6 +185,7 @@ dom.mapSizeSelect?.addEventListener("change", sendRulesUpdate);
 dom.asteroidDensitySelect?.addEventListener("change", sendRulesUpdate);
 dom.infrastructureModeSelect?.addEventListener("change", sendRulesUpdate);
 dom.visibilityModeSelect?.addEventListener("change", sendRulesUpdate);
+dom.aiDesignModeSelect?.addEventListener("change", sendRulesUpdate);
 dom.stationPanelFocus?.addEventListener("click", focusPanelStation);
 
 // Team select updates
