@@ -1,8 +1,10 @@
 (function initDataSupportRules(root, factory) {
-  const rules = factory();
+  const weaponPresentationRules = root.WeaponPresentationRules
+    || (typeof require === "function" ? require("./weaponPresentationRules.js") : null);
+  const rules = factory(weaponPresentationRules);
   if (typeof module !== "undefined" && module.exports) module.exports = rules;
   root.DataSupportRules = rules;
-}(typeof globalThis !== "undefined" ? globalThis : this, function makeDataSupportRules() {
+}(typeof globalThis !== "undefined" ? globalThis : this, function makeDataSupportRules(weaponPresentationRules) {
   "use strict";
 
   // Descriptors identify catalogue fields only. The catalogue remains the
@@ -58,8 +60,11 @@
     const accuracyCeiling = Math.max(0.99, finite(base.accuracy));
     const accuracy = Math.max(0, Math.min(accuracyCeiling, finite(base.accuracy) + finite(support?.accuracyBonus)));
     const fireRate = finite(base.fireRate) * (1 + finite(support?.fireRateBonus));
-    const result = { ...base, range, accuracy, fireRate, reload: fireRate > 0 ? 1000 / fireRate : 0 };
-    if (Number.isFinite(Number(result.damage)) && Number.isFinite(fireRate)) result.dps = Number(result.damage) * fireRate;
+    const result = { ...base, range, accuracy, fireRate };
+    const presentation = weaponPresentationRules.weaponCyclePresentation(result);
+    result.reload = presentation.reloadSeconds * 1000;
+    result.dps = presentation.dps;
+    result.combatDps = Math.max(0, finite(result.damage)) * Math.max(0, fireRate);
     return result;
   }
   function normalizeDataLinks(design, dataLinks, catalogue) {

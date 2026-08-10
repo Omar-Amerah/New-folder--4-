@@ -270,6 +270,7 @@ test("all aura multipliers from component-balance.json are consumed by gameplay 
     // derived, not in the controller.
     "./src/server/movementCapability.js",
     "./src/server/heat.js",
+    "./src/server/runtimeShield.js",
     "./src/server/componentPower.js",
     "./src/server/componentHealth.js",
     "./src/server/componentData.js"

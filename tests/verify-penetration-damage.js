@@ -82,8 +82,8 @@ const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: got ${a},
   ship.componentHp[1] = 10; ship.componentHp[2] = 100; ship.componentHeatState[1] = OVERHEATED;
   const armorPart = PARTS.armor;
   const protection = HeatRules.passiveProtectionForState(OVERHEATED);
-  const reduction = armorPart.armorFlatReduction * protection * 1; // interactionSeconds = 1
-  applyHullDamage({ effects: [] }, ship, 30, 1000, SOURCE[0], SOURCE[1], { armorInteractionSeconds: 1 });
+  const reduction = armorPart.armorFlatReduction * protection;
+  applyHullDamage({ effects: [] }, ship, 30, 1000, SOURCE[0], SOURCE[1]);
   assert.strictEqual(ship.componentHp[1], 0, "front armour destroyed");
   // remaining after armour flat reduction = 30 - reduction; raw consumed to
   // destroy = HP(10) / mult(1.6); the rest penetrates to the frame behind.

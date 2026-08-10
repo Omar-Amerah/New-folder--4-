@@ -41,7 +41,7 @@ Ships count when alive, owned by a current player, and inside relay radius. Capt
 
 There is one win condition: capture every relay and hold full control continuously for 20 seconds. `src/server/objectives.js` starts one authoritative countdown when a team or solo player fully owns every uncontested relay. Losing ownership or contesting any relay immediately resets the countdown; regaining full control starts a fresh 20-second hold. Victory finalization is idempotent, so later ticks cannot overwrite an ended match.
 
-Captures still increment the capture statistic and award `economy.captureBonus`. Fully owned relays still add `economy.relayIncome` to each eligible teammate's income. Kills still award bounties, and post-match rewards and highlights still use combat, fleet, capture, and economy statistics. None of these rewards create a second victory path.
+Captures still increment the capture statistic and award `economy.captureBonus`. Fully owned relays still add `economy.relayIncome` to each eligible teammate's income. Kills still award in-match bounties, while end-game highlights report combat, fleet, capture, and economy statistics without awarding a payout. None of these bonuses create a second victory path.
 
 ## Reset matrix
 
@@ -56,7 +56,7 @@ Captures still increment the capture statistic and award `economy.captureBonus`.
 
 ## Test strategy and deferred risks
 
-`verify-maps-objectives.js` covers fixed deterministic seeds across all configured world sizes, both modes, and every asteroid density, plus direct relay-capture invariants. `verify-control-victory.js` covers continuous holds, interruption/reset behavior, solo parity, and retained capture/relay economy rewards. Wider browser objective rendering and real-protocol forced victory hooks remain deferred because they require explicit test-only server controls that should not be exposed in production.
+`verify-maps-objectives.js` covers fixed deterministic seeds across all configured world sizes, both modes, and every asteroid density, plus direct relay-capture invariants. `verify-control-victory.js` covers continuous holds, interruption/reset behavior, solo parity, retained capture/relay income, and the absence of a post-match payout. Wider browser objective rendering and real-protocol forced victory hooks remain deferred because they require explicit test-only server controls that should not be exposed in production.
 
 ## Map and objective verification
 
@@ -64,7 +64,7 @@ Map, spawn-reservation, and objective invariants are exercised by `verify-maps-o
 
 ## Objective and victory test expectations
 
-Objective coverage distinguishes capture, economy rewards, victory finalization, and reset behavior. Capture rates, countdown duration, and reward values are not changed by these tests. Broader capture/victory/reset cases remain outside this focused invariant suite.
+Objective coverage distinguishes capture, in-match economy bonuses, payout-free victory finalization, and reset behavior. Capture rates, countdown duration, and in-match economy values are not changed by these tests. Broader capture/victory/reset cases remain outside this focused invariant suite.
 
 ## Spawn safe-zone authority
 

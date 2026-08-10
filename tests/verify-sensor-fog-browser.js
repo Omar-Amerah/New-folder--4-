@@ -109,13 +109,13 @@ try {
         actual: stats.directedSensorRange,
         expected: stats.baseSensorRange
           + PART_STATS.largeDirectedSensor.sensorRangeBonus
-          + PART_STATS.smallDirectedSensor.sensorRangeBonus * 0.65
+          + PART_STATS.smallDirectedSensor.sensorRangeBonus
       };
     });
     assert.strictEqual(
       browserDirectedStack.actual,
       browserDirectedStack.expected,
-      "browser designer stacks aligned Directed Sensor range with diminishing returns"
+      "browser designer stacks aligned Directed Sensor range linearly"
     );
     await page.locator("#designerAnalysisTab").click();
     await page.locator("#analysisMovementTab").click();
@@ -127,7 +127,7 @@ try {
     );
     assert.match(
       await page.locator("#analysisMovementPanel .combat-movement-card").textContent(),
-      /Top speed[\s\S]*Thrust potential[\s\S]*Mass drag begins[\s\S]*Handling & propulsion[\s\S]*Adding one engine[\s\S]*What sets top speed\?/,
+      /Top speed[\s\S]*Handling & propulsion[\s\S]*Effective thrust[\s\S]*Mass-drag effect[\s\S]*Adding one engine[\s\S]*What sets top speed\?/,
       "Combat movement leads with the outcome, then explains the supporting engineering values"
     );
     assert.match(
@@ -141,8 +141,8 @@ try {
       "each Directed Sensor renders its own facing cone");
     assert.deepStrictEqual(
       await page.locator("#analysisMovementPanel .sensor-stack-entry-head b").allTextContents(),
-      ["100%", "65%", "100%", "65%"],
-      "General and Directional stacks expose diminishing returns independently"
+      ["100%", "100%", "100%", "100%"],
+      "General and Directional stacks expose full authored bonuses independently"
     );
     assert.match(
       await page.locator("#analysisMovementPanel .sensor-coverage-readouts").textContent(),

@@ -9,6 +9,7 @@ const StructuralConnectivity = require("../../public/src/shared/structuralConnec
 const ComponentTransform = require("../../public/src/shared/componentTransform");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
+const LegacyComponentRules = require("../../public/src/shared/legacyComponentRules");
 const { BALANCE } = require("./balanceConfig");
 
 function designIssue(code, inputIndex) {
@@ -23,6 +24,7 @@ function designIssue(code, inputIndex) {
 
 function validateDesign(input) {
   if (!Array.isArray(input)) return { ok: false, reason: "Invalid design: no blueprint was sent." };
+  const source = LegacyComponentRules.migrateDesignTypes(input);
   const clean = [];
   const occupied = new Set();
   const issues = [];
@@ -30,8 +32,8 @@ function validateDesign(input) {
   let coreCount = 0;
   let backupCoreCount = 0;
 
-  for (let inputIndex = 0; inputIndex < input.length; inputIndex += 1) {
-    const raw = input[inputIndex];
+  for (let inputIndex = 0; inputIndex < source.length; inputIndex += 1) {
+    const raw = source[inputIndex];
     const x = Math.trunc(Number(raw?.x));
     const y = Math.trunc(Number(raw?.y));
     const type = String(raw?.type || "");
@@ -101,7 +103,7 @@ function isConnected(modules) {
 function normalizeShipDesignSnapshot(design, { sourceGridSize = 15 } = {}) {
   if (sourceGridSize === 11) return migrateLegacy11DesignSnapshot(design);
   if (sourceGridSize !== 15) throw new Error(`Unsupported design source grid size: ${sourceGridSize}`);
-  const source = Array.isArray(design) ? design : DEFAULT_DESIGN;
+  const source = LegacyComponentRules.migrateDesignTypes(Array.isArray(design) ? design : DEFAULT_DESIGN);
   return source.map((part) => {
     const x = Math.trunc(Number(part?.x));
     const y = Math.trunc(Number(part?.y));
@@ -124,7 +126,8 @@ function assertFootprintsFitGrid(modules, min, max, message) {
 
 function migrateLegacy11DesignSnapshot(design) {
   if (!Array.isArray(design)) throw new Error("Legacy 11x11 migration requires a design array.");
-  const normalized = design.map((part) => {
+  const source = LegacyComponentRules.migrateDesignTypes(design);
+  const normalized = source.map((part) => {
     const x = Math.trunc(Number(part?.x));
     const y = Math.trunc(Number(part?.y));
     const type = String(part?.type || "");

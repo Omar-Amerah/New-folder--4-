@@ -1,6 +1,7 @@
 // Load component definitions, lookup parts by id, and validate known component types.
 
 const { BALANCE: COMPONENT_BALANCE } = require("./balanceConfig");
+const WeaponPresentationRules = require("../../public/src/shared/weaponPresentationRules.js");
 
 function toNumber(value, fallback = 0) {
   const number = Number(value);
@@ -14,17 +15,15 @@ function normalizeAffectedComponentLimit(primary, fallback, defaultValue) {
   return Number.isFinite(number) && number >= 1 ? Math.round(number) : defaultValue;
 }
 
-function calculateDps(weapon) {
-  return (weapon.damage * weapon.fireRate);
-}
-
 function calculateReload(weapon) {
-  return 1000 / weapon.fireRate;
+  return WeaponPresentationRules.weaponCyclePresentation(weapon).reloadSeconds * 1000;
 }
 
 function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
+  const spinalCharge = normalizeSpinalCharge(stats.spinalCharge);
+  const presentation = WeaponPresentationRules.weaponCyclePresentation({ damage, fireRate, spinalCharge });
   
   let tracking = stats.tracking || 0;
   // aimSpeed is an optional traverse-rate override. Keep only real finite
@@ -54,7 +53,10 @@ function makeWeapon(type, stats) {
     trackingDelay: Number(stats.trackingDelay) || 0,
     aimSpeed: aimSpeed !== undefined ? Number(aimSpeed) : undefined,
     arc: Number(stats.arc) || 360,
-    dps: calculateDps({ damage, fireRate }),
+    dps: presentation.dps,
+    // Combat-facing heuristics retain their historical direct cadence. The
+    // public dps field is presentation-only and includes Spinal charge time.
+    combatDps: damage * fireRate,
     missileHp: Number(stats.missileHp) || 0,
     antiMissile: Boolean(stats.antiMissile),
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
@@ -67,7 +69,6 @@ function makeWeapon(type, stats) {
     proximityFuseRadius: Number(stats.proximityFuseRadius ?? 0),
     innerFullDamageRadius: Number(stats.innerFullDamageRadius ?? 0),
     falloffExponent: Number(stats.falloffExponent ?? 1),
-    armourPenetration: Number(stats.armourPenetration ?? 1),
     cooldown: Number(stats.cooldown) || 0,
     maximumExplosionTargets: Number(stats.maximumExplosionTargets) || 0,
     burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined,
@@ -82,11 +83,10 @@ function makeWeapon(type, stats) {
     inductionAdjacentFraction: stats.inductionAdjacentFraction !== undefined ? Number(stats.inductionAdjacentFraction) : undefined,
     inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
     inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
-    inductionSelfHeatMaxMultiplier: stats.inductionSelfHeatMaxMultiplier !== undefined ? Number(stats.inductionSelfHeatMaxMultiplier) : undefined,
     beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
     pelletCount: normalizePelletCount(stats.pelletCount),
     pelletSpreadDegrees: stats.pelletSpreadDegrees !== undefined ? Number(stats.pelletSpreadDegrees) : undefined,
-    spinalCharge: normalizeSpinalCharge(stats.spinalCharge)
+    spinalCharge
   };
 }
 
@@ -113,8 +113,6 @@ function normalizeSpinalCharge(config) {
     committedAimTraverseFloor: clamp01(toNumber(config.committedAimTraverseFloor, 0.05)),
     hullTurnPenaltyStartProgress: clamp01(toNumber(config.hullTurnPenaltyStartProgress, 0.8)),
     hullTurnPenaltyMultiplier: clamp01(toNumber(config.hullTurnPenaltyMultiplier, 0.5)),
-    chargeHeatPerSecond: Math.max(0, toNumber(config.chargeHeatPerSecond, 0)),
-    fireHeat: Math.max(0, toNumber(config.fireHeat, 0)),
     penetrationProfile: Object.freeze(profile.length ? profile : [1])
   });
 }
@@ -174,16 +172,15 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     mass: toNumber(component.mass, 0),
     hp: toNumber(component.hp ?? component.hull, 0),
     powerGeneration: toNumber(component.powerGeneration, 0),
+    activityHeat: toNumber(component.activityHeat, 0),
+    heatPerShot: toNumber(component.heatPerShot, 0),
     powerUse: toNumber(component.powerUse, 0),
     shield: toNumber(component.shield, 0),
     shieldRegen: toNumber(component.shieldRegen, 0),
     thrust: toNumber(component.thrust, 0),
-    lateralThrust: toNumber(component.lateralThrust, 0),
-    brakingThrust: toNumber(component.brakingThrust, 0),
-    reverseThrust: toNumber(component.reverseThrust, 0),
     turn: toNumber(component.turn, 0),
-    energyStorage: toNumber(component.energyStorage ?? component.energyCapacity ?? component.energy, 0),
-    energyCapacity: toNumber(component.energyCapacity ?? component.energyStorage ?? component.energy, 0),
+    energyStorage: toNumber(component.energyStorage ?? component.energyCapacity, 0),
+    energyCapacity: toNumber(component.energyCapacity ?? component.energyStorage, 0),
     maxChargeRate: toNumber(component.maxChargeRate, 0),
     maxDischargeRate: toNumber(component.maxDischargeRate, 0),
     chargeEfficiency: component.chargeEfficiency !== undefined ? toNumber(component.chargeEfficiency, 1) : 1,
@@ -215,10 +212,8 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
     maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
     meltdownDamage: Number.isFinite(Number(component.meltdownDamage)) ? Number(component.meltdownDamage) : null,
     meltdownRadius: Number.isFinite(Number(component.meltdownRadius)) ? Number(component.meltdownRadius) : null,
-    // Directional armour: maximum damage removed from a single attack event.
-    // Rapid or continuous sources with sub-second delivery intervals scale this
-    // value by the interval, making it approximately sustained DPS absorbed per
-    // weapon stream.
+    // Directional armour: damage removed from each discrete hit. Continuous
+    // beams apply their own per-second reduction at the beam damage boundary.
     armorFlatReduction: toNumber(component.armorFlatReduction, 0),
     heatCapacity: component.heatCapacity !== undefined ? toNumber(component.heatCapacity, 0) : undefined,
     heatCooling: component.heatCooling !== undefined ? toNumber(component.heatCooling, 0) : undefined,
@@ -261,21 +256,10 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
           damagesFriendlyShips: component.proximityCharge.damagesFriendlyShips !== false
         })
       : null,
-    propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object"
-      ? Object.freeze({
-          capacity: toNumber(component.propulsionCapacitor.capacity, 100),
-          maxDischargeRate: toNumber(component.propulsionCapacitor.maxDischargeRate, 40),
-          maxChargeRate: toNumber(component.propulsionCapacitor.maxChargeRate, 15),
-          boostMultiplier: toNumber(component.propulsionCapacitor.boostMultiplier, 1.8),
-          activationThreshold: toNumber(component.propulsionCapacitor.activationThreshold, 0.6),
-          deactivationThreshold: toNumber(component.propulsionCapacitor.deactivationThreshold, 0.15),
-          minReserveFraction: toNumber(component.propulsionCapacitor.minReserveFraction, 0.05)
-        })
-      : null,
     footprint: component.footprint ? { width: toNumber(component.footprint.width, 1), height: toNumber(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {
-    part.activityHeat = toNumber(balance.drones.activeHeatPerSecond, 0);
+    if (!(part.activityHeat > 0)) part.activityHeat = toNumber(balance.drones.activeHeatPerSecond, 0);
     part.droneConfig = JSON.parse(JSON.stringify(balance.drones));
   }
 

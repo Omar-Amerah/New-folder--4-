@@ -580,7 +580,7 @@ let testShipCounter = 0;
     buildRoomSpatialIndex(room, [pdShip], now1);
     updateShipWeapons(room, pdShip, [pdShip], 1 / 30, now1);
     const pdIndex = getShipComponentIndexes(pdShip).weaponIndices[0];
-    assert.strictEqual(pdShip.pdAcquiredTargetIds[pdIndex], "m-old", "PD acquired the initial missile");
+    assert.strictEqual(pdShip.weaponFireTargetIds[pdIndex], "m-old", "PD selected the initial missile");
 
     // Second tick, well before the 12 Hz PD window: destroy old, leaving the
     // other threat already in the shared set.
@@ -593,7 +593,7 @@ let testShipCounter = 0;
     const t = RoomTelemetry.getRoomTelemetry(room);
     assert.ok(t.pointDefenceImmediateReacquisitions >= 1, "Invalidating the cached PD target triggers immediate reacquisition");
     assert.ok(t.pointDefenceTargetSearches >= 2, "PD performs a new search when the old target is lost");
-    assert.strictEqual(pdShip.pdPendingTargetIds[pdIndex], "m-other", "PD immediately switches to the other threat");
+    assert.strictEqual(pdShip.weaponFireTargetIds[pdIndex], "m-other", "PD immediately switches to the other threat");
     console.log("✔ Test 23 passed: Destroyed PD target is immediately reacquired.");
   }
 

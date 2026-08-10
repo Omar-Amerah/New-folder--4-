@@ -76,10 +76,10 @@ const shooter = () => makeShip("shooter", "p1", 0, 0);
 // A ship is "damaged" if its hull hp dropped or any component lost HP (core hits
 // only reduce the core component's HP, not ship.hp).
 function isDamaged(ship) {
-  return ship.hp < 100 || ship.componentHp.some((hp, i) => hp < ship.componentMaxHp[i]);
+  return ship.hp < ship.maxHp || ship.componentHp.some((hp, i) => hp < ship.componentMaxHp[i]);
 }
 function isIntact(ship) {
-  return ship.hp === 100 && ship.componentHp.every((hp, i) => hp === ship.componentMaxHp[i]);
+  return ship.hp === ship.maxHp && ship.componentHp.every((hp, i) => hp === ship.componentMaxHp[i]);
 }
 
 // 1. Beam -> Ship A -> Ship B: only the nearer ship is damaged.

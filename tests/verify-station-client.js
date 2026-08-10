@@ -156,7 +156,7 @@ function resetState() {
       {
         id: 'st-home', stationType: 'home', team: 'blue', ownerId: 'p1', state: 'operational',
         x: 600, y: 600, angle: 0, radius: 120, hp: 900, maxHp: 1000, shield: 40, maxShield: 80,
-        productionQueue: [{ id: 'q1', playerId: 'p1', state: 'building', quantityRemaining: 2, progress: 0.5 }]
+        productionQueue: [{ id: 'q1', playerId: 'p1', quantityRemaining: 2 }]
       },
       {
         id: 'st-relay', stationType: 'relay', team: null, ownerId: null, state: 'neutral',
@@ -244,9 +244,10 @@ assert.equal(dom.stationPanelKind.textContent, 'Your Home Station', 'the panel n
 assert(dom.stationPanelBody.innerHTML.includes('Operational'), 'the panel shows the operational state');
 assert(dom.stationPanelBody.innerHTML.includes('<strong>900</strong><small>/ 1000</small>'), 'the panel shows hull vitals');
 assert(dom.stationPanelBody.innerHTML.includes('<strong>40</strong><small>/ 80</small>'), 'the panel shows shield vitals');
-assert(dom.stationPanelBody.innerHTML.includes('Building'), 'the panel shows what the launch hangars are building');
-assert(dom.stationPanelBody.innerHTML.includes('50%'), 'the panel shows build progress');
-assert(dom.stationPanelBody.innerHTML.includes('You'), 'the panel attributes the build to its owner');
+assert(dom.stationPanelBody.innerHTML.includes('Waiting for hangar'), 'the panel shows that the purchase is queued for a hangar');
+assert(!dom.stationPanelBody.innerHTML.includes('station-queue-track'), 'the hangar queue has no fictional build-progress track');
+assert(!dom.stationPanelBody.innerHTML.includes('station-queue-progress'), 'the hangar queue has no fictional build-progress percentage');
+assert(dom.stationPanelBody.innerHTML.includes('You'), 'the panel attributes the queued purchase to its owner');
 assert(dom.stationPanelBody.innerHTML.includes('--station-meter-start:#062f17'), 'healthy station hulls use the green ship-hull palette');
 assert(dom.stationPanelBody.innerHTML.includes('--station-meter-start:#fbbf24'), 'half-strength station shields use the amber ship-shield palette');
 assert(!dom.stationPanelBody.innerHTML.includes('Everything you buy'), 'the home-station description is removed');
@@ -341,39 +342,10 @@ assert.equal(outlineBounds.maxY - outlineBounds.minY, 840, 'renderer shell bound
 assert(outline.some((point) => Math.abs(point.x - 28) < 0.001), 'each forward opening is recessed into the shell');
 assert(outline.filter((point) => Math.abs(point.x - 28) < 0.001).length >= 6, 'three openings have rear walls and straight sides');
 
-// The hangar build bar. Builds are sub-second for a light hull, so this is
-// checked by driving the drawing directly rather than trying to photograph it.
+// Station launch queues no longer pretend to have a timed build phase.
 {
-  const { drawProductionBar } = await import('../public/src/game/pixi/pixiStations.js');
-  const record = () => {
-    const calls = [];
-    const gfx = {};
-    for (const method of ['rect', 'moveTo', 'lineTo', 'fill', 'stroke', 'circle', 'arc', 'closePath', 'regularPoly']) {
-      gfx[method] = (...args) => { calls.push({ method, args }); return gfx; };
-    }
-    return { gfx, calls };
-  };
-
-  const idle = record();
-  drawProductionBar(idle.gfx, -50, 0, 100, 8, 1, 0);
-  assert.equal(idle.calls.length, 0, 'an idle hangar draws no build bar at all');
-
-  const mid = record();
-  drawProductionBar(mid.gfx, -50, 0, 100, 8, 1, 0.42);
-  const rects = mid.calls.filter((c) => c.method === 'rect');
-  assert(rects.length >= 4, 'a running build draws a track, a fill, a run-up and a leading edge');
-  const track = rects[0];
-  assert.equal(track.args[2], 100, 'the track spans the full bar width');
-  const fill = rects[1];
-  assert(Math.abs(fill.args[2] - 42) < 0.001, 'the fill width follows progress');
-  assert(mid.calls.some((c) => c.method === 'moveTo'), 'segment ticks are drawn for the fill to travel past');
-
-  // At 100% there is no leading edge to draw — the bar is simply full.
-  const done = record();
-  drawProductionBar(done.gfx, -50, 0, 100, 8, 1, 1);
-  const doneRects = done.calls.filter((c) => c.method === 'rect');
-  assert(doneRects.length < rects.length, 'a finished build drops the leading edge');
-  assert(Math.abs(doneRects[1].args[2] - 100) < 0.001, 'a finished build fills the bar');
+  const stationRenderer = fs.readFileSync('public/src/game/pixi/pixiStations.js', 'utf8');
+  assert(!stationRenderer.includes('drawProductionBar'), 'the renderer has no station build-progress bar');
 }
 
 const rendererJs = fs.readFileSync('public/src/game/pixi/pixiRenderer.js', 'utf8');

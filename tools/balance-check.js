@@ -4,7 +4,7 @@ const path = require('path');
 const { loadBalance } = require('../src/server/balanceConfig');
 const root = path.join(__dirname, '..');
 const balancePath = path.join(root, 'component-balance.json');
-const required = ['metadata','components','shipPricing','economy','rewards','drones','movement','projectiles','missileGuidance','fleetLimits','capture','repair'];
+const required = ['metadata','components','shipPricing','economy','drones','movement','projectiles','missileGuidance','fleetLimits','capture','repair'];
 const balance = loadBalance(balancePath);
 for (const key of required) if (balance[key] === undefined) throw new Error(`Missing required balance section: ${key}`);
 const forbidden = [];

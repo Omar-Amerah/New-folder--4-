@@ -27,7 +27,7 @@ const { decodeBinary } = require("../src/server/wsCodec");
 const { BALANCE } = require("../src/server/balanceConfig");
 
 function player(id, team) {
-  return { id, name: id, team, ships: [], design: [], dataLinks: [], connected: true, money: 0, bank: 0, earned: 0, maxMoney: 1000, kills: 0, losses: 0, captures: 0 };
+  return { id, name: id, team, ships: [], design: [], dataLinks: [], connected: true, money: 0, earned: 0, maxMoney: 1000, kills: 0, losses: 0, captures: 0 };
 }
 
 function runtimeRoom() {

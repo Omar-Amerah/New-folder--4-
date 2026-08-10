@@ -29,6 +29,10 @@ function enrich(stats) {
     missileDps: weapons.missile?.dps,
     railgunDps: weapons.railgun?.dps,
     beamDps: weapons.beam?.dps,
+    blasterDpsLabel: weapons.blaster?.dpsLabel,
+    missileDpsLabel: weapons.missile?.dpsLabel,
+    railgunDpsLabel: weapons.railgun?.dpsLabel,
+    beamDpsLabel: weapons.beam?.dpsLabel,
     maxWeaponRange: ranges.length ? Math.max(...ranges) : 0
   };
 }
@@ -41,7 +45,12 @@ export function blueprintComparisonRows(currentBlueprint, savedBlueprint, curren
     const s = Number(saved[key]);
     if (!Number.isFinite(c) || !Number.isFinite(s)) return null;
     const delta = Number((c - s).toFixed(2));
-    return { key, label, unit, current: c, saved: s, delta };
+    const familyLabel = key.endsWith("Dps") ? current[`${key}Label`] : null;
+    const presentationLabel = key === "weaponDps"
+      && (current.weaponDpsLabel || "Weapon DPS") !== "Weapon DPS"
+      ? current.weaponDpsLabel
+      : familyLabel && familyLabel !== "DPS" ? familyLabel : label;
+    return { key, label: presentationLabel, unit, current: c, saved: s, delta };
   }).filter(Boolean);
 }
 

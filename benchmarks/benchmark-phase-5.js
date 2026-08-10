@@ -236,7 +236,7 @@ function player(id, team) {
   return {
     id, name: id, color: team === "blue" ? "#39f" : "#f66", team, isBot: false,
     connected: true, ready: true, money: 1000, income: 10, earned: 10, spent: 0,
-    shipCap: 1000, deployedFleetCost: 0, destroyedEnemyCost: 0, lastReward: 0,
+    shipCap: 1000, deployedFleetCost: 0, destroyedEnemyCost: 0,
     kills: 0, losses: 0, captures: 0, ships: [], design: [{ type: "core" }],
     stats: { unitCost: 1 }, shipsBuilt: 0, lostFleetCost: 0, rallyPoint: null
   };

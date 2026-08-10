@@ -205,7 +205,7 @@ function filterSnapshotForPlayer(room, player, snapshot, now) {
       // the guns track visibly instead of the client having to invent angles.
       //
       // Condition stays hidden: no hp/maxHp, shields, per-component damage or
-      // production queue. Captured relays still report the public fact that
+      // hangar queue. Captured relays still report the public fact that
       // they are controlled; "unknown" is reserved for a structure whose
       // public state cannot be described without revealing its condition.
       const hiddenStation = {

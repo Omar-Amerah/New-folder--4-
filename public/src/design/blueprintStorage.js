@@ -4,6 +4,7 @@
 import "../shared/componentTransform.js";
 import "../shared/dataSupportRules.js";
 import "../shared/droneBayRules.js";
+import "../shared/legacyComponentRules.js";
 import { LOCAL_DESIGN_KEY, LOCAL_DESIGN_BACKUP_KEY, LOCAL_DESIGN_PREMIGRATION_KEY, LOCAL_SAVED_DESIGNS_KEY, LOCAL_LOADOUTS_KEY } from "../constants.js";
 import { PART_DEFS, PART_STATS, isRotatablePart } from "./parts.js";
 import { maneuverThrusterAutoRotation, normalizeRotation } from "./rotation.js";
@@ -12,6 +13,7 @@ import { getOccupiedCells } from "./footprint.js";
 import { computeStats } from "./componentStats.js";
 
 const ComponentTransform = globalThis.ComponentTransform;
+const LegacyComponentRules = globalThis.LegacyComponentRules;
 
 export const BLUEPRINT_STORAGE_VERSION = 3;
 // Schema v2 stored physical Power/Data Wiring. The modules, logical Data
@@ -104,6 +106,80 @@ export function makeDesignPart(x, y, type, previousRotation = 0, previousFlipped
     ? { x, y, type, rotation: 0, droneType: null }
     : { x, y, type, rotation };
   return flipped ? { ...base, flipped: true } : base;
+}
+
+function footprintCellsFit(x, y, footprint, rotation, flipped, occupied) {
+  const cells = getOccupiedCells(x, y, footprint, rotation, flipped);
+  return cells.every((cell) => cell.x >= 0 && cell.x <= 14 && cell.y >= 0 && cell.y <= 14
+    && !occupied.has(`${cell.x},${cell.y}`));
+}
+
+function addFootprintCells(occupied, x, y, footprint, rotation, flipped) {
+  for (const cell of getOccupiedCells(x, y, footprint, rotation, flipped)) occupied.add(`${cell.x},${cell.y}`);
+}
+
+function nearestOpenFootprint(x, y, footprint, rotation, flipped, occupied) {
+  let best = null;
+  let bestDistance = Infinity;
+  for (let candidateX = 0; candidateX <= 14; candidateX += 1) {
+    for (let candidateY = 0; candidateY <= 14; candidateY += 1) {
+      if (!footprintCellsFit(candidateX, candidateY, footprint, rotation, flipped, occupied)) continue;
+      const distance = (candidateX - x) ** 2 + (candidateY - y) ** 2;
+      if (distance < bestDistance
+        || (distance === bestDistance && (candidateY < best.y || (candidateY === best.y && candidateX < best.x)))) {
+        best = { x: candidateX, y: candidateY };
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Replace hidden legacy sensor identifiers before the normalizer checks the
+ * current catalogue. Large sensors have wider footprints, so keep the old
+ * anchor/rotation when it fits and otherwise move the component to the nearest
+ * deterministic free pose. A completely full design is reported explicitly so
+ * it cannot silently become an overlapping blueprint.
+ */
+export function migrateLegacySensorFootprints(input) {
+  if (!Array.isArray(input)) return { modules: input, changed: false, unmigratable: new Set() };
+  const occupied = new Set();
+  for (const part of input) {
+    if (!part || LegacyComponentRules.isMigratedType(part.type)) continue;
+    const x = Math.trunc(Number(part.x));
+    const y = Math.trunc(Number(part.y));
+    if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
+    const stat = PART_STATS[String(part.type)] || PART_STATS.frame;
+    const rotation = normalizeRotation(part.rotation, stat.allowedRotations, x);
+    const flipped = ComponentTransform.normalizePartFlip(stat, part.flipped);
+    addFootprintCells(occupied, x, y, stat.footprint || { width: 1, height: 1 }, rotation, flipped);
+  }
+
+  const unmigratable = new Set();
+  let changed = false;
+  const modules = input.map((part, inputIndex) => {
+    if (!part || !LegacyComponentRules.isMigratedType(part.type)) return part;
+    changed = true;
+    const type = LegacyComponentRules.replacementType(part.type);
+    const x = Math.trunc(Number(part.x));
+    const y = Math.trunc(Number(part.y));
+    if (!Number.isInteger(x) || !Number.isInteger(y)) return { ...part, type };
+    const stat = PART_STATS[type] || PART_STATS.frame;
+    const rotation = normalizeRotation(part.rotation, stat.allowedRotations, x);
+    const flipped = ComponentTransform.normalizePartFlip(stat, part.flipped);
+    const footprint = stat.footprint || { width: 1, height: 1 };
+    const destination = footprintCellsFit(x, y, footprint, rotation, flipped, occupied)
+      ? { x, y }
+      : nearestOpenFootprint(x, y, footprint, rotation, flipped, occupied);
+    if (!destination) {
+      unmigratable.add(inputIndex);
+      return { ...part, type };
+    }
+    addFootprintCells(occupied, destination.x, destination.y, footprint, rotation, flipped);
+    return { ...part, type, x: destination.x, y: destination.y };
+  });
+  return { modules, changed, unmigratable };
 }
 
 const COMMAND_COMPONENT_TYPES = new Set([
@@ -199,7 +275,8 @@ function normalizationIssue(code, inputIndex) {
     "invalid-coordinate": "Invalid design: module has invalid coordinates.",
     "unknown-module": "Invalid design: unknown module type.",
     "out-of-bounds": "Invalid design: modules outside build grid.",
-    overlap: "Invalid design: overlapping modules."
+    overlap: "Invalid design: overlapping modules.",
+    "legacy-component-migration": "Invalid design: a legacy sensor could not be migrated without overlap or leaving the build grid."
   };
   return { code, message: messages[code] || "Invalid design: invalid module.", inputIndex };
 }
@@ -212,12 +289,17 @@ export function normalizeDesignDetailed(input, options = {}) {
     }
     input = defaultDesign();
   }
-  const source = migrateCommandFootprints(input);
+  const legacyMigration = migrateLegacySensorFootprints(input);
+  const source = migrateCommandFootprints(legacyMigration.modules);
   const occupied = new Set();
   const modules = [];
   const issues = [];
   for (let inputIndex = 0; inputIndex < source.length; inputIndex += 1) {
     const raw = source[inputIndex];
+    if (legacyMigration.unmigratable.has(inputIndex)) {
+      issues.push(normalizationIssue("legacy-component-migration", inputIndex));
+      continue;
+    }
     const x = Math.trunc(Number(raw?.x));
     const y = Math.trunc(Number(raw?.y));
     const type = String(raw?.type || "");
@@ -238,7 +320,12 @@ export function normalizeDesignDetailed(input, options = {}) {
     for (const cell of cells) occupied.add(`${cell.x},${cell.y}`);
     modules.push(newPart);
   }
-  return { modules: allowEmpty || modules.length ? modules : [], issues, changed: issues.length > 0 || modules.length !== source.length, droppedCount: issues.length };
+  return {
+    modules: allowEmpty || modules.length ? modules : [],
+    issues,
+    changed: legacyMigration.changed || issues.length > 0 || modules.length !== source.length,
+    droppedCount: issues.length
+  };
 }
 
 export function normalizeDesign(input, options = {}) {
@@ -258,7 +345,8 @@ function defaultCurrentDesign() {
 
 function savedDesignSummary(blueprint, dataLinks) {
   const stats = computeStats(blueprint, { dataLinks });
-  return { cost: stats.unitCost, weapons: `${stats.weaponDps} DPS`, speed: Math.round(stats.maxSpeed) };
+  const dpsLabel = stats.weaponDpsLabel === "Weapon DPS" ? "DPS" : (stats.weaponDpsLabel || "DPS");
+  return { cost: stats.unitCost, weapons: `${stats.weaponDps} ${dpsLabel}`, speed: Math.round(stats.maxSpeed) };
 }
 function normalizeSavedDesign(design, index) {
   if (!design || typeof design !== "object" || Array.isArray(design)) return null;
@@ -317,6 +405,7 @@ function buildCurrentDesignFromPayload(payload) {
     modules,
     normalizationIssues: detailed.issues,
     needsAttention: detailed.issues.length > 0,
+    migrated: detailed.changed,
     dataLinks,
     combatStyle: safeStyle(payload.combatStyle, "hold")
   };

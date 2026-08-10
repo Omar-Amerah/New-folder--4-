@@ -59,7 +59,7 @@ const dualCompact = computeStats(withCore(
   { x: 6, y: 9, type: "compactEngine" },
   { x: 8, y: 9, type: "compactEngine" }
 ));
-assert.strictEqual(dualCompact.effectiveThrust, 186.2, "two Compact Engines stack with falloff");
+assert.strictEqual(dualCompact.effectiveThrust, 190, "two Compact Engines stack linearly");
 
 const standard = computeStats(withCore({ x: 7, y: 9, type: "engine" }));
 assert(standard.effectiveThrust > dualCompact.effectiveThrust, "one standard Engine beats two Compact Engines");
@@ -83,7 +83,7 @@ const mixedB = computeStats(withCore(
   { x: 8, y: 9, type: "compactEngine" }
 ));
 assert.strictEqual(mixedA.effectiveThrust, mixedB.effectiveThrust, "mixed engine stacking order should not matter");
-assert.strictEqual(mixedA.effectiveThrust, 318.2, "stronger engine takes the primary stack position");
+assert.strictEqual(mixedA.effectiveThrust, 322, "mixed engine thrust is the authored linear sum");
 
 // --- Exhaust geometry ---
 const clear = EngineExhaust.analyze(withCore({ x: 7, y: 9, type: "compactEngine" }), PARTS);

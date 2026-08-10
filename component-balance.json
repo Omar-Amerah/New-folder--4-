@@ -5,7 +5,7 @@
     "Edit component values here; server.js normalizes this file into runtime PARTS and the native ES-module frontend loads the same file for UI stats.",
     "Units: cost $, mass T, hull HP, power MW, shield SP, shieldRegen SP/s, thrust kN, energy MJ, repair HP/s, range m, radius m, projectileSpeed m/s.",
     "Section units: currency $, mass tonnes, hull HP, shield points, seconds, metres, metres/second, radians/second, damage, shots/second, energy, heat, percentages as 0-1 fractions, multipliers as direct factors.",
-    "Missile weapon fields are base damage, fire rate, projectile speed, guidance/tracking strength, tracking delay, tracking duration, lifetime where present, firing arc, and accuracy; theoretical DPS is damage * fireRate, not expected applied damage.",
+    "Missile weapon fields are base damage, fire rate, projectile speed, guidance/tracking strength, tracking delay, tracking duration, lifetime where present, firing arc, and accuracy; ordinary theoretical DPS is damage * fireRate, while spinalCharge weapons use an ideal cycle that includes mandatory charge time.",
     "weapon.pelletCount / weapon.pelletSpreadDegrees turn one trigger pull into several independent projectiles inside an extra cone; weapon.damage is per pellet, so armour flat reduction applies to each one.",
     "weapon.blastDamage / blastRadius / innerFullDamageRadius / falloffExponent on an offensive (non-flak) weapon add an impact burst after the direct hit resolves, using the same falloff maths as Flak.",
     "weapon.impactHeatPerDamage is supported on projectile weapons as well as beams; it converts applied damage into Heat inside the struck component.",
@@ -15,119 +15,14 @@
   ],
   "visibility": {
     "defaultMode": "sensors",
-    "hullBaseSensorRange": {
-      "light": 520,
-      "medium": 460,
-      "heavy": 400,
-      "capital": 480
-    },
+    "baseSensorRange": 460,
     "detectionLingerSeconds": 0.25,
     "rememberedContactSeconds": 12,
     "homeStationSensorRange": 1400,
     "relayStationSensorRange": 950
   },
   "movement": {
-    "requiresThrust": true,
-    "noEngineMaxSpeed": "0 m/s",
-    "noEngineAcceleration": "0 m/s^2",
-    "effectiveThrust": "Engine thrust stacks with gentler diminishing returns: 100%, 96%, 92%, 88%, 85%, 82%, etc. (falloff 0.96 per engine).",
-    "effectiveTurn": "Positive turn modules stack with softer diminishing returns: 100%, 92%, 85%, etc.",
-    "powerEfficiency": "Power uses one ship-wide pool. Functioning generators and available battery discharge are compared with active demand; shortages scale active systems by pow(ratio, 1.8), clamped to a minimum 18% for movement. Surplus power can grant up to 8% bonus movement.",
-    "massClasses": [
-      {
-        "name": "Light",
-        "mass": "< 55 T",
-        "softSpeedCap": "340 m/s",
-        "softTurnCap": "2.85 rad/s"
-      },
-      {
-        "name": "Medium",
-        "mass": "55-124 T",
-        "softSpeedCap": "285 m/s",
-        "softTurnCap": "2.05 rad/s"
-      },
-      {
-        "name": "Heavy",
-        "mass": "125-229 T",
-        "softSpeedCap": "215 m/s",
-        "softTurnCap": "1.12 rad/s"
-      },
-      {
-        "name": "Capital",
-        "mass": "230+ T",
-        "softSpeedCap": "165 m/s",
-        "softTurnCap": "0.72 rad/s"
-      }
-    ],
-    "turnScaling": "Smaller ships keep a higher base turn rate. Mass turn penalty now scales from mass / 82 so light and medium ships turn more responsively while capital ships remain slow.",
-    "maneuverThrusterLever": {
-      "minimumLever": 0.35,
-      "leverPerCell": 0.35,
-      "maximumLever": 1.75
-    },
-    "hullControlThrust": {
-      "Light": {
-        "turn": 0.15,
-        "lateral": 20,
-        "braking": 15
-      },
-      "Medium": {
-        "turn": 0.1,
-        "lateral": 15,
-        "braking": 12
-      },
-      "Heavy": {
-        "turn": 0.06,
-        "lateral": 10,
-        "braking": 8
-      },
-      "Capital": {
-        "turn": 0.03,
-        "lateral": 5,
-        "braking": 5
-      }
-    },
-    "propulsionCapacitor": {
-      "rechargeRate": 15,
-      "dischargeRate": 40,
-      "boostMultiplier": 1.8,
-      "activationThreshold": 0.6,
-      "deactivationThreshold": 0.15,
-      "minReserveFraction": 0.05
-    },
-    "evasion": {
-      "trackingBase": 200,
-      "evasionExponent": 1.4,
-      "maxAccuracyPenalty": 0.75
-    },
-    "movementStyles": {
-      "interceptor": {
-        "description": "Fast aggressive style that uses capacitor boosts to close distance quickly.",
-        "capacitorAggression": 0.8,
-        "desiredRangeRatio": 0.35,
-        "lateralDodging": false
-      },
-      "evasive": {
-        "description": "Erratic lateral movement that maximises transversal velocity to dodge fire.",
-        "capacitorAggression": 0.6,
-        "desiredRangeRatio": 0.75,
-        "lateralDodging": true,
-        "dodgeIntervalSeconds": 2.5,
-        "dodgeMagnitude": 120
-      },
-      "brawler": {
-        "description": "Close-range fighter that uses capacitor for braking and turning, not speed.",
-        "capacitorAggression": 0.5,
-        "desiredRangeRatio": 0.5,
-        "lateralDodging": false
-      },
-      "heavy": {
-        "description": "Slow tank that rarely activates capacitors, relying on sustained thrust.",
-        "capacitorAggression": 0.2,
-        "desiredRangeRatio": 0.85,
-        "lateralDodging": false
-      }
-    }
+    "authority": "public/src/shared/movementStats.js"
   },
   "drones": {
     "squadSize": 3,
@@ -210,12 +105,12 @@
       "mass": 5,
       "hull": 320,
       "powerGeneration": 4,
+      "activityHeat": 3.7,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
       "turn": 0,
-      "energy": 80,
       "repair": 0,
       "description": "Required primary command core with strong durability and light built-in Power generation."
     },
@@ -237,7 +132,7 @@
       "repair": 0,
       "rotatable": true,
       "maxPerShip": 1,
-      "description": "Redundant command centre that takes control if the main Core is destroyed, keeping the ship operational at reduced weapon effectiveness. Also projects a command aura that improves nearby allied targeting.",
+      "description": "Redundant command centre that takes control if the main Core is destroyed. While active, weapon accuracy, turn rate and drone command range operate at 85%. Also projects a command aura that improves nearby allied weapon accuracy and tracking.",
       "footprint": {
         "width": 2,
         "height": 1
@@ -245,8 +140,7 @@
       "aura": {
         "type": "command",
         "weaponAccuracyMultiplier": 1.04,
-        "weaponTrackingMultiplier": 1.05,
-        "targetAcquisitionMultiplier": 1.08
+        "weaponTrackingMultiplier": 1.05
       }
     },
     {
@@ -936,12 +830,12 @@
       "mass": 4,
       "hull": 26,
       "powerGeneration": 5,
+      "activityHeat": 4.1,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
       "turn": 0,
-      "energy": 10,
       "repair": 0,
       "description": "Compact backup generator for light power deficits. Generates a little heat under load and, like all generators, melts down if kept overheated."
     },
@@ -1004,12 +898,12 @@
       "mass": 7,
       "hull": 62,
       "powerGeneration": 11.5,
+      "activityHeat": 6.8,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
       "turn": 0,
-      "energy": 30,
       "repair": 0,
       "rotatable": true,
       "description": "Primary power source for weapons, shields, engines, and support systems. Generates heat in proportion to load; if it stays pinned at overheat it melts down and explodes, damaging nearby components.",
@@ -1026,12 +920,12 @@
       "mass": 28,
       "hull": 190,
       "powerGeneration": 40,
+      "activityHeat": 18.8,
       "powerUse": 0,
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 0,
       "turn": -0.08,
-      "energy": 120,
       "repair": 0,
       "rotatable": true,
       "meltdownDamage": 1500,
@@ -1055,6 +949,7 @@
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 227,
+      "activityHeat": 6.1,
       "turn": 0,
       "energy": 0,
       "repair": 0,
@@ -1078,11 +973,12 @@
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 95,
+      "activityHeat": 3.7,
       "turn": 0,
       "energy": 0,
       "repair": 0,
       "rotatable": false,
-      "description": "Compact one-cell main engine for small hulls and distributed propulsion. Easier to place and protect separately, but less efficient than the standard Engine in thrust, Power, mass and cost.",
+      "description": "Compact one-cell main engine for small hulls and distributed propulsion. Easier to place and protect separately, but provides less thrust than a standard Engine.",
       "footprint": {
         "width": 1,
         "height": 1
@@ -1101,11 +997,12 @@
       "shield": 0,
       "shieldRegen": 0,
       "thrust": 820,
+      "activityHeat": 16.8,
       "turn": 0,
       "energy": 0,
       "repair": 0,
       "rotatable": false,
-      "description": "Capital-scale main drive. It converts Power into thrust far more efficiently than a stack of standard Engines and avoids most of their stacking falloff, but it is enormously heavy and its six-cell block must sit in one place, so only large hulls can carry it well.",
+      "description": "Capital-scale main drive. It provides a large authored thrust value, but it is enormously heavy and its six-cell block must sit in one place, so only large hulls can carry it well.",
       "footprint": {
         "width": 2,
         "height": 3
@@ -1125,35 +1022,10 @@
       "shieldRegen": 0,
       "thrust": 0,
       "turn": 0.72,
+      "activityHeat": 3.1,
       "energy": 0,
       "repair": 0,
       "description": "Stabilizer that improves turn rate without adding thrust."
-    },
-    {
-      "id": "sensorArray",
-      "name": "Long-Range Sensor Array",
-      "category": "Support",
-      "cost": 54,
-      "mass": 3.8,
-      "hull": 38,
-      "powerGeneration": 0,
-      "powerUse": 1.4,
-      "powerCategory": "command",
-      "shield": 0,
-      "shieldRegen": 0,
-      "thrust": 0,
-      "turn": 0,
-      "energy": 0,
-      "repair": 0,
-      "rotatable": true,
-      "maxPerShip": 4,
-      "sensorRangeBonus": 420,
-      "sensorRole": "omniLarge",
-      "description": "Legacy long-range sensor retained for saved-blueprint compatibility.",
-      "footprint": {
-        "width": 1,
-        "height": 1
-      }
     },
     {
       "id": "smallSensor",
@@ -1174,7 +1046,7 @@
       "maxPerShip": 8,
       "sensorRole": "omniSmall",
       "sensorRangeBonus": 240,
-      "description": "Compact omnidirectional sensor. Small and Large Sensors share diminishing returns, with Large Sensors always receiving the strongest stack slots first.",
+      "description": "Compact omnidirectional sensor. Each live Small Sensor adds its full authored range bonus to the general coverage total.",
       "footprint": {
         "width": 1,
         "height": 1
@@ -1200,34 +1072,7 @@
       "maxPerShip": 4,
       "sensorRole": "omniLarge",
       "sensorRangeBonus": 420,
-      "description": "Powerful omnidirectional sensor. It shares diminishing returns with Small Sensors and takes priority in the combined stack.",
-      "footprint": {
-        "width": 2,
-        "height": 1
-      }
-    },
-    {
-      "id": "directedSensor",
-      "name": "Directed Sensor",
-      "category": "Support",
-      "cost": 78,
-      "mass": 5.2,
-      "hull": 44,
-      "powerGeneration": 0,
-      "powerUse": 2.8,
-      "powerCategory": "command",
-      "shield": 0,
-      "shieldRegen": 0,
-      "thrust": 0,
-      "turn": 0,
-      "energy": 0,
-      "repair": 0,
-      "rotatable": true,
-      "maxPerShip": 4,
-      "sensorRole": "directed",
-      "sensorRangeBonus": 1250,
-      "sensorArc": 50,
-      "description": "Legacy directed sensor retained for saved-blueprint compatibility.",
+      "description": "Powerful omnidirectional sensor. Each live Large Sensor adds its full authored range bonus to the general coverage total.",
       "footprint": {
         "width": 2,
         "height": 1
@@ -1254,7 +1099,7 @@
       "sensorRole": "directed",
       "sensorRangeBonus": 700,
       "sensorArc": 60,
-      "description": "Compact directional sensor covering a forward cone. Small and Large Directed Sensors diminish only each other, with the Large variant receiving the strongest stack slots first.",
+      "description": "Compact directional sensor covering a forward cone. Each live Small Directed Sensor adds its full authored range bonus where its cone overlaps.",
       "footprint": {
         "width": 1,
         "height": 1
@@ -1281,7 +1126,7 @@
       "sensorRole": "directed",
       "sensorRangeBonus": 1250,
       "sensorArc": 50,
-      "description": "Long-range directional sensor covering a narrow forward cone. It diminishes only other Directed Sensors and takes priority over the Small variant.",
+      "description": "Long-range directional sensor covering a narrow forward cone. Each live Large Directed Sensor adds its full authored range bonus where its cone overlaps.",
       "footprint": {
         "width": 2,
         "height": 1
@@ -1301,13 +1146,11 @@
       "shieldRegen": 0,
       "thrust": 0,
       "turn": 2.25,
+      "activityHeat": 4.9,
       "energy": 0,
       "repair": 0,
       "rotatable": true,
-      "description": "Directional control thruster that provides strong turning torque and lateral thrust. Turning effectiveness increases when placed farther from the ship's centre of mass.",
-      "lateralThrust": 162,
-      "brakingThrust": 0,
-      "reverseThrust": 0,
+      "description": "Directional control thruster that provides strong turning torque. Turning effectiveness increases when placed farther from the ship's centre of mass.",
       "allowedRotations": [
         90,
         270
@@ -1326,6 +1169,7 @@
       "shield": 300,
       "shadowBlur": 0,
       "shieldRegen": 25,
+      "activityHeat": 17.5,
       "thrust": 0,
       "turn": -0.04,
       "energy": 0,
@@ -1348,6 +1192,7 @@
       "powerCategory": "shields",
       "shield": 250,
       "shieldRegen": 3,
+      "activityHeat": 2.1,
       "thrust": 0,
       "turn": -0.015,
       "energy": 0,
@@ -1370,6 +1215,7 @@
       "turn": -0.02,
       "energy": 0,
       "repair": 0,
+      "heatPerShot": 5,
       "weapon": {
         "family": "blaster",
         "damage": 7,
@@ -1400,6 +1246,7 @@
       "thrust": 0,
       "turn": -0.05,
       "energy": 0,
+      "activityHeat": 5,
       "repair": 0,
       "weapon": {
         "family": "beam",
@@ -1440,6 +1287,7 @@
       "thrust": 0,
       "turn": -0.05,
       "energy": 0,
+      "activityHeat": 3,
       "repair": 0,
       "weapon": {
         "family": "beam",
@@ -1463,12 +1311,11 @@
         "inductionDirectFraction": 0.6, 
         "inductionAdjacentFraction": 0.3,
         "inductionSecondHopFraction": 0.1,
-        "inductionContactGraceSeconds": 0.25,
-        "inductionSelfHeatMaxMultiplier": 1.5,
+         "inductionContactGraceSeconds": 0.25,
         "beamStyle": "induction"
       },
       "rotatable": true,
-      "description": "Zero-damage induction beam that injects Heat into an internal target and nearby components. Sustained contact increases Heat transfer; shields reduce coupling, while Refractory Armour can block the beam.",
+      "description": "Targeting: Prioritises functioning Power generators when available, then other active systems. Zero-damage induction beam that injects Heat into a target component and nearby components. Sustained contact increases Heat transfer; shields reduce coupling, while Refractory Armour can block the beam.",
       "footprint": {
         "width": 1,
         "height": 2
@@ -1489,6 +1336,7 @@
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
+      "heatPerShot": 5.2,
       "repair": 0,
       "weapon": {
         "family": "blaster",
@@ -1520,13 +1368,14 @@
       "thrust": 0,
       "turn": -0.035,
       "energy": 0,
+      "heatPerShot": 10.7,
       "repair": 0,
       "weapon": {
         "family": "missile",
         "damage": 50.4,
         "fireRate": 0.3,
         "range": 820,
-        "projectileSpeed": 300,
+        "projectileSpeed": 435,
         "accuracy": 0.72,
         "tracking": 0.72,
         "trackTime": 1.55,
@@ -1554,6 +1403,7 @@
       "thrust": 0,
       "turn": -0.065,
       "energy": 0,
+      "heatPerShot": 19.7,
       "repair": 0,
       "weapon": {
         "family": "railgun",
@@ -1589,6 +1439,7 @@
       "thrust": 0,
       "turn": -0.04,
       "energy": 0,
+      "heatPerShot": 8.7,
       "repair": 0,
       "weapon": {
         "family": "blaster",
@@ -1625,6 +1476,7 @@
       "thrust": 0,
       "turn": -0.03,
       "energy": 0,
+      "heatPerShot": 6.4,
       "repair": 0,
       "weapon": {
         "family": "blaster",
@@ -1666,6 +1518,7 @@
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
+      "heatPerShot": 5,
       "repair": 0,
       "weapon": {
         "family": "blaster",
@@ -1698,6 +1551,8 @@
       "shieldRegen": 0,
       "thrust": 0,
       "turn": -0.22,
+      "activityHeat": 14,
+      "heatPerShot": 180,
       "energy": 0,
       "repair": 0,
       "maxPerShip": 1,
@@ -1721,8 +1576,6 @@
           "committedAimTraverseFloor": 0.06,
           "hullTurnPenaltyStartProgress": 0.8,
           "hullTurnPenaltyMultiplier": 0.45,
-          "chargeHeatPerSecond": 14,
-          "fireHeat": 180,
           "penetrationProfile": [1, 0.7, 0.45, 0.25]
         }
       },
@@ -1748,13 +1601,14 @@
       "thrust": 0,
       "turn": -0.035,
       "energy": 0,
+      "heatPerShot": 5.3,
       "repair": 0,
       "weapon": {
         "family": "missile",
         "damage": 12.6,
         "fireRate": 1.25,
         "range": 740,
-        "projectileSpeed": 360,
+        "projectileSpeed": 522,
         "accuracy": 0.7,
         "tracking": 0.86,
         "trackTime": 1.8,
@@ -1786,13 +1640,14 @@
       "thrust": 0,
       "turn": -0.06,
       "energy": 0,
+      "heatPerShot": 15,
       "repair": 0,
       "weapon": {
         "family": "missile",
         "damage": 100,
         "fireRate": 0.1,
         "range": 1020,
-        "projectileSpeed": 220,
+        "projectileSpeed": 319,
         "accuracy": 0.55,
         "tracking": 0.2,
         "trackTime": 1,
@@ -1896,7 +1751,7 @@
       "mass": 5,
       "hull": 40,
       "powerGeneration": 0,
-      "powerUse": 0.5,
+      "powerUse": 0,
       "powerCategory": "coolingSupport",
       "shield": 0,
       "shieldRegen": 0,
@@ -1905,7 +1760,7 @@
       "energy": 0,
       "repair": 0,
       "utility": "cooling",
-      "description": "Strong sustained external Heat rejection. Requires an exposed edge for full output and falls to 25% cooling when fully enclosed."
+      "description": "Strong passive external Heat rejection. Requires an exposed edge for full output and falls to 25% cooling when fully enclosed."
     },
     {
       "id": "closedCycleCooler",
@@ -1978,6 +1833,7 @@
       "turn": -0.01,
       "energy": 0,
       "repair": 8,
+      "activityHeat": 4.3,
       "description": "Small support module that slowly repairs hull over time."
     },
     {
@@ -1996,6 +1852,7 @@
       "turn": -0.02,
       "energy": 0,
       "repair": 24,
+      "activityHeat": 9.9,
       "heatCapacity": 55,
       "heatCooling": 0.9,
       "rotatable": true,
@@ -2008,12 +1865,13 @@
     {
       "id": "droneBay",
       "name": "Drone Bay",
-      "category": "Weapons",
+      "category": "Command",
       "cost": 180,
       "mass": 32,
       "hull": 130,
       "powerGeneration": 0,
       "powerUse": 7,
+      "activityHeat": 1.2,
       "powerCategory": "command",
       "shield": 0,
       "shieldRegen": 0,
@@ -2022,7 +1880,7 @@
       "energy": 0,
       "repair": 0,
       "rotatable": false,
-      "description": "Launches and rebuilds a selected squad of Fighter, Defence or Repair drones. Squad size, fuel duration and rebuild time depend on the selected drone type. Requires one completely exposed two-cell launch edge.",
+      "description": "Launches and rebuilds a selected squad of Fighter, Defence or Repair drones. When alive and not Overheated, any positive Power keeps the bay operational; production and launch cadence scale linearly with allocated Power, while 0 Power stops both. Squad size, fuel duration and rebuild time depend on the selected drone type. Requires one completely exposed two-cell launch edge.",
       "footprint": {
         "width": 2,
         "height": 2
@@ -2044,6 +1902,7 @@
       "turn": -0.02,
       "energy": 0,
       "repair": 16,
+      "activityHeat": 7.1,
       "rotatable": true,
       "description": "Directional support beam that projects hull repair onto a damaged allied ship in range.",
       "footprint": {
@@ -2140,7 +1999,7 @@
         "collisionRadius": 14
       },
       "rotatable": false,
-      "description": "Launches a limited supply of visible false targets against incoming guided missiles. Each decoy has a chance to attract a guided projectile, is rebuilt over time, and has no effect on unguided weapons."
+      "description": "Launches a limited supply of visible false targets against incoming guided missiles. Production speed scales linearly with allocated Power; any positive Power allows a launch when other conditions are met, while 0 Power stops production and launching. Each decoy has a chance to attract a guided projectile, is rebuilt over time, and has no effect on unguided weapons."
     },
     {
       "id": "pointDefense",
@@ -2157,6 +2016,7 @@
       "thrust": 0,
       "turn": 0,
       "energy": 0,
+      "heatPerShot": 4,
       "repair": 0,
       "weapon": {
         "family": "pointDefense",
@@ -2196,6 +2056,7 @@
       "thrust": 0,
       "turn": -0.01,
       "energy": 0,
+      "heatPerShot": 4,
       "repair": 0,
       "weapon": {
         "family": "flak",
@@ -2223,7 +2084,6 @@
         "proximityFuseRadius": 14,
         "innerFullDamageRadius": 10,
         "falloffExponent": 1.7,
-        "armourPenetration": 1,
         "shipDamageMultiplier": 1
       },
       "rotatable": true,
@@ -2244,6 +2104,7 @@
       "thrust": 0,
       "turn": -0.02,
       "energy": 0,
+      "heatPerShot": 4,
       "repair": 0,
       "weapon": {
         "family": "pointDefense",
@@ -2292,10 +2153,9 @@
         "type": "fireControl",
         "weaponAccuracyMultiplier": 1.08,
         "weaponTrackingMultiplier": 1.1,
-        "turretAimSpeedMultiplier": 1.1,
-        "targetAcquisitionMultiplier": 1.12
+        "turretAimSpeedMultiplier": 1.1
       },
-      "description": "Coordinates allied weapon fire within command range, improving accuracy, tracking and target acquisition without increasing raw damage."
+      "description": "Coordinates nearby allied weapon fire, improving accuracy, tracking and turret aim speed."
     },
     {
       "id": "fleetDefenceCoordinator",
@@ -2321,10 +2181,9 @@
       "aura": {
         "type": "fleetDefence",
         "pointDefenceTrackingMultiplier": 1.1,
-        "flakTrackingMultiplier": 1.1,
-        "interceptionReactionMultiplier": 1.12
+        "flakTrackingMultiplier": 1.1
       },
-      "description": "Improves nearby allied Point Defence, Flak and missile-interception tracking and reaction time."
+      "description": "Improves nearby allied Point Defence and Flak tracking."
     },
     {
       "id": "shieldCommandRelay",
@@ -2352,7 +2211,7 @@
         "shieldRegenMultiplier": 1.1,
         "shieldRestartDelayMultiplier": 0.9
       },
-      "description": "Boosts nearby allied shield regeneration and reduces shield restart delay. Does not increase maximum shield capacity."
+      "description": "Improves Shield regeneration and reduces the restart delay after complete Shield depletion for nearby allied ships. Does not increase maximum Shield capacity."
     },
     {
       "id": "engineeringCommandCentre",
@@ -2534,20 +2393,6 @@
     "captureBonus": 70,
     "shipCap": 30
   },
-  "rewards": {
-    "baseReward": 30,
-    "victoryBonus": 80,
-    "lossSupport": 35,
-    "minimumWinReward": 90,
-    "minimumLossReward": 35,
-    "destroyedEnemyCostMultiplier": 0.35,
-    "maxDestroyedReward": 250,
-    "lossDestroyedMultiplier": 0.18,
-    "survivalBonusPerShip": 15,
-    "efficiencyBonusScale": 45,
-    "maxEfficiencyBonus": 80,
-    "minimumOverpowerRewardMultiplier": 0.65
-  },
   "projectiles": {
     "shieldHitMinimum": 10,
     "shieldCollision": {
@@ -2577,9 +2422,7 @@
     "turnRateBase": 0.45,
     "turnRateTrackingSquaredMultiplier": 4.2,
     "leadStrengthMultiplier": 0.35,
-    "ecmCap": 0.55,
-    "defaultMaxSpeed": 460,
-    "acceleration": 95
+    "ecmCap": 0.55
   },
   "fleetLimits": {
     "shipCap": 30
@@ -2599,10 +2442,6 @@
     "selfAura": false,
     "notes": "Shared command aura radius for all command components. All command circles use this range so players can judge range at a glance."
   },
-  "fleetDefence": {
-    "baseReacquisitionDelayMs": 600,
-    "notes": "Base simulation-time delay before a defensive weapon (Point Defence, Flak, Interceptor Pod) can acquire a new target after losing its previous one. Reduced by interceptionReactionMultiplier from the Fleet Defence Coordinator aura."
-  },
   "infrastructure": {
     "homeStation": {
       "maximumShipGridWidth": 15,
@@ -2617,8 +2456,6 @@
       "repairBeamRatePerSecond": 11,
       "repairDelaySeconds": 6,
       "selfRepairRatePerSecond": 9,
-      "productionBaseSeconds": 0.6,
-      "productionSecondsPerModule": 0.05,
       "launchRetrySeconds": 0.5
     },
     "relayStation": {
@@ -2632,9 +2469,5 @@
       "selfRepairRatePerSecond": 6,
       "hullScale": 0.6
     }
-  },
-  "fireControl": {
-    "baseReacquisitionDelayMs": 400,
-    "notes": "Base simulation-time delay before an offensive weapon can fire at a new target after switching targets. Reduced by targetAcquisitionMultiplier from the Fire-Control Command Centre aura."
   }
 }

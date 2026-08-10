@@ -18,7 +18,7 @@ const GENERIC_STATE_FIELDS = ENTITY_DELTA.GENERIC_STATE_FIELDS || {
   effects: ["type", "subtype", "ownerId", "x", "y", "x2", "y2", "nx", "ny", "radius", "text", "reason"],
   players: [
     "name", "color", "colour", "team", "teamName", "isBot", "isAdmin", "connected", "ready", "money", "income",
-    "earned", "spent", "shipCap", "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost", "lastReward",
+    "earned", "spent", "shipCap", "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost",
     "activeShips", "kills", "losses", "captures", "rallyPoint", "rallyPointCustom", "shipsBuilt", "lostFleetCost"
   ],
   points: ["x", "y", "radius", "ownerId", "ownerTeam", "contested", "progress", "stationId"]

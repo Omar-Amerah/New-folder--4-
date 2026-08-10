@@ -74,7 +74,7 @@ function analyseRaw({ blueprint, dataLinks, combatStyle = "hold" }) {
     dataLinks,
     stats,
     validation,
-    weaponSummary: `${stats.weaponDps} DPS`,
+    weaponSummary: `${stats.weaponDps} ${stats.weaponDpsLabel === "Weapon DPS" ? "DPS" : (stats.weaponDpsLabel || "DPS")}`,
     thumbnailKey: makeThumbnailKey(normalizedBlueprint),
     combatStyle: combatStyle || "hold"
   };

@@ -228,7 +228,7 @@ function largeDesign() {
   assert.ok(midLoss > 0, "Mid-range ship takes damage");
 }
 
-// --- Diminishing returns for multiple charges ---
+// --- Linear stacking for multiple charges ---
 
 function multiChargeDesign() {
   return [
@@ -240,7 +240,7 @@ function multiChargeDesign() {
 }
 
 {
-  // Multi-charge: 2 charges deal more damage than 1 due to combined multiplier (1.0 + 0.5 = 1.5x)
+  // Multi-charge: each armed charge contributes its full authored blast.
   const room1 = makeRoom();
   const room2 = makeRoom();
   const one = makeShip("one", "blue", 0, 0, chargeDesign());
@@ -256,7 +256,7 @@ function multiChargeDesign() {
   const loss1 = enemy1.maxHp - enemy1.hp;
   const loss2 = enemy2.maxHp - enemy2.hp;
   assert.ok(loss2 > loss1, `Two charges (${loss2}) should deal more damage than one (${loss1})`);
-  assert.ok(loss2 < loss1 * 2, `Two charges (${loss2}) should deal less than 2x one charge (${loss1}) due to diminishing returns`);
+  assert.equal(loss2, loss1 * 2, `Two charges (${loss2}) should deal exactly twice one charge (${loss1})`);
 }
 
 // --- Heavy charge has no max affected-components limit ---

@@ -489,7 +489,7 @@ function findTeamHomeStation(room, team) {
 
 // Ships already paid for but not yet launched still occupy a fleet slot; the
 // economy's fleet-cap validator only counts live hulls, so the queue has to be
-// counted here or a player could buy an unbounded fleet one build at a time.
+// counted here or a player could queue an unbounded fleet one purchase at a time.
 function queuedShipCount(room, playerId) {
   let total = 0;
   for (const station of room.stations || []) {
@@ -503,7 +503,7 @@ function queuedShipCount(room, playerId) {
 
 // Stable seat-to-corridor assignment from the historical three-hangar station:
 // one player uses the centre, two use the outer pair, and three use all three.
-// The assignment is a launch choice only; production queues and fleet limits
+// The assignment is a launch choice only; hangar queues and fleet limits
 // remain unchanged.
 const BAY_ASSIGNMENT_ORDER = Object.freeze({
   1: Object.freeze([1]),
@@ -530,30 +530,13 @@ function hangarBayForPlayer(room, station, playerId) {
   return hangars[bayIndex] || hangars[0];
 }
 
-// How long a hull sits in the production queue.
-//
-// This used to be driven almost entirely by cost, which barely moved the number
-// at all — every hull from a two-module scout to a maximum capital took between
-// 1.2 and 2.0 seconds, so the hangar was a formality rather than a throughput
-// constraint. It now scales with the SIZE of the ship, measured in modules,
-// which is the thing a player is actually trading against build time. The
-// complete curve is divided once at the end to make production exactly 2x
-// faster without changing the relative small-vs-capital timing.
-function stationBuildSeconds(template) {
-  const cfg = INFRASTRUCTURE.homeStation;
-  const modules = Array.isArray(template?.design) ? template.design.length : 0;
-  const perModule = Number(cfg.productionSecondsPerModule) || 0;
-  const base = Number(cfg.productionBaseSeconds) || 0;
-  return Math.max(0.2, (base + modules * perModule) / 2);
-}
-
 function enqueueStationProduction(room, player, item, now) {
   const station = findTeamHomeStation(room, player.team);
   if (!station) {
     return { type: "purchaseResult", ok: false, requestId: item.request.requestId, code: "no-home-station", message: "No home station available" };
   }
   if (station.state !== "operational") {
-    return { type: "purchaseResult", ok: false, requestId: item.request.requestId, code: "station-unavailable", message: "Your home station is not operational and cannot build ships" };
+    return { type: "purchaseResult", ok: false, requestId: item.request.requestId, code: "station-unavailable", message: "Your home station is not operational and cannot accept ship purchases" };
   }
   const active = player.ships.filter((ship) => ship.alive).length;
   const queued = queuedShipCount(room, player.id);
@@ -563,10 +546,9 @@ function enqueueStationProduction(room, player, item, now) {
       ok: false,
       requestId: item.request.requestId,
       code: "fleet-cap",
-      message: `Fleet cap reached: ${active} active + ${queued} in production of ${player.shipCap}`
+      message: `Fleet cap reached: ${active} active + ${queued} queued for launch of ${player.shipCap}`
     };
   }
-  const cfg = INFRASTRUCTURE.homeStation;
   const queueItem = {
     id: `sq${room.nextEntityId++}`,
     playerId: player.id,
@@ -576,10 +558,7 @@ function enqueueStationProduction(room, player, item, now) {
     aiRole: item.aiRole || null,
     aiBlueprintId: item.aiBlueprintId || null,
     unitCost: item.validation.totalCost / item.validation.count,
-    quantityRemaining: item.validation.count,
-    buildStartedAt: now,
-    buildDurationSeconds: stationBuildSeconds(item.template),
-    state: "queued"
+    quantityRemaining: item.validation.count
   };
   station.productionQueue.push(queueItem);
   station.productionRevision += 1;
@@ -596,21 +575,16 @@ function enqueueStationProduction(room, player, item, now) {
     money: Math.floor(player.money),
     activeShips: player.ships.filter((s) => s.alive).length,
     shipCap: player.shipCap,
-    // Station mode never spawns on purchase, so the client has to be told the
-  // hull is queued and roughly how long production will hold it.
+    // Station mode never spawns on purchase. The hull remains queued until its
+    // assigned hangar is available.
     queued: true,
-    queuePosition: station.productionQueue.length,
-    buildDurationSeconds: round2(queueItem.buildDurationSeconds)
+    queuePosition: station.productionQueue.length
   };
 }
 
-function round2(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
-}
-
 // Bots buy through buyShip() in Classic, which spawns instantly at the safe
-// zone. In station mode they must use the same production queue as human
-// purchases so a bot fleet is gated by hangar throughput too.
+// zone. In station mode they must use the same hangar queue as human purchases
+// so a bot fleet is gated by hangar throughput too.
 function enqueueBotProduction(room, player, now, options = {}) {
   const design = options.design || player.design;
   const dataLinks = options.dataLinks !== undefined ? options.dataLinks : (player.dataLinks || []);
@@ -643,7 +617,7 @@ function corridorIsClear(room, station, hangar, ignoreShipId = null) {
   // Only the corridor INTERIOR has to be clear — from the rear bulkhead to the
   // mouth. It used to extend all the way out to the release plane, which meant
   // anything drifting past the front of the station, friendly or hostile,
-  // halted production for as long as it loitered there. Nothing can get inside
+  // halted the launch queue for as long as it loitered there. Nothing can get inside
   // the corridor any more (see the blast door in stationCollisionPieces), so
   // the only thing this can now catch is a hull that has not finished leaving.
   // Outside the mouth is open space: the launching ship handles it the way any
@@ -664,7 +638,7 @@ function corridorIsClear(room, station, hangar, ignoreShipId = null) {
     const shipRadius = Number(ship.physicalRadius) || Number(ship.radius) || 26;
     // The mouth is a hard boundary for launch clearance. A hostile hull outside
     // may overlap this band with its collision radius, but allowing that radius
-    // to veto the launch lets enemies blockade production without entering the
+    // to veto the launch lets enemies blockade the hangar without entering the
     // one-way door. Normal separation handles contact with the launched hull.
     // A hull whose centre is at the mouth or beyond is already outside the
     // station's spawn corridor. It must never blockade a new spawn from the
@@ -782,7 +756,7 @@ function bumpCounter(room, name) {
   }
 }
 
-function processStationProduction(room, station, dt, now) {
+function processStationLaunchQueue(room, station, dt, now) {
   if (station.stationType !== "home") return;
   const detailed = detailedProfileActive(room);
   if (detailed) bump(room, "stationQueuesVisited");
@@ -800,10 +774,6 @@ function processStationProduction(room, station, dt, now) {
     visited += 1;
     if (detailed) bump(room, "stationQueueItemsVisited");
     const queueStart = detailed ? performanceNow() : 0;
-    if (item.state === "queued") {
-      item.state = "complete-waiting-launch";
-      station.productionRevision += 1;
-    }
     if (detailed) recordDuration(room, "stationProductionQueueMs", queueStart);
     const ship = spawnQueuedShip(room, station, item, now);
     if (!ship) {
@@ -1452,7 +1422,7 @@ function createStationsForRoom(room, now) {
     // Team spawn planning keeps a protected region for every player, but the
     // team shares one actual station. Creating a home station for every one of
     // those regions rendered several identical stations and left all but the
-    // first one idle because production already resolves through
+    // first one idle because queued launches already resolve through
     // findTeamHomeStation(). Solo players still receive their own station.
     const sharedTeam = room.rules?.gameMode !== "solo" ? zone.team : null;
     if (sharedTeam && teamHomes.has(sharedTeam)) continue;
@@ -1535,7 +1505,7 @@ function updateStationSelfRepair(room, station, dt) {
 
 // These stage helpers deliberately accept one station. updateStations keeps the
 // historical per-station ordering (capture -> self repair -> launch
-// control -> repair -> production) while exposing independent timing buckets.
+// control -> repair -> launch queue) while exposing independent timing buckets.
 // Splitting into room-wide loops here would make a later station's state visible
 // to an earlier station in a different order than the starting runtime.
 function updateStationCaptureSystems(room, station, dt, now) {
@@ -1567,7 +1537,7 @@ function updateStationHangarSystems(room, station, dt, now, phase = "all") {
       bump(room, "stationHomeStationsProcessed");
     }
     if (phase === "launches" || phase === "all") updateStationLaunches(room, station, dt, now);
-    if (phase === "production" || phase === "all") processStationProduction(room, station, dt, now);
+    if (phase === "queue" || phase === "all") processStationLaunchQueue(room, station, dt, now);
   } finally {
     recordDuration(room, "stationHangarRuntimeMs", startedAt);
   }
@@ -1593,7 +1563,7 @@ function updateStations(room, dt, now, options = null) {
       updateStationRepairSystems(room, station, dt, now, "self");
       if (!skipLaunchControl) updateStationHangarSystems(room, station, dt, now, "launches");
       updateStationRepairSystems(room, station, dt, now, "active");
-      updateStationHangarSystems(room, station, dt, now, "production");
+      updateStationHangarSystems(room, station, dt, now, "queue");
     }
     if (room.spatialIndex?.updateLiveEntities) {
       room.spatialIndex.updateLiveEntities("stations", room.stations, stationBroadPhaseRadius);

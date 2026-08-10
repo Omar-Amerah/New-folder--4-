@@ -109,7 +109,6 @@ assert.strictEqual(sources[0].multipliers.weaponAccuracyMultiplier, 1.08, "aura 
 // Task 1: Operational effectiveness scaling
 // ---------------------------------------------------------------------------
 const { auraComponentEffectiveness, scaleAuraMultiplier } = require("../src/server/commandAuras");
-const { BALANCE } = require("../src/server/balanceConfig");
 
 {
   const s = makeShip("eff1", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);
@@ -144,32 +143,18 @@ const { BALANCE } = require("../src/server/balanceConfig");
   updateCommandAuras(makeRoom([s, r]), [s, r], 0);
   assert(getCommandAuraMultiplier(r, "pointDefenceTrackingMultiplier") > 1, "PD tracking buff");
   assert(getCommandAuraMultiplier(r, "flakTrackingMultiplier") > 1, "flak tracking buff");
-  assert(getCommandAuraMultiplier(r, "interceptionReactionMultiplier") > 1, "interception reaction buff");
-}
-{
-  assert(BALANCE.fleetDefence, "BALANCE.fleetDefence exists");
-  assert(BALANCE.fleetDefence.baseReacquisitionDelayMs > 0, "fleetDefence baseReacquisitionDelayMs positive");
-  const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
-  assert(cs.includes("pdAcquiredTargetIds"), "combat.js has PD acquired target tracking");
-  assert(cs.includes("pdPendingTargetIds"), "combat.js has PD pending target tracking");
 }
 
 // ---------------------------------------------------------------------------
-// Task 3: Fire-Control target acquisition
+// Task 3: Fire-Control weapon effects
 // ---------------------------------------------------------------------------
 {
   const s = makeShip("fc1", "p1", 0, 0, [{ type: "fireControlCommandCentre" }]);
   const r = makeShip("fc1r", "p1", 50, 0, [{ type: "frame" }]);
   updateCommandAuras(makeRoom([s, r]), [s, r], 0);
-  assert(getCommandAuraMultiplier(r, "targetAcquisitionMultiplier") > 1, "target acquisition buff");
+  assert(getCommandAuraMultiplier(r, "weaponAccuracyMultiplier") > 1, "weapon accuracy buff");
+  assert(getCommandAuraMultiplier(r, "weaponTrackingMultiplier") > 1, "weapon tracking buff");
   assert(getCommandAuraMultiplier(r, "turretAimSpeedMultiplier") > 1, "turret aim speed buff");
-}
-{
-  assert(BALANCE.fireControl, "BALANCE.fireControl exists");
-  assert(BALANCE.fireControl.baseReacquisitionDelayMs > 0, "fireControl baseReacquisitionDelayMs positive");
-  const cs = require("fs").readFileSync("./src/server/combat.js", "utf8");
-  assert(cs.includes("weaponAcquiredTargetIds"), "combat.js has offensive acquired target tracking");
-  assert(cs.includes("weaponPendingTargetIds"), "combat.js has offensive pending target tracking");
 }
 {
   const cd = require("fs").readFileSync("./src/server/componentData.js", "utf8");
@@ -265,7 +250,6 @@ const { BALANCE } = require("../src/server/balanceConfig");
   updateCommandAuras(makeRoom([s, r]), [s, r], 0);
   assert(getCommandAuraMultiplier(r, "weaponAccuracyMultiplier") > 1, "backup core accuracy buff");
   assert(getCommandAuraMultiplier(r, "weaponTrackingMultiplier") > 1, "backup core tracking buff");
-  assert(getCommandAuraMultiplier(r, "targetAcquisitionMultiplier") > 1, "backup core acquisition buff");
   assert.strictEqual(PARTS["backupCore"].aura.type, "command", "backupCore aura type is command");
 }
 

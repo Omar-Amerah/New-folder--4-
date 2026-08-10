@@ -20,12 +20,13 @@ import { renderSavedDesigns, saveCurrentDesign, weaponAbbrevText, refreshLoadedB
 import { formatThrust, formatSpeed, formatPercent, round2 } from "../design/statFormatting.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { getRepairStackingMultiplier, stackingProgression } from "../shared/repairRules.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { buildHeatCardModel, heatCardMarkup } from "../design/heatCardModel.js";
 import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, dataLinksHintText, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
-import { calculateCenterOfMass, ENGINE_FALLOFF } from "../shared/movementStats.js";
+import { calculateCenterOfMass, MOVEMENT_CONFIG, formatMassClassRange } from "../shared/movementStats.js";
 import { calculateUniversalPower } from "../shared/universalPower.js";
 import { phaseLockOverlayAnimations } from "./overlayAnimation.js";
 
@@ -221,6 +222,31 @@ function updateHeatFlowToggleControl() {
   dom.showAllHeatFlows?.setAttribute("aria-pressed", String(showAll));
 }
 
+function refreshHeatStateLegend() {
+  const list = dom.blueprintHeatLegend?.querySelector(".heat-state-list");
+  const rules = globalThis.HeatRules;
+  if (!list || !rules) return;
+  const percent = (ratio) => `${Math.round(ratio * 100)}%`;
+  const output = (state) => percent(rules.activeOutputForState(rules.STATE[state]));
+  const recovery = percent(rules.THRESHOLDS.overheated - rules.HYSTERESIS.overheated);
+  const labels = rules.STATE_LABELS;
+  const coolOutput = output("NORMAL");
+  const warmOutput = output("WARM");
+  const coolWarmOutput = coolOutput === warmOutput
+    ? `${coolOutput} active output`
+    : `Cool ${coolOutput} active output; Warm ${warmOutput} active output`;
+  const entries = {
+    normal: `${labels[0]} / ${labels[1]}: ${coolWarmOutput}; ${labels[1]} starts at ${percent(rules.THRESHOLDS.warm)} Heat`,
+    hot: `${labels[2]}: starts at ${percent(rules.THRESHOLDS.hot)} Heat; ${output("HOT")} active output`,
+    critical: `${labels[3]}: starts at ${percent(rules.THRESHOLDS.critical)} Heat; ${output("CRITICAL")} active output`,
+    overheated: `${labels[4]}: enters at ${percent(rules.THRESHOLDS.overheated)} Heat; ${output("OVERHEATED")} active output; restart below ${recovery} Heat`
+  };
+  for (const [key, text] of Object.entries(entries)) {
+    const element = list.querySelector(`[data-heat-state="${key}"]`);
+    if (element) element.textContent = text;
+  }
+}
+
 function refreshBlueprintControls() {
   const heatView = state.blueprintView === "heat";
   const dataLinksView = isDataLinksBlueprintMode();
@@ -243,6 +269,7 @@ function refreshBlueprintControls() {
   refreshDataLinksControls();
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
   if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
+  refreshHeatStateLegend();
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;
     for (const button of dom.thermalLoadModes.querySelectorAll("[data-thermal-load]")) {
@@ -424,13 +451,7 @@ function applyHeatPresentation(heatAnalysis) {
     if (!prediction) {
       throw new Error(`Missing heat prediction for component ${index}`);
     }
-    const displayedHeat = Math.max(
-      0,
-      Math.min(
-        100,
-        Math.round(heatAnalysis.componentHeat.get(part) || 0)
-      )
-    );
+    const displayedHeat = Math.max(0, Math.round(heatAnalysis.componentHeat.get(part) || 0));
     // Warning tiers come from the authoritative Heat state (shared runtime
     // thresholds), not from duplicated percentage cutoffs.
     const HeatState = globalThis.HeatRules.STATE;
@@ -1439,23 +1460,22 @@ function sensorContributionRows(entries, stackName) {
   }
   return `<div class="sensor-stack-list">${entries.map((entry) => {
     const partName = PART_DEFS[entry.type]?.name || entry.type || "Sensor";
-    const multiplier = Math.max(0, Math.min(1, Number(entry.multiplier) || 0));
-    const percent = Math.round(multiplier * 100);
+    const percent = 100;
     const nominal = Math.round(Number(entry.nominalBonus) || 0);
     const effective = Math.round(Number(entry.effectiveBonus) || 0);
     const directionalDetail = stackName === "Directed"
       ? `<span>${Math.round(Number(entry.range) || 0)} m cone · ${Math.round((Number(entry.arc) || 0) * 180 / Math.PI)}°</span>`
-      : `<span>+${effective} m effective range</span>`;
+      : `<span>+${effective} m added range</span>`;
     return `<div class="sensor-stack-entry">
       <div class="sensor-stack-entry-head">
         <strong>${escapeHtml(partName)}</strong>
         <b>${percent}%</b>
       </div>
-      <div class="sensor-stack-track" aria-label="${escapeHtml(`${partName} receives ${percent}% of its nominal range bonus`)}">
+      <div class="sensor-stack-track" aria-label="${escapeHtml(`${partName} contributes its full authored range bonus`)}">
         <i style="width:${percent}%"></i>
       </div>
       <div class="sensor-stack-entry-detail">
-        <span>Stack ${Number(entry.stackIndex) + 1} · +${nominal} m nominal</span>
+        <span>Contribution ${Number(entry.stackIndex) + 1} · +${nominal} m authored</span>
         ${directionalDetail}
       </div>
     </div>`;
@@ -1479,8 +1499,7 @@ function sensorCoverageMarkup(stats) {
   const coneMarkup = [...directed]
     .sort((a, b) => (Number(b.range) || 0) - (Number(a.range) || 0))
     .map((entry, index) => {
-      const multiplier = Math.max(0, Math.min(1, Number(entry.multiplier) || 0));
-      const opacity = (0.2 + multiplier * 0.42).toFixed(2);
+      const opacity = "0.62";
       return `<path class="sensor-coverage-cone sensor-coverage-cone-${index % 3}"
         d="${sensorSectorPath(cx, cy, scaledRadius(entry.range), entry.relativeAngle, entry.arc)}"
         style="fill-opacity:${opacity}"></path>`;
@@ -1494,7 +1513,7 @@ function sensorCoverageMarkup(stats) {
     <div class="sensor-coverage-heading">
       <div>
         <h3>Sensor coverage</h3>
-        <p>Effective detection envelope at full power and full component health.</p>
+         <p>Effective detection envelope at full Power with every fitted sensor intact.</p>
       </div>
       <span class="sensor-coverage-status">${hasInstalledSensors ? `${omni.length + directed.length} fitted` : "Hull array only"}</span>
     </div>
@@ -1537,8 +1556,8 @@ function sensorCoverageMarkup(stats) {
       </div>
     </div>
     <div class="sensor-stack-explanation">
-      <strong>Diminishing returns</strong>
-      <span>Large variants take the strongest slots. General and Directional sensors use separate stacks.</span>
+      <strong>Linear stacking</strong>
+      <span>Each live sensor contributes its full authored bonus. General and Directional sensors use separate coverage stacks.</span>
     </div>
     <div class="sensor-stack-groups">
       <section><h4>General stack</h4>${sensorContributionRows(omni, "General")}</section>
@@ -1570,32 +1589,22 @@ function renderAnalysisPanels(stats, heat) {
       }
     } catch (e) { /* ignore if the dummy placement cannot be computed */ }
   }
-  const speedCapped = Boolean(stats.speedCapped);
-  const unrestrictedSpeed = speedCapped
-    ? (stats.speedCap + (stats.maxSpeed - stats.speedCap) / 0.25)
-    : stats.maxSpeed;
-  const postCapEfficiency = speedCapped ? "25%" : "100%";
   const marginalImpact = marginalDelta.startsWith("max ")
     ? marginalDelta.replace(/^max /, "Top speed ").replace(", accel ", " / acceleration ")
     : marginalDelta;
   const maxSpeed = Math.round(stats.maxSpeed || 0);
-  const thrustPotential = Math.round(unrestrictedSpeed || 0);
-  const dragThreshold = Math.round(stats.speedCap || 0);
-  const speedScale = Math.max(1, maxSpeed, thrustPotential, dragThreshold);
+  const speedScale = Math.max(1, maxSpeed);
   const actualSpeedPosition = Math.max(0, Math.min(100, maxSpeed / speedScale * 100));
-  const dragThresholdPosition = Math.max(0, Math.min(100, dragThreshold / speedScale * 100));
   const hasEffectiveThrust = maxSpeed > 0 && Number(stats.effectiveThrust || 0) > 0;
-  const movementStatus = !hasEffectiveThrust ? "No thrust" : speedCapped ? "Drag limited" : "Thrust limited";
-  const movementStatusTone = !hasEffectiveThrust ? " is-warning" : speedCapped ? " is-capped" : "";
+  const movementStatus = !hasEffectiveThrust ? "No thrust" : "Thrust limited";
+  const movementStatusTone = !hasEffectiveThrust ? " is-warning" : "";
   const movementNote = !hasEffectiveThrust
     ? "This design has no effective thrust. Add a powered engine to give it combat mobility."
-    : speedCapped
-      ? `Mass drag begins at ${formatSpeed(dragThreshold)}. Thrust above that threshold contributes at ${postCapEfficiency} efficiency, reducing the unrestricted ${formatSpeed(thrustPotential)} potential to ${formatSpeed(maxSpeed)}.`
-      : `Available thrust and total mass set this ship's top speed. Mass drag begins at ${formatSpeed(dragThreshold)}, so it is not reducing this design's speed.`;
+    : "Available thrust and total mass set this ship's top speed. The mass-drag curve continuously reduces speed as the ship gets heavier.";
   const movementMetrics = [
     ["Acceleration", accelText(stats.accel), "Forward speed gain"],
     ["Turn rate", turnText(stats), "Hull rotation"],
-    ["Effective thrust", formatThrust(stats.effectiveThrust), "After engine losses"],
+    ["Effective thrust", formatThrust(stats.effectiveThrust), "After Power, Heat, and exhaust state"],
     ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`, "Thrust per tonne"]
   ];
   const movementMetricMarkup = movementMetrics.map(([label, value, hint]) => `<div>
@@ -1616,17 +1625,15 @@ function renderAnalysisPanels(stats, heat) {
         <div class="movement-speed-primary">
           <span>Top speed</span>
           <strong>${escapeHtml(formatSpeed(maxSpeed))}</strong>
-          <small>${speedCapped ? "After the mass-drag penalty" : "Available in combat"}</small>
+          <small>Available in combat</small>
         </div>
         <div class="movement-speed-visual">
-          <div class="movement-speed-track" role="img" aria-label="${escapeHtml(`Top speed ${formatSpeed(maxSpeed)}. Mass drag begins at ${formatSpeed(dragThreshold)}.`)}">
+          <div class="movement-speed-track" role="img" aria-label="${escapeHtml(`Top speed ${formatSpeed(maxSpeed)}.`)}">
             <i style="width:${actualSpeedPosition.toFixed(2)}%"></i>
-            <b style="left:${dragThresholdPosition.toFixed(2)}%" aria-hidden="true"></b>
             <em style="left:${actualSpeedPosition.toFixed(2)}%" aria-hidden="true"></em>
           </div>
           <div class="movement-speed-comparison">
-            <div><span>Thrust potential</span><strong>${escapeHtml(formatSpeed(thrustPotential))}</strong></div>
-            <div><span>Mass drag begins</span><strong>${escapeHtml(formatSpeed(dragThreshold))}</strong></div>
+            <div><span>Mass-dragged top speed</span><strong>${escapeHtml(formatSpeed(maxSpeed))}</strong></div>
           </div>
         </div>
       </div>
@@ -1634,7 +1641,7 @@ function renderAnalysisPanels(stats, heat) {
       <div class="movement-metric-grid">${movementMetricMarkup}</div>
       <div class="movement-efficiency-grid">
         <div><span>Engine efficiency</span><strong>${escapeHtml(formatPercent(stats.engineEfficiency))}</strong></div>
-        <div><span>Thrust efficiency at top speed</span><strong>${escapeHtml(postCapEfficiency)}</strong></div>
+        <div><span>Mass-drag effect</span><strong>Continuous</strong></div>
       </div>
       <div class="movement-engine-impact">
         <span class="movement-engine-impact-icon" aria-hidden="true">+</span>
@@ -1740,7 +1747,7 @@ function thermalHoverText(prediction) {
   const labels = globalThis.HeatRules.STATE_LABELS;
   const overheat = prediction.timeToOverheat === null ? "Time until overheat: never" : `Time until overheat: ${prediction.timeToOverheat.toFixed(1)}s`;
   const meltdown = prediction.meltdownTime != null ? `\nREACTOR MELTDOWN predicted at ${prediction.meltdownTime.toFixed(1)}s : explodes, damaging nearby components` : "";
-  return `\nPredicted heat: ${Math.min(100, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generated: +${prediction.generation.toFixed(1)} H/s\nDirect heat received: +${prediction.received.toFixed(1)} H/s\nDirect heat transferred out: -${prediction.transferredOut.toFixed(1)} H/s\nHeat removed: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
+  return `\nPredicted heat: ${Math.max(0, Math.round(prediction.ratio * 100))}% (${prediction.heat.toFixed(1)} / ${prediction.capacity} H)\nThermal state: ${labels[prediction.state]}\nHeat generated: +${prediction.generation.toFixed(1)} H/s\nDirect heat received: +${prediction.received.toFixed(1)} H/s\nDirect heat transferred out: -${prediction.transferredOut.toFixed(1)} H/s\nHeat removed: -${prediction.cooling.toFixed(1)} H/s\n${overheat}${meltdown}`;
 }
 
 function renderFullLoadThermalPanel(fullLoadResult) {
@@ -1861,14 +1868,14 @@ function renderExteriorCoolingIndicators(analysis) {
   const part = state.design[focus];
   const prediction = part ? analysis.predictions?.get(part) : null;
   const directions = prediction?.exteriorDirections || [];
-  if (!part || !directions.length) return;
+  if (!part || !["radiator", "heatVent"].includes(part.type) || !directions.length) return;
   const cells = [...dom.grid.querySelectorAll(`.build-cell[data-part-index="${focus}"]`)];
   if (!cells.length) return;
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", `0 0 ${GRID_SIZE} ${GRID_SIZE}`);
   svg.classList.add("exterior-cooling-overlay");
   const directionSet = new Set(directions);
-  const titleText = part.type === "radiator" ? "Exposed radiator edge" : "Exterior cooling edge: +12% passive cooling";
+  const titleText = part.type === "radiator" ? "Exposed radiator edge" : "Exposed Heat Vent edge";
   const byDirection = {
     left: { dx: -1, dy: 0, char: "←", x: cell => cell.x - 0.12, y: cell => cell.y + 0.5 },
     right: { dx: 1, dy: 0, char: "→", x: cell => cell.x + 1.12, y: cell => cell.y + 0.5 },
@@ -2299,8 +2306,8 @@ function buildStatTooltipData(key, stats) {
     case "class":
       return {
         label: "Ship Weight Class",
-        desc: "Weight class category of this design based on mass. Heavier weight classes feature higher base hull HP and defense buffers, but restrict top speed limits and hull rotation rates.",
-        formula: "Light (<55 T) | Medium (55-124 T) | Heavy (125-229 T) | Capital (230+ T)",
+        desc: "Weight class category of this design based on mass. Mass continuously reduces speed and turn rate, while the current class supplies its turn limit.",
+        formula: MOVEMENT_CONFIG.massClasses.map((entry) => `${entry.name} (${formatMassClassRange(entry)})`).join(" | "),
         breakdown: `Mass: ${stats.mass} T\nWeight Class: ${stats.massClass}`
       };
 
@@ -2316,14 +2323,14 @@ function buildStatTooltipData(key, stats) {
       }
       return {
         label: "Hull Hit Points",
-        desc: "Total structural health of the ship, tracked per component along the impact path. The main Core has 340 HP outside this sum. The ship dies when no operational command core remains or when overall hull integrity is depleted.",
-        formula: "MaxHp = Max(140, Round(RawHP * 1.15))",
+        desc: "Non-Core components use their listed Hull values directly and are summed into ship hull integrity. The main Core keeps its listed HP in a separate destroyable pool.",
+        formula: "Ship Max HP = Sum(Non-Core listed Hull); Core HP is separate",
         breakdown: `Core: ${coreHp} HP
 Armor: +${armorHp} HP
 Frames: +${frameHp} HP
 Weapons: +${weaponHp} HP
 Other Systems: +${otherHp} HP
-Raw HP Sum: ${coreHp + armorHp + frameHp + weaponHp + otherHp} HP
+Non-Core Hull Sum: ${armorHp + frameHp + weaponHp + otherHp} HP
 Final Hull HP: ${stats.maxHp} HP`
       };
     }
@@ -2341,13 +2348,13 @@ Effective Shield Recharge: +${stats.shieldRegen}/s`
     case "speed":
       return {
         label: "Top Speed",
-        desc: "Maximum speed the ship can achieve when engines are fully engaged. Mass smoothly scales down engine efficiency without hard class walls.",
-        formula: "FinalSpeed = RawSpeed\nRawSpeed = (120 + (Thrust/Mass) * 32) * MassSpeedPenalty * PowerMult * 1.3",
+        desc: "Maximum speed the ship can achieve when engines are fully engaged. Effective thrust already includes each engine's health, heat, and universal Power allocation before the continuous mass-drag curve is applied.",
+        formula: `MaxSpeed = (${MOVEMENT_CONFIG.speed.base} + sqrt(EffectiveThrust) * ${MOVEMENT_CONFIG.speed.thrustSqrtScale}) * MassSpeedDrag`,
         breakdown: `Engine Thrust: ${stats.effectiveThrust} kN
 Mass: ${stats.mass} T
 Thrust/Mass Ratio: ${stats.thrustRatio.toFixed(2)} kN/T
-Mass Speed Penalty Factor: ${stats.mass > 0 ? (1 / Math.pow(1 + stats.mass / 100, 0.65)).toFixed(3) : "1.000"}
-Power Efficiency Mult: ${Math.round(stats.powerEfficiency * 100)}%
+Mass Speed Drag: ${stats.mass > 0 ? (1 / Math.pow(1 + stats.mass / MOVEMENT_CONFIG.speed.massDivisor, MOVEMENT_CONFIG.speed.massExponent)).toFixed(3) : "1.000"}
+Movement consumer Power: ${Math.round((1 - (Number(stats.powerDebuff) || 0)) * 100)}%
 Final Speed: ${Math.round(stats.maxSpeed)} m/s`
       };
 
@@ -2355,7 +2362,7 @@ Final Speed: ${Math.round(stats.maxSpeed)} m/s`
       return {
         label: "Hull Turn Rate",
         desc: "Directional hull turn rates. Uneven values indicate manoeuvre thrusters favour one turn direction; neither direction is automatically better.",
-        formula: "TurnRate = SoftCap(RawTurn, TurnCap, 0.2)",
+        formula: `RawTurn = ${MOVEMENT_CONFIG.turn.base} + (DirectionalTurn + GenericTurnModifier) * ${MOVEMENT_CONFIG.turn.genericScale}\nTurnRate = SoftCap(RawTurn, TurnCap, ${MOVEMENT_CONFIG.turn.capSoftness})`,
         breakdown: `Reliable Turn: ${stats.turnRate.toFixed(2)} rad/s (${Math.round(stats.turnRate * (180 / Math.PI))} deg/s)\nLeft Turn: ${(stats.turnRateLeft ?? stats.turnRate).toFixed(2)} rad/s\nRight Turn: ${(stats.turnRateRight ?? stats.turnRate).toFixed(2)} rad/s
 Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
       };
@@ -2397,17 +2404,17 @@ Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
 
     case "thrust":
       return {
-        label: "Effective Engine Thrust",
-        desc: "Total usable thrust generated by propulsion systems. Stacks with soft caps to prevent excessive acceleration.",
-        formula: `Diminishing Returns (${formatPercent(ENGINE_FALLOFF)} stack factor)`,
+        label: "Total Engine Thrust",
+        desc: "Total usable thrust is the sum of live engine output. Mass applies a continuous drag curve when that thrust becomes movement.",
+        formula: "Linear Engine Sum",
         breakdown: `Raw Engine Sum: ${stats.thrust} kN
-Effective Stacked Thrust: ${stats.effectiveThrust} kN`
+Effective Thrust: ${stats.effectiveThrust} kN`
       };
 
     case "engineEfficiency":
       return {
-        label: "Engine Stacking Efficiency",
-        desc: "Proportion of raw thrust converted into effective stacked thrust. Excessive engine modules reduce efficiency.",
+        label: "Engine Output Efficiency",
+        desc: "Proportion of authored live engine output available after component state and Power allocation.",
         formula: "Efficiency = EffectiveThrust / RawThrust",
         breakdown: `Raw Engine Sum: ${stats.thrust} kN
 Effective Thrust: ${stats.effectiveThrust} kN
@@ -2423,7 +2430,7 @@ Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
       return {
         label: "Subsystem Power Efficiency",
         desc: "Energy grid output performance ratio. Low power capacity limits defense recharge rates.",
-        formula: "Efficiency = Clamp(AvailableGeneration / ActiveDemand, 0, 1.1)",
+        formula: "Efficiency = Clamp(AvailableGeneration / ActiveDemand, 0, 1)",
         breakdown: `Available generation: ${fmtMw(gen)}\nActive demand: ${fmtMw(demand)}\nEfficiency: ${Math.round(stats.powerEfficiency * 100)}%`
       };
     }
@@ -2449,21 +2456,11 @@ Efficiency: ${Math.round(stats.engineEfficiency * 100)}%`
 Weapon damage: -${sysPenalty}%
 Shield capacity & regen: -${sysPenalty}%
 Repair rate: -${sysPenalty}%
-Engine thrust / speed / accel / turn: -${movePenalty}%
+Powered movement component output: -${movePenalty}%
 Fire rate: unaffected by power (only reduced by overheating)`
           : "All systems at full effectiveness."
       };
     }
-
-    case "speedCap":
-      return {
-        label: "Soft-cap onset",
-        desc: "The total-mass drag curve and one broad soft cap replace class-based hard speed walls. Below this value thrust is fully effective; above it extra thrust is damped.",
-        formula: "Soft-cap onset = max(840, 1440 - Mass)",
-        breakdown: `Ship Mass: ${stats.mass} T
-Soft-cap onset: ${formatSpeed(stats.speedCap)}
-Actual maximum speed: ${formatSpeed(Math.round(stats.maxSpeed || 0))}`
-      };
 
     case "thrustRatio":
       return {
@@ -2478,13 +2475,14 @@ Acceleration index: ${stats.thrustRatio.toFixed(2)} kN/T`
     case "weapons": {
       const weaponsCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
       const desc = `${stats.blaster} Blaster(s) / ${stats.missile} Missile(s) / ${stats.railgun} Railgun(s)` + (stats.beam ? ` / ${stats.beam} Beam(s)` : "");
+      const dpsLabel = stats.weaponDpsLabel || "Weapon DPS";
       return {
         label: "Weapons loadout",
         desc: "Ship offensive weapon summary. More active weapons increase direct combat DPS but add mass, cost, and power use.",
-        formula: "DPS = Base Weapon DPS Sum",
+        formula: dpsLabel === "Weapon DPS" ? "DPS = Base Weapon DPS Sum" : `${dpsLabel} = Base Weapon Cycle Sum`,
         breakdown: `Active Guns: ${weaponsCount}
 Summary: ${desc}
-Total DPS: ${stats.weaponDps} DPS`
+Total ${dpsLabel}: ${stats.weaponDps}`
       };
     }
 
@@ -2496,13 +2494,20 @@ Total DPS: ${stats.weaponDps} DPS`
         breakdown: `Zone Capture rate: +${Math.round(stats.captureBonus * 100)}%`
       };
 
-    case "repair":
+    case "repair": {
+      const sourceCount = Number(stats.repairRateSourceCount || 0);
+      const installedRepair = Number(stats.repairRateInstalled ?? stats.repairRate ?? 0) || 0;
+      const effectiveRepair = Number(stats.repairRate || 0) || 0;
+      const multiplier = getRepairStackingMultiplier(GENERATED_BALANCE);
       return {
         label: "Hull Repair Rate",
         desc: "Active repair rate of hull integrity per second. Does not restore shield capacity.",
-        formula: `Diminishing Returns (${formatPercent(GENERATED_BALANCE?.repair?.stackingMultiplier ?? 0.8)} stack factor)`,
-        breakdown: `Repair Rate: ${stats.repairRate.toFixed(1)} HP/s`
+        formula: `Diminishing Returns (${Math.round(multiplier * 100)}% stack factor)`,
+        breakdown: `Installed/Base Repair: ${installedRepair.toFixed(1)} HP/s
+Effective Repair: ${effectiveRepair.toFixed(1)} HP/s
+Stacking progression: ${stackingProgression(Math.max(1, sourceCount), GENERATED_BALANCE).join(", ")}`
       };
+    }
 
     case "mass": {
       let structMass = 0, weaponMass = 0, engineMass = 0, powerMass = 0, otherMass = 0;

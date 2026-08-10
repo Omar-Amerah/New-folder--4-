@@ -56,14 +56,33 @@ function testSensorCapability() {
     x: 0,
     y: 0,
     hp: 100,
-    design: [{ x: 0, y: 0, type: "sensorArray" }],
+    design: [{ x: 0, y: 0, type: "largeSensor" }],
     componentHp: [38],
     componentMaxHp: [38],
     componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] },
     stats: { massClass: "medium", unitCost: 100 }
   };
   const range = effectiveSensorRange(ship);
-  assert(range > getHullBaseSensorRange("medium"), "sensor array increases range");
+  assert(range > getHullBaseSensorRange("medium"), "sensor component increases range");
+  const baseRanges = ["light", "medium", "heavy", "capital"].map((massClass) => getHullBaseSensorRange(massClass));
+  assert.deepStrictEqual(
+    baseRanges,
+    baseRanges.map(() => baseRanges[0]),
+    "every hull mass class uses the same base sensor range"
+  );
+
+  const damagedSensor = { ...ship, componentHp: [19], componentMaxHp: [38] };
+  assert.strictEqual(
+    effectiveSensorRange(damagedSensor),
+    range,
+    "partial sensor damage does not reduce a live sensor's range bonus"
+  );
+  const destroyedSensor = { ...ship, componentHp: [0], componentMaxHp: [38] };
+  assert.strictEqual(
+    effectiveSensorRange(destroyedSensor),
+    baseRanges[0],
+    "a destroyed sensor contributes no range bonus"
+  );
 
   const room = {
     rules: { visibilityMode: "sensors" },
@@ -78,21 +97,20 @@ function testSensorCapability() {
 
 function testStacking() {
   const total = stackedSensorRangeBonus([{ bonus: 400 }, { bonus: 400 }, { bonus: 400 }]);
-  assert(total < 900, "diminishing returns");
-  assert(total > 600, "first and second give meaningful range");
+  assert.strictEqual(total, 1200, "sensor bonuses stack linearly");
   const prioritized = stackedSensorRangeBonus([
     { index: 0, role: "omniSmall", bonus: 1000 },
     { index: 1, role: "omniLarge", bonus: 100 }
   ]);
-  assert.strictEqual(prioritized, 750, "Large Sensors receive the first stack slot before Small Sensors");
+  assert.strictEqual(prioritized, 1100, "sensor component order and role do not reduce authored range bonuses");
 }
 
 function testSensorCatalogue() {
   assert.strictEqual(PARTS.smallSensor.sensorRole, "omniSmall");
   assert.strictEqual(PARTS.largeSensor.sensorRole, "omniLarge");
-  assert.strictEqual(PARTS.directedSensor.sensorRole, "directed");
   assert.strictEqual(PARTS.smallDirectedSensor.sensorRole, "directed");
   assert.strictEqual(PARTS.largeDirectedSensor.sensorRole, "directed");
+  assert.strictEqual(PARTS.directedSensor, undefined, "legacy Directed Sensor is not a live catalogue component");
   assert.deepStrictEqual(PARTS.smallSensor.footprint, { width: 1, height: 1 });
   assert.deepStrictEqual(PARTS.largeSensor.footprint, { width: 2, height: 1 });
   assert.deepStrictEqual(PARTS.smallDirectedSensor.footprint, { width: 1, height: 1 });
@@ -125,8 +143,8 @@ function testDirectedSensorProfileAndCoverage() {
     { x: 9, y: 7, type: "largeSensor", rotation: 0 },
     { x: 10, y: 7, type: "largeDirectedSensor", rotation: 270 }
   ];
-  const withoutDirected = designSensorProfile(design.slice(0, 3), "medium");
-  const withDirected = designSensorProfile(design, "medium");
+  const withoutDirected = designSensorProfile(design.slice(0, 3));
+  const withDirected = designSensorProfile(design);
   assert.strictEqual(withDirected.omniRange, withoutDirected.omniRange, "Directed Sensors do not diminish the omni stack");
   assert(withDirected.directedRange > withDirected.omniRange, "Directed Sensor reaches substantially farther than omni coverage");
 
@@ -171,20 +189,20 @@ function testDirectedSensorProfileAndCoverage() {
     "Large Directed Sensors receive the first directed stack slot");
   const expectedStackedForwardRange = getHullBaseSensorRange("medium")
     + PARTS.largeDirectedSensor.sensorRangeBonus
-    + PARTS.smallDirectedSensor.sensorRangeBonus * 0.65;
+    + PARTS.smallDirectedSensor.sensorRangeBonus;
   assert.strictEqual(
     doubledProfile.directed[0].range,
     expectedStackedForwardRange,
-    "aligned Directed Sensors stack their diminished bonuses into the forward cone"
+    "aligned Directed Sensors add their full authored bonuses into the forward cone"
   );
   assert(doubledProfile.directed[0].range > profile.directed[0].range,
     "a second forward Directed Sensor increases forward detection range");
 
-  const doubledDesignProfile = designSensorProfile([...design, secondDirected], "medium");
+  const doubledDesignProfile = designSensorProfile([...design, secondDirected]);
   assert.strictEqual(
     doubledDesignProfile.directedRange,
     expectedStackedForwardRange,
-    "the designer reports the same stacked forward range as runtime"
+    "the designer reports the same linear forward range as runtime"
   );
 
   const sideFacing = {
@@ -200,7 +218,7 @@ function testDirectedSensorProfileAndCoverage() {
 }
 
 function testDesignerSensorRange() {
-  const stats = computeStats([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "sensorArray" }]);
+  const stats = computeStats([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "largeSensor" }]);
   assert(stats.sensorRange > stats.baseSensorRange, "designer reports increased sensor range");
   const mixed = computeStats([
     { x: 7, y: 7, type: "core" },
@@ -264,9 +282,6 @@ function testTeamVisibility() {
   });
   s1.weaponAimTargetIds = [s2.id];
   s1.weaponFireTargetIds = [s2.id];
-  s1.weaponAcquiredTargetIds = [s2.id];
-  s1.weaponPendingTargetIds = [s2.id];
-  s1.weaponAcquireCompleteAt = [5000];
   s1.weaponComponentTargetIds = [s2.id];
   s1.weaponComponentTargetIndices = [0];
   s1.weaponComponentRetargetAt = [5000];
@@ -299,9 +314,6 @@ function testTeamVisibility() {
   assert.strictEqual(s1.targetY, s1.y, "cancelled pursuit stops at the ship's current position");
   assert.deepStrictEqual(s1.weaponAimTargetIds, [null], "turret aim lock is cleared");
   assert.deepStrictEqual(s1.weaponFireTargetIds, [null], "weapon fire lock is cleared");
-  assert.deepStrictEqual(s1.weaponAcquiredTargetIds, [null], "weapon acquisition is forgotten");
-  assert.deepStrictEqual(s1.weaponPendingTargetIds, [null], "pending acquisition is forgotten");
-  assert.deepStrictEqual(s1.weaponAcquireCompleteAt, [0], "acquisition timer is reset");
   assert.deepStrictEqual(s1.weaponComponentTargetIds, [null], "component aim lock is cleared");
   assert.deepStrictEqual(s1.weaponComponentTargetIndices, [-1], "component aim index is reset");
   assert.deepStrictEqual(s1.weaponComponentRetargetAt, [0], "component retarget timer is reset");

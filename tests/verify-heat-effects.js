@@ -5,7 +5,9 @@ const heat = require("../src/server/heat");
 const health = require("../src/server/componentHealth");
 const movement = require("../src/server/movement");
 const combat = require("../src/server/combat");
+const { updateRuntimeShield } = require("../src/server/runtimeShield");
 const { computeStats } = require("../src/server/shipStats");
+const { PARTS } = require("../src/server/components");
 
 const S = HeatRules.STATE;
 assert.strictEqual(HeatRules.activeOutputForState(S.WARM), 1, "Warm active output remains 1");
@@ -16,7 +18,7 @@ assert.strictEqual(HeatRules.passiveProtectionForState(S.HOT), 0.85, "Hot passiv
 assert.strictEqual(HeatRules.activeCoolingForState(S.OVERHEATED), 0, "Overheated active cooling is 0");
 assert.strictEqual(Number(HeatRules.structuralDamageMultiplierForState(S.OVERHEATED).toFixed(2)), 1.60, "Overheated structure takes x1.60");
 
-function shipFor(design, id="s", ownerId="a") { const ship={ id, ownerId, design, x:500,y:500, angle:0, alive:true, shield:0, vx:0, vy:0, radius:30 }; ship.stats={...computeStats(design)}; ship.maxShield=ship.stats.maxShield||0; health.initComponentState(ship); heat.initShipHeat(ship); ship.weaponCooldowns=design.map(()=>0); ship.weaponAngles=design.map(()=>0); ship.weaponDesiredAngles=[]; ship.weaponAimTargetIds=[]; ship.weaponFireTargetIds=[]; ship.weaponAcquiredTargetIds=design.map(()=>null); ship.weaponPendingTargetIds=design.map(()=>null); ship.weaponAcquireCompleteAt=design.map(()=>0); ship.beamEffectsAt=[]; return ship; }
+function shipFor(design, id="s", ownerId="a") { const ship={ id, ownerId, design, x:500,y:500, angle:0, alive:true, shield:0, vx:0, vy:0, radius:30 }; ship.stats={...computeStats(design)}; ship.maxShield=ship.stats.maxShield||0; health.initComponentState(ship); heat.initShipHeat(ship); ship.weaponCooldowns=design.map(()=>0); ship.weaponAngles=design.map(()=>0); ship.weaponDesiredAngles=[]; ship.weaponAimTargetIds=[]; ship.weaponFireTargetIds=[]; ship.beamEffectsAt=[]; return ship; }
 function roomFor(ships){ return { world:{width:2000,height:2000}, effects:[], bullets:[], missiles:[], players:new Map([["a",{id:"a",team:"a",ships:ships.filter(s=>s.ownerId==="a")}],["b",{id:"b",team:"b",ships:ships.filter(s=>s.ownerId==="b")}]]), rngState:1, safeZones:[], asteroids:[], rules:{} }; }
 
 // Active output: overheated weapons cannot fire and generate no firing heat.
@@ -27,14 +29,13 @@ const fullPower = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"full
 const halfPower = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"blaster"}],"half","a");
 for (const ship of [fullPower, halfPower]) ship.componentPower = { byComponentIndex: [{ operationalMultiplier: 1 }, { operationalMultiplier: ship === halfPower ? 0.5 : 1 }] };
 const weaponTarget = shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"frame"}],"weapon-target","b"); weaponTarget.x = 700;
-fullPower.weaponAcquiredTargetIds[1] = weaponTarget.id; halfPower.weaponAcquiredTargetIds[1] = weaponTarget.id;
 combat.updateShipWeapons(roomFor([fullPower,weaponTarget]), fullPower, [fullPower,weaponTarget], 1, 1000);
 combat.updateShipWeapons(roomFor([halfPower,weaponTarget]), halfPower, [halfPower,weaponTarget], 1, 1000);
 assert(fullPower.weaponCooldowns[1] > 0, "powered cool projectile weapon fires");
 assert(Math.abs(halfPower.weaponCooldowns[1] / fullPower.weaponCooldowns[1] - 2) < 0.01, "50% Power halves projectile activity rather than squaring Power");
 
 // Active output: shield regeneration heat matches actual shield restored, not nominal overfill.
-let shieldShip=shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shieldGenerator"}],"sg","a"); shieldShip.shield=shieldShip.maxShield-0.05; movement.updateShipMovement(roomFor([shieldShip]), shieldShip, [], 1); assert(shieldShip.componentHeatInput[1] <= 0.05*0.7 + 1e-9, "shield heat corresponds to actual regeneration");
+let shieldShip=shipFor([{x:7,y:7,type:"core"},{x:7,y:6,type:"shield"}],"sg","a"); shieldShip.shield=shieldShip.maxShield-0.05; updateRuntimeShield(shieldShip, 1, 10000, roomFor([shieldShip])); assert(shieldShip.componentHeatInput[1] <= 0.05 * PARTS.shield.activityHeat / PARTS.shield.shieldRegen + 1e-9, "shield heat corresponds to actual regeneration");
 
 // Utility bonuses use active output.
 let utility={ design:[{type:"targetingComputer"},{type:"fireControl"},{type:"signalAmplifier"},{type:"repair"}], componentHp:[1,1,1,1], componentHeatState:[S.OVERHEATED,S.HOT,S.CRITICAL,S.NORMAL] };
@@ -46,6 +47,6 @@ let armor=shipFor([{x:7,y:7,type:"armor"},{x:7,y:9,type:"core"}],"ar","a"); armo
 let frame=shipFor([{x:7,y:7,type:"frame"},{x:7,y:9,type:"core"}],"fr","a"); frame.componentHeatState[0]=S.OVERHEATED; const before=frame.componentHp[0]; health.applyHullDamage(null, frame, 10, 0, 500, 0); assert(Math.abs((before-frame.componentHp[0]) - 16) < 0.01, "frame structural damage multiplier applies once");
 
 // Radiators use active cooling.
-let rad=shipFor([{x:7,y:7,type:"radiator"}],"r","a"); rad.componentHeat[0]=60; rad.componentHeatState[0]=S.OVERHEATED; rad.hasActiveHeat=true; heat.updateShipHeat(rad,0.25,roomFor([rad]),1000); assert(rad.componentHeatRemoved[0] > 0 && rad.componentHeatRemoved[0] < 10, "overheated radiator falls back to passive floor cooling");
+let rad=shipFor([{x:7,y:7,type:"radiator"}],"r","a"); rad.componentHeat[0]=60; rad.componentHeatState[0]=S.OVERHEATED; rad.hasActiveHeat=true; heat.updateShipHeat(rad,0.25,roomFor([rad]),1000); assert.strictEqual(rad.componentHeatRemoved[0], 0, "overheated radiator has no hidden passive floor cooling");
 
 console.log("heat effects verification passed");

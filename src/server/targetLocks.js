@@ -12,8 +12,6 @@ const {
 const WEAPON_TARGET_ID_ARRAYS = Object.freeze([
   "weaponAimTargetIds",
   "weaponFireTargetIds",
-  "weaponAcquiredTargetIds",
-  "weaponPendingTargetIds",
   "weaponComponentTargetIds"
 ]);
 
@@ -62,12 +60,6 @@ function clearHiddenWeaponLocks(ship, hiddenIds) {
 
   clearIdArray("weaponAimTargetIds");
   clearIdArray("weaponFireTargetIds");
-  clearIdArray("weaponAcquiredTargetIds", (index) => {
-    if (ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt[index] = 0;
-  });
-  clearIdArray("weaponPendingTargetIds", (index) => {
-    if (ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt[index] = 0;
-  });
   clearIdArray("weaponComponentTargetIds", (index) => {
     if (ship.weaponComponentTargetIndices) ship.weaponComponentTargetIndices[index] = -1;
     if (ship.weaponComponentRetargetAt) ship.weaponComponentRetargetAt[index] = 0;

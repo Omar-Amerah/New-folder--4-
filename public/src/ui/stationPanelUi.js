@@ -2,7 +2,7 @@
 // infrastructure mode only).
 //
 // Stations are not commandable, so this panel is read-only: vitals, operational
-// state, what the home station's launch hangars are building, and the queue behind it.
+// state, active launches, and the queue waiting for a hangar.
 // The panel stays hidden entirely in Classic rooms, where no station exists.
 
 import { dom } from "./dom.js";
@@ -21,12 +21,6 @@ const STATE_LABELS = {
   destroyed: "Destroyed",
   neutral: "Unclaimed",
   controlled: "Controlled"
-};
-
-const QUEUE_STATE_LABELS = {
-  queued: "Queued",
-  building: "Building",
-  "complete-waiting-launch": "Awaiting launch"
 };
 
 function escapeHtml(value) {
@@ -82,20 +76,16 @@ function renderMeter(label, value, max, kind) {
   `;
 }
 
-function renderProductionQueue(station) {
+function renderHangarQueue(station) {
   const queue = Array.isArray(station.productionQueue) ? station.productionQueue : [];
-  if (queue.length === 0) return `<p class="station-empty">Launch hangars idle : nothing in production.</p>`;
+  if (queue.length === 0) return `<p class="station-empty">Launch hangars idle : launch queue empty.</p>`;
   const rows = queue.map((item, index) => {
-    const stateLabel = QUEUE_STATE_LABELS[item.state] || item.state;
-    const progress = Math.round(Math.max(0, Math.min(1, Number(item.progress) || 0)) * 100);
     const quantity = Math.max(1, Number(item.quantityRemaining) || 1);
     const mine = item.playerId === state.myId;
     return `
       <li class="station-queue-item${mine ? " station-queue-mine" : ""}${index === 0 ? " station-queue-active" : ""}">
         <span class="station-queue-owner">${escapeHtml(playerName(item.playerId))}</span>
-        <span class="station-queue-state">${escapeHtml(stateLabel)}${quantity > 1 ? ` &times;${quantity}` : ""}</span>
-        <span class="station-queue-track"><i style="width:${progress}%"></i></span>
-        <span class="station-queue-progress">${progress}%</span>
+        <span class="station-queue-state">Waiting for hangar${quantity > 1 ? ` &times;${quantity}` : ""}</span>
       </li>
     `;
   }).join("");
@@ -163,7 +153,7 @@ export function renderStationPanel() {
   ];
   if (station.stationType === "home") {
     sections.push(`<div class="station-subhead"><h3>Launch Hangars</h3></div>`);
-    sections.push(renderProductionQueue(station));
+    sections.push(renderHangarQueue(station));
   }
 
   const html = sections.join("");

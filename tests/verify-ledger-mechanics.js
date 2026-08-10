@@ -63,12 +63,11 @@ global.window = { devicePixelRatio: 1 };
     `Enclosed multiplier mismatch: ${enclosedEntry.value} vs ${expectedEnclosed}`);
   ok("radiator enclosed multiplier matches heatRules");
 
-  const passiveEntry = cp.find((e) => e.label.includes("Passive"));
-  assert.ok(passiveEntry, "Missing passive floor entry in conditional performance");
-  const expectedPassive = Math.round((HeatRules.RADIATOR_PASSIVE_COOLING_FRACTION ?? 0.12) * 100) + "%";
-  assert.strictEqual(passiveEntry.value, expectedPassive,
-    `Passive floor mismatch: ${passiveEntry.value} vs ${expectedPassive}`);
-  ok("radiator passive floor matches heatRules");
+  assert.strictEqual(HeatRules.RADIATOR_PASSIVE_COOLING_FRACTION, undefined,
+    "Radiator has no hidden passive cooling floor");
+  assert.ok(!cp.some((e) => e.label.includes("Passive")),
+    "Radiator article must not advertise a passive cooling floor");
+  ok("radiator has no passive cooling floor");
 
   // --- 6. Radiator heat-state entries match active cooling table ---
   const hotEntry = cp.find((e) => e.label.includes("Hot"));
@@ -173,8 +172,9 @@ global.window = { devicePixelRatio: 1 };
   const destroyedMech = radiator.specialMechanics.find((m) =>
     m.label.toLowerCase().includes("destroyed"));
   assert.ok(destroyedMech, "Radiator article must document destroyed behaviour");
-  assert.ok(destroyedMech.detail && destroyedMech.detail.toLowerCase().includes("passive"),
-    "Destroyed radiator behaviour must mention passive cooling");
+  assert.ok((destroyedMech.value || "").toLowerCase().includes("no cooling")
+    || (destroyedMech.detail || "").toLowerCase().includes("stops rejecting"),
+    "Destroyed radiator behaviour must mention that cooling stops");
   ok("destroyed radiator behaviour documented");
 
   console.log(`\nLedger mechanics verification: ${passed} checks passed, ${errors.length} errors`);

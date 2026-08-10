@@ -13,6 +13,17 @@ const { damageShip, SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE } = require("../src/se
 const at = (type, x, y) => ({ type, x, y, rotation: 0 });
 const close = (actual, expected, message) => assert(Math.abs(actual - expected) < 1e-9, message + ": " + actual + " !== " + expected);
 
+const linearRegen = ShieldRules.calculateShieldStats(
+  [at("shield", 0, 0), at("shield", 1, 0)],
+  PARTS
+);
+close(linearRegen.recharge, PARTS.shield.shieldRegen * 2, "shield regeneration stacks linearly");
+assert.deepEqual(
+  linearRegen.regenerationContributions.map((entry) => entry.effectiveRate),
+  [PARTS.shield.shieldRegen, PARTS.shield.shieldRegen],
+  "each shield contributes its full authored regeneration rate"
+);
+
 function makeShip(design) {
   const dataLinks = [];
   const ship = {

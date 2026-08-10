@@ -567,8 +567,7 @@ function updateBullets(room, dt, now) {
       if (kind === "ship") {
         damageShip(room, entity, damage, bullet.ownerId, now, detonateX, detonateY, {
           shieldDamageMultiplier: bullet.shieldDamageMultiplier,
-          hullDamageMultiplier: bullet.hullDamageMultiplier,
-          armorInteractionSeconds: bullet.armorInteractionSeconds
+          hullDamageMultiplier: bullet.hullDamageMultiplier
         });
       } else if (kind === "drone") {
         require("./drones").damageDrone(room, entity, damage, bullet.ownerId, now);
@@ -584,8 +583,7 @@ function updateBullets(room, dt, now) {
       } else if (kind === "station") {
         damageStation(room, entity, damage, bullet.ownerId, now, detonateX, detonateY, {
           shieldDamageMultiplier: bullet.shieldDamageMultiplier,
-          hullDamageMultiplier: bullet.hullDamageMultiplier,
-          armorInteractionSeconds: bullet.armorInteractionSeconds
+          hullDamageMultiplier: bullet.hullDamageMultiplier
         });
         flakMetrics.stationHits = (flakMetrics.stationHits || 0) + 1;
       }
@@ -751,7 +749,11 @@ function updateBullets(room, dt, now) {
         const desired = bullet.desiredGuidanceAngle ?? current;
         const turnRate = bullet.guidanceTurnRate ?? MISSILE_GUIDANCE.armingTurnRate;
         const next = rotateToward(current, desired, turnRate * dt);
-        const speed = Math.min(bullet.maxSpeed || MISSILE_GUIDANCE.defaultMaxSpeed, fastHypot(bullet.vx, bullet.vy) + MISSILE_GUIDANCE.acceleration * dt);
+        const storedSpeed = Number(bullet.projectileSpeed);
+        const speed = Number.isFinite(storedSpeed) && storedSpeed >= 0
+          ? storedSpeed
+          : fastHypot(bullet.vx, bullet.vy);
+        if (!Number.isFinite(Number(bullet.projectileSpeed))) bullet.projectileSpeed = Number.isFinite(speed) ? speed : 0;
         bullet.vx = Math.cos(next) * speed;
         bullet.vy = Math.sin(next) * speed;
       } else if (target && !hostileTarget) {
@@ -1037,7 +1039,6 @@ function updateBullets(room, dt, now) {
       damageShip(room, ship, shipDamage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,
         hullDamageMultiplier: bullet.hullDamageMultiplier,
-        armorInteractionSeconds: bullet.armorInteractionSeconds,
         impactHeatPerDamage: bullet.impactHeatPerDamage,
         penetrationProfile: bullet.penetrationProfile
       });
@@ -1080,8 +1081,7 @@ function updateBullets(room, dt, now) {
       const station = earliest.station;
       damageStation(room, station, bullet.damage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,
-        hullDamageMultiplier: bullet.hullDamageMultiplier,
-        armorInteractionSeconds: bullet.armorInteractionSeconds
+        hullDamageMultiplier: bullet.hullDamageMultiplier
       });
       detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       if (earliest.shield) {

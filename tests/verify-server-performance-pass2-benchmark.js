@@ -190,7 +190,7 @@ function snapshotFixture(disableGrouping) {
   const player = {
     id: "p1", name: "Benchmark", team: "blue", ships: [], design: [],
     dataLinks: [],
-    connected: true, money: 1000, bank: 1000, earned: 1000, maxMoney: 1000,
+    connected: true, money: 1000, earned: 1000, maxMoney: 1000,
     kills: 0, losses: 0, captures: 0
   };
   room.players.set(player.id, player);

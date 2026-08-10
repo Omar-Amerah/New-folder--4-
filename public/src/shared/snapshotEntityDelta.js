@@ -32,7 +32,7 @@
     "ownerId", "team", "designRevision", "componentAliveRevision",
     "componentDamageRevision", "chpVisual", "proximityChargeRevision", "combatStyle",
     "orbitDirection",
-    "movementToggles", "hp", "maxHp", "shield", "maxShield", "radius", "cost",
+    "movementToggles", "hp", "maxHp", "shield", "maxShield", "shieldRestartDelayMs", "shieldRestartAtMs", "radius", "cost",
     "focusTargetId", "combatTargetId", "weaponAngles", "weaponCharge", "commandState",
     "emergencyReserveUntil", "alive", "commandAuraActive", "commandAuraReceived",
     "proximityChargeDetonated", "blasterRange", "missileRange", "railgunRange",
@@ -88,7 +88,7 @@
     players: Object.freeze([
       "name", "color", "colour", "team", "teamName", "isBot", "isAdmin",
       "connected", "ready", "money", "income", "earned", "spent", "shipCap",
-      "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost", "lastReward",
+      "activeFleetCost", "deployedFleetCost", "destroyedEnemyCost",
       "activeShips", "kills", "losses", "captures", "rallyPoint", "rallyPointCustom",
       "shipsBuilt", "lostFleetCost"
     ]),

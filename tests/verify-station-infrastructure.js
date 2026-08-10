@@ -520,8 +520,11 @@ function runSnapshotChecks() {
   );
   assert(Array.isArray(compactHome.productionQueue) && compactHome.productionQueue.length === 1, "compact snapshot still carries the production queue");
   const item = compactHome.productionQueue[0];
-  assert(typeof item.progress === "number" && item.progress >= 0 && item.progress <= 1, "queue progress is a resolved 0..1 ratio");
   assert(item.playerId === player.id, "queue items identify their owner");
+  assert(
+    !("state" in item) && !("progress" in item) && !("buildDurationSeconds" in item),
+    "queue snapshots expose no fictional build state, progress, or duration"
+  );
 
   const classic = createRoom("SNCL");
   classic.phase = "active";
@@ -813,32 +816,21 @@ function runHangarDoorChecks() {
     `no launch was blocked (got ${prodRoom.stationCounters?.stationLaunchBlockedCount || 0})`
   );
 
-  section("Build time scales with ship size");
-  const cfg = INFRASTRUCTURE.homeStation;
-  assert(cfg.productionSecondsPerModule > 0, "productionSecondsPerModule is configured");
-  const buildSeconds = (moduleCount) => {
-    const design = Array.from({ length: moduleCount }, (_, i) => ({ x: i % 15, y: Math.floor(i / 15), type: "armor", rotation: 0 }));
-    const stats = computeStats(design);
-    const queued = enqueueStationProduction(
-      makeStationRoom(`SZ${moduleCount}`).room,
-      { ...player, ships: [], money: 100000, shipCap: 8 },
-      { template: { design, dataLinks: [], stats }, request: { requestId: `s${moduleCount}` }, validation: { count: 1, totalCost: stats.unitCost } },
-      0
-    );
-    const unaccelerated = cfg.productionBaseSeconds
-      + moduleCount * cfg.productionSecondsPerModule;
-    const expectedDuration = Math.round(Math.max(0.2, unaccelerated / 2) * 100) / 100;
-    assert(
-      queued.buildDurationSeconds === expectedDuration,
-      `the ${moduleCount}-module hull builds at exactly 2x speed`
-    );
-    return queued.buildDurationSeconds;
-  };
-  const small = buildSeconds(4);
-  const large = buildSeconds(60);
-  // It used to be driven by cost alone, which put every hull in the game within
-  // 0.7s of every other one.
-  assert(large > small * 2, `a large hull takes materially longer to build (${small}s vs ${large}s)`);
+  section("Purchases wait only for an available hangar");
+  const immediate = makeStationRoom("NTIM", { money: 100000, shipCap: 8 });
+  const immediateHome = immediate.room.stations.find((s) => s.stationType === "home");
+  immediateHome.team = immediate.player.team;
+  const queued = enqueueBotProduction(immediate.room, immediate.player, 0);
+  const queueItem = immediateHome.productionQueue[0];
+  assert(queued.ok && queued.queued && queued.queuePosition === 1, "the purchase enters the hangar queue");
+  assert(
+    !("buildDurationSeconds" in queued) && !("buildStartedAt" in queueItem)
+      && !("buildDurationSeconds" in queueItem) && !("state" in queueItem),
+    "neither the purchase result nor authoritative queue item carries production timing"
+  );
+  tickRoom(immediate.room, 1 / 30, 1);
+  assert(immediateHome.productionQueue.length === 0, "a free hangar launches the queued hull on the first station tick");
+  assert(immediate.player.ships.length === 1 && immediate.player.ships[0].launchPhase, "the launched hull enters authoritative launch control");
 
   section("A relay is built lighter than its raw component sheet");
   const relay = room.stations.find((s) => s.stationType === "relay");

@@ -82,7 +82,6 @@ function _metadataSignature(entity, profileCache) {
     entity?.commandState || "mainCore",
     getCommandAuraMultiplier(entity, "pointDefenceTrackingMultiplier"),
     getCommandAuraMultiplier(entity, "flakTrackingMultiplier"),
-    getCommandAuraMultiplier(entity, "interceptionReactionMultiplier")
   ].join(":");
 }
 
@@ -356,8 +355,23 @@ function _validateCandidate(room, candidate, originX, originY, shipOwnerId, weap
   if (!candidate?.entity) return null;
   TargetingTelemetry.bump(room, "pointDefenceCandidatesRevalidated");
 
-  const dx = candidate.entity.x - originX;
-  const dy = candidate.entity.y - originY;
+  const entity = candidate.entity;
+  const live = candidate.type === "projectile"
+    ? (room?.bullets || []).some((bullet) => bullet === entity || bullet?.id === entity.id)
+    : candidate.type === "drone"
+      ? Boolean(room?.drones?.get?.(entity.id))
+      : candidate.type === "ship"
+        ? Boolean(room?.ships?.get?.(entity.id))
+        : candidate.type === "decoy"
+          ? Boolean(room?.decoys?.get?.(entity.id))
+          : (room?.stations || []).some((station) => station === entity || station?.id === entity.id);
+  if (!live) {
+    TargetingTelemetry.bump(room, "pointDefenceCandidatesRejectedStale");
+    return null;
+  }
+
+  const dx = entity.x - originX;
+  const dy = entity.y - originY;
   const distSq = dx * dx + dy * dy;
   const range = Number(weapon.range) || 0;
   if (distSq > range * range) {

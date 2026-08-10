@@ -649,7 +649,7 @@
                       <div class="heat-legend-content">
                         <section>
                           <h4>Heat States</h4>
-                          <div class="heat-state-list"><span>Cool 0–25%</span><span>Warm 26–50%</span><span>Hot 51–75%</span><span>Critical 76–99%</span><span>Overheated 100%</span></div>
+                          <div class="heat-state-list"><span data-heat-state="normal">Cool / Warm: full active output</span><span data-heat-state="hot">Hot: reduced active output</span><span data-heat-state="critical">Critical: heavily reduced active output</span><span data-heat-state="overheated">Overheated: full shutdown; see the lockout recovery rule</span></div>
                         </section>
                         <section>
                           <h4>Overlay Meaning</h4>
@@ -712,6 +712,7 @@
     <script src="/src/shared/heatRules.js?v=local-heat-4"></script>
     <script src="/src/shared/engineExhaust.js?v=engine-exhaust-1"></script>
     <script src="/src/shared/turretRules.js?v=turret-rules-1"></script>
+    <script src="/src/shared/weaponPresentationRules.js?v=weapon-presentation-1"></script>
     <script src="/src/shared/dataSupportRules.js?v=data-support-1"></script>
     <script type="module" src="/src/main.js?v=data-links-1"></script>
   </body>

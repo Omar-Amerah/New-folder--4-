@@ -236,7 +236,7 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
       assert.ok(model.callouts.every((callout) => Number.isInteger(rank[callout.category])), `${type} uses known categories`);
     }
     assert.deepEqual(build("radiator").callouts.map((callout) => callout.category),
-      ["capability", "condition", "condition", "role"]);
+      ["capability", "condition", "role"]);
     assert.deepEqual(build("reactor").callouts.map((callout) => callout.category), ["cost", "severe"]);
     assert.deepEqual(build("backupCore").callouts.map((callout) => callout.category),
       ["capability", "condition", "condition", "severe"]);
@@ -273,8 +273,9 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     for (const type of ["reactor", "blaster", "engine", "shield", "droneBay"]) {
       const rows = allRows(build(type));
       assert.equal(rows.filter((row) => row.id === "heat.production").length, 1, `${type} states heat production once`);
-      const heatish = rows.filter((row) => /heat/i.test(row.label) && /produc|generat/i.test(`${row.label} ${row.value}`));
-      assert.ok(heatish.length <= 1, `${type} has no second heat-generation row`);
+      for (const id of ["heat.production", "heat.perShot"]) {
+        assert.ok(rows.filter((row) => row.id === id).length <= 1, `${type} has no duplicate ${id} row`);
+      }
     }
   });
 
@@ -299,6 +300,10 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     assert.equal(backup.warnings.find((warning) => warning.id === "backup-command").calloutCategory, "capability");
     assert.equal(backup.warnings.find((warning) => warning.id === "one-per-ship").calloutCategory, "condition");
     assert.equal(backup.warnings.find((warning) => warning.id === "backup-power-loss").calloutCategory, "severe");
+    const effectiveness = allRows(backup).find((row) => row.id === "command.effectiveness");
+    assert.equal(effectiveness?.label, "Backup Effectiveness");
+    assert.match(effectiveness?.value || "", /85%.*weapon accuracy.*turn rate.*drone command range/i,
+      "Backup Core presents the shared rule and every affected system together");
     assert.equal(PART_STATS.backupCore.maxPerShip, 1, "restriction comes from the authoritative catalogue");
     assert.ok(build("core").warnings.some((warning) => warning.id === "command-loss"), "Main Core warns about command loss");
     assert.ok(build("radiator").callouts.some((callout) => callout.id === "heat.exposure" && callout.category === "condition"),

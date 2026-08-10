@@ -14,7 +14,7 @@ const { buildDecoySnapshots, buildLauncherSnapshots } = require("./decoys");
 const { PARTS } = require("./components");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { BALANCE_REVISION } = require("./balanceConfig");
-const { reportInvalidShieldState } = require("./runtimeShield");
+const { reportInvalidShieldState, effectiveShieldRestartDelayMs } = require("./runtimeShield");
 const { sanitizeCombatStyle, sanitizeMovementToggles, sanitizeOrbitDirection } = require("./validation");
 const { usesStationInfrastructure } = require("./rooms");
 const { filterSnapshotForPlayer } = require("./visibilitySnapshots");
@@ -269,19 +269,14 @@ function buildStationSnapshot(room, station, now, sendStatic) {
   } else {
     entry.weaponAnglePairs = buildStationWeaponAnglePairs(station);
   }
-  // The production queue is small but changes continuously, so it is part of
-  // every snapshot. Progress is resolved server-side: the client has no
-  // authoritative clock to compare buildStartedAt against.
+  // The launch queue is small but changes continuously, so it is part of every
+  // snapshot. Queue entries carry no timer: an item launches when its assigned
+  // hangar is available.
   if (station.stationType === "home") {
     entry.productionQueue = station.productionQueue.map((item) => ({
       id: item.id,
       playerId: item.playerId,
-      quantityRemaining: item.quantityRemaining,
-      state: item.state,
-      buildDurationSeconds: round(item.buildDurationSeconds),
-      progress: item.state === "queued"
-        ? 0
-        : round(clampNumber((now - item.buildStartedAt) / Math.max(1, item.buildDurationSeconds * 1000), 0, 1))
+      quantityRemaining: item.quantityRemaining
     }));
     entry.launches = buildStationLaunchState(station);
   }
@@ -323,6 +318,12 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
     const effectiveWeapons = ensureEffectiveWeaponProfileCache(ship);
     const effectiveRanges = effectiveWeapons?.familyRanges || {};
     const sensorProfile = effectiveSensorProfile(ship, room);
+    const shieldRestartDelayMs = effectiveShieldRestartDelayMs(ship);
+    const shieldRestartAtMs = Number(ship.maxShield) > 0
+      && Number(ship.shield) <= 0
+      && Number.isFinite(ship._shieldDepletedAt)
+      ? ship._shieldDepletedAt + shieldRestartDelayMs
+      : null;
     const entry = {
       id: ship.id,
       ownerId: ship.ownerId,
@@ -348,6 +349,8 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       maxHp: round(ship.maxHp),
       shield: finiteShieldSnapshotValue(ship, "shield"),
       maxShield: finiteShieldSnapshotValue(ship, "maxShield"),
+      shieldRestartDelayMs: round(shieldRestartDelayMs),
+      shieldRestartAtMs: shieldRestartAtMs === null ? null : round(shieldRestartAtMs),
       radius: round(ship.radius),
       cost: ship.cost || ship.stats?.unitCost || 0,
       focusTargetId: ship.focusTargetId || ship.repairTargetId || null,
@@ -986,7 +989,6 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       activeFleetCost: canViewEconomy ? getActiveFleetCost(player) : null,
       deployedFleetCost: canViewFinalEconomy ? Math.floor(player.deployedFleetCost) : null,
       destroyedEnemyCost: Math.floor(player.destroyedEnemyCost),
-      lastReward: player.lastReward,
       activeShips,
       kills: player.kills,
       losses: player.losses,

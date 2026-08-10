@@ -12,7 +12,6 @@ function makePlayer(id, team) {
     team,
     captures: 0,
     money: 0,
-    bank: 0,
     earned: 0,
     spent: 0,
     maxMoney: 99999,
@@ -47,7 +46,6 @@ function makeRoom(mode = "teams", pointCount = 2) {
     })),
     winner: null,
     winnerAt: 0,
-    rewardsFinalizedForWinner: null,
     controlVictory: {
       team: null,
       playerId: null,
@@ -81,6 +79,8 @@ function ownAllRelays(room, ownerId, ownerTeam) {
   assert.strictEqual(room.phase, "ended");
   assert.strictEqual(room.winner.team, "blue");
   assert.strictEqual(room.winner.reason, "control");
+  assert.strictEqual(room.players.get("a").money, 0, "match finalization must not award spendable money");
+  assert.strictEqual(room.players.get("a").earned, 0, "match finalization must not alter earned statistics");
 })();
 
 (function interruptedControlRestartsTheClock() {

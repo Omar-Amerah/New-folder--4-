@@ -279,8 +279,7 @@ function ok(message) {
     falloffExponent: weapon.falloffExponent,
     maximumExplosionTargets: weapon.maximumExplosionTargets,
     life: 2,
-    bornAt: 0,
-    armorInteractionSeconds: 1
+    bornAt: 0
   });
 
   // One step long enough for the swept segment to cross the target hull.

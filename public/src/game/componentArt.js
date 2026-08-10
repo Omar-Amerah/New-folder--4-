@@ -627,9 +627,7 @@ const COMPONENT_ART_ALIASES = Object.freeze({
   lightMissile: "missile",
   lightRailgun: "railgun",
   heavyRailgun: "railgun",
-  pointDefenseLaser: "pointDefense",
-  sensorArray: "largeSensor",
-  directedSensor: "largeDirectedSensor"
+  pointDefenseLaser: "pointDefense"
 });
 
 function componentArtType(type) {

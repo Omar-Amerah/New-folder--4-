@@ -162,7 +162,7 @@ function refreshShipPowerState(ship, reason = "component-boundary", options = {}
 function initializeComponentPower(ship) {
   ship.componentStorageCharge = (ship.design || []).map((module) => {
     const part = PARTS[module?.type] || {};
-    return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
+    return Number(part.energyCapacity ?? part.energyStorage) || 0;
   });
   return refreshShipPowerState(ship, "initialization", { skipRuntimeStats: true });
 }
@@ -225,7 +225,16 @@ function calculateEffectiveShieldStats(ship) {
       ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL)
       : 1
   });
-  stats.recharge *= getCommandAuraMultiplier(ship, "shieldRegenMultiplier");
+  const shieldAura = getCommandAuraMultiplier(ship, "shieldRegenMultiplier");
+  stats.recharge *= shieldAura;
+  stats.regeneration = stats.recharge;
+  if (Array.isArray(stats.regenerationContributions)) {
+    stats.regenerationContributions = stats.regenerationContributions.map((contribution) => ({
+      ...contribution,
+      rate: contribution.rate * shieldAura,
+      effectiveRate: contribution.effectiveRate * shieldAura
+    }));
+  }
   Object.freeze(stats);
   return stats;
 }

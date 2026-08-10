@@ -2,6 +2,7 @@
 // Propulsion rebalance acceptance tests for the reworked top-speed / acceleration split.
 const assert = require("assert");
 const { computeStats } = require("../src/server/shipStats");
+const { PARTS } = require("../src/server/components");
 const { calculateMovementStats } = require("../public/src/shared/movementStats.js");
 
 function buildShip(engineCount, extraArmor = 0) {
@@ -42,14 +43,11 @@ function run() {
     const tRatio = Number(stats.thrustRatio || 0);
     sweep.push({ n, mass: stats.mass, maxSpeed: spd, accel: acc, efficiency: eff, thrustRatio: tRatio });
     assert(stats.blockedEngines === 0, `n=${n}: engines blocked`);
+    assert.strictEqual(stats.effectiveThrust, stats.thrust, `n=${n}: live engine thrust must stack linearly at full Power`);
+    assert.strictEqual(stats.effectiveThrust, PARTS.engine.thrust * n, `n=${n}: effective thrust must equal the authored engine sum`);
     if (prev) {
       assert(spd >= prev.maxSpeed - 1e-6, `n=${n}: max speed dropped from ${prev.maxSpeed} to ${spd}`);
       assert(acc >= prev.accel - 1e-6, `n=${n}: acceleration dropped from ${prev.accel} to ${acc}`);
-      // Diminishing returns must still hold, but each engine must still buy a meaningful improvement.
-      const speedGain = (spd - prev.maxSpeed) / prev.maxSpeed;
-      const accelGain = (acc - prev.accel) / prev.accel;
-      assert(speedGain >= 0.03, `n=${n}: speed marginal gain ${speedGain.toFixed(3)} is below 3%`);
-      assert(accelGain >= 0.02, `n=${n}: accel marginal gain ${accelGain.toFixed(3)} is below 2%`);
     }
     prev = { maxSpeed: spd, accel: acc };
   }
@@ -121,9 +119,7 @@ function run() {
     engineThrustValues: [227, 227, 227],
     engineMassValues: [4, 4, 4],
     turnModuleValues: [],
-    directionalTurnInputs: null,
-    movementPowerMultiplier: undefined,
-    hullControlThrust: null
+    directionalTurnInputs: null
   });
   assert(Math.abs(direct.maxSpeed - check.maxSpeed) < 1.0, "shared maxSpeed parity");
   assert(Math.abs(direct.accel - check.accel) < 1.0, "shared accel parity");

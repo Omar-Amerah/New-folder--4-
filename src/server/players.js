@@ -173,7 +173,6 @@ function joinRoom(client, message) {
     stats: computeStats(DEFAULT_DESIGN),
     ships: [],
     money: room.rules.startingMoney,
-    bank: room.rules.startingMoney,
     income: ECONOMY.baseIncome,
     earned: room.rules.startingMoney,
     spent: 0,
@@ -182,7 +181,6 @@ function joinRoom(client, message) {
     deployedFleetCost: 0,
     destroyedEnemyCost: 0,
     lostFleetCost: 0,
-    lastReward: null,
     rallyPoint: null,
     kills: 0,
     losses: 0,
@@ -465,7 +463,6 @@ function resetPlayerForMatch(room, player, now) {
   player.deployedFleetCost = 0;
   player.destroyedEnemyCost = 0;
   player.lostFleetCost = 0;
-  player.lastReward = null;
   player.lastBuildError = "";
   if (player.purchaseRequests) player.purchaseRequests.clear();
   player.rallyPoint = null;
@@ -480,7 +477,6 @@ function resetRoundPlayerStats(player) {
   player.lostFleetCost = 0;
   player.deployedFleetCost = 0;
   player.shipsBuilt = 0;
-  player.lastReward = null;
   player.lastBuildError = "";
 }
 
@@ -500,7 +496,6 @@ function maybeStartMatch(room, now) {
   require("./spawnPlanner").freezeSpawnPlan(room);
   room.phase = "active";
   room.winner = null;
-  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.matchStartedAt = now;
   room.controlVictory = {
@@ -540,7 +535,6 @@ function startDesignPhase(room, requester) {
   prepareArenaForCurrentPlayers(room);
   room.phase = "design";
   room.winner = null;
-  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.controlVictory = {
     team: null,
@@ -574,7 +568,6 @@ function restartFromEnd(room, requester) {
   prepareArenaForCurrentPlayers(room);
   room.phase = "design";
   room.winner = null;
-  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   room.controlVictory = {
     team: null,
@@ -609,7 +602,6 @@ function returnToLobbyPhase(room, requester) {
 function resetRoomToLobby(room, notice, broadcastRoom, broadcastSnapshot) {
   room.phase = "lobby";
   room.winner = null;
-  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   for (const ship of room.ships.values()) {
     ship.removed = true;

@@ -10,15 +10,19 @@
 // `accel` by the controller; see movementTuning.js.
 
 function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
-export const ENGINE_FALLOFF = 0.96;
 const BASE_SPEED = 60;
-const SPEED_PER_THRUST = 1.05; // legacy, unused
 const THRUST_SPEED_SQRT_SCALE = 28.8;
 const MASS_SPEED_DIV = 150;
 const MASS_DRAG_EXP = 0.45;
 const MASS_TURN_DIV = 100;
 const MASS_TURN_EXP = 0.70;
 const ENGINE_TURN_PER_THRUST = 0.001;
+const TURN_GENERIC_SCALE = 3.12;
+const TURN_SOFTNESS = 0.2;
+export const BRAKE_ACCEL_RATIO = 5;
+const MOVEMENT_POWER_NO_DEMAND = 1;
+const MOVEMENT_POWER_MAX = 1;
+const MOVEMENT_POWER_MIN = 0;
 // Thrust-to-mass into px/s^2. Set so a light hull reaches cruise in about a
 // second and a half and a heavy one in three and a half, measured against the
 // hull's own maximum speed: slow enough that mass still reads as mass, quick
@@ -26,12 +30,40 @@ const ENGINE_TURN_PER_THRUST = 0.001;
 // fixed multiple of this figure (see BRAKE_ACCEL_RATIO), so stopping distance
 // scales with it.
 const ACCEL_SCALE = 18.0;
-const SOFT_CAP_MASS_SLOPE = 0.7;
-const SOFT_CAP_MIN = 840;
-const SOFT_CAP_BASE = 1440;
-const SOFT_CAP_EFFICIENCY = 0.25;
 const DEFAULT_LEVER_SETTINGS = Object.freeze({ minimumLever: 0.35, leverPerCell: 0.35, maximumLever: 1.75 });
-const DEFAULT_HULL_CONTROL = Object.freeze({ Light: { turn: 0.15, lateral: 20, braking: 15 }, Medium: { turn: 0.10, lateral: 15, braking: 12 }, Heavy: { turn: 0.06, lateral: 10, braking: 8 }, Capital: { turn: 0.03, lateral: 5, braking: 5 } });
+const MASS_CLASSES = Object.freeze([
+  Object.freeze({ name: "Light", minMass: 0, maxMass: 55, turnCap: 3.42 }),
+  Object.freeze({ name: "Medium", minMass: 55, maxMass: 125, turnCap: 2.46 }),
+  Object.freeze({ name: "Heavy", minMass: 125, maxMass: 230, turnCap: 1.34 }),
+  Object.freeze({ name: "Capital", minMass: 230, maxMass: Number.POSITIVE_INFINITY, turnCap: 0.86 })
+]);
+
+// Numerical movement authority shared by the Blueprint preview and server
+// runtime. Keep player-facing descriptions out of this object; callers can
+// format these values without creating a second balance sheet.
+export const MOVEMENT_CONFIG = Object.freeze({
+  speed: Object.freeze({
+    base: BASE_SPEED,
+    thrustSqrtScale: THRUST_SPEED_SQRT_SCALE,
+    massDivisor: MASS_SPEED_DIV,
+    massExponent: MASS_DRAG_EXP,
+    accelerationScale: ACCEL_SCALE
+  }),
+  turn: Object.freeze({
+    enginePerThrust: ENGINE_TURN_PER_THRUST,
+    genericScale: TURN_GENERIC_SCALE,
+    massDivisor: MASS_TURN_DIV,
+    massExponent: MASS_TURN_EXP,
+    capSoftness: TURN_SOFTNESS
+  }),
+  power: Object.freeze({
+    noDemandMultiplier: MOVEMENT_POWER_NO_DEMAND,
+    maximumMultiplier: MOVEMENT_POWER_MAX,
+    minimumMultiplier: MOVEMENT_POWER_MIN
+  }),
+  maneuverThrusterLever: DEFAULT_LEVER_SETTINGS,
+  massClasses: MASS_CLASSES
+});
 
 export function maneuverThrusterForceX(rotation) { return Number(rotation) === 270 ? -1 : 1; }
 export function maneuverThrusterTorqueSign(module, centerOfMass) {
@@ -44,7 +76,7 @@ export function calculateCenterOfMass(modules = [], parts = {}) {
   let x = 0, y = 0, mass = 0;
   for (const module of modules || []) {
     const part = parts[module.type] || parts.frame || {};
-    const mm = (Number(part.mass) || 0) + 0.5;
+    const mm = Math.max(0, Number(part.mass) || 0);
     x += (Number(module.x) || 0) * mm; y += (Number(module.y) || 0) * mm; mass += mm;
   }
   return { x: mass ? x / mass : 0, y: mass ? y / mass : 0, mass };
@@ -57,7 +89,7 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
     const module = modules[i]; const part = parts[module.type] || parts.frame || {};
     const blocked = options.isBlockedEngine?.(i, module, part) || false;
     const multiplier = clamp(options.componentMultiplier?.(i, module, part) ?? 1, 0, 1);
-    if ((part.thrust || 0) > 0 && !blocked && multiplier > 0) mainEngineValues.push((part.thrust || 0) * ENGINE_TURN_PER_THRUST * multiplier);
+    if ((part.thrust || 0) > 0 && !blocked && multiplier > 0) mainEngineValues.push((part.thrust || 0) * MOVEMENT_CONFIG.turn.enginePerThrust * multiplier);
     if (module.type === 'gyroscope' && (part.turn || 0) > 0 && multiplier > 0) gyroscopeValues.push((part.turn || 0) * multiplier);
     if (module.type === 'maneuverThruster' && (part.turn || 0) > 0 && !blocked) {
       const localY = (Number(module.y) || 0) - centerOfMass.y;
@@ -71,57 +103,92 @@ export function calculateDirectionalTurnInputs(modules = [], parts = {}, options
   }
   return {
     centerOfMass,
-    mainEngineVectorTurn: effectiveStackedValue(mainEngineValues, 0.85),
-    gyroscopeTurn: effectiveStackedValue(gyroscopeValues, 0.92),
-    clockwiseManeuverTurn: effectiveStackedValue(clockwiseThrusterValues, 0.92),
-    anticlockwiseManeuverTurn: effectiveStackedValue(anticlockwiseThrusterValues, 0.92),
+    mainEngineVectorTurn: sumValues(mainEngineValues),
+    gyroscopeTurn: sumValues(gyroscopeValues),
+    clockwiseManeuverTurn: sumValues(clockwiseThrusterValues),
+    anticlockwiseManeuverTurn: sumValues(anticlockwiseThrusterValues),
     maneuverThrusters
   };
 }
 
-export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs, movementPowerMultiplier: suppliedPowerMultiplier, hullControlThrust }) {
+// A component's generic `turn` field is a passive modifier to the ship's
+// symmetric turn calculation. Gyroscopes and Maneuver Thrusters are excluded
+// because their `turn` values are resolved above as directional actuators.
+// This helper deliberately has no Heat or Power side effects: runtime callers
+// may provide a live multiplier to remove dead/derated contributions, while
+// actuator activity remains the responsibility of movementCapability.js.
+export function calculateGenericTurnModifier(modules = [], parts = {}, options = {}) {
+  let total = 0;
+  for (let i = 0; i < (modules || []).length; i += 1) {
+    const module = modules[i];
+    if (module?.type === "gyroscope" || module?.type === "maneuverThruster") continue;
+    const part = parts[module?.type] || parts.frame || {};
+    if (options.isBlockedEngine?.(i, module, part)) continue;
+    const multiplier = clamp(options.componentMultiplier?.(i, module, part) ?? 1, 0, 1);
+    total += (Number(part.turn) || 0) * multiplier;
+  }
+  return total;
+}
+
+export function calculateBrakingAcceleration(acceleration) {
+  return Math.max(0, Number(acceleration) || 0) * BRAKE_ACCEL_RATIO;
+}
+
+export function calculateBrakingDistance(speed, acceleration) {
+  return calculateBrakingDistanceFromDeceleration(speed, calculateBrakingAcceleration(acceleration));
+}
+
+export function calculateBrakingDistanceFromDeceleration(speed, deceleration) {
+  const safeSpeed = Math.max(0, Number(speed) || 0);
+  const safeDeceleration = Math.max(0, Number(deceleration) || 0);
+  return safeDeceleration > 0 ? (safeSpeed * safeSpeed) / (2 * safeDeceleration) : 0;
+}
+
+export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs }) {
   const safeMass = Math.max(mass, 1);
-  const movementPowerMultiplier = suppliedPowerMultiplier === undefined ? calculateMovementPowerMultiplier(powerGeneration, powerUse) : clamp(suppliedPowerMultiplier, 0, 1.08);
-  const powerRatio = powerUse > 0 ? powerGeneration / powerUse : 1.1;
-  const powerEfficiency = clamp(powerRatio, 0, 1.1);
-  const engines = (engineThrustValues || []).map((value,index)=>({thrust:value,mass:(engineMassValues&&engineMassValues[index])||0})).sort((a,b)=>b.thrust-a.thrust);
-  const effectiveThrust = effectiveStackedValue(engines.map(e=>e.thrust), ENGINE_FALLOFF);
+  const powerRatio = calculateMovementPowerMultiplier(powerGeneration, powerUse);
+  const powerEfficiency = powerRatio;
+  const engines = (engineThrustValues || []).map((value,index)=>({thrust:value,mass:(engineMassValues&&engineMassValues[index])||0}));
+  const effectiveThrust = sumValues(engines.map(e=>e.thrust));
   const hasEngineThrust = effectiveThrust > 0;
   const thrustRatio = effectiveThrust / safeMass;
-  const massDrag = 1 / Math.pow(1 + safeMass / MASS_SPEED_DIV, MASS_DRAG_EXP);
-  const unrestrictedThrustSpeed = hasEngineThrust ? ((BASE_SPEED + Math.sqrt(effectiveThrust) * THRUST_SPEED_SQRT_SCALE) * massDrag * movementPowerMultiplier) : 0;
-  const speedCap = Math.max(SOFT_CAP_MIN, SOFT_CAP_BASE - safeMass * SOFT_CAP_MASS_SLOPE);
-  const speedCapped = hasEngineThrust && unrestrictedThrustSpeed > speedCap;
-  const maxSpeed = hasEngineThrust ? Math.max(0, softCap(unrestrictedThrustSpeed, speedCap, SOFT_CAP_EFFICIENCY)) : 0;
-  const accel = hasEngineThrust ? (thrustRatio * ACCEL_SCALE * movementPowerMultiplier) : 0;
-  const directional = directionalTurnInputs || { mainEngineVectorTurn: effectiveStackedValue(engines.map(e=>e.thrust*ENGINE_TURN_PER_THRUST),0.85), gyroscopeTurn: effectiveStackedValue(turnModuleValues||[],0.92), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0 };
+  const massDrag = 1 / Math.pow(1 + safeMass / MOVEMENT_CONFIG.speed.massDivisor, MOVEMENT_CONFIG.speed.massExponent);
+  const maxSpeed = hasEngineThrust
+    ? Math.max(0, (MOVEMENT_CONFIG.speed.base + Math.sqrt(effectiveThrust) * MOVEMENT_CONFIG.speed.thrustSqrtScale) * massDrag)
+    : 0;
+  const accel = hasEngineThrust ? (thrustRatio * MOVEMENT_CONFIG.speed.accelerationScale) : 0;
+  const directional = directionalTurnInputs || { mainEngineVectorTurn: sumValues(engines.map(e=>e.thrust*MOVEMENT_CONFIG.turn.enginePerThrust)), gyroscopeTurn: sumValues(turnModuleValues || []), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0 };
   const mc = massClassForMass(safeMass);
-  const hullControlRaw = hullControlThrust || DEFAULT_HULL_CONTROL;
-  const hullControl = (hullControlRaw && hullControlRaw[mc]) || DEFAULT_HULL_CONTROL[mc] || { turn: 0 };
-  // Hull control is trim assistance for a ship that still has working attitude
-  // control -- it is not a free always-on gyroscope. With every gyroscope,
-  // maneuver thruster and vectoring engine dead there is nothing left to push
-  // against, so the hull turn allowance and the base rate go with them.
   const hasTurnAuthority = (directional.mainEngineVectorTurn||0)
     + (directional.gyroscopeTurn||0)
     + (directional.clockwiseManeuverTurn||0)
     + (directional.anticlockwiseManeuverTurn||0) > 0;
-  const hullTurn = hasTurnAuthority ? (Number(hullControl.turn) || 0) : 0;
-  const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0)+hullTurn;
-  const negativeTurnDrag = Math.min(0, turnBonus||0);
-  const massTurnPenalty = 1 / Math.pow(1 + safeMass / MASS_TURN_DIV, MASS_TURN_EXP);
+  const genericTurnModifier = Number(turnBonus) || 0;
+  const positiveTurnBonus = Math.max(0, genericTurnModifier);
+  const negativeTurnDrag = Math.min(0, genericTurnModifier);
+  const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0)+positiveTurnBonus;
+  const massTurnPenalty = 1 / Math.pow(1 + safeMass / MOVEMENT_CONFIG.turn.massDivisor, MOVEMENT_CONFIG.turn.massExponent);
   const turnCap = turnCapForMass(safeMass);
-  const toRate = positive => (hasTurnAuthority && positive > 0) ? softCap(Math.max(0, (0.216 + (positive + negativeTurnDrag) * 3.12) * massTurnPenalty * movementPowerMultiplier), turnCap, 0.2) : 0;
+  const toRate = positive => {
+    const effectiveTurn = positive + negativeTurnDrag;
+    return (hasTurnAuthority && effectiveTurn > 0)
+      ? softCap(effectiveTurn * MOVEMENT_CONFIG.turn.genericScale * massTurnPenalty, turnCap, MOVEMENT_CONFIG.turn.capSoftness)
+      : 0;
+  };
   const turnRateRight = toRate(symmetricTurn + (directional.clockwiseManeuverTurn || 0));
   const turnRateLeft = toRate(symmetricTurn + (directional.anticlockwiseManeuverTurn || 0));
   const turnRate = Math.min(turnRateLeft, turnRateRight);
-  return { maxSpeed, accel, turnRate, turnRateLeft, turnRateRight, thrustRatio, effectiveThrust, engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0, powerEfficiency, powerDebuff: Math.max(0, 1 - movementPowerMultiplier), speedCap, turnCap, massClass: mc, speedCapped, directionalTurn: directional, hullControlTurn: hullTurn };
+  return { maxSpeed, accel, brakingAcceleration: calculateBrakingAcceleration(accel), turnRate, turnRateLeft, turnRateRight, thrustRatio, effectiveThrust, engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0, powerEfficiency, powerDebuff: Math.max(0, 1 - powerRatio), turnCap, massClass: mc, directionalTurn: directional };
 }
-export function calculateSystemEfficiency(powerGeneration,powerUse){ if(powerUse<=0)return 1.08; const ratio=powerGeneration/Math.max(powerUse,1); if(ratio>=1)return clamp(1+Math.min((ratio-1)*0.25,0.12),1,1.12); return clamp(Math.pow(Math.max(ratio,0),1.35),0.25,1); }
-export function calculateMovementPowerMultiplier(powerGeneration,powerUse){ if(powerUse<=0)return 1.04; const ratio=powerGeneration/Math.max(powerUse,1); if(ratio>=1)return clamp(Math.sqrt(ratio),1,1.08); return clamp(Math.pow(Math.max(ratio,0),1.8),0.18,1); }
-export function effectiveStackedValue(values,falloff){ return [...values].sort((a,b)=>b-a).reduce((t,v,i)=>t+v*Math.pow(falloff,i),0); }
+// Kept as a named compatibility helper for stat/report callers. It reports the
+// same universal per-consumer allocation used by movement inputs: linear from
+// 0 to 1, with surplus supply capped at 1.
+export function calculateSystemEfficiency(powerGeneration,powerUse){ return calculateMovementPowerMultiplier(powerGeneration, powerUse); }
+export function calculateMovementPowerMultiplier(powerGeneration,powerUse){ if(powerUse<=0)return MOVEMENT_CONFIG.power.noDemandMultiplier; return clamp(powerGeneration/Math.max(powerUse,1), MOVEMENT_CONFIG.power.minimumMultiplier, MOVEMENT_CONFIG.power.maximumMultiplier); }
+export function sumValues(values = []) { return (values || []).reduce((total, value) => total + (Number(value) || 0), 0); }
 export function softCap(value,cap,softness=0.35){ return value<=cap?value:cap+(value-cap)*softness; }
-export function massClassForMass(mass){ if(mass<55)return 'Light'; if(mass<125)return 'Medium'; if(mass<230)return 'Heavy'; return 'Capital'; }
-export function speedCapForMass(mass){ return Math.max(SOFT_CAP_MIN, SOFT_CAP_BASE - Number(mass || 0) * SOFT_CAP_MASS_SLOPE); }
-export function turnCapForMass(mass){ if(mass<55)return 3.42; if(mass<125)return 2.46; if(mass<230)return 1.34; return 0.86; }
-if (typeof module !== "undefined" && module.exports) { module.exports = { ENGINE_FALLOFF, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, effectiveStackedValue, softCap, massClassForMass, speedCapForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }
+export function getMovementClassDefinition(mass){ const value = Math.max(0, Number(mass) || 0); return MOVEMENT_CONFIG.massClasses.find((entry) => value >= entry.minMass && value < entry.maxMass) || MOVEMENT_CONFIG.massClasses[MOVEMENT_CONFIG.massClasses.length - 1]; }
+export function formatMassClassRange(definition){ const entry = typeof definition === "string" ? MOVEMENT_CONFIG.massClasses.find((candidate) => candidate.name === definition) : definition; if (!entry) return ""; if (!Number.isFinite(entry.maxMass)) return `${entry.minMass}+ T`; if (entry.minMass === 0) return `< ${entry.maxMass} T`; return `${entry.minMass}-${entry.maxMass - 1} T`; }
+export function massClassForMass(mass){ return getMovementClassDefinition(mass).name; }
+export function turnCapForMass(mass){ return getMovementClassDefinition(mass).turnCap; }
+if (typeof module !== "undefined" && module.exports) { module.exports = { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG, calculateBrakingAcceleration, calculateBrakingDistance, calculateBrakingDistanceFromDeceleration, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, calculateGenericTurnModifier, getMovementClassDefinition, formatMassClassRange, sumValues, softCap, massClassForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }

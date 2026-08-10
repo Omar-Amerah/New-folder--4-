@@ -33,7 +33,7 @@
 
 const PLAYER_IDENTITY_FIELDS = ["name", "teamName", "isAdmin", "isBot", "color", "colour"];
 const PLAYER_SCORE_FIELDS = ["kills", "losses", "captures", "destroyedEnemyCost", "lostFleetCost"];
-const PLAYER_ECONOMY_FIELDS = ["money", "income", "earned", "spent", "activeFleetCost", "deployedFleetCost", "lastReward", "shipsBuilt"];
+const PLAYER_ECONOMY_FIELDS = ["money", "income", "earned", "spent", "activeFleetCost", "deployedFleetCost", "shipsBuilt"];
 const RULE_FIELDS = ["gameMode", "startingMoney", "maxPlayers", "mapSize", "asteroidDensity", "infrastructureMode", "visibilityMode", "shipCap"];
 const VITAL_FIELDS = ["hp", "maxHp", "shield", "maxShield", "alive"];
 const COMMAND_FIELDS = ["combatStyle", "commandState", "focusTargetId", "combatTargetId"];
@@ -168,14 +168,14 @@ function stationMap(snapshot) {
   return new Map((snapshot?.stations || []).map((station) => [station.id, station]));
 }
 
-// Station production and the launch corridors advance while a build is active, so the queue is
-// compared by its own summary rather than by identity: an idle station produces
-// no panel repaints at all.
+// The hangar queue and launch corridors change independently, so compare their
+// compact summaries rather than object identity. An idle station causes no
+// panel repaints.
 function productionSignature(station) {
   const queue = station?.productionQueue;
   const launches = Array.isArray(station?.launches) ? station.launches : [];
   const queueSignature = Array.isArray(queue)
-    ? queue.map((item) => `${item.id}:${item.state}:${item.quantityRemaining}:${Math.round((Number(item.progress) || 0) * 100)}`).join(",")
+    ? queue.map((item) => `${item.id}:${item.quantityRemaining}`).join(",")
     : "";
   const launchSignature = launches.map((launch) => `${launch.shipId}:${launch.bayIndex ?? ""}:${Math.round((Number(launch.progress) || 0) * 100)}:${launch.doorOpen ? 1 : 0}`).join(",");
   return `${queueSignature}|${launchSignature}`;

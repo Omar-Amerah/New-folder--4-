@@ -26,8 +26,6 @@ const MAX_PLAYERS_PER_ROOM = 6;
 const ROOM_IDLE_MS = 15 * 60 * 1000;
 const CLOSED_ROOM_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 const ECONOMY = Object.freeze({ ...BALANCE.economy });
-
-const REWARDS = Object.freeze({ ...BALANCE.rewards });
 const INFRASTRUCTURE = Object.freeze({
   homeStation: Object.freeze({ ...BALANCE.infrastructure?.homeStation }),
   relayStation: Object.freeze({ ...BALANCE.infrastructure?.relayStation })
@@ -199,7 +197,6 @@ module.exports = {
   MAP_REFERENCE_AREA,
   MAP_CLEARANCES,
   resolveMapClearances,
-  REWARDS,
   MIME,
   COLORS,
   TEAM_NAMES,

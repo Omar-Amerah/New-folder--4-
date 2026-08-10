@@ -193,7 +193,7 @@ const { buildEntityDeltaSnapshot, buildStateFromSnapshot } = require("../src/ser
     winner:null, matchStartedAt:1, bullets:[], effects:[], points:[], controlVictory:null,
     players:new Map(), ships:new Map()
   };
-  const player = { id:"p", name:"Pilot", color:"#39f", team:"blue", isBot:false, connected:true, ready:false, money:0, income:0, earned:0, spent:0, shipCap:3, deployedFleetCost:0, destroyedEnemyCost:0, lastReward:0, kills:0, losses:0, captures:0, ships:[], design:[{type:"core"}], stats:{unitCost:1}, shipsBuilt:0, lostFleetCost:0, rallyPoint:{x:0,y:0} };
+  const player = { id:"p", name:"Pilot", color:"#39f", team:"blue", isBot:false, connected:true, ready:false, money:0, income:0, earned:0, spent:0, shipCap:3, deployedFleetCost:0, destroyedEnemyCost:0, kills:0, losses:0, captures:0, ships:[], design:[{type:"core"}], stats:{unitCost:1}, shipsBuilt:0, lostFleetCost:0, rallyPoint:{x:0,y:0} };
   const ship = { id:"ship", ownerId:"p", designRevision:1, x:0, y:0, vx:0, vy:0, angle:0, targetX:0, targetY:0, hp:10, maxHp:10, shield:0, maxShield:0, radius:10, cost:1, weaponAngles:[], alive:true, stats:{unitCost:1}, design:[{type:"core"},{type:"engine"}], componentHp:[10,20], componentHeat:[1,2], componentHeatState:[0,0], componentThermals:[{capacity:10},{capacity:20}], dirtyComponents:new Set([1]), dirtyHeat:new Set([1]), designSent:false };
   player.ships.push(ship);
   room.players.set(player.id, player);

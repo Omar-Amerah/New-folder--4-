@@ -80,7 +80,7 @@
     "test:projectiles": "node tests/verify-combat-catchup.js",
     "test:point-defense": "node tests/verify-combat-catchup.js",
     "test:decoy-launcher": "node tests/verify-decoy-launcher.js",
-    "test:support": "node tests/verify-repair-target.js && node tests/verify-combat-review.js && node tests/verify-combat-catchup.js",
+    "test:support": "node tests/verify-repair-parity.js && node tests/verify-repair-target.js && node tests/verify-combat-review.js && node tests/verify-combat-catchup.js",
     "test:combat-soak": "npm run test:soak",
     "test:combat-protocol": "node tools/run-tests.js protocol",
     "test:data-support": "node tests/verify-data-support.js",

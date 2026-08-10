@@ -13,7 +13,7 @@
 //   auraGfx      the gameplay radii: a home station's repair envelope, a
 //                relay's capture ring and progress sweep, and : for the station
 //                being inspected : its weapon range
-//   hudGfx/Text  health, shield, the launch build bar, the state badge and the
+//   hudGfx/Text  health, shield, the hangar queue, the state badge and the
 //                selection bracket
 //
 // The interior component grid is deliberately never baked or drawn: see the
@@ -235,7 +235,7 @@ function createPixiStationView(env) {
     return text;
   };
   const stateText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 13, fontWeight: "bold", fill: "#ffffff", stroke: { color: "rgba(0,0,0,0.7)", width: 3 } });
-  const productionText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fill: "#cfe3f5", stroke: { color: "rgba(0,0,0,0.7)", width: 3 } });
+  const queueText = makeText({ fontFamily: "system-ui, sans-serif", fontSize: 12, fill: "#cfe3f5", stroke: { color: "rgba(0,0,0,0.7)", width: 3 } });
 
   const turretContainer = new PIXI.Container();
   turretContainer.label = "StationTurrets";
@@ -249,7 +249,7 @@ function createPixiStationView(env) {
   root.addChild(shieldGfx);
   root.addChild(hudGfx);
   root.addChild(stateText);
-  root.addChild(productionText);
+  root.addChild(queueText);
 
   return {
     root,
@@ -260,7 +260,7 @@ function createPixiStationView(env) {
     shieldGfx,
     hudGfx,
     stateText,
-    productionText,
+    queueText,
     coverGfx,
     auraSignature: "",
     shellSignature: "",
@@ -271,7 +271,7 @@ function createPixiStationView(env) {
     turretSprites: [],
     turretsByDesignIndex: new Map(),
     stateLabel: null,
-    productionLabel: null,
+    queueLabel: null,
     release() {
       this.auraSignature = "";
       this.shellSignature = "";
@@ -280,7 +280,7 @@ function createPixiStationView(env) {
       this.coverSignature = "";
       this.turretSignature = "";
       this.stateLabel = null;
-      this.productionLabel = null;
+      this.queueLabel = null;
       this.auraGfx.clear();
       this.shellGfx.clear();
       this.shieldGfx.clear();
@@ -913,8 +913,8 @@ function rebuildStationShell(view, station, color) {
   else drawRelayShell(gfx, station, bounds, accent, station.state);
 }
 
-// Health + shield bars, the selection ring, and the build progress bar.
-function rebuildStationHud(env, view, station, color, zoom, selected, barY, progress) {
+// Health and shield bars plus the selection ring.
+function rebuildStationHud(env, view, station, color, zoom, selected, barY) {
   const gfx = view.hudGfx;
   gfx.clear();
   const bounds = stationLocalBounds(station);
@@ -935,7 +935,6 @@ function rebuildStationHud(env, view, station, color, zoom, selected, barY, prog
   const shieldRatio = station.maxShield > 0 ? Math.max(0, Math.min(1, station.shield / station.maxShield)) : 0;
 
   if (!conditionKnown) {
-    drawProductionBar(gfx, left, barY, width, height, zoom, progress);
     drawSelectionBracket(gfx, station, bounds, zoom, selected);
     return;
   }
@@ -962,56 +961,7 @@ function rebuildStationHud(env, view, station, color, zoom, selected, barY, prog
     gfx.stroke({ width: 1 / zoom, color: "rgba(125,211,252,0.35)" });
   }
 
-  drawProductionBar(gfx, left, barY + height + 4 / zoom, width, height, zoom, progress);
-
   drawSelectionBracket(gfx, station, bounds, zoom, selected);
-}
-
-// The launch build bar.
-//
-// Builds are short : a light hull is out of the door in well under a second :
-// so the bar has to read as motion rather than as a number that happens to
-// change. It gets a proper recessed track, segment ticks that the fill sweeps
-// past, and a bright leading edge with a soft run-up behind it, which is what
-// actually sells speed at a glance.
-export function drawProductionBar(gfx, left, top, width, height, zoom, progress) {
-  if (!(progress > 0)) return;
-  const barHeight = height * 0.72;
-  const filled = width * Math.min(1, progress);
-
-  // Recessed track.
-  gfx.rect(left, top, width, barHeight);
-  gfx.fill("rgba(6,10,16,0.85)");
-
-  // Segment ticks, so the fill visibly travels past fixed reference marks.
-  for (let i = 1; i < 8; i += 1) {
-    const x = left + (width * i) / 8;
-    gfx.moveTo(x, top);
-    gfx.lineTo(x, top + barHeight);
-  }
-  gfx.stroke({ width: Math.max(0.6, 0.8 / zoom), color: "rgba(255,255,255,0.09)" });
-
-  // Fill, with a hotter run-up behind the leading edge.
-  gfx.rect(left, top, filled, barHeight);
-  gfx.fill("#f0a52e");
-  const runUp = Math.min(filled, width * 0.16);
-  if (runUp > 0) {
-    gfx.rect(left + filled - runUp, top, runUp, barHeight);
-    gfx.fill("#ffd98a");
-  }
-  // Gloss along the top of the fill.
-  gfx.rect(left, top, filled, barHeight * 0.4);
-  gfx.fill("rgba(255,255,255,0.2)");
-
-  // Leading edge.
-  if (progress < 1) {
-    const edge = Math.max(1.5, 2 / zoom);
-    gfx.rect(left + filled - edge * 0.5, top - barHeight * 0.22, edge, barHeight * 1.44);
-    gfx.fill("#fffdf5");
-  }
-
-  gfx.rect(left, top, width, barHeight);
-  gfx.stroke({ width: Math.max(0.8, 1 / zoom), color: "rgba(255,214,140,0.4)" });
 }
 
 // A bracket around the real footprint rather than a circle around the
@@ -1040,26 +990,16 @@ function drawSelectionBracket(gfx, station, bounds, zoom, selected) {
   gfx.stroke({ width: 3 / zoom, color: "#ffffff", alpha: 0.8 });
 }
 
-// The item currently occupying a launch queue, if any. Only the owner's builds
-// are labelled; an enemy station shows that it is producing, not what.
-function activeProductionSummary(station) {
+// The oldest queued purchase, if any. The label stays generic and exposes only
+// the number of hulls waiting for a hangar.
+function launchQueueSummary(station) {
   const queue = station.productionQueue;
-  if (!Array.isArray(queue) || queue.length === 0) return { label: "", progress: 0 };
+  if (!Array.isArray(queue) || queue.length === 0) return { label: "" };
   const item = queue[0];
-  const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
-  const mine = item.playerId === state.myId;
   const remaining = Math.max(1, Number(item.quantityRemaining) || 1);
-  if (item.state === "complete-waiting-launch") {
-    return { label: mine ? "LAUNCHING" : "LAUNCHING", progress: 1 };
-  }
   const queueSuffix = queue.length > 1 ? ` (+${queue.length - 1})` : "";
   const countSuffix = remaining > 1 ? ` x${remaining}` : "";
-  return {
-    label: mine
-      ? `BUILDING ${Math.round(progress * 100)}%${countSuffix}${queueSuffix}`
-      : `BUILDING${queueSuffix}`,
-    progress
-  };
+  return { label: `WAITING FOR HANGAR${countSuffix}${queueSuffix}` };
 }
 
 function hangarGeometrySignature(station) {
@@ -1130,7 +1070,7 @@ export function updatePixiStations(env, now, players, bounds) {
     view.hudGfx.visible = bodyVisible;
     view.turretContainer.visible = bodyVisible;
     view.stateText.visible = bodyVisible;
-    view.productionText.visible = false;
+    view.queueText.visible = false;
     if (view.coverGfx) view.coverGfx.visible = false;
 
     if (bodyVisible) {
@@ -1207,7 +1147,7 @@ export function updatePixiStations(env, now, players, bounds) {
         rebuildStationShield(view, station, localBounds);
       }
 
-      const production = station.stationType === "home" ? activeProductionSummary(station) : { label: "", progress: 0 };
+      const queue = station.stationType === "home" ? launchQueueSummary(station) : { label: "" };
 
       // The HUD is world-aligned while the structure is rotated, so the bars have
       // to clear the station's circumscribed extent, not its local height.
@@ -1215,12 +1155,11 @@ export function updatePixiStations(env, now, players, bounds) {
       const hudSignature = [
         zoomKey, color, station.state, selected ? 1 : 0,
         Math.round(station.hp), Math.round(station.maxHp),
-        Math.round(station.shield), Math.round(station.maxShield),
-        Math.round(production.progress * 100), Math.round(barY)
+        Math.round(station.shield), Math.round(station.maxShield), Math.round(barY)
       ].join("|");
       if (view.hudSignature !== hudSignature) {
         view.hudSignature = hudSignature;
-        rebuildStationHud(env, view, station, color, zoom, selected, barY, production.progress);
+        rebuildStationHud(env, view, station, color, zoom, selected, barY);
       }
 
       const labelScale = Math.max(1, 1 / zoom);
@@ -1247,13 +1186,13 @@ export function updatePixiStations(env, now, players, bounds) {
       view.stateText.position.set(0, barY + 18 / zoom);
       view.stateText.visible = true;
 
-      if (view.productionLabel !== production.label) {
-        view.productionLabel = production.label;
-        view.productionText.text = production.label;
+      if (view.queueLabel !== queue.label) {
+        view.queueLabel = queue.label;
+        view.queueText.text = queue.label;
       }
-      view.productionText.visible = production.label.length > 0;
-      view.productionText.scale.set(labelScale);
-      view.productionText.position.set(0, barY + 32 / zoom);
+      view.queueText.visible = queue.label.length > 0;
+      view.queueText.scale.set(labelScale);
+      view.queueText.position.set(0, barY + 32 / zoom);
     }
   }
 

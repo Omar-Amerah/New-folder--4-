@@ -140,7 +140,7 @@ const assert = require("assert");
     pdShip.weaponAngles[1] = 0;
     updateShipWeapons(room, pdShip, [pdShip, enemyShip], 0.1, 1000);
 
-    assert.strictEqual(fighterDrone.hull, 7, "Fighter drone takes full 3 HP laser damage");
+    assert.strictEqual(fighterDrone.hull, fighterDrone.maxHull - PARTS.pointDefense.weapon.damage, "Fighter drone takes the authored laser damage");
     console.log("✔ Test 4 passed: Fast and evasive Fighter Drones are hit once aligned.");
   }
 
@@ -288,8 +288,8 @@ const assert = require("assert");
     pdShip.weaponAngles[1] = 0;
     updateShipWeapons(room, pdShip, [pdShip, enemyShip], 0.1, 1000);
 
-    const expectedShieldDmg = 3 * 0.04; // 0.12
-    assert.ok(Math.abs((50 - enemyShip.shield) - expectedShieldDmg) < 0.01, "Ship damage uses 0.04 multiplier and applies to shield first");
+    const expectedShieldDmg = PARTS.pointDefense.weapon.damage * PARTS.pointDefense.weapon.shipDamageMultiplier;
+    assert.ok(Math.abs((50 - enemyShip.shield) - expectedShieldDmg) < 0.01, "Ship damage uses the authored multiplier and applies to shield first");
     console.log("✔ Test 14 passed: Ship damage uses 0.04 multiplier and remains shield-first.");
   }
 
@@ -363,10 +363,8 @@ const assert = require("assert");
   }
 
   // 19. A second threat is engaged near the edge of the PD envelope, not on
-  //     top of the hull. The reaction period opened when the previous threat
-  //     was lost must count down while the next one flies in; restarting a
-  //     full delay from the moment the new threat came into reach stacked two
-  //     consecutive delays and collapsed the usable envelope from 450 to ~110.
+  //     top of the hull. Normal search cadence and immediate invalidation keep
+  //     the replacement threat available while it flies into the envelope.
   {
     const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
     pdShip.x = 0; pdShip.y = 0;
@@ -412,10 +410,7 @@ const assert = require("assert");
   }
 
   // 20. A mount already shooting an enemy hull switches to an inbound missile
-  //     without paying the break-track delay. "ship" is the last entry in every
-  //     defensive targetPriority list, so a mount with nothing else to shoot
-  //     settles onto the hull; charging the full reacquisition delay from there
-  //     kept it silent while the missile crossed the whole envelope and landed.
+  //     immediately once the normal defensive search selects it.
   {
     const pdShip = makeTestShip([{ x: 7, y: 7, type: "core" }, { x: 8, y: 7, type: "pointDefense" }, { x: 7, y: 6, type: "reactor" }, { x: 7, y: 8, type: "engine" }]);
     pdShip.x = 0; pdShip.y = 0;
@@ -434,7 +429,7 @@ const assert = require("assert");
       updateShipWeapons(room, pdShip, [pdShip, enemyShip], dt, now);
     }
     assert.strictEqual(
-      room.ships.get(pdShip.id).pdAcquiredTargetIds[1], enemyShip.id,
+      room.ships.get(pdShip.id).weaponFireTargetIds[1], enemyShip.id,
       "PD holds the enemy hull when no ordnance is inbound"
     );
 

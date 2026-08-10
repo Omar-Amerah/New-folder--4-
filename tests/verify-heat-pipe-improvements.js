@@ -164,15 +164,17 @@ assert(multiSource.thermalNetworks[0].radiators.includes(8), "radiator attached 
 assert(multiSource.thermalNetworks[0].sinks.includes(9), "heat sink attached to multi-source network");
 
 // Apply heat from all generators
+let totalRadiated = 0;
 for (let i = 0; i < 100; i += 1) {
   addComponentHeat(multiSource, 0, 5);
   addComponentHeat(multiSource, 1, 5);
   addComponentHeat(multiSource, 2, 5);
   tick(multiSource);
+  totalRadiated += multiSource.componentHeatRadiated[8] || 0;
 }
 
 // Heat should reach radiator
-assert(multiSource.componentHeatRadiated[8] > 0, "radiator did not radiate heat from multi-source pipe");
+assert(totalRadiated > 0, "radiator did not radiate heat from multi-source pipe");
 // Heat should reach heat sink
 assert(multiSource.componentHeat[9] > 0, "heat sink did not receive heat from multi-source pipe");
 // No heat lost or duplicated

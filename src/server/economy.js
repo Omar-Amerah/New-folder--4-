@@ -1,9 +1,9 @@
-// Handles currency tracking, income calculations, ship purchases, and post-match reward distribution.
+// Handles current-match currency tracking, income calculations, and ship purchases.
 
-const { ECONOMY, REWARDS } = require("./config");
+const { ECONOMY } = require("./config");
 const { usesStationInfrastructure } = require("./rooms");
 const { findTeamHomeStation } = require("./stations");
-const { clampNumber, round } = require("./utils");
+const { clampNumber } = require("./utils");
 const { computeStats } = require("./shipStats");
 const { createShipBlueprintSnapshot } = require("./shipDesign");
 const { spawnShip, applyRallyPoint } = require("./ships");
@@ -430,82 +430,6 @@ function updateEconomy(room, dt) {
   }
 }
 
-function finalizeMatchRewards(room) {
-  if (!room.winner) return;
-  if (room.rewardsFinalizedForWinner === room.winner.team) return;
-  room.rewardsFinalizedForWinner = room.winner.team;
-  const players = [...room.players.values()];
-  for (const player of players) {
-    const didWin = player.team === room.winner.team;
-    const enemyFleetCost = players
-      .filter((other) => other.team !== player.team)
-      .reduce((total, other) => total + Math.max(other.deployedFleetCost, getActiveFleetCost(other)), 0);
-    const playerFleetCost = Math.max(player.deployedFleetCost, player.spent, getActiveFleetCost(player), 1);
-    const survivingFriendlyShips = player.ships.filter((ship) => ship.alive).length;
-    const reward = calculateBattleReward({
-      didWin,
-      destroyedEnemyCost: player.destroyedEnemyCost,
-      enemyFleetCost,
-      playerFleetCost,
-      survivingFriendlyShips
-    });
-    player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + reward.total);
-    player.bank = player.money;
-    player.earned += reward.total;
-    player.lastReward = reward;
-  }
-}
-
-function calculateBattleReward({ didWin, destroyedEnemyCost, enemyFleetCost, playerFleetCost, survivingFriendlyShips }) {
-  const destroyedReward = Math.min(
-    destroyedEnemyCost * REWARDS.destroyedEnemyCostMultiplier,
-    REWARDS.maxDestroyedReward
-  );
-
-  if (!didWin) {
-    const lossDestroyed = destroyedEnemyCost * REWARDS.lossDestroyedMultiplier;
-    const total = Math.max(REWARDS.minimumLossReward, REWARDS.lossSupport + lossDestroyed);
-    return {
-      didWin,
-      base: 0,
-      lossSupport: REWARDS.lossSupport,
-      destroyed: Math.round(lossDestroyed),
-      victory: 0,
-      survival: 0,
-      efficiency: 0,
-      overpowerMultiplier: 1,
-      total: Math.round(total)
-    };
-  }
-
-  const survivalBonus = survivingFriendlyShips * REWARDS.survivalBonusPerShip;
-  let efficiencyBonus = 0;
-  if (enemyFleetCost > playerFleetCost) {
-    const efficiencyRatio = enemyFleetCost / Math.max(playerFleetCost, 1);
-    efficiencyBonus = Math.min((efficiencyRatio - 1) * REWARDS.efficiencyBonusScale, REWARDS.maxEfficiencyBonus);
-  }
-
-  let victoryBonus = REWARDS.victoryBonus;
-  let overpowerMultiplier = 1;
-  if (playerFleetCost > enemyFleetCost * 1.4) {
-    const overpowerRatio = playerFleetCost / Math.max(enemyFleetCost, 1);
-    overpowerMultiplier = Math.max(REWARDS.minimumOverpowerRewardMultiplier, 1 - ((overpowerRatio - 1.4) * 0.25));
-    victoryBonus *= overpowerMultiplier;
-  }
-
-  const total = REWARDS.baseReward + destroyedReward + victoryBonus + survivalBonus + efficiencyBonus;
-  return {
-    didWin,
-    base: REWARDS.baseReward,
-    destroyed: Math.round(destroyedReward),
-    victory: Math.round(victoryBonus),
-    survival: Math.round(survivalBonus),
-    efficiency: Math.round(efficiencyBonus),
-    overpowerMultiplier: round(overpowerMultiplier),
-    total: Math.max(REWARDS.minimumWinReward, Math.round(total))
-  };
-}
-
 function getActiveFleetCost(player) {
   return Math.round(player.ships
     .filter((ship) => ship.alive)
@@ -517,8 +441,6 @@ module.exports = {
   executePurchase,
   validateBuyShip,
   updateEconomy,
-  finalizeMatchRewards,
-  calculateBattleReward,
   getActiveFleetCost,
   activeFleetCount,
   PURCHASE_IDEMPOTENCY_TTL_MS

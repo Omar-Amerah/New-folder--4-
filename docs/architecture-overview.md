@@ -59,7 +59,7 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | `componentData.js` | Derived explicit Data Link allocation; reads authoritative per-component Power and Heat runtime state, treats inactive sources as zero output, and never persists runtime support into blueprints |
 | `componentPower.js` | Damage-aware per-component Power allocation used by movement, shields, Heat and Data-support lifecycle refreshes |
 | `economy.js` | Income ticks, purchase validation, `buyShip`, fleet cost |
-| `objectives.js` | Relay capture, capture rewards, and the full-control victory countdown |
+| `objectives.js` | Relay capture, capture bonuses, and the full-control victory countdown |
 | `snapshots.js` | Snapshot assembly: shared-per-room arrays + per-team economy visibility; static vs dynamic fields; component HP/heat delta encoding |
 | `components.js` | `PARTS` catalogue; merges `component-balance.json` overrides |
 | `buildInfo.js` | `SERVER_BUILD_SHA` + `PROTOCOL_VERSION` (from shared `protocolVersion.js`) |
@@ -151,7 +151,7 @@ user input (pointer/keys/UI)
 ```
 
 Phase flow: `lobby` (join/teams/rules/bots) → `design` (blueprint editing and
-validation-free readiness) → `active` (simulation + purchases) → `end` (rewards,
+validation-free readiness) → `active` (simulation + purchases) → `end` (statistics,
 restart or close) — driven by `players.js` and `maybeStartMatch`.
 
 ## F. Current architectural risks (documented, deliberately not fixed here)

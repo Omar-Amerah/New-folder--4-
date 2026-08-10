@@ -28,6 +28,7 @@ const { ORBIT_DIRECTION, sanitizeCombatStyle, sanitizeOrbitDirection } = require
 const { validateClientMessage } = require("../src/server/clientSchemas");
 const { ORBIT_REJOIN_RADIAL_TOLERANCE, ORBIT_TURN_MARGIN } = require("../src/server/movementTuning");
 const { heatAdjustedMovementStats } = require("../src/server/movementCapability");
+const { calculateBrakingAcceleration } = require("../public/src/shared/movementStats.js");
 const { isSegmentStationClear } = require("../src/server/stationCollision");
 
 const DT = 1 / 30;
@@ -513,6 +514,7 @@ function run() {
   // a pixel is a ship grinding along the obstacle with the collision resolver
   // holding it off, which is the behaviour this whole section exists to stop.
   const AVOIDANCE_SAFETY_PAD = 0;
+  const OBSTACLE_SIMULATION_SECONDS = 35;
 
   // An asteroid squarely on an established orbit: two sizes, both ways round.
   // Both sizes are needed. The smaller rock is the ordinary case; the larger
@@ -549,7 +551,7 @@ function run() {
     // being mid-detour when the clock stops says nothing about whether it
     // rejoins.
     let bestRadiusError = Infinity;
-    simulate(room, [ship], 25, 0, () => {
+    simulate(room, [ship], OBSTACLE_SIMULATION_SECONDS, 0, () => {
       watcher.sample();
       sweep.sample();
       const avoidance = ship.movement.orbitAvoidance;
@@ -576,7 +578,9 @@ function run() {
       + `(${watcher.collisionTicks} ticks of correction)`);
     assert(sawDetour, `${name}: the rock should have forced a committed detour`);
     assert(sawRejoin, `${name}: ...and the ship should have rejoined the circle afterwards`);
-    // 25 seconds is 750 ticks. A per-tick replan would be hundreds.
+    // The longer window gives an engine-vector-only hull time to rejoin after
+    // the obstacle under the no-free-turn model. A per-tick replan would still
+    // be hundreds of plans.
     assert(plans > 0 && plans < 40,
       `${name}: avoidance must be planned on a cadence, not per tick (${plans} plans in 750 ticks)`);
     assert(Math.sign(sweep.total) === direction && Math.abs(sweep.total) > 1.5,
@@ -742,7 +746,7 @@ function run() {
         const speed = Math.hypot(ship.vx, ship.vy);
         const live = heatAdjustedMovementStats(ship, ship.stats || {});
         // Same braking model the controller uses: five times drive acceleration.
-        const deceleration = Math.max(1, (Number(live.accel) || 1) * 5);
+        const deceleration = Math.max(1, calculateBrakingAcceleration(Number(live.accel) || 0));
         stoppingDistanceAtCommit = speed * speed / (2 * deceleration);
       }
     });
@@ -865,7 +869,10 @@ function run() {
     orbitAttack(room, ship, target);
 
     let sawAvoidance = false;
-    simulate(room, [ship], 30, 0, () => {
+    // The ship now correctly includes the BLASTER's passive turn penalty in
+    // live movement, so give the committed rejoin route enough time to finish
+    // at the authoritative rate.
+    simulate(room, [ship], 45, 0, () => {
       if (ship.movement.orbitAvoidance) sawAvoidance = true;
     });
 
@@ -919,8 +926,6 @@ function run() {
     });
     ship.weaponCooldowns = new Array(ship.design.length).fill(0);
     ship.weaponAngles = new Array(ship.design.length).fill(0);
-    ship.weaponAcquiredTargetIds = new Array(ship.design.length).fill(null);
-    ship.weaponAcquiredTargetIds[3] = target.id;
 
     // One movement tick only: the ship is still spiralling, nowhere near
     // settled, and it must already be allowed to shoot.

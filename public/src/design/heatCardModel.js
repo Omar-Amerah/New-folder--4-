@@ -21,6 +21,7 @@ import { PART_DEFS, PART_STATS } from "./parts.js";
 import { getOccupiedCells } from "./footprint.js";
 import { coolantNetworkAt } from "./coolantLayout.js";
 import { COOLING_ENDPOINT_TYPES } from "./thermalAnalysis.js";
+import { formatHeatEffect, getHeatEffectsForComponent } from "../shared/heatEffects.js";
 import { escapeHtml } from "../shared/formatting.js";
 
 // Heat state visual language shared with the grid overlay (heat-ui-* classes in
@@ -98,29 +99,6 @@ function connectionStatus(design, index, partStats, role) {
 }
 
 /**
- * The one performance penalty worth surfacing: heat is actually reducing what
- * this component does. Never rendered at 100% : that is the normal state.
- */
-function performancePenalty(type, stat, state, rules) {
-  const active = rules.activeOutputForState(state);
-  const describe = (what, value) => (value >= 0.999 ? null : { what, value });
-  if (type === "heatSink" || type === "heatPipe") return null;
-  if (type === "radiator" || type === "heatVent" || type === "closedCycleCooler") {
-    return describe("cooling output", rules.activeCoolingForState(state));
-  }
-  if (rules.isPassiveStructure(type, stat) || /frame/i.test(String(type))) {
-    const value = rules.passiveProtectionForState(state);
-    return describe(type === "armor" || type === "compositeArmor" ? "protection" : "structural strength", value);
-  }
-  if (stat.weapon) return describe(stat.weapon.type === "beam" ? "beam output" : "fire rate", active);
-  if ((stat.thrust || 0) > 0 || (stat.lateralThrust || 0) > 0 || (stat.turn || 0) > 0) return describe("thrust", active);
-  if ((stat.powerGeneration || 0) > 0) return describe("power output", active);
-  if ((stat.shieldRegen || 0) > 0) return describe("shield recharge", active);
-  if ((stat.repairRate || 0) > 0) return describe("repair output", active);
-  return null;
-}
-
-/**
  * Build the display model for one component's Heat hover card.
  * @param {object} options
  * @param {Array<{type:string,x:number,y:number,rotation?:number}>} options.design
@@ -187,8 +165,10 @@ export function buildHeatCardModel(options = {}) {
     rows.push({ label: "Coolant", value: connection.label, tone: connection.tone });
   }
 
-  const penalty = performancePenalty(part.type, stat, state, rules);
-  if (penalty) notes.push({ text: `${WARNING} Heat reducing ${penalty.what} to ${percentText(penalty.value)}`, tone: "warn" });
+  const heatEffects = getHeatEffectsForComponent(part.type, stat, state, rules);
+  for (const effect of heatEffects.effects.filter((candidate) => candidate.isPenalty)) {
+    notes.push({ text: `${WARNING} ${formatHeatEffect(effect)}`, tone: "warn" });
+  }
   if (result?.problemIndices?.unroutedHot?.has?.(index)) {
     notes.push({ text: `${WARNING} No route to a Heat Sink, Radiator or Vent`, tone: "warn" });
   }
@@ -206,8 +186,11 @@ export function buildHeatCardModel(options = {}) {
   }
 
   const stateIndex = rules.clamp(state, 0, STATE_CLASSES.length - 1);
-  const percent = Math.min(100, Math.round(ratio * 100));
-  const peakPercent = Math.min(100, Math.round(peakRatio * 100));
+  const percent = Math.max(0, Math.round(ratio * 100));
+  const peakPercent = Math.max(0, Math.round(peakRatio * 100));
+  if (stateIndex === rules.STATE.OVERHEATED) {
+    statuses.push({ text: `Locked out until below ${Math.round(heatEffects.recoveryThreshold * 100)}% Heat`, tone: "danger" });
+  }
   return {
     title: `${PART_DEFS[part.type]?.name || part.type} #${index}`,
     role,

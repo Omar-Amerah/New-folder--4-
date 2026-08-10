@@ -14,6 +14,7 @@ const {
 } = require("./utils");
 const { WORLD } = require("./config");
 const { gameplayNow } = require("./gameplayTime");
+const { calculateBrakingAcceleration } = require("../../public/src/shared/movementStats.js");
 const { areEntityAllies, areEntityEnemies } = require("./relationships");
 const { selectOwnedLivingShips } = require("./selection");
 const { canTeamTargetEntity } = require("./visibility");
@@ -132,7 +133,6 @@ const { planFormation } = require("./movementFormations");
 const MOVEMENT_SUBSTEP = 1 / 60;
 const BEARING_MIN_DISTANCE = 1;
 const TURN_TIME_CONSTANT_S = 0.04;
-const BRAKE_ACCEL_RATIO = 5;
 const MOMENTUM_HOLD_ANGLE = Math.PI / 2;
 const WAYPOINT_CAPTURE_RATIO = 0.75;
 const ROUTE_REPLAN_DISTANCE = 48;
@@ -180,7 +180,7 @@ function normalizeHullAngle(angle) {
 }
 
 function brakingAcceleration(stats) {
-  return driveAcceleration(stats) * BRAKE_ACCEL_RATIO;
+  return calculateBrakingAcceleration(driveAcceleration(stats));
 }
 
 function momentumRetention(headingError) {
@@ -341,7 +341,7 @@ function applyPropulsion(ship, plan, stats, dt) {
       );
       ship.vx += forwardX * step;
       ship.vy += forwardY * step;
-      applyEngineHeat(ship, throttle, dt);
+      applyEngineHeat(ship, step / Math.max(1e-9, driveAcceleration(stats) * dt), dt);
     }
     // Deceleration acts against travel, not along the hull. A ship pointed away
     // from where it is going therefore sheds speed however it is facing, and no
@@ -3547,6 +3547,7 @@ module.exports = {
   applyMovementToggles,
   applyOrbitDirection,
   applyPropulsion,
+  brakingAcceleration,
   commandShips,
   commandShipsToDestination,
   createMovementRuntime,

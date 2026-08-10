@@ -118,7 +118,6 @@ function createRoom(code, options = {}) {
     colorCursor: 0,
     lastEmptyAt: 0,
     winner: null,
-    rewardsFinalizedForWinner: null,
     winnerAt: 0,
     controlVictory: {
       team: null,
@@ -258,7 +257,6 @@ function setRoomRules(room, requester, updates) {
 
   for (const player of room.players.values()) {
     player.money = room.rules.startingMoney;
-    player.bank = room.rules.startingMoney;
     player.earned = room.rules.startingMoney;
     player.maxMoney = Math.max(ECONOMY.maxMoney, room.rules.startingMoney);
   }
@@ -1276,7 +1274,6 @@ function resetMatch(room, now) {
   const { broadcastRoom } = require("./messages");
 
   room.winner = null;
-  room.rewardsFinalizedForWinner = null;
   room.winnerAt = 0;
   require("./drones").resetDroneRuntime(room);
   require("./decoys").resetDecoyRuntime(room);

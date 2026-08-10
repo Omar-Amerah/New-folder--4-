@@ -50,6 +50,13 @@ assert.equal(room.drones.size, 3, "third drone launches sequentially");
 updateDroneBays(room, [ship], 0.70, 2200);
 assert.equal(room.drones.size, 3, "a bay never exceeds three drones");
 
+for (const [power, label] of [[0.5, "50%"], [0.05, "5%"], [0.01, "1%"]]) {
+  const positive = makeRoomAndShip();
+  positive.ship.componentPower = { byComponentIndex: [{ operationalMultiplier: power }] };
+  updateDroneBays(positive.room, [positive.ship], 0.05, 0);
+  assert.equal(positive.room.drones.size, 1, `${label} Bay Power still permits launch`);
+}
+
 const spawnCase = makeRoomAndShip();
 spawnCase.room.map.safeZones = [{
   id: "spawn-blue",
@@ -88,7 +95,7 @@ updateDroneBays(fuelCase.room, [fuelCase.ship], 1.99, 2199);
 assert.equal(fueledDrone.state, "refueling", "the drone remains docked for the full two seconds");
 updateDroneBays(fuelCase.room, [fuelCase.ship], 0.01, 2200);
 assert.equal(fueledDrone.state, "launching", "the drone relaunches after two seconds of refueling");
-assert.equal(fueledDrone.fuelRemainingSeconds, CONFIG.fuelSeconds, "refueling restores the full 15-second fuel supply");
+assert.equal(fueledDrone.fuelRemainingSeconds, CONFIG.types.fighter.fuelSeconds, "refueling restores the selected drone type's full fuel supply");
 
 const queue = makeRoomAndShip("fighter").bay;
 queue.slots[0] = { slot: 0, state: "destroyed", droneId: null, productionProgress: 0, pauseReason: null };
@@ -103,11 +110,15 @@ assert.equal(queue.slots[0].pauseReason, "low-power");
 const slowedProgress = savedProgress + 2 * 0.5 / CONFIG.types.fighter.productionSeconds;
 assert.equal(queue.slots[0].productionProgress, slowedProgress, "underpowered bays build slowly instead of stalling");
 advanceBayProduction(queue, 2, 0.01, false);
-assert.equal(queue.slots[0].pauseReason, "insufficient-power", "an essentially unpowered bay still stalls");
-assert.equal(queue.slots[0].productionProgress, slowedProgress, "no-power interruption retains progress");
+const tinyPowerProgress = slowedProgress + 2 * 0.01 / CONFIG.types.fighter.productionSeconds;
+assert.equal(queue.slots[0].pauseReason, "low-power", "any positive Power remains operational");
+assert.equal(queue.slots[0].productionProgress, tinyPowerProgress, "positive low Power advances production linearly");
+advanceBayProduction(queue, 2, 0, false);
+assert.equal(queue.slots[0].pauseReason, "insufficient-power", "exact zero Power pauses production");
+assert.equal(queue.slots[0].productionProgress, tinyPowerProgress, "zero-Power interruption retains progress");
 advanceBayProduction(queue, 2, 1, true);
 assert.equal(queue.slots[0].pauseReason, "bay-overheated");
-assert.equal(queue.slots[0].productionProgress, slowedProgress, "overheat interruption retains progress");
+assert.equal(queue.slots[0].productionProgress, tinyPowerProgress, "overheat interruption retains progress");
 advanceBayProduction(queue, 9, 1, false);
 assert.equal(queue.slots[0].state, "ready", "production resumes to completion");
 assert.equal(queue.slots[1].state, "destroyed", "second empty slot waits for a later production cycle");

@@ -9,5 +9,4 @@ for (const c of BALANCE.components) {
 }
 console.log('\nShip pricing:', JSON.stringify(BALANCE.shipPricing));
 console.log('Economy:', JSON.stringify(BALANCE.economy));
-console.log('Rewards:', JSON.stringify(BALANCE.rewards));
 console.log('Fleet cap:', BALANCE.economy.shipCap);

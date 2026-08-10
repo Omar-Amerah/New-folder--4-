@@ -5,6 +5,7 @@ const { fastHypot, compareIdStrings, performanceNow } = require("./utils");
 const { PARTS } = require("./components");
 const DroneBayRules = require("../../public/src/shared/droneBayRules");
 const HeatRules = require("../../public/src/shared/heatRules");
+const BackupCoreRules = require("../../public/src/shared/backupCoreRules");
 const { getShipRepairCache } = require("./repairCache");
 const { ensureProjectileLookup, removeProjectileRuntime, segmentCircleHit } = require("./projectiles");
 const { droneBroadPhaseRadius } = require("./spatialIndex");
@@ -20,19 +21,21 @@ const CONFIG = BALANCE.drones;
 const MODULE_SCALE = 13;
 const GRID_CENTER = 7;
 // A drone bay only needs meaningful power to launch and command drones — not a
-// near-perfect supply. Below this floor it is treated as effectively unpowered
-// (drones fall back / stop launching); above it, partial power just means a
-// slower launch cadence rather than a hard stop.
-const MIN_BAY_OPERATING_POWER = 0.05;
 const DRONE_DECISION_INTERVAL_MS = 120;
 const DRONE_DECISION_INTERVALS_MS = Object.freeze({ defence: 120, fighter: 180, repair: 250 });
 const MAX_CONFIGURED_DRONE_SPEED = Math.max(0, ...Object.values(CONFIG.types || {}).map((entry) => Number(entry?.speed) || 0));
 const BACKUP_CORE_CONFIGS = Object.freeze(Object.fromEntries(
   Object.entries(CONFIG.types || {}).map(([type, config]) => [type, Object.freeze({
     ...config,
-    commandRange: (Number(config.commandRange) || 0) * 0.80
+    commandRange: BackupCoreRules.applyActiveSystemEffectiveness(config.commandRange, "backupCore")
   })])
 ));
+
+function droneConfigForCommandState(parent, droneType) {
+  return BackupCoreRules.isBackupCoreActive(parent)
+    ? BACKUP_CORE_CONFIGS[droneType]
+    : CONFIG.types[droneType];
+}
 
 function droneDecisionInterval(type) {
   return Number(DRONE_DECISION_INTERVALS_MS[type]) || DRONE_DECISION_INTERVAL_MS;
@@ -86,10 +89,7 @@ function ensureDroneRuntimeConfig(drone, config = CONFIG.types[drone?.type]) {
 }
 
 function effectiveDroneConfig(parent, drone) {
-  const baseConfig = CONFIG.types[drone?.type];
-  const config = parent?.commandState === "backupCore"
-    ? BACKUP_CORE_CONFIGS[drone?.type]
-    : baseConfig;
+  const config = droneConfigForCommandState(parent, drone?.type);
   return { config, runtime: ensureDroneRuntimeConfig(drone, config) };
 }
 
@@ -386,9 +386,7 @@ function buildBayFrameState(room, ship, bay, frameId, now, inSpawnZone) {
     ? Math.max(0, Number(getComponentPowerMultiplier(ship, bay.componentIndex)) || 0)
     : 0;
   const heatState = ship?.componentHeatState?.[bay.componentIndex] || HeatRules.STATE.NORMAL;
-  const effectiveConfig = ship?.commandState === "backupCore"
-    ? BACKUP_CORE_CONFIGS[bay.droneType]
-    : CONFIG.types[bay.droneType];
+  const effectiveConfig = droneConfigForCommandState(ship, bay.droneType);
   const state = existing || (bay._runtimeFrameState = {});
   state.frameId = frameId;
   state.revision = signature;
@@ -1043,10 +1041,9 @@ function advanceBayProduction(bay, dt, power, overheated, operational = true) {
     return producing;
   }
   // Underpowered bays build slowly rather than stalling: production progress
-  // already scales with the delivered power fraction (dt * power / duration), so
-  // partial power simply means a slower build. Only an essentially unpowered bay
-  // (no meaningful allocation) makes no progress at all.
-  if (power <= 0.02) {
+  // Production scales with the delivered power fraction. Exact zero is the
+  // unpowered state; any positive allocation continues production more slowly.
+  if (power <= 0) {
     producing.pauseReason = "insufficient-power";
     return producing;
   }
@@ -1085,7 +1082,7 @@ function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) 
 
   const bayOperational = state ? state.operational : Boolean(bay && (parent.componentHp?.[bay.componentIndex] ?? 0) > 0);
   const bayPower = state ? state.powerMultiplier : (bayOperational && getComponentPowerMultiplier(parent, bay.componentIndex));
-  const bayPowered = bayOperational && bayPower > MIN_BAY_OPERATING_POWER;
+  const bayPowered = bayOperational && bayPower > 0;
   const fallback = !bayOperational || !bayPowered;
   const previousCommandState = drone.commandState;
   const previousBayRevision = drone._lastBayRevision;
@@ -1297,7 +1294,7 @@ function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) 
     if (room.drones.get(effectiveTarget.id) === effectiveTarget) {
       damageDrone(room, effectiveTarget, config.damage, drone.ownerId, now);
     } else if (room.ships.get(effectiveTarget.id) === effectiveTarget) {
-      damageShip(room, effectiveTarget, config.damage, drone.ownerId, now, drone.x, drone.y, { armorInteractionSeconds: 1 / config.fireRate });
+      damageShip(room, effectiveTarget, config.damage, drone.ownerId, now, drone.x, drone.y);
     } else if (effectiveTarget.interceptable) {
       effectiveTarget.hp = Math.max(0, (Number(effectiveTarget.hp) || 0) - config.damage);
       if (effectiveTarget.hp <= 0) {
@@ -1345,11 +1342,11 @@ function updateDroneBays(room, ships, dt, now) {
       refreshBayFrameCounts(state, bay);
       const heatPerSecond = state.producing ? CONFIG.productionHeatPerSecond : state.activeSlotCount > 0 ? CONFIG.activeHeatPerSecond : CONFIG.standbyHeatPerSecond;
       addComponentHeat(ship, bay.componentIndex, heatPerSecond * power * dt);
-      if (inSpawnZone || bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= MIN_BAY_OPERATING_POWER || overheated) continue;
+      if (inSpawnZone || bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= 0 || overheated) continue;
       const ready = bay.slots.find((slot) => slot.state === "ready" || slot.state === "stored");
       if (ready) {
         spawnDrone(room, ship, bay, ready, now);
-        bay.nextLaunchAt = now + CONFIG.launchIntervalSeconds * 1000 / Math.max(0.35, power);
+        bay.nextLaunchAt = now + CONFIG.launchIntervalSeconds * 1000 / power;
       }
     }
   }
@@ -1431,7 +1428,7 @@ function setDroneBayMode(room, player, shipId, componentId, mode, now = Date.now
   if (bay.mode !== mode) bay._modeRevision = (Number(bay._modeRevision) || 0) + 1;
   bay.mode = mode;
   const operational = (ship.componentHp?.[bay.componentIndex] ?? 0) > 0;
-  const powered = operational && getComponentPowerMultiplier(ship, bay.componentIndex) > MIN_BAY_OPERATING_POWER;
+  const powered = operational && getComponentPowerMultiplier(ship, bay.componentIndex) > 0;
   if (mode === "recalled") {
     for (const slot of bay.slots) if (slot.state === "ready") slot.state = "stored";
     for (const drone of room.drones?.values?.() || []) {
@@ -1504,7 +1501,7 @@ function buildBaySnapshots(ship) {
       componentId: bay.componentId,
       componentIndex: bay.componentIndex,
       droneType: bay.droneType,
-      commandRange: Number(CONFIG.types[bay.droneType]?.commandRange) || 0,
+      commandRange: Number(droneConfigForCommandState(ship, bay.droneType)?.commandRange) || 0,
       squadSize: CONFIG.squadSize,
       activeCount: bay.slots.filter((slot) => ["launching", "active", "returning", "docking", "refueling"].includes(slot.state)).length,
       refuelingCount: bay.slots.filter((slot) => slot.state === "refueling").length,
@@ -1551,6 +1548,7 @@ module.exports = {
     spawnDrone,
     buildDroneRuntimeConfig,
     ensureDroneRuntimeConfig,
+    effectiveDroneConfig,
     buildBayFrameState,
     rememberDroneTarget,
     resolveCachedDroneTarget,

@@ -21,6 +21,15 @@
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatDistance, formatSpeed, formatDamage, formatPercent } from "./statFormatting.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
 import { sortComponentCallouts } from "./statusCalloutOrder.js";
+import { formatHeatEffect, getHeatEffectsForComponent } from "../shared/heatEffects.js";
+import { getShieldImpactHeatPerDamage } from "../shared/shieldRules.js";
+import { getRepairStackingMultiplier, stackingProgression, isLocalRepairSource } from "../shared/repairRules.js";
+import "../shared/weaponPresentationRules.js";
+import "../shared/backupCoreRules.js";
+
+const WeaponPresentationRules = globalThis.WeaponPresentationRules;
+const BackupCoreRules = globalThis.BackupCoreRules;
+const BACKUP_EFFECTIVENESS_TEXT = `${Math.round(BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS * 100)}%`;
 
 // ---------------------------------------------------------------------------
 // Value hygiene
@@ -112,7 +121,39 @@ const heatRules = () => globalThis.HeatRules;
 const turretRules = () => globalThis.TurretRules;
 
 function heatRate(value) { return `${Number(value).toFixed(1)} H/s`; }
+function heatAmount(value) { return `${Number(value).toFixed(1)} H`; }
 function degrees(value) { return `${Math.round(value)}°`; }
+
+function shieldImpactHeatRows(stat) {
+  if (!((stat.shield || 0) > 0)) return [];
+  const rate = getShieldImpactHeatPerDamage();
+  const total = 100 * rate;
+  const totalText = Number.isInteger(total) ? String(total) : total.toFixed(2);
+  return [
+    statRow("shield.impactHeat", "Impact Heat", `${rate.toFixed(2)} H / damage blocked`),
+    statRow("shield.impactHeatSource", "Heat source", "Damage absorbed by Shields generates Heat in the Shield system."),
+    statRow("shield.impactHeatDistribution", "Distribution", "Impact Heat is distributed across the ship's active Shield generators."),
+    statRow("shield.impactHeatExample", "Example", `100 Shield damage blocked = ${totalText} H total`)
+  ];
+}
+
+function repairStackRows(type, stat) {
+  if (!isLocalRepairSource(type, stat)) return [];
+  const multiplier = getRepairStackingMultiplier(GENERATED_BALANCE);
+  return [
+    statRow("repair.stacking", "Repair stacking", "Diminishing returns"),
+    statRow("repair.stackRule", "Stacking rule", `Additional Repair modules contribute ${Math.round(multiplier * 100)}% as much as the previous one.`),
+    statRow("repair.stackProgression", "Stacking progression", stackingProgression(5, GENERATED_BALANCE).join(", "))
+  ];
+}
+
+function repairCapabilityRows(type, stat) {
+  if (!((stat.repairRate || 0) > 0)) return [];
+  return [
+    statRow("repair.rate", "Repair Rate", formatRepair(stat.repairRate)),
+    ...repairStackRows(type, stat)
+  ];
+}
 
 function aimSpeedText(value) {
   if (value === undefined || value === null) return "Instant";
@@ -120,28 +161,30 @@ function aimSpeedText(value) {
 }
 
 /**
- * Sustained heat output for a component, using the same shared HeatRules activity
- * model the thermal simulation uses. Generators, thrusters and rechargers have
- * activity-specific curves; everything else falls back to the catalogue value.
+ * Authored Heat output for a component, using the same shared HeatRules fields
+ * the thermal simulation uses. Activity Heat is a rate; shot Heat is a discrete
+ * firing event.
  */
 export function heatProfileFor(type, stat) {
   const rules = heatRules();
   const profile = rules.profile(type, stat);
-  let generation = rules.activityHeat(type, stat);
+  const generation = rules.activityHeat(type, stat);
+  const heatPerShot = rules.heatPerShot(type, stat);
   let cadence = "while active";
   if (stat.weapon) {
-    cadence = stat.weapon.type === "beam" ? "while firing" : "at sustained fire";
+    cadence = stat.weapon.spinalCharge
+      ? "while charging or holding"
+      : stat.weapon.type === "beam" ? "while firing" : "per shot";
   } else if ((stat.powerGeneration || 0) > 0) {
-    generation = 2 + stat.powerGeneration * 0.42;
     cadence = "at power load";
   } else if ((stat.thrust || 0) > 0) {
-    generation = 2 + stat.thrust * 0.018;
     cadence = "while thrusting";
   } else if ((stat.shieldRegen || 0) > 0) {
-    generation = stat.shieldRegen * 0.7;
     cadence = "while recharging";
+  } else if ((stat.repairRate || stat.repair || 0) > 0) {
+    cadence = "while repairing";
   }
-  return { generation, cadence, capacity: profile.capacity, cooling: profile.cooling, passiveCooling: profile.passiveCooling };
+  return { generation, heatPerShot, cadence, capacity: profile.capacity, cooling: profile.cooling, passiveCooling: profile.passiveCooling };
 }
 
 const THERMAL_ROLE_TYPES = new Set(["radiator", "heatVent", "closedCycleCooler", "heatSink", "heatPipe"]);
@@ -198,7 +241,8 @@ function buildCore(type, stat, ledger, effectiveCost) {
 function weaponCapability(stat) {
   const weapon = stat.weapon;
   if (!weapon) return [];
-  const rows = [statRow("weapon.dps", "DPS", weapon.dps.toFixed(1))];
+  const presentation = WeaponPresentationRules.weaponCyclePresentation(weapon);
+  const rows = [statRow("weapon.dps", presentation.dpsLabel, presentation.dps.toFixed(1))];
   rows.push(statRow("weapon.range", "Range", formatDistance(weapon.range)));
   // A "cannot miss" weapon states its guarantee instead of a redundant 100%.
   if ((weapon.accuracy ?? 1) >= 1) rows.push(statRow("weapon.accuracy", "Accuracy", "Cannot miss"));
@@ -253,8 +297,8 @@ function capabilityRows(type, stat, family, context = {}) {
       statRow("sensor.arc", "Cone width", directed ? degrees(stat.sensorArc) : null),
       statRow(
         "sensor.stacking",
-        "Diminishing stack",
-        directed ? "Large first; Directed only" : "Large first, then Small"
+        "Linear stack",
+        directed ? "Full authored bonus; Directed only" : "Full authored bonus per sensor"
       )
     ];
   }
@@ -264,10 +308,12 @@ function capabilityRows(type, stat, family, context = {}) {
       return weaponCapability(stat);
 
     case "defence": {
-      if (stat.weapon) return weaponCapability(stat);
+      if (stat.weapon) return [...weaponCapability(stat), ...shieldImpactHeatRows(stat), ...repairCapabilityRows(type, stat)];
       const rows = [
         statRow("shield.capacity", "Shield Capacity", (stat.shield || 0) > 0 ? formatShield(stat.shield) : null),
-        statRow("shield.regen", "Regeneration", (stat.shieldRegen || 0) > 0 ? `${stat.shieldRegen} SP/s` : null)
+        statRow("shield.regen", "Regeneration", (stat.shieldRegen || 0) > 0 ? `${stat.shieldRegen} SP/s` : null),
+        ...shieldImpactHeatRows(stat),
+        ...repairCapabilityRows(type, stat)
       ];
       if (stat.decoyConfig) {
         rows.push(statRow("decoy.capacity", "Decoy Capacity", `${stat.decoyConfig.capacity}`));
@@ -285,8 +331,8 @@ function capabilityRows(type, stat, family, context = {}) {
       // Power output already appears in the core row; the ledger drops the repeat
       // and leaves storage as the meaningful capability for batteries/capacitors.
       if ((stat.powerGeneration || 0) > 0) rows.push(statRow("power", "Power Output", `${stat.powerGeneration} MW`));
-      // Generators may carry a legacy `energy` value in the catalogue, but the
-      // power solver treats them as sources rather than stored-energy modules.
+      // Only explicit storage components expose an Energy Capacity row;
+      // generators are Power sources rather than stored-energy modules.
       const capacity = (stat.powerGeneration || 0) <= 0
         ? (stat.energyCapacity || stat.energyStorage || 0)
         : 0;
@@ -297,13 +343,13 @@ function capabilityRows(type, stat, family, context = {}) {
       if ((stat.dischargeEfficiency || 0) > 0 && stat.dischargeEfficiency < 1) rows.push(statRow("power.dischargeEff", "Discharge Efficiency", formatPercent(stat.dischargeEfficiency)));
       if ((stat.dischargeHeatAtMax || 0) > 0) rows.push(statRow("power.dischargeHeat", "Max Discharge Heat", heatRate(stat.dischargeHeatAtMax)));
       if ((stat.shield || 0) > 0) rows.push(statRow("shield.capacity", "Shield Capacity", formatShield(stat.shield)));
+      rows.push(...shieldImpactHeatRows(stat));
       return rows;
     }
 
     case "propulsion": {
       const rows = [];
       if ((stat.thrust || 0) > 0) rows.push(statRow("thrust", "Thrust", formatThrust(stat.thrust)));
-      if ((stat.lateralThrust || 0) > 0) rows.push(statRow("thrust.lateral", "Lateral Thrust", formatThrust(stat.lateralThrust)));
       if ((stat.turn || 0) > 0) rows.push(statRow("turn", "Turn Rate", `${stat.turn}`));
       return rows;
     }
@@ -329,7 +375,7 @@ function capabilityRows(type, stat, family, context = {}) {
 
     default: {
       const rows = [];
-      if ((stat.repairRate || 0) > 0) rows.push(statRow("repair.rate", "Repair Rate", formatRepair(stat.repairRate)));
+      rows.push(...repairCapabilityRows(type, stat));
       rows.push(statRow("bonus.range", "Weapon Range Bonus", (stat.rangeBonus || 0) ? `+${formatDistance(stat.rangeBonus)}` : null, { kind: "bonus", raw: stat.rangeBonus }));
       rows.push(statRow("bonus.accuracy", "Accuracy Bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus }));
       rows.push(statRow("bonus.fireRate", "Fire Rate Bonus", `+${formatPercent(stat.fireRateBonus)}`, { kind: "bonus", raw: stat.fireRateBonus }));
@@ -412,6 +458,9 @@ function thermalSummaryRows(type, stat, ledger) {
   if (profile.generation > 0.05) {
     rows.push({ ...statRow("heat.production", "Heat", `Produces ${heatRate(profile.generation)} ${profile.cadence}`, { tone: "hot" }), calloutCategory: "cost" });
   }
+  if (profile.heatPerShot > 0.05) {
+    rows.push({ ...statRow("heat.perShot", "Heat per shot", `Adds ${heatAmount(profile.heatPerShot)} per firing event`, { tone: "hot" }), calloutCategory: "cost" });
+  }
   if (THERMAL_ROLE_TYPES.has(type)) {
     rows.push({ ...statRow("heat.role", "Thermal role", thermalRoleText(type), { tone: "role" }), calloutCategory: "role" });
   }
@@ -452,7 +501,7 @@ function warningsFor(type, stat, family, context = {}) {
     warnings.push({
       id: "backup-command",
       title: "Backup command",
-      body: "Takes over when the main Core is destroyed, with reduced weapon accuracy.",
+      body: `Takes over when the main Core is destroyed. Weapon accuracy, turn rate and drone command range operate at ${BACKUP_EFFECTIVENESS_TEXT}.`,
       tone: "ok",
       calloutCategory: "capability"
     });
@@ -624,6 +673,7 @@ export function formatTargetPriority(priority) {
 
 function weaponDetailRows(type, stat) {
   const weapon = stat.weapon;
+  const presentation = WeaponPresentationRules.weaponCyclePresentation(weapon);
   const rows = [];
   if (weapon.type === "beam") {
     rows.push(statRow("weapon.damage", "Damage", `${formatDamage(weapon.damage)}/s`));
@@ -640,8 +690,14 @@ function weaponDetailRows(type, stat) {
     } else {
       rows.push(statRow("weapon.damage", "Damage per Shot", formatDamage(weapon.damage)));
     }
-    // Fire rate and reload are the same fact twice : only fire rate is shown.
-    rows.push(statRow("weapon.fireRate", "Fire Rate", `${weapon.fireRate} shots/s`));
+    if (presentation.isChargeWeapon) {
+      rows.push(statRow("weapon.spinalCharge", "Charge", `${presentation.chargeSeconds.toFixed(1)} s holding a firing solution`));
+      rows.push(statRow("weapon.reload", "Reload", `${presentation.reloadSeconds.toFixed(1)} s`));
+      rows.push(statRow("weapon.spinalCycle", "Ideal Cycle", `${presentation.cycleSeconds.toFixed(1)} s`));
+    } else {
+      // Fire rate and reload are the same fact twice : only fire rate is shown.
+      rows.push(statRow("weapon.fireRate", "Fire Rate", `${weapon.fireRate} shots/s`));
+    }
     rows.push(statRow("weapon.projectileSpeed", "Projectile Speed", (Number(weapon.projectileSpeed) || 0) > 0 ? formatSpeed(weapon.projectileSpeed) : "Hitscan"));
   }
   rows.push(statRow("weapon.traverse", "Turret Traverse", aimSpeedText(turretRules().turnRateFor(weapon))));
@@ -662,6 +718,7 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.impactHeat", "Impact Heating", `${Number(weapon.impactHeatPerDamage || 0).toFixed(2)} Heat per damage`));
   }
   if (Number.isFinite(weapon.inductionHeatBasePerSecond) && Number.isFinite(weapon.inductionHeatMaxPerSecond)) {
+    rows.push(statRow("weapon.componentSelection", "Targeting", "Prioritises functioning Power generators when available, then other active systems"));
     rows.push(statRow("weapon.damage", "Direct damage", "0"));
     rows.push(statRow("weapon.vsShields", "Shield damage", "0"));
     rows.push(statRow("weapon.vsHull", "Hull damage", "0"));
@@ -676,7 +733,6 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.inductionAdjacent", "Immediate neighbours", `${Math.round((weapon.inductionAdjacentFraction || 0.3) * 100)}%`));
     rows.push(statRow("weapon.inductionSecond", "Second-hop neighbours", `${Math.round((weapon.inductionSecondHopFraction || 0.1) * 100)}%`));
     rows.push(statRow("weapon.inductionGrace", "Contact grace", `${weapon.inductionContactGraceSeconds || 0.25}s`));
-    rows.push(statRow("weapon.inductionSelfHeat", "Self-Heat at max ramp", `×${weapon.inductionSelfHeatMaxMultiplier || 1.5}`));
     rows.push(statRow("weapon.burnThrough", "Burn-Through", "None"));
     rows.push(statRow("weapon.charge", "Conventional beam charge", "None"));
     rows.push(statRow("weapon.inductionDescription", "Effect", "Deals no structural damage. Sustained contact couples increasing Heat into the selected subsystem, its first-hop neighbours and second-hop neighbours. Active shields reduce coupling to 40%."));
@@ -699,10 +755,6 @@ function weaponDetailRows(type, stat) {
   }
   if (weapon.spinalCharge) {
     const charge = weapon.spinalCharge;
-    const chargeSeconds = Number(charge.chargeSeconds) || 0;
-    const reloadSeconds = weapon.fireRate > 0 ? 1 / weapon.fireRate : 0;
-    rows.push(statRow("weapon.spinalCharge", "Charge Time", `${chargeSeconds}s holding a firing solution`));
-    rows.push(statRow("weapon.spinalCycle", "Full Cycle", `${(chargeSeconds + reloadSeconds).toFixed(1)}s; about ${((weapon.damage || 0) / Math.max(0.01, chargeSeconds + reloadSeconds)).toFixed(0)} damage/s sustained`));
     rows.push(statRow("weapon.spinalHold", "Charge Retention", `${Number(charge.chargeHoldSeconds) || 0}s after losing the target, then bleeds away`));
     rows.push(statRow("weapon.spinalCommit", "Committed Aim", `Traverse falls to ${Math.round((Number(charge.committedAimTraverseFloor) || 0) * 100)}% past ${Math.round((Number(charge.committedAimStartProgress) || 0) * 100)}% charge`));
     rows.push(statRow("weapon.spinalHull", "Hull Commitment", `Ship turns at ${Math.round((Number(charge.hullTurnPenaltyMultiplier) || 1) * 100)}% past ${Math.round((Number(charge.hullTurnPenaltyStartProgress) || 0) * 100)}% charge`));
@@ -757,7 +809,8 @@ function advancedSections(type, stat, family, ledger, context) {
     push("shield", "Shield Details", [
       statRow("shield.capacity", "Shield Capacity", (stat.shield || 0) > 0 ? formatShield(stat.shield) : null),
       statRow("shield.regen", "Regeneration", (stat.shieldRegen || 0) > 0 ? `${stat.shieldRegen} SP/s` : null),
-      statRow("shield.stacking", "Stacking", "Capacity from every Shield on the ship pools into one bubble.")
+      statRow("shield.stacking", "Stacking", "Capacity from every Shield on the ship pools into one bubble."),
+      ...shieldImpactHeatRows(stat)
     ]);
   }
 
@@ -791,6 +844,7 @@ function advancedSections(type, stat, family, ledger, context) {
   if ((stat.repairRate || 0) > 0) {
     push("repair", "Repair Details", [
       statRow("repair.rate", "Repair Rate", formatRepair(stat.repairRate)),
+      ...repairStackRows(type, stat),
       statRow("repair.target", "Targeting", type === "repairBeam" ? "Projects onto a damaged allied ship in range." : "Repairs this ship's damaged components.")
     ]);
   }
@@ -808,7 +862,7 @@ function advancedSections(type, stat, family, ledger, context) {
   if (family === "command") {
     push("command", "Command Details", [
       statRow("command.role", "Role", type === "backupCore" ? "Secondary command" : "Primary command"),
-      statRow("command.accuracy", "Backup Accuracy", type === "backupCore" ? "85% of normal weapon accuracy while active" : null)
+      statRow("command.effectiveness", "Backup Effectiveness", type === "backupCore" ? `${BACKUP_EFFECTIVENESS_TEXT} weapon accuracy, turn rate and drone command range while active` : null)
     ]);
   }
 
@@ -839,10 +893,8 @@ const AURA_STAT_META = {
   weaponAccuracyMultiplier:        { label: "Weapon Accuracy",        reduction: false },
   weaponTrackingMultiplier:        { label: "Weapon Tracking",        reduction: false },
   turretAimSpeedMultiplier:        { label: "Turret Traverse Speed",  reduction: false },
-  targetAcquisitionMultiplier:     { label: "Target Acquisition",     reduction: false },
   pointDefenceTrackingMultiplier:  { label: "Point-Defence Tracking", reduction: false },
   flakTrackingMultiplier:          { label: "Flak Tracking",          reduction: false },
-  interceptionReactionMultiplier:  { label: "Interception Reaction",  reduction: false },
   shieldRegenMultiplier:           { label: "Shield Regeneration",    reduction: false },
   shieldRestartDelayMultiplier:    { label: "Shield Restart Delay",   reduction: true  },
   repairRateMultiplier:            { label: "Repair Rate",            reduction: false },
@@ -964,8 +1016,13 @@ function thermalSection(type, stat, ledger, context) {
   if (!hasThermalRelevance(type, stat)) return null;
   const rules = heatRules();
   const profile = heatProfileFor(type, stat);
+  const productionText = profile.generation > 0.05
+    ? `${heatRate(profile.generation)} ${profile.cadence}`
+    : profile.heatPerShot > 0.05
+      ? `${heatAmount(profile.heatPerShot)} per firing event`
+      : null;
   const rows = [
-    statRow("heat.production", "Heat Production", profile.generation > 0.05 ? `${heatRate(profile.generation)} ${profile.cadence}` : null, { tone: "hot" }),
+    statRow("heat.production", "Heat Production", productionText, { tone: "hot" }),
     statRow("heat.capacity", "Heat Capacity", `${profile.capacity} H`),
     statRow("heat.naturalCooling", "Natural Cooling", heatRate(profile.cooling), { tone: "cool" })
   ];
@@ -976,35 +1033,37 @@ function thermalSection(type, stat, ledger, context) {
 
   const prediction = context.prediction;
   if (prediction) {
-    rows.push(statRow("heat.predictedPeak", "Predicted Peak", `${Math.min(100, Math.round(prediction.ratio * 100))}% of capacity`));
-    rows.push(statRow("heat.state", "Expected State", rules.STATE_LABELS[prediction.state]));
+    rows.push(statRow("heat.predictedPeak", "Predicted Peak", `${Math.max(0, Math.round(prediction.ratio * 100))}% of capacity`));
     if (prediction.meltdownTime != null) {
       rows.push(statRow("heat.timeToOverheat", "Time to Overheat", `${prediction.meltdownTime.toFixed(1)}s at sustained load`, { tone: "hot" }));
     }
   }
 
-  const activeLabel = activeOutputLabel(stat);
-  if (activeLabel) {
-    const pct = (value) => `${Math.round(value * 100)}%`;
-    const active = rules.activeOutputForState || rules.performanceForState;
-    rows.push(statRow("heat.hot", "When Hot", `${pct(active(rules.STATE.HOT))} ${activeLabel}`));
-    rows.push(statRow("heat.critical", "When Critical", `${pct(active(rules.STATE.CRITICAL))} ${activeLabel}`));
-    rows.push(statRow("heat.overheated", "When Overheated", `${activeLabel} offline`));
+  const inspectedState = context.heatState !== undefined && context.heatState !== null
+    ? context.heatState
+    : prediction?.state;
+  if (Number.isFinite(Number(inspectedState))) {
+    const presentation = getHeatEffectsForComponent(type, stat, inspectedState, rules);
+    rows.push(statRow("heat.state", "Heat", presentation.state, { tone: presentation.hasPenalty ? "hot" : "condition" }));
+    const penaltyEffects = presentation.effects.filter((effect) => effect.isPenalty);
+    const detail = penaltyEffects.length
+      ? penaltyEffects.map(formatHeatEffect).join("; ")
+      : "Direct Heat penalty: None";
+    rows.push(statRow("heat.effect", "State effect", detail, { tone: presentation.hasPenalty ? "hot" : "condition" }));
+  } else {
+    for (const state of [rules.STATE.HOT, rules.STATE.CRITICAL, rules.STATE.OVERHEATED]) {
+      const presentation = getHeatEffectsForComponent(type, stat, state, rules);
+      const detail = presentation.effects.length
+        ? presentation.effects.map(formatHeatEffect).join("; ")
+        : "Direct Heat penalty: None";
+      rows.push(statRow(`heat.preview.${state}`, `When ${presentation.state}`, detail, {
+        tone: presentation.hasPenalty ? "hot" : "condition"
+      }));
+    }
   }
-  rows.push(statRow("heat.recovery", "Recovery", `Below ${Math.round((rules.THRESHOLDS.overheated - rules.HYSTERESIS.overheated) * 100)}% heat`));
 
   const kept = ledger.take(rows);
   return kept.length ? { id: "thermal", title: "Thermal Details", rows: kept, note: context.thermalNote || null } : null;
-}
-
-function activeOutputLabel(stat) {
-  if (stat.weapon) return stat.weapon.type === "beam" ? "beam output" : "fire rate";
-  if ((stat.thrust || 0) > 0 || (stat.lateralThrust || 0) > 0) return "thrust";
-  if ((stat.shieldRegen || 0) > 0) return "recharge rate";
-  if ((stat.repairRate || 0) > 0) return "repair output";
-  if ((stat.powerGeneration || 0) > 0) return "power output";
-  if (stat.rangeBonus || stat.accuracyBonus || stat.fireRateBonus || stat.captureBonus || stat.ecmStrength || stat.sensorRangeBonus) return "bonus effectiveness";
-  return null;
 }
 
 // ---------------------------------------------------------------------------

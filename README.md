@@ -86,7 +86,7 @@ The game remembers that server URL locally and includes it when you copy invites
 - Right-click the arena to move selected ships. Right-click an enemy to focus fire.
 - Use the minimap to jump the camera. Mouse wheel zooms; WASD or arrow keys pan; `F` follows your fleet; `Q` selects all live ships.
 - Add bots from the lobby controls for practice or fuller team matches.
-- Capture every relay and hold full control continuously for 20 seconds to win. Destroying ships and capturing relays still pays economy rewards.
+- Capture every relay and hold full control continuously for 20 seconds to win. Destroying ships and capturing relays pays in-match bounties and bonuses.
 
 
 ## Fleet Ledger

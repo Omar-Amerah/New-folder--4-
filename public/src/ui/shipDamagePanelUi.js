@@ -22,6 +22,8 @@ import {
   normalizeComponentHeatTuple
 } from "../shared/componentHeatSnapshot.js";
 import { shipHeatPercent, formatHeatPercent, checkShipHeatConsistency } from "../shared/heatDisplay.js";
+import { formatHeatEffect, getHeatEffectsForComponent } from "../shared/heatEffects.js";
+import { SHIELD_RESTART_DELAY_MS } from "../shared/shieldRules.js";
 import { escapeHtml } from "../shared/formatting.js";
 import { send } from "../network.js";
 import { notify } from "./toastUi.js";
@@ -36,7 +38,6 @@ import {
 } from "../game/componentDamage.js";
 
 const SHIP_DAMAGE_GRID_CENTER = 7;
-const HEAT_LABELS = ["Cool", "Warm", "Hot", "Critical", "Overheated"];
 const MIN_DRONE_UI_POWER = 0.05;
 const DRONE_COMMAND_TIMEOUT_MS = 3000;
 
@@ -66,6 +67,38 @@ function formatHeatAmount(value) {
 function finiteHeatRate(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function heatPresentationFor(ship, index, thermal = componentThermal(ship, index)) {
+  const part = ship.design[index];
+  return getHeatEffectsForComponent(part.type, PART_STATS[part.type] || {}, thermal.state, globalThis.HeatRules);
+}
+
+function heatStateText(ship, index, thermal = componentThermal(ship, index)) {
+  const presentation = heatPresentationFor(ship, index, thermal);
+  const effects = presentation.effects.filter((effect) => effect.isPenalty);
+  const effectText = effects.length ? "; " + effects.map(formatHeatEffect).join("; ") : "";
+  return "Heat: " + presentation.state + effectText;
+}
+
+function shieldRestartText(ship, part) {
+  const stats = PART_STATS[part?.type] || {};
+  if (!(Number(stats.shield) > 0 || Number(stats.shieldRegen) > 0)) return "";
+  const rawDelayMs = Number(ship.shieldRestartDelayMs);
+  const delayMs = Number.isFinite(rawDelayMs) && rawDelayMs >= 0 ? rawDelayMs : SHIELD_RESTART_DELAY_MS;
+  const delayText = (delayMs / 1000).toFixed(1) + " s";
+  const restartAt = Number(ship.shieldRestartAtMs);
+  const simulationTime = Number(state.snapshot?.simulationTimeMs);
+  const remainingMs = Number.isFinite(restartAt) && Number.isFinite(simulationTime)
+    ? Math.max(0, restartAt - simulationTime)
+    : null;
+  if (remainingMs !== null && remainingMs > 0) {
+    return "; Shield restart delay: " + delayText + "; Shield: Depleted; Restarting in: " + (remainingMs / 1000).toFixed(1) + " s";
+  }
+  if (Number(ship.maxShield) > 0 && Number(ship.shield) <= 0) {
+    return "; Shield restart delay: " + delayText + "; Shield: Depleted";
+  }
+  return "; Shield restart delay: " + delayText;
 }
 
 function selectedSingleShip() {
@@ -102,20 +135,14 @@ function renderComponentHeatReadout(ship, index) {
   const part = ship.design[index];
   const thermal = componentThermal(ship, index);
   const hp = Number(ship.chp?.[index]) || 0;
+  const heatText = heatStateText(ship, index, thermal);
   if (hp <= 0) {
     const retained = thermal.heat > 0 ? "; retained " + formatHeatAmount(thermal.heat) + " H" : "";
-    dom.shipDamageHover.textContent = partDisplayName(part.type) + ": Inactive / destroyed" + retained;
+    dom.shipDamageHover.textContent = partDisplayName(part.type) + ": Inactive / destroyed" + retained + "; " + heatText + shieldRestartText(ship, part);
     return;
   }
-  const percentText = formatHeatPercent(Math.min(125, thermal.ratio * 100));
+  const percentText = formatHeatPercent(thermal.ratio * 100);
   const capacityText = thermal.capacity > 0 ? " / " + formatHeatAmount(thermal.capacity) + " H; " + percentText : " H";
-  const rules = globalThis.HeatRules;
-  const passive = /frame/i.test(part.type) || ["armor", "compositeArmor", "bulkhead", "weaponMount"].includes(part.type);
-  const activePerf = rules?.activeOutputForState?.(thermal.state);
-  const passivePerf = rules?.passiveProtectionForState?.(thermal.state);
-  const perfText = passive && passivePerf != null && passivePerf < 1
-    ? "; " + Math.round(passivePerf * 100) + "% protection"
-    : activePerf != null && activePerf < 1 ? "; " + Math.round(activePerf * 100) + "% output" : "";
   const trend = componentHeatTrend(index);
   const trendText = trend.direction === "warming" ? "; Warming " + formatHeatRate(trend.smoothedRate)
     : trend.direction === "cooling" ? "; Cooling " + formatHeatRate(trend.smoothedRate)
@@ -130,7 +157,7 @@ function renderComponentHeatReadout(ship, index) {
     : "";
   dom.shipDamageHover.textContent = partDisplayName(part.type) + ": "
     + formatHeatAmount(thermal.heat) + capacityText + "; "
-    + (HEAT_LABELS[thermal.state] || "Cool") + trendText + activityText + perfText;
+    + heatText + trendText + activityText + shieldRestartText(ship, part);
 }
 
 function statusFor(ratio) {
@@ -150,7 +177,7 @@ function renderComponentDamageReadout(ship, index) {
   const rangeText = Number.isFinite(effectiveRange) && effectiveRange > 0 ? "; Range " + Math.round(effectiveRange) : "";
   dom.shipDamageHover.textContent = partDisplayName(part.type) + ": "
     + Math.max(0, Math.round(hp)) + "/" + Math.round(max) + ": "
-    + status[0].toUpperCase() + status.slice(1) + rangeText;
+    + status[0].toUpperCase() + status.slice(1) + rangeText + "; " + heatStateText(ship, index) + shieldRestartText(ship, part);
 }
 
 function refreshComponentReadout(ship) {

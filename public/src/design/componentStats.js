@@ -1,4 +1,4 @@
-// Calculations for ship statistics, speed cap scales, mass classes, power efficiency, fleet count, and builder warnings.
+// Calculations for ship statistics, mass classes, power efficiency, fleet count, and builder warnings.
 
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "./parts.js";
@@ -8,22 +8,21 @@ import ShieldRules from "../shared/shieldRules.js";
 import { angleDifference, directionalFootprintToShipRadians, normalizeRotation } from "./rotation.js";
 import { calculateMovementStats,
   calculateCenterOfMass,
-  calculateDirectionalTurnInputs, effectiveStackedValue } from "../shared/movementStats.js";
+  calculateDirectionalTurnInputs,
+  calculateGenericTurnModifier,
+  MOVEMENT_CONFIG } from "../shared/movementStats.js";
 import { calculateUniversalPower } from "../shared/universalPower.js";
+import { getEffectiveRepairRate, installedRepairRate } from "../shared/repairRules.js";
+import { nonCoreHullTotal } from "../shared/componentHullRules.js";
+import "../shared/weaponPresentationRules.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
 
 const DataSupportRules = globalThis.DataSupportRules || null;
+const WeaponPresentationRules = globalThis.WeaponPresentationRules;
 
-function sensorStackMultiplier(index) {
-  if (index <= 0) return 1;
-  if (index === 1) return 0.65;
-  if (index === 2) return 0.45;
-  return 0.25;
-}
-
-function blueprintSensorProfile(modules, massClass) {
-  const ranges = GENERATED_BALANCE?.visibility?.hullBaseSensorRange || {};
-  const baseRange = Number(ranges[String(massClass || "medium").toLowerCase()]) || Number(ranges.medium) || 460;
+function blueprintSensorProfile(modules) {
+  const visibility = GENERATED_BALANCE?.visibility || {};
+  const baseRange = Number(visibility.baseSensorRange) || 460;
   const sensors = modules.map((module, index) => {
     const part = PART_STATS[module.type];
     const bonus = Number(part?.sensorRangeBonus) || 0;
@@ -45,31 +44,27 @@ function blueprintSensorProfile(modules, massClass) {
   }).filter(Boolean);
   const omni = sensors
     .filter((entry) => entry.role !== "directed")
-    .sort((a, b) => (a.role === "omniSmall") - (b.role === "omniSmall") || b.bonus - a.bonus || a.index - b.index);
+    .sort((a, b) => b.bonus - a.bonus || a.index - b.index);
   const directed = sensors
     .filter((entry) => entry.role === "directed")
     .sort((a, b) => b.bonus - a.bonus || a.index - b.index);
   const stackedOmni = omni.map((entry, stackIndex) => {
-    const multiplier = sensorStackMultiplier(stackIndex);
     return {
       componentIndex: entry.index,
       type: entry.type,
       role: entry.role,
       stackIndex,
-      multiplier,
       nominalBonus: entry.bonus,
-      effectiveBonus: entry.bonus * multiplier
+      effectiveBonus: entry.bonus
     };
   });
   const stackedDirected = directed.map((entry, stackIndex) => {
-    const multiplier = sensorStackMultiplier(stackIndex);
-    const effectiveBonus = entry.bonus * multiplier;
+    const effectiveBonus = entry.bonus;
     return {
       componentIndex: entry.index,
       type: entry.type,
       role: entry.role,
       stackIndex,
-      multiplier,
       nominalBonus: entry.bonus,
       effectiveBonus,
       arc: entry.arc,
@@ -105,13 +100,13 @@ export function computeStats(modules, options = {}) {
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(modules, PART_STATS);
   let cost = 0;
   let mass = 0;
-  let maxHp = 0;
+  const maxHp = nonCoreHullTotal(modules, PART_STATS);
   let maxShield = 0;
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
-  let turnBonus = 0;
   const engineThrustValues = [];
+  const engineComponentIndices = [];
   const engineMassValues = [];
   const turnModuleValues = [];
   let energyStorage = 0;
@@ -154,6 +149,7 @@ export function computeStats(modules, options = {}) {
   }
 
   const centerOfMass = calculateCenterOfMass(modules, PART_STATS);
+  const isBlockedEngine = (index, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index);
 
   for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex += 1) {
     const module = modules[moduleIndex];
@@ -162,21 +158,18 @@ export function computeStats(modules, options = {}) {
 
     cost += part.cost;
     mass += part.mass;
-    maxHp += part.hp;
     maxShield += part.shield;
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
-    if (module.type !== "maneuverThruster" && module.type !== "gyroscope") turnBonus += blockedEngine ? 0 : part.turn;
-
     if (part.thrust > 0 && !blockedEngine) {
       engineThrustValues.push(part.thrust);
+      engineComponentIndices.push(moduleIndex);
       engineMassValues.push(part.mass || 0);
     }
 
-    // A generator's legacy `energy` field is not a ship battery. The shared
-    // power rules classify sources separately from storage, so aggregate stats
-    // must keep that field out of player-facing Energy Storage totals too.
+    // Power sources are separate from storage. Only explicit storage capacity
+    // on non-generating components contributes to player-facing totals.
     if ((part.powerGeneration || 0) <= 0) energyStorage += part.energyStorage || 0;
     blaster += part.blaster || 0;
     missile += part.missile || 0;
@@ -193,8 +186,6 @@ export function computeStats(modules, options = {}) {
       }
     }
     repair += part.repair || 0;
-    repairRate += part.repairRate || 0;
-
     if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
 
     rangeBonus += part.rangeBonus || 0;
@@ -217,7 +208,8 @@ export function computeStats(modules, options = {}) {
     }
   }
 
-  repairRate = effectiveStackedValue(repairRateValues, GENERATED_BALANCE?.repair?.stackingMultiplier ?? 0.8);
+  const repairRateInstalled = installedRepairRate(repairRateValues);
+  repairRate = getEffectiveRepairRate(repairRateValues, GENERATED_BALANCE);
   const baseShieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
   const shieldStats = baseShieldStats;
 
@@ -233,24 +225,30 @@ export function computeStats(modules, options = {}) {
   const powerRatio = powerFlow.summary.powerRatio;
   const power = availablePower - powerUse;
   const efficiency = powerRatio;
+  const componentPowerMultiplier = (index) => powerFlow.byComponentIndex[index]?.operationalMultiplier ?? 1;
 
   const directionalTurnInputs = calculateDirectionalTurnInputs(modules, PART_STATS, {
     centerOfMass,
-    isBlockedEngine: (index, module, part) => (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(index)
+    isBlockedEngine,
+    componentMultiplier: componentPowerMultiplier
   });
+  const turnBonus = calculateGenericTurnModifier(modules, PART_STATS, {
+    isBlockedEngine,
+    componentMultiplier: componentPowerMultiplier
+  });
+  const poweredEngineThrustValues = engineThrustValues.map((value, index) => value * componentPowerMultiplier(engineComponentIndices[index]));
   const movement = calculateMovementStats({
     mass,
     thrust,
     turnBonus,
     powerGeneration: availablePower,
     powerUse,
-    engineThrustValues,
+    engineThrustValues: poweredEngineThrustValues,
     engineMassValues,
     turnModuleValues,
-    directionalTurnInputs,
-    hullControlThrust: GENERATED_BALANCE?.movement?.hullControlThrust
+    directionalTurnInputs
   });
-  const sensorProfile = blueprintSensorProfile(modules, movement.massClass);
+  const sensorProfile = blueprintSensorProfile(modules);
 
   ecmStrength = Math.min(ecmStrength, 0.55);
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
@@ -291,11 +289,10 @@ export function computeStats(modules, options = {}) {
     turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
     turnRateRight: movement.turnRateRight,
+    directionalTurn: movement.directionalTurn,
     repair,
     shield: maxShield,
     modules,
-    speedCapped: movement.speedCapped,
-    speed: movement.maxSpeed,
     powerEfficiency: movement.powerEfficiency,
     powerDebuff: movement.powerDebuff
   });
@@ -305,7 +302,7 @@ export function computeStats(modules, options = {}) {
     cost,
     unitCost,
     mass: Math.round(mass * 100) / 100,
-    maxHp: Math.max(140, Math.round(maxHp * 1.15)),
+    maxHp,
     maxShield: Math.round(shieldStats.capacity),
     shieldRegen: Number(shieldStats.recharge.toFixed(2)),
     baseMaxShield: Math.round(baseShieldStats.capacity),
@@ -324,15 +321,12 @@ export function computeStats(modules, options = {}) {
     powerDebuff: Number(movement.powerDebuff.toFixed(2)),
     energyStorage,
     accel: Math.round(movement.accel),
+    brakingAcceleration: movement.brakingAcceleration,
     maxSpeed: movement.maxSpeed,
     turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
     turnRateRight: movement.turnRateRight,
     massClass: movement.massClass,
-    speedCap: movement.speedCap,
-    // Presentation-only passthrough of the movement solver's own flag so the
-    // summary can explain why top speed and the mass drag limit differ.
-    speedCapped: movement.speedCapped,
     turnCap: movement.turnCap,
     thrustRatio: Number(movement.thrustRatio.toFixed(2)),
     blaster,
@@ -341,6 +335,8 @@ export function computeStats(modules, options = {}) {
     beam,
     pointDefense,
     repair,
+    repairRateInstalled,
+    repairRateSourceCount: repairRateValues.length,
     repairRate,
     coolingBonus: Number(coolingBonus.toFixed(2)),
     captureBonus: Number(captureBonus.toFixed(2)),
@@ -358,6 +354,7 @@ export function computeStats(modules, options = {}) {
         (weaponTotals.pointDefense.dps * 0.04)
       ).toFixed(1)
     ),
+    weaponDpsLabel: weaponDpsLabel(weaponTotals),
     weapons: summarizeWeaponTotals(weaponTotals),
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     warnings,
@@ -387,21 +384,41 @@ export function weaponAccumulator() {
     projectileSpeed: 0,
     accuracy: 0,
     tracking: 0,
-    dps: 0
+    dps: 0,
+    rateProfiles: []
   };
 }
 
 export function addWeaponStats(total, weapon, fireRateMultiplier = 1) {
+  const effectiveFireRate = Math.max(0, (Number(weapon.fireRate) || 0) * (Number(fireRateMultiplier) || 0));
+  const effectiveWeapon = { ...weapon, fireRate: effectiveFireRate };
+  const presentation = WeaponPresentationRules.weaponCyclePresentation(effectiveWeapon);
   total.count += 1;
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
   total.radius = Math.max(total.radius, weapon.radius || 0);
-  total.fireRate += weapon.fireRate * fireRateMultiplier;
-  total.reload += calculateReload({ ...weapon, fireRate: weapon.fireRate * fireRateMultiplier });
+  total.fireRate += effectiveFireRate;
+  total.reload += presentation.reloadSeconds;
   total.projectileSpeed += weapon.projectileSpeed;
   total.accuracy += weapon.accuracy;
   total.tracking += weapon.tracking || 0;
-  total.dps += calculateDps(weapon) * fireRateMultiplier;
+  total.dps += presentation.dps;
+  total.rateProfiles.push(effectiveWeapon);
+}
+
+function recalculateRateDependentStats(total, fireRateMultiplier) {
+  if (!Array.isArray(total.rateProfiles)) return;
+  const multiplier = Number.isFinite(Number(fireRateMultiplier)) ? Number(fireRateMultiplier) : 1;
+  total.fireRate = 0;
+  total.reload = 0;
+  total.dps = 0;
+  for (const weapon of total.rateProfiles) {
+    const effectiveWeapon = { ...weapon, fireRate: Math.max(0, (Number(weapon.fireRate) || 0) * multiplier) };
+    const presentation = WeaponPresentationRules.weaponCyclePresentation(effectiveWeapon);
+    total.fireRate += effectiveWeapon.fireRate;
+    total.reload += presentation.reloadSeconds;
+    total.dps += presentation.dps;
+  }
 }
 
 export function applyWeaponUtilityBonuses(totals, bonuses) {
@@ -418,18 +435,16 @@ export function applyWeaponUtilityBonuses(totals, bonuses) {
 
     total.range += rangeBonus;
     total.accuracy = Math.min(total.count, total.accuracy + accuracyBonus * total.count);
-    total.fireRate *= fireRateMultiplier;
-    total.dps *= fireRateMultiplier;
-    total.reload = fireRateMultiplier > 0 ? total.reload / fireRateMultiplier : total.reload;
+    recalculateRateDependentStats(total, fireRateMultiplier);
   }
 }
 
 export function calculateDps(weapon) {
-  return Number(((weapon.damage || 0) * (weapon.fireRate || 0)).toFixed(1));
+  return Number(WeaponPresentationRules.weaponCyclePresentation(weapon).dps.toFixed(1));
 }
 
 export function calculateReload(weapon) {
-  return Number((1 / Math.max(0.01, weapon.fireRate || 1)).toFixed(2));
+  return Number(WeaponPresentationRules.weaponCyclePresentation(weapon).reloadSeconds.toFixed(2));
 }
 
 export function weaponRange(total) {
@@ -450,11 +465,21 @@ export function summarizeWeaponTotals(totals) {
       projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
       accuracy: total.count ? Number((total.accuracy / total.count).toFixed(2)) : 0,
       tracking: total.count ? Number((total.tracking / total.count).toFixed(2)) : 0,
-      dps: Number(total.dps.toFixed(1))
+      dps: Number(total.dps.toFixed(1)),
+      dpsLabel: WeaponPresentationRules.dpsLabelForProfiles(total.rateProfiles),
+      hasChargeWeapon: (Array.isArray(total.rateProfiles) ? total.rateProfiles : [])
+        .some((weapon) => WeaponPresentationRules.isSpinalChargeWeapon(weapon))
     };
   }
 
   return result;
+}
+
+export function weaponDpsLabel(totals) {
+  const profiles = Object.values(totals || {}).flatMap((total) => Array.isArray(total.rateProfiles) ? total.rateProfiles : []);
+  return profiles.some((weapon) => WeaponPresentationRules.isSpinalChargeWeapon(weapon))
+    ? "Weapon DPS (ideal charge cycle)"
+    : "Weapon DPS";
 }
 
 export function shipWarnings(stats) {
@@ -498,11 +523,6 @@ export function shipWarnings(stats) {
   // Do not warn just because the ship is medium/heavy.
   if (effectiveThrust > 0 && thrustRatio > 0 && thrustRatio < 1.2) {
     warnings.push("Severe mobility issue: thrust is very low for this ship's mass.");
-  }
-
-  // Only show this if the movement system explicitly flags a cap.
-  if (stats.speedCapped === true && Number(stats.speed || 0) > 0) {
-    warnings.push("Extreme speed soft cap is active; additional thrust has reduced value.");
   }
 
   return dedupeWarnings(warnings);

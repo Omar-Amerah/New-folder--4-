@@ -284,7 +284,7 @@ const helperChecks = vm.runInContext(`
     fractional: formatHeatPercent(shipHeatPercent({ heatNow: 3.5, heatMax: 1100 })),
     trueZero: formatHeatPercent(shipHeatPercent({ heatNow: 0, heatMax: 1100 })),
     noCapacity: shipHeatPercent({ heatNow: 12, heatMax: 0 }),
-    capped: shipHeatPercent({ heatNow: 5000, heatMax: 100 }),
+    aboveCapacity: shipHeatPercent({ heatNow: 5000, heatMax: 100 }),
     fmtZero: formatHeatPercent(0),
     fmtTiny: formatHeatPercent(0.04),
     fmtSubOne: formatHeatPercent(0.32),
@@ -296,7 +296,7 @@ const helperChecks = vm.runInContext(`
 assert.strictEqual(helperChecks.fractional, "0.3%", "3.5 / 1100 H must display as 0.3%, not 0%");
 assert.strictEqual(helperChecks.trueZero, "0%", "exact zero heat must display 0%");
 assert.strictEqual(helperChecks.noCapacity, 0, "missing capacity must derive 0%");
-assert.strictEqual(helperChecks.capped, 125, "derived percent must cap at 125");
+assert.strictEqual(helperChecks.aboveCapacity, 5000, "derived percent must remain above 100 when stored heat exceeds capacity");
 assert.strictEqual(helperChecks.fmtZero, "0%");
 assert.strictEqual(helperChecks.fmtTiny, "<0.1%", "non-zero heat below 0.1% must not display 0%");
 assert.strictEqual(helperChecks.fmtSubOne, "0.3%");

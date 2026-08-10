@@ -10,6 +10,7 @@ const { PARTS } = require("./components");
 const { getOccupiedCells } = require("./footprint");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules.js");
+const ComponentHullRules = require("../../public/src/shared/componentHullRules.js");
 const { initializeComponentPower, effectiveShieldStats } = require("./componentPower");
 const { initShipHeat } = require("./heat");
 const { buildThermalTopology } = require("./thermalTopology");
@@ -76,10 +77,8 @@ function createImmutableShipTemplate(design, dataLinks, stats) {
   }
 
   const exhaustAnalysis = EngineExhaustRules.analyze(normalizedDesign, PARTS, { alive: normalizedDesign.map(() => true) });
-  const rawHp = normalizedDesign.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
-  const rawSum = rawHp.reduce((sum, hp, i) => normalizedDesign[i].type === "core" ? sum : sum + hp, 0) || 1;
-  const scale = (stats?.maxHp || rawSum) / rawSum;
-  const componentMaxHp = rawHp.map((hp, i) => normalizedDesign[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale);
+  const componentMaxHp = ComponentHullRules.componentMaxHpForDesign(normalizedDesign, PARTS);
+  const maxHp = ComponentHullRules.nonCoreHullTotal(normalizedDesign, PARTS);
   const componentBaseThermals = normalizedDesign.map((module) => HeatRules.profile(module.type, PARTS[module.type] || {}));
   const componentBaseHeatCapacity = componentBaseThermals.map((thermal) => thermal.capacity);
   const thermalTopology = buildThermalTopology(normalizedDesign);
@@ -92,11 +91,11 @@ function createImmutableShipTemplate(design, dataLinks, stats) {
     componentCellIndex,
     componentStorageCharge: normalizedDesign.map((module) => {
       const part = PARTS[module?.type] || {};
-      return Number(part.energyCapacity ?? part.energyStorage ?? part.energy) || 0;
+      return Number(part.energyCapacity ?? part.energyStorage) || 0;
     }),
-    stats: { ...stats },
-    hp: stats?.maxHp || 0,
-    maxHp: stats?.maxHp || 0,
+    stats: { ...stats, maxHp },
+    hp: maxHp,
+    maxHp,
     coreDestroyed: false,
     componentAliveRevision: 1,
     dirtyComponents: new Set(),
@@ -116,7 +115,7 @@ function createImmutableShipTemplate(design, dataLinks, stats) {
   return deepFreeze({
     design: normalizedDesign.map((part) => ({ ...part })),
     dataLinks: normalizedDataLinks.map((link) => ({ ...link })),
-    stats: { ...stats },
+    stats: { ...stats, maxHp },
     weaponIndices,
     engineIndices,
     droneBayIndices,
@@ -130,7 +129,7 @@ function createImmutableShipTemplate(design, dataLinks, stats) {
     componentBaseHeatCapacity,
     radius: stats?.radius || 0,
     unitCost: stats?.unitCost || 0,
-    maxHp: stats?.maxHp || 0,
+    maxHp,
     prebuiltShipState: prebuilt
   });
 }

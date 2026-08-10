@@ -241,6 +241,46 @@ function addIncomingMissile(room, ship, id, distance = 200) {
 }
 
 {
+  const config = PARTS.decoyLauncher.decoyConfig;
+  for (const [power, label] of [[1, "100%"], [0.5, "50%"], [0.1, "10%"], [0.01, "1%"]]) {
+    const { room, ship, launcher } = fixture(() => 0);
+    ship.componentPower.byComponentIndex[0].operationalMultiplier = power;
+    launcher.stock = 0;
+    launcher.productionProgress = 0;
+    updateDecoyLaunchers(room, [ship], config.productionSeconds * 0.5, 0);
+    assert.ok(Math.abs(launcher.productionProgress - power * 0.5) < 1e-9,
+      `${label} Power advances decoy production at the universal linear rate`);
+  }
+
+  const zeroProduction = fixture(() => 0);
+  zeroProduction.ship.componentPower.byComponentIndex[0].operationalMultiplier = 0;
+  zeroProduction.launcher.stock = 0;
+  zeroProduction.launcher.productionProgress = 0;
+  updateDecoyLaunchers(zeroProduction.room, [zeroProduction.ship], config.productionSeconds, 0);
+  assert.equal(zeroProduction.launcher.productionProgress, 0, "0% Power stops decoy production");
+
+  for (const [power, label] of [[0.5, "50%"], [0.1, "10%"], [0.01, "1%"]]) {
+    const { room, ship, launcher } = fixture(() => 0);
+    ship.componentPower.byComponentIndex[0].operationalMultiplier = power;
+    launcher.stock = 1;
+    launcher.productionProgress = 1;
+    launcher.nextLaunchAt = 0;
+    addIncomingMissile(room, ship, `positive-power-launch-${label}`);
+    updateDecoyLaunchers(room, [ship], 0, 1);
+    assert.equal(room.decoys.size, 1, `${label} Power permits a decoy launch`);
+  }
+
+  const zeroLaunch = fixture(() => 0);
+  zeroLaunch.ship.componentPower.byComponentIndex[0].operationalMultiplier = 0;
+  zeroLaunch.launcher.stock = 1;
+  zeroLaunch.launcher.productionProgress = 1;
+  zeroLaunch.launcher.nextLaunchAt = 0;
+  addIncomingMissile(zeroLaunch.room, zeroLaunch.ship, "zero-power-launch");
+  updateDecoyLaunchers(zeroLaunch.room, [zeroLaunch.ship], 0, 1);
+  assert.equal(zeroLaunch.room.decoys.size, 0, "0% Power prevents a decoy launch");
+}
+
+{
   const { room, ship } = fixture(() => 0);
   updateDecoyLaunchers(room, [ship], 0, 0);
   const config = PARTS.decoyLauncher.decoyConfig;

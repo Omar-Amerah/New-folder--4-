@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const serverShipDesign = require("../src/server/shipDesign");
 
 globalThis.document = {
   getElementById: () => null,
@@ -9,7 +13,63 @@ globalThis.DataSupportRules = { normalizeDataLinks: () => [] };
 const engineExhaust = await import("../public/src/shared/engineExhaust.js");
 globalThis.EngineExhaustRules = engineExhaust.default || engineExhaust;
 
+const design = [
+  { x: 7, y: 7, type: "core" },
+  { x: 7, y: 8, type: "engine" }
+];
+const legacySensorDesign = [
+  { x: 7, y: 7, type: "core" },
+  { x: 7, y: 8, type: "engine" },
+  { x: 8, y: 7, type: "sensorArray", rotation: 0 },
+  { x: 8, y: 9, type: "directedSensor", rotation: 90 }
+];
+
 const storage = await import("../public/src/design/blueprintStorage.js");
+
+const migratedSensors = storage.normalizeDesignDetailed(legacySensorDesign, { allowEmpty: true });
+assert.deepEqual(migratedSensors.issues, [], "legacy sensors migrate without creating placement errors when space is available");
+assert.deepEqual(
+  migratedSensors.modules.map((part) => part.type),
+  ["core", "engine", "largeSensor", "largeDirectedSensor"],
+  "legacy sensor identifiers become their current catalogue variants"
+);
+assert.deepEqual(
+  migratedSensors.modules.slice(2).map((part) => ({ x: part.x, y: part.y, rotation: part.rotation })),
+  [{ x: 8, y: 7, rotation: 0 }, { x: 8, y: 9, rotation: 90 }],
+  "sensor migration preserves position and rotation when the expanded footprint fits"
+);
+assert.equal(migratedSensors.changed, true, "sensor migration is marked as a storage change");
+
+const migratedCurrent = storage.migrateDesignStorage({
+  schemaVersion: 3,
+  kind: "current-design",
+  payload: { modules: legacySensorDesign, dataLinks: [], combatStyle: "hold" }
+});
+assert.equal(migratedCurrent.migrated, true, "current saved designs with legacy sensors are marked for persistence");
+assert.deepEqual(migratedCurrent.modules.map((part) => part.type), migratedSensors.modules.map((part) => part.type));
+
+const serverLegacyValidation = serverShipDesign.validateDesign(legacySensorDesign);
+assert.equal(serverLegacyValidation.ok, true, "server accepts a legacy sensor blueprint when its replacement footprint fits");
+assert.deepEqual(serverLegacyValidation.modules.map((part) => part.type), migratedSensors.modules.map((part) => part.type));
+assert.deepEqual(
+  serverShipDesign.normalizeShipDesignSnapshot(legacySensorDesign).map((part) => part.type),
+  migratedSensors.modules.map((part) => part.type),
+  "server snapshot normalization uses the same legacy sensor replacements"
+);
+
+const packedLegacy = [];
+for (let y = 0; y <= 14; y += 1) {
+  for (let x = 0; x <= 14; x += 1) {
+    packedLegacy.push(x === 7 && y === 7
+      ? { x, y, type: "sensorArray" }
+      : { x, y, type: x === 0 && y === 0 ? "core" : "frame" });
+  }
+}
+const blockedMigration = storage.normalizeDesignDetailed(packedLegacy, { allowEmpty: true });
+assert.equal(blockedMigration.issues[0]?.code, "legacy-component-migration",
+  "an impossible footprint expansion is reported explicitly");
+assert.equal(blockedMigration.modules.some((part) => part.type === "largeSensor"), false,
+  "an unmigratable legacy sensor is not left overlapping the packed design");
 
 class MemoryStorage {
   constructor() { this.values = new Map(); }
@@ -17,10 +77,6 @@ class MemoryStorage {
   setItem(key, value) { this.values.set(key, String(value)); }
 }
 
-const design = [
-  { x: 7, y: 7, type: "core" },
-  { x: 7, y: 8, type: "engine" }
-];
 const oldWiring = {
   version: 3,
   power: { sections: [], connections: [] },

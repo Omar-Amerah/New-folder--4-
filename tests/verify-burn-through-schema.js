@@ -17,7 +17,7 @@ generateBalanceArtifacts();
 function balanceWith(weapon) {
   return {
     metadata: {}, shipPricing: {}, economy: { shipCap: 1 },
-    rewards: {}, movement: {}, projectiles: {}, missileGuidance: {},
+    movement: {}, projectiles: {}, missileGuidance: {},
     fleetLimits: {}, capture: {}, repair: {},
     drones: {
       squadSize: 1, maxBaysPerShip: 1, maxActivePerShip: 1, maxActivePerPlayer: 1,

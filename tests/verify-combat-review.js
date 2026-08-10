@@ -40,9 +40,8 @@ function makeShip(design, overrides = {}) {
 }
 
 
-// Component-aware targeting should use rotated component centres, avoid the core
-// while protected by other living modules, and prefer a different module when
-// retargeting is requested.
+// Component-aware targeting should use rotated component centres, prefer
+// non-Core active systems, and retain the previous component's retarget state.
 {
   const target = makeShip(
     [
@@ -56,11 +55,12 @@ function makeShip(design, overrides = {}) {
   assert(Math.abs(point.x - 100) < 0.0001, "component aim point should rotate with the target ship");
   assert(Math.abs(point.y - 226) < 0.0001, "component aim point should translate with the target ship");
 
-  const room = { combatRandom: () => 0.999 };
-  assert.notStrictEqual(selectComponentAimIndex(room, target, null), 0, "core should not be selected while non-core components live");
-  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, 1), 2, "retarget should prefer a different living component when possible");
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, null), 1, "automatic targeting prefers the first living non-Core system");
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, 1), 2, "retargeting avoids repeating the previous component when another is alive");
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0.999 }, target, 1), 2, "the remaining non-Core component remains eligible");
   target.componentHp[1] = 0;
-  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, 1), 2, "destroyed component should retarget to another living component");
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0 }, target, 2), 2, "destroyed components are excluded while the living system remains eligible");
+  assert.strictEqual(selectComponentAimIndex({ combatRandom: () => 0.999 }, target, 2), 2, "retargeting falls back to the remaining living non-Core component");
 }
 
 // A beam crossing a target whose rear module is listed first should still damage
@@ -72,7 +72,6 @@ function makeShip(design, overrides = {}) {
   );
   attacker.weaponCooldowns = [0, 0];
   attacker.weaponAngles = [0, 0];
-  attacker.weaponAcquiredTargetIds = [null, "t"];
 
   const target = makeShip(
     [

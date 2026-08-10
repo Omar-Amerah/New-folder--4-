@@ -139,13 +139,11 @@ function resetControlVictory(room, broadcastReset = false) {
 
 function finalizeMatchWinner(room, winner, now, message) {
   if (room.winner || room.phase === "ended") return false;
-  const { finalizeMatchRewards } = require("./economy");
   const { broadcastRoom, broadcastSnapshot } = require("./messages");
   room.winner = winner;
   room.winnerAt = now;
   room.phase = "ended";
   resetControlVictory(room, false);
-  finalizeMatchRewards(room);
   broadcastRoom(room, { type: "notice", message });
   broadcastSnapshot(room, now, true);
   return true;

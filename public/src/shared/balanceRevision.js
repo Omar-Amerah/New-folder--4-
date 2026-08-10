@@ -41,7 +41,7 @@
   // metadata must not force a spurious incompatibility. Missing sections are
   // serialized as null so absence still contributes deterministically.
   const REVISION_SECTIONS = [
-    "components", "shipPricing", "economy", "rewards", "movement",
+    "components", "shipPricing", "economy", "movement",
     "projectiles", "missileGuidance", "fleetLimits", "capture", "repair", "drones",
   ];
 

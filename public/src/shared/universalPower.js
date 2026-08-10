@@ -28,8 +28,35 @@ function partFor(parts, type) {
   return parts?.[type] || parts?.frame || {};
 }
 
+function sumSorted(values) {
+  const sorted = values.slice().sort((left, right) => left - right);
+  let total = 0;
+  for (const value of sorted) total += value;
+  return total;
+}
+
+function allocateStorageRate(entries, requestedMw, rateKey, availableRateOf) {
+  const candidates = [];
+  for (const entry of entries) {
+    entry[rateKey] = 0;
+    if (entry.role !== "storage" || !entry.alive || !entry.enabled) continue;
+    const availableMw = Math.max(0, numberOr(availableRateOf(entry), 0));
+    if (availableMw > 0) candidates.push({ entry, availableMw });
+  }
+
+  const totalAvailableMw = sumSorted(candidates.map(({ availableMw }) => availableMw));
+  const requested = Math.max(0, numberOr(requestedMw, 0));
+  const allocationScale = totalAvailableMw > 0
+    ? Math.min(1, requested / totalAvailableMw)
+    : 0;
+  for (const { entry, availableMw } of candidates) {
+    entry[rateKey] = availableMw * allocationScale;
+  }
+  return Math.min(requested, totalAvailableMw);
+}
+
 export function storageCapacityForPart(part = {}) {
-  return Math.max(0, numberOr(part.energyCapacity ?? part.energyStorage ?? part.energy, 0));
+  return Math.max(0, numberOr(part.energyCapacity ?? part.energyStorage, 0));
 }
 
 export function isPowerStoragePart(part = {}) {
@@ -109,18 +136,19 @@ export function calculateUniversalPower(design = [], parts = {}, options = {}) {
   const demandMw = entries.reduce((sum, entry) => sum + entry.activeDemandMw, 0);
   const generatorOutputMw = entries.reduce((sum, entry) => sum + (entry.role === "source" ? entry.sourceOutputMw : 0), 0);
   let remainingDeficitMw = Math.max(0, demandMw - generatorOutputMw);
-  let storageDischargeMw = 0;
 
-  // A shortage draws from every available storage component in stable design
-  // order. This is a pooled reserve, not a priority system.
-  for (const entry of entries) {
-    if (entry.role !== "storage" || !entry.alive || !entry.enabled || remainingDeficitMw <= 0) continue;
-    const chargeLimitedMw = entry.currentChargeMj * entry.dischargeEfficiency / availabilitySeconds;
-    const availableMw = Math.min(entry.maxDischargeRateMw, Math.max(0, chargeLimitedMw));
-    entry.dischargeRateMw = Math.min(availableMw, remainingDeficitMw);
-    remainingDeficitMw -= entry.dischargeRateMw;
-    storageDischargeMw += entry.dischargeRateMw;
-  }
+  // A shortage draws proportionally from every available storage component.
+  // Each component supplies the same fraction of its available rate, so the
+  // component-array order cannot become a hidden priority.
+  const storageDischargeMw = allocateStorageRate(
+    entries,
+    remainingDeficitMw,
+    "dischargeRateMw",
+    (entry) => {
+      const chargeLimitedMw = entry.currentChargeMj * entry.dischargeEfficiency / availabilitySeconds;
+      return Math.min(entry.maxDischargeRateMw, Math.max(0, chargeLimitedMw));
+    }
+  );
 
   const availableGenerationMw = generatorOutputMw + storageDischargeMw;
   const powerRatio = demandMw > 0 ? clamp(availableGenerationMw / demandMw, 0, 1) : 1;
@@ -132,17 +160,20 @@ export function calculateUniversalPower(design = [], parts = {}, options = {}) {
   }
 
   // Spare generator output charges storage after active demand is met. A
-  // battery never discharges and charges in the same solve.
-  let remainingChargeMw = Math.max(0, generatorOutputMw - demandMw);
-  let storageChargingMw = 0;
-  for (const entry of entries) {
-    if (entry.role !== "storage" || !entry.alive || !entry.enabled || remainingChargeMw <= 0) continue;
-    const roomMj = Math.max(0, entry.storageCapacityMw - entry.currentChargeMj);
-    const roomLimitedMw = entry.chargeEfficiency > 0 ? roomMj / (entry.chargeEfficiency * availabilitySeconds) : 0;
-    entry.chargeRateMw = Math.min(entry.maxChargeRateMw, Math.max(0, roomLimitedMw), remainingChargeMw);
-    remainingChargeMw -= entry.chargeRateMw;
-    storageChargingMw += entry.chargeRateMw;
-  }
+  // battery never discharges and charges in the same solve. Charging uses the
+  // same proportional allocation rule as discharge.
+  const remainingChargeMw = Math.max(0, generatorOutputMw - demandMw);
+  const storageChargingMw = allocateStorageRate(
+    entries,
+    remainingChargeMw,
+    "chargeRateMw",
+    (entry) => {
+      const roomMj = Math.max(0, entry.storageCapacityMw - entry.currentChargeMj);
+      return entry.chargeEfficiency > 0
+        ? Math.min(entry.maxChargeRateMw, roomMj / (entry.chargeEfficiency * availabilitySeconds))
+        : 0;
+    }
+  );
 
   const generatorUsedForDemandMw = Math.min(generatorOutputMw, allocatedMw);
   const generatorUsedMw = generatorUsedForDemandMw + storageChargingMw;

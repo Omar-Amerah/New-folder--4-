@@ -71,7 +71,6 @@ function makeFlakBullet(ownerId, x, y, vx, vy, life, overrides = {}) {
     directImpactBonus: weapon.directImpactBonus ?? 0,
     shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1,
     hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1,
-    armorInteractionSeconds: Math.min(1, weapon.armourPenetration ?? 1),
     ...overrides
   };
 }
@@ -217,11 +216,14 @@ function runUpdate(room, dt = 1 / 30, now = 0) {
   const ship = makeShip("foe", 50, 50);
   room.ships.set(ship.id, ship);
 
-  const flakTarget = findPointDefenseTarget(room, 0, 0, "me", PARTS.flakCannon.weapon, [ship]);
+  const flakTarget = findPointDefenseTarget(room, 0, 0, "me", PARTS.flakCannon.weapon, [ship], ship.id);
   assert(flakTarget, "flak must find a point-defence target");
   assert.strictEqual(flakTarget.type, "projectile", "flak target priority must prefer missiles first");
 
-  const pdTarget = findPointDefenseTarget(room, 0, 0, "me", PARTS.pointDefense.weapon, [ship]);
+  // The two calls represent separate defensive mounts. Reset the synthetic
+  // fixture's shared selection state before checking the other weapon family.
+  ship._pdSelectionState = {};
+  const pdTarget = findPointDefenseTarget(room, 0, 0, "me", PARTS.pointDefense.weapon, [ship], ship.id);
   assert(pdTarget, "point defence must find a target");
   assert.strictEqual(pdTarget.type, "drone", "point defence must keep drone-first priority");
 }

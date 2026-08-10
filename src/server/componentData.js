@@ -8,16 +8,15 @@ const { getCommandAuraMultiplier } = require("./commandAuras");
 const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 const HeatRules = require("../../public/src/shared/heatRules");
 const TurretRules = require("../../public/src/shared/turretRules");
+const BackupCoreRules = require("../../public/src/shared/backupCoreRules");
 
 const ZERO_SUPPORT = Object.freeze({ rangeBonus: 0, accuracyBonus: 0, fireRateBonus: 0, sourceIndices: Object.freeze([]), contributions: Object.freeze([]), status: "disconnected" });
 const WEAPON_AURA_KEYS = Object.freeze([
   "weaponAccuracyMultiplier",
   "weaponTrackingMultiplier",
   "turretAimSpeedMultiplier",
-  "targetAcquisitionMultiplier",
   "pointDefenceTrackingMultiplier",
   "flakTrackingMultiplier",
-  "interceptionReactionMultiplier"
 ]);
 const stable = (value) => JSON.stringify(value, (_key, item) => (item instanceof Set ? [...item].sort() : item));
 const perf = () => global.__mfaDataSupportPerf || null;
@@ -161,31 +160,26 @@ function applyEffectiveWeaponCommandAuras(profile, ship) {
   if (!Number.isFinite(modified.aimSpeed)) {
     modified.aimSpeed = TurretRules.turnRateFor({ type: modified.type });
   }
-  if (ship?.commandState === "backupCore") {
-    modified.accuracy = Number.isFinite(profile.accuracy) ? profile.accuracy * 0.85 : 0.85;
+  if (Number.isFinite(profile.accuracy) || BackupCoreRules.isBackupCoreActive(ship)) {
+    const baseAccuracy = Number.isFinite(profile.accuracy) ? profile.accuracy : 1;
+    modified.accuracy = BackupCoreRules.applyActiveSystemEffectiveness(baseAccuracy, ship);
   }
   const accMult = getCommandAuraMultiplier(ship, "weaponAccuracyMultiplier");
   const trackMult = getCommandAuraMultiplier(ship, "weaponTrackingMultiplier");
   const aimMult = getCommandAuraMultiplier(ship, "turretAimSpeedMultiplier");
-  const acqMult = getCommandAuraMultiplier(ship, "targetAcquisitionMultiplier");
   if (accMult !== 1 && Number.isFinite(modified.accuracy)) modified.accuracy = Math.min(0.999, modified.accuracy * accMult);
   if (trackMult !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * trackMult;
   if (aimMult !== 1 && Number.isFinite(modified.aimSpeed)) modified.aimSpeed = modified.aimSpeed * aimMult;
-  if (acqMult !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / acqMult;
   const family = modified.type;
   if (family === "pointDefense") {
     const pdTrack = getCommandAuraMultiplier(ship, "pointDefenceTrackingMultiplier");
-    const react = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
     if (pdTrack !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * pdTrack;
     if (pdTrack !== 1 && Number.isFinite(modified.aimSpeed) && modified.aimSpeed > 0) modified.aimSpeed = modified.aimSpeed * pdTrack;
-    if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
   }
   if (family === "flak") {
     const flakTrack = getCommandAuraMultiplier(ship, "flakTrackingMultiplier");
-    const react = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
     if (flakTrack !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * flakTrack;
     if (flakTrack !== 1 && Number.isFinite(modified.aimSpeed) && modified.aimSpeed > 0) modified.aimSpeed = modified.aimSpeed * flakTrack;
-    if (react !== 1 && Number.isFinite(modified.trackingDelay) && modified.trackingDelay > 0) modified.trackingDelay = modified.trackingDelay / react;
   }
   return modified;
 }

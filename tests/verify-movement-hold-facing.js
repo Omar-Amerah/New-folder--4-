@@ -247,8 +247,6 @@ function run() {
     attacker.combatTargetId = target.id;
     attacker.weaponCooldowns = new Array(attacker.design.length).fill(0);
     attacker.weaponAngles = new Array(attacker.design.length).fill(0);
-    attacker.weaponAcquiredTargetIds = new Array(attacker.design.length).fill(null);
-    attacker.weaponAcquiredTargetIds[3] = target.id;
     updateShipMovement(room, attacker, DT, 0);
     assert(attacker.movement.holdEngaged, "the firing test should begin in Hold position");
     updateShipWeapons(room, attacker, [attacker, target], 1 / 30, 1000);

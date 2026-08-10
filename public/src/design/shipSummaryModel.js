@@ -18,6 +18,7 @@ import { statRow, StatLedger, isMeaningfulValue } from "./componentInspectorMode
 import { formatMass, formatHull, formatShield, formatThrust, formatRepair, formatSpeed, formatPercent, round2 } from "./statFormatting.js";
 import { PART_STATS } from "./parts.js";
 import { sortStatusCallouts } from "./statusCalloutOrder.js";
+import { BRAKE_ACCEL_RATIO, calculateBrakingAcceleration, calculateBrakingDistanceFromDeceleration } from "../shared/movementStats.js";
 
 export { statRow, StatLedger, isMeaningfulValue };
 
@@ -127,6 +128,19 @@ function joinList(items) {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
+function turnAuthorityText(value) {
+  const amount = Number(value) || 0;
+  return amount > 0 ? amount.toFixed(2) : null;
+}
+
+function maneuverTurnAuthorityText(stats) {
+  const directional = stats.directionalTurn || {};
+  const left = Number(directional.anticlockwiseManeuverTurn) || 0;
+  const right = Number(directional.clockwiseManeuverTurn) || 0;
+  if (left <= 0 && right <= 0) return null;
+  return `Left ${left.toFixed(2)} · Right ${right.toFixed(2)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Overview : approximately nine headline values
 // ---------------------------------------------------------------------------
@@ -140,7 +154,7 @@ function overviewRows(stats, power, ledger, includePower = true) {
     // A real zero keeps the nine-cell grid stable between designs; "None" would
     // be filtered out and leave a hole. The status area explains the consequence.
     statRow("shield", "Shield", formatShield(stats.maxShield)),
-    statRow("weapons", "Weapon DPS", `${Number(stats.weaponDps || 0)}`),
+    statRow("weapons", stats.weaponDpsLabel || "Weapon DPS", `${Number(stats.weaponDps || 0)}`),
     statRow("speed", "Max speed", formatSpeed(Math.round(Number(stats.maxSpeed) || 0))),
     statRow("turn", "Turn rate", turnText(stats))
   ];
@@ -185,10 +199,11 @@ function statusMessages(stats, power, context) {
   // Mobility
   if (Number(stats.effectiveThrust || 0) <= 0) {
     add("no-thrust", "bad", includePower ? "No effective thrust · add engines or restore Power" : "No effective thrust · add engines");
-  } else if (stats.speedCapped === true) {
-    add("mass-drag", "warning", "Mass is limiting maximum speed");
   }
   const asymmetry = turnAsymmetry(stats);
+  if (Math.max(Number(stats.turnRateLeft ?? stats.turnRate ?? 0), Number(stats.turnRateRight ?? stats.turnRate ?? 0)) <= 0) {
+    add("no-turn-authority", "warning", "No turn authority · add an Engine, Gyroscope, or Maneuver Thruster");
+  }
   if (asymmetry) {
     add("asymmetric-turn", "warning", asymmetry.oneSided
       ? `Asymmetric turning: this ship cannot turn ${asymmetry.slowerSide}`
@@ -222,6 +237,10 @@ function mobilitySection(stats, ledger) {
   const hasThrust = Number(stats.effectiveThrust || 0) > 0;
   const left = Number(stats.turnRateLeft ?? stats.turnRate ?? 0);
   const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
+  const reportedBrakingAcceleration = Number(stats.brakingAcceleration);
+  const brakingAcceleration = Number.isFinite(reportedBrakingAcceleration)
+    ? reportedBrakingAcceleration
+    : calculateBrakingAcceleration(stats.accel);
   const turns = Math.max(left, right) > 0;
   const accelText = (value) => {
     const v = Number(value || 0);
@@ -230,11 +249,19 @@ function mobilitySection(stats, ledger) {
   };
   const rows = [
     statRow("accel", "Acceleration", hasThrust ? accelText(stats.accel) : null),
+    statRow(
+      "brakingAcceleration",
+      "Braking",
+      hasThrust && brakingAcceleration > 0
+        ? `${accelText(brakingAcceleration)} (${BRAKE_ACCEL_RATIO}x acceleration)`
+        : null
+    ),
     statRow("thrust", "Effective Thrust", hasThrust ? formatThrust(stats.effectiveThrust) : null),
     statRow("thrustRatio", "Thrust-to-Mass", hasThrust ? `${round2(stats.thrustRatio)} kN/T` : null),
     statRow("engineEfficiency", "Engine Efficiency", hasThrust ? formatPercent(stats.engineEfficiency) : null),
-    statRow("speedCap", "Soft-cap onset", formatSpeed(stats.speedCap)),
-    statRow("massDragLimit", "Mass Drag Limit", formatSpeed(stats.speedCap)),
+    statRow("turn.engineVectoring", "Engine vectoring", turnAuthorityText(stats.directionalTurn?.mainEngineVectorTurn)),
+    statRow("turn.gyroscopes", "Gyroscopes", turnAuthorityText(stats.directionalTurn?.gyroscopeTurn)),
+    statRow("turn.maneuverThrusters", "Maneuver Thrusters", maneuverTurnAuthorityText(stats)),
     statRow("turnLeft", "Left Turn", turns ? `${degreesPerSecond(left)}°/s` : null),
     statRow("turnRight", "Right Turn", turns ? `${degreesPerSecond(right)}°/s` : null),
     statRow("turnCap", "Turn Limit", Number(stats.turnCap || 0) > 0 ? `${degreesPerSecond(stats.turnCap)}°/s` : null),
@@ -249,25 +276,16 @@ function mobilitySection(stats, ledger) {
   }
 
   if (hasThrust && Number(stats.maxSpeed || 0) > 0) {
-    // Flight assist thrusts in whatever direction is needed, so a ship stops on
-    // the same acceleration it accelerates with.
-    const decel = Number(stats.accel || 0);
-    if (decel > 0) {
-      const brakingDist = (stats.maxSpeed * stats.maxSpeed) / (2 * decel);
+    const brakingDist = calculateBrakingDistanceFromDeceleration(stats.maxSpeed, brakingAcceleration);
+    if (brakingDist > 0) {
       rows.push(statRow("brakingDistance", "Braking distance", `${Math.round(brakingDist)} m`));
     }
   }
 
   const speed = Math.round(Number(stats.maxSpeed) || 0);
-  const cap = Math.round(Number(stats.speedCap) || 0);
-  let note = null;
-  if (hasThrust && cap > 0) {
-    if (stats.speedCapped === true) {
-      note = `Thrust would exceed the ${formatSpeed(stats.speedCap)} soft-cap onset (mass drag limit); the limit is applied as a soft cap, so the actual maximum speed is ${formatSpeed(speed)}.`;
-    } else if (speed < cap) {
-      note = `Top speed is set by available thrust (${formatSpeed(speed)}), which is below the ${formatSpeed(stats.speedCap)} soft-cap onset (mass drag limit).`;
-    }
-  }
+  const note = hasThrust
+    ? `Top speed is set by available thrust (${formatSpeed(speed)}) and the continuous mass-drag curve.`
+    : null;
 
   const kept = ledger.take(rows);
   return kept.length ? { id: "mobility", title: "Mobility Details", rows: kept, note } : null;
@@ -302,7 +320,7 @@ function combatSection(stats, ledger, context = {}) {
     const total = weapons[family];
     if (!total || !total.count) continue;
     rows.push(statRow(`weapons.${family}`, label,
-      `${total.count}× · ${total.dps} DPS · ${Math.round(total.range)} m`));
+      `${total.count}× · ${total.dps} ${total.dpsLabel || "DPS"} · ${Math.round(total.range)} m`));
   }
   const pointDefense = Number(stats.pointDefense || 0);
   rows.push(statRow("weapons.pointDefense", "Point Defence",
@@ -317,9 +335,15 @@ function combatSection(stats, ledger, context = {}) {
 }
 
 function supportSection(stats, ledger) {
+  const repairSourceCount = Number(stats.repairRateSourceCount || 0);
+  const multipleRepairSources = repairSourceCount > 1;
+  const installedRepair = Number(stats.repairRateInstalled ?? stats.repairRate ?? 0) || 0;
+  const effectiveRepair = Number(stats.repairRate || 0) || 0;
   const rows = [
     // Zero-value capabilities are omitted entirely : never "Repair: 0 HP/s".
-    statRow("repair", "Repair Rate", Number(stats.repairRate || 0) > 0 ? formatRepair(stats.repairRate) : null),
+    statRow("repair", multipleRepairSources ? "Installed/Base Repair" : "Repair Rate", installedRepair > 0 ? formatRepair(installedRepair) : null),
+    statRow("repair.effective", "Effective Repair", multipleRepairSources ? formatRepair(effectiveRepair) : null),
+    statRow("repair.stacking", "Repair Stacking", multipleRepairSources ? "Diminishing returns" : null),
     statRow("drones", "Drone Capacity", Number(stats.droneCapacity || 0) > 0 ? `${stats.droneCapacity}` : null),
     statRow("dronesByType", "Drone Squads", droneSquadText(stats)),
     statRow("capture", "Capture Pressure", Number(stats.captureBonus || 0) > 0 ? `+${formatPercent(stats.captureBonus)}` : null),

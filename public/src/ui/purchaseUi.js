@@ -160,7 +160,7 @@ export function buyPurchaseOption(optionId) {
   invalidatePresentation("purchase-pending");
   hidePurchaseTooltip();
   const card = dom.purchaseOptions?.querySelector?.(`[data-option-id="${escapeHtml(optionId)}"]`);
-  setPurchaseCardFeedback(card, "pending", "Building...");
+  setPurchaseCardFeedback(card, "pending", "Queuing...");
 }
 
 
@@ -558,7 +558,7 @@ export function getPurchaseOptionState(option, quantity = state.purchaseQuantity
   const error = state.purchaseErrors.get(option.id);
   let reason = "";
 
-  if (pending) reason = pending.timedOut ? "Request timeout" : "Building...";
+  if (pending) reason = pending.timedOut ? "Request timeout" : "Queuing...";
   else if (error) reason = error.message || "Purchase failed";
   else if (state.phase !== "active") reason = "Match not active";
   else if (!mine?.ready) reason = "Ready up before buying ships";
@@ -741,7 +741,7 @@ export function renderPurchaseBar() {
 }
 
 export function purchaseStatusText(optionState) {
-  if (optionState.pending) return "Building…";
+  if (optionState.pending) return "Queuing…";
   if (optionState.error) return `Purchase failed : ${optionState.reason || "Server rejected request"}`;
   if (optionState.canBuy) return "";
   const reason = optionState.reason || "Not available";
@@ -1004,7 +1004,8 @@ export function purchaseCostText(option, optionState) {
 }
 
 export function weaponSummaryText(stats) {
-  return `${round2(stats.weaponDps)} DPS`;
+  const label = stats.weaponDpsLabel || "Weapon DPS";
+  return `${round2(stats.weaponDps)} ${label === "Weapon DPS" ? "DPS" : label}`;
 }
 
 export function showPurchaseTooltip(optionId, event) {
@@ -1012,6 +1013,7 @@ export function showPurchaseTooltip(optionId, event) {
   if (!option || !dom.purchaseTooltip) return;
   const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
   const stats = option.stats;
+  const dpsLabel = stats.weaponDpsLabel === "Weapon DPS" ? "DPS" : (stats.weaponDpsLabel || "DPS");
   const displayStyle = (option.combatStyle || "hold").charAt(0).toUpperCase() + (option.combatStyle || "hold").slice(1);
   dom.purchaseTooltip.innerHTML = `
     <div class="purchase-tooltip-head">
@@ -1037,7 +1039,7 @@ export function showPurchaseTooltip(optionId, event) {
       ${stats.coolingBonus > 0 ? tooltipStat("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : ""}
       ${stats.captureBonus > 0 ? tooltipStat("Capture", `+${formatPercent(stats.captureBonus)}`) : ""}
       ${tooltipStat("Weapons", weaponSummaryText(stats))}
-      ${tooltipStat("DPS", round2(stats.weaponDps))}
+      ${tooltipStat(dpsLabel, round2(stats.weaponDps))}
     </div>
   `;
   dom.purchaseTooltip.hidden = false;

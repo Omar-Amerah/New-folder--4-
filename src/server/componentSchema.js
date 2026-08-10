@@ -12,7 +12,8 @@ const VALID_AURA_TYPES = new Set(["command", "fireControl", "fleetDefence", "shi
 const VALID_SHAPE_TYPES = new Set(["halfDiagonal", "wing", "bevel", "roundedCorner", "longWedge"]);
 const NUMERIC_FIELDS = [
   "cost", "mass", "hp", "hull", "powerGeneration", "powerUse", "shield", "shieldRegen",
-  "thrust", "turn", "lateralThrust", "brakingThrust", "reverseThrust", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
+  "activityHeat", "heatPerShot",
+  "thrust", "turn", "energy", "energyStorage", "energyCapacity", "maxChargeRate", "maxDischargeRate",
   "chargeEfficiency", "dischargeEfficiency", "dischargeHeatAtMax", "dischargeHeat", "repair", "repairRate",
   "rangeBonus", "accuracyBonus", "fireRateBonus", "captureBonus", "ecmStrength", "sensorRangeBonus", "sensorArc",
   "frontDamageReduction", "frontArc", "maxPerShip", "meltdownDamage", "meltdownRadius", "statScale"
@@ -23,11 +24,11 @@ const WEAPON_NUMERIC_FIELDS = [
   "pelletCount", "pelletSpreadDegrees",
   "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage",
   "blastDamage", "blastRadius", "proximityFuseRadius", "innerFullDamageRadius",
-  "falloffExponent", "armourPenetration", "cooldown", "maximumExplosionTargets",
+  "falloffExponent", "cooldown", "maximumExplosionTargets",
   "chargeRampSeconds", "maxChargeDamageBonus", "impactHeatPerDamage",
   "inductionHeatBasePerSecond", "inductionHeatMaxPerSecond", "inductionRampSeconds",
   "inductionShieldMultiplier", "inductionDirectFraction", "inductionAdjacentFraction", "inductionSecondHopFraction",
-  "inductionContactGraceSeconds", "inductionSelfHeatMaxMultiplier"
+  "inductionContactGraceSeconds"
 ];
 const VALID_BEAM_STYLES = new Set(["induction"]);
 // Impact Heat is a projectile/beam delivery property, not a beam-only one: the
@@ -44,8 +45,7 @@ const SPINAL_CHARGE_WEAPON_FAMILIES = new Set(["railgun"]);
 const SPINAL_CHARGE_NUMERIC_FIELDS = [
   "chargeSeconds", "chargeHoldSeconds", "chargeDecayMultiplier",
   "committedAimStartProgress", "committedAimTraverseFloor",
-  "hullTurnPenaltyStartProgress", "hullTurnPenaltyMultiplier",
-  "chargeHeatPerSecond", "fireHeat"
+  "hullTurnPenaltyStartProgress", "hullTurnPenaltyMultiplier"
 ];
 
 function isFiniteNumber(value) {
@@ -91,8 +91,8 @@ function validateThermalProfile(component, path, errors) {
 }
 
 const AURA_STAT_KEYS = [
-  "weaponAccuracyMultiplier", "weaponTrackingMultiplier", "turretAimSpeedMultiplier", "targetAcquisitionMultiplier",
-  "pointDefenceTrackingMultiplier", "flakTrackingMultiplier", "interceptionReactionMultiplier",
+  "weaponAccuracyMultiplier", "weaponTrackingMultiplier", "turretAimSpeedMultiplier",
+  "pointDefenceTrackingMultiplier", "flakTrackingMultiplier",
   "shieldRegenMultiplier", "shieldRestartDelayMultiplier",
   "repairRateMultiplier", "heatDissipationMultiplier", "overheatRecoveryMultiplier",
   "accelerationMultiplier", "turnRateMultiplier",
@@ -113,7 +113,7 @@ function validateCommandAura(commandAura, filePath, errors) {
 const INFRASTRUCTURE_NUMERIC_FIELDS = [
   "maximumShipGridWidth", "maximumShipGridHeight", "hangarClearanceCells", "hangarCorridorLength",
   "launchSpeed", "releaseDistance", "repairRadius", "repairRatePerSecond", "repairDelaySeconds",
-  "productionBaseSeconds", "launchRetrySeconds",
+  "launchRetrySeconds",
   "captureRadius", "captureRestoreHpRatio", "hullScale", "shieldScale"
 ];
 
@@ -213,6 +213,11 @@ function validateSpinalCharge(charge, family, path, errors) {
       errors.push(`${chargePath}.${field} must be a finite non-negative number when present.`);
     }
   }
+  for (const field of ["chargeHeatPerSecond", "fireHeat"]) {
+    if (Object.prototype.hasOwnProperty.call(charge, field)) {
+      errors.push(`${chargePath}.${field} is obsolete; use top-level activityHeat or heatPerShot.`);
+    }
+  }
   if (!(Number.isFinite(charge.chargeSeconds) && charge.chargeSeconds > 0)) {
     errors.push(`${chargePath}.chargeSeconds must be a finite number greater than zero.`);
   }
@@ -267,7 +272,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   if (!Array.isArray(balance.components)) {
     return { ok: false, errors: [`${filePath}.components must be an array.`] };
   }
-  for (const key of ["metadata","shipPricing","economy","rewards","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
+  for (const key of ["metadata","shipPricing","economy","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
   if (balance.drones) {
     const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "fuelSeconds", "refuelSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw", "standbyHeatPerSecond", "activeHeatPerSecond", "productionHeatPerSecond"];
     for (const field of required) if (!isFiniteNonNegative(balance.drones[field])) errors.push(`${filePath}.drones.${field} must be a finite non-negative number.`);
@@ -316,9 +321,13 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     if (component.description !== undefined && typeof component.description !== "string") errors.push(`${path}.description must be a string when present.`);
     if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
     validateNumberObject(component, NUMERIC_FIELDS, path, errors);
+    for (const field of ["activityHeat", "heatPerShot"]) {
+      if (component[field] !== undefined && !isFiniteNonNegative(component[field])) {
+        errors.push(`${path}.${field} must be a finite non-negative number when present.`);
+      }
+    }
     validateThermalProfile(component, path, errors);
     validateComponentAura(component.aura, path, errors);
-    validatePropulsionCapacitor(component.propulsionCapacitor, path, errors);
     validateBurstCooler(component.burstCooler, path, errors);
     validateBoolean(component.rotatable, `${path}.rotatable`, errors);
     validateBoolean(component.rotationRequired, `${path}.rotationRequired`, errors);
@@ -425,7 +434,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
         if (component.weapon.impactHeatPerDamage !== undefined && component.weapon.impactHeatPerDamage < 0) {
           errors.push(`${path}.weapon.impactHeatPerDamage must be zero or greater.`);
         }
-        const inductionFields = ["inductionHeatBasePerSecond", "inductionHeatMaxPerSecond", "inductionRampSeconds", "inductionShieldMultiplier", "inductionDirectFraction", "inductionAdjacentFraction", "inductionSecondHopFraction", "inductionContactGraceSeconds", "inductionSelfHeatMaxMultiplier"];
+        const inductionFields = ["inductionHeatBasePerSecond", "inductionHeatMaxPerSecond", "inductionRampSeconds", "inductionShieldMultiplier", "inductionDirectFraction", "inductionAdjacentFraction", "inductionSecondHopFraction", "inductionContactGraceSeconds"];
         for (const field of inductionFields) {
           if (component.weapon[field] !== undefined && family !== "beam") {
             errors.push(`${path}.weapon.${field} is only supported for beam weapons.`);
@@ -456,9 +465,6 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
           if (Number.isFinite(component.weapon.inductionContactGraceSeconds) && component.weapon.inductionContactGraceSeconds < 0) {
             errors.push(`${path}.weapon.inductionContactGraceSeconds must be zero or greater.`);
           }
-          if (Number.isFinite(component.weapon.inductionSelfHeatMaxMultiplier) && component.weapon.inductionSelfHeatMaxMultiplier < 1) {
-            errors.push(`${path}.weapon.inductionSelfHeatMaxMultiplier must be at least 1.`);
-          }
         }
         if (component.weapon.beamStyle !== undefined) {
           if (typeof component.weapon.beamStyle !== "string" || !VALID_BEAM_STYLES.has(component.weapon.beamStyle)) {
@@ -479,26 +485,6 @@ function assertValidComponentBalance(balance, options = {}) {
   const result = validateComponentBalance(balance, options);
   if (!result.ok) throw new Error(`Invalid component balance data:\n${result.errors.map(e => ` - ${e}`).join("\n")}`);
   return balance;
-}
-
-const PROPULSION_CAPACITOR_FIELDS = ["capacity", "maxDischargeRate", "maxChargeRate", "boostMultiplier", "activationThreshold", "deactivationThreshold", "minReserveFraction"];
-
-function validatePropulsionCapacitor(config, path, errors) {
-  if (config === undefined || config === null) return;
-  if (typeof config !== "object" || Array.isArray(config)) {
-    errors.push(`${path}.propulsionCapacitor must be an object when present.`);
-    return;
-  }
-  for (const field of PROPULSION_CAPACITOR_FIELDS) {
-    if (!isFiniteNonNegative(config[field])) errors.push(`${path}.propulsionCapacitor.${field} must be a finite non-negative number.`);
-  }
-  if (isFiniteNonNegative(config.activationThreshold) && isFiniteNonNegative(config.deactivationThreshold)
-    && config.deactivationThreshold >= config.activationThreshold) {
-    errors.push(`${path}.propulsionCapacitor.deactivationThreshold must be less than activationThreshold.`);
-  }
-  if (isFiniteNonNegative(config.minReserveFraction) && config.minReserveFraction > 1) {
-    errors.push(`${path}.propulsionCapacitor.minReserveFraction must be from 0 to 1.`);
-  }
 }
 
 module.exports = { validateComponentBalance, assertValidComponentBalance, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };

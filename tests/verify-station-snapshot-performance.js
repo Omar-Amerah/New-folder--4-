@@ -32,7 +32,6 @@ function makePlayer(id, team) {
     shipCap: 6,
     deployedFleetCost: 0,
     destroyedEnemyCost: 0,
-    lastReward: 0,
     kills: 0,
     losses: 0,
     captures: 0,

@@ -3,7 +3,7 @@
 //
 // Runtime state kept on each ship (design itself stays static/shared):
 //   ship.componentHp[i]    - remaining hp for design[i]
-//   ship.componentMaxHp[i] - max hp for design[i] (scaled so the sum equals ship.maxHp)
+//   ship.componentMaxHp[i] - the listed Hull value for design[i]
 //   ship.componentCellIndex - Map of grid cell -> design index (footprint aware)
 //   ship.dirtyComponents   - indices whose hp changed since the last broadcast
 //
@@ -15,6 +15,7 @@ const { getCommandAuraMultiplier } = require("./commandAuras");
 const { getOccupiedCells } = require("./footprint");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
 const HeatRules = require("../../public/src/shared/heatRules");
+const ComponentHullRules = require("../../public/src/shared/componentHullRules.js");
 const { calculateCenterOfMass } = require("../../public/src/shared/movementStats.js");
 const { markShipRepairCacheDirty } = require("./repairCache");
 
@@ -40,19 +41,19 @@ function markComponentDamageChanged(ship, index) {
 
 function initComponentState(ship) {
   const design = ship.design || [];
-  const rawHp = design.map((module) => Math.max(1, (PARTS[module.type] || PARTS.frame).hp || 1));
+  const componentMaxHp = ComponentHullRules.componentMaxHpForDesign(design, PARTS);
   // The core is destroyable but deliberately hard to reach: it sits behind the
-  // other components and has its own large, unscaled hp pool that is NOT part of
+  // the other components and has its own listed Hull pool that is NOT part of
   // the hull-integrity sum (ship.hp). The ship dies either by losing every other
   // component (ship.hp -> 0) or by a shot penetrating all the way to the core.
-  const rawSum = rawHp.reduce((sum, hp, i) => (design[i].type === "core" ? sum : sum + hp), 0) || 1;
-  const scale = (ship.stats?.maxHp || rawSum) / rawSum;
+  const maxHp = ComponentHullRules.nonCoreHullTotal(design, PARTS);
 
-  ship.componentMaxHp = rawHp.map((hp, i) => (design[i].type === "core" ? (PARTS.core?.hp || 340) : hp * scale));
-  ship.componentHp = ship.componentMaxHp.slice();
+  ship.componentMaxHp = componentMaxHp;
+  ship.componentHp = componentMaxHp.slice();
   bumpComponentAliveRevision(ship);
   ship.componentDamageRevision = 1;
-  ship.maxHp = ship.stats?.maxHp || rawSum;
+  ship.maxHp = maxHp;
+  if (ship.stats) ship.stats.maxHp = maxHp;
   ship.hp = ship.maxHp;
   ship.coreDestroyed = false;
   ship.dirtyComponents = new Set();
@@ -166,16 +167,16 @@ function nearestAliveComponent(ship, gx, gy) {
   return best;
 }
 
+function beamArmorReductionScale(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, parsed);
+}
+
 // Applies already-shield-filtered hull damage to the components along the
 // impact ray. Armour components soak damage first when they cover the incoming
 // direction and shave off a flat amount per hit; overflow continues to the
 // component behind. Returns the damage actually dealt to component hp.
-function normalizedArmorInteractionSeconds(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 1;
-  return Math.max(0, Math.min(1, parsed));
-}
-
 function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}) {
   if (!ship.componentHp || damage <= 0) {
     const applied = Math.max(0, damage);
@@ -188,6 +189,10 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
   const chain = componentsAlongImpactRay(ship, sourceX, sourceY);
   let remaining = damage;
   let applied = 0;
+  // A normal impact is one discrete hit. A beam that reaches this fallback
+  // path through a shield carries its elapsed simulation time so its armour
+  // reduction remains continuous as well.
+  const armorReductionScale = beamArmorReductionScale(options.beamDeltaSeconds);
 
   // Penetrating rounds (the Spinal Accelerator) do not simply spend their damage
   // component by component: each component they pass through also costs them a
@@ -241,8 +246,7 @@ function applyHullDamage(room, ship, damage, now, sourceX, sourceY, options = {}
     const part = PARTS[ship.design[idx].type] || PARTS.frame;
     if (part.armorFlatReduction > 0) {
       const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx] || HeatRules.STATE.NORMAL);
-      const interactionSeconds = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
-      const reduction = part.armorFlatReduction * protection * interactionSeconds;
+      const reduction = part.armorFlatReduction * protection * armorReductionScale;
       remaining = Math.max(0, remaining - Math.max(0, reduction));
       if (remaining <= 0) break;
     }
@@ -428,14 +432,15 @@ function detonateComponent(room, ship, index, radius, damage, now) {
 const EFFECTIVE_STAT_KEYS = [
   "mass", "shieldRegen", "powerGeneration", "powerUse", "power", "availablePower", "powerRatio", "powerStorageDischarge", "efficiency",
   "thrust", "effectiveThrust", "engineEfficiency", "thrustRatio", "energyStorage",
-  "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight", "massClass", "speedCap", "turnCap",
+  "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight", "massClass", "turnCap",
   "powerEfficiency", "powerDebuff",
   "blaster", "missile", "railgun", "beam", "pointDefense",
   "repair", "repairRate", "repairRange",
   "coolingBonus", "captureBonus", "ecmStrength",
 
   "frontDamageReduction", "frontArc",
-  "blasterRange", "missileRange", "railgunRange", "beamRange", "beamRadius"
+  "blasterRange", "missileRange", "railgunRange", "beamRange", "beamRadius",
+  "weaponDps", "weaponDpsLabel", "weapons"
 ];
 
 // Recomputes power/movement/weapon/shield/repair stats from the components that
@@ -564,7 +569,6 @@ module.exports = {
   worldToGrid,
   componentsAlongImpactRay,
   applyHullDamage,
-  normalizedArmorInteractionSeconds,
   detonateComponent,
   zeroAllComponents,
   recalcEffectiveStats,

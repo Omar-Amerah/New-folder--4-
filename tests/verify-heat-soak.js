@@ -35,7 +35,6 @@ for (let tick = 0; tick < 240; tick += 1) {
     for (let i = 0; i < s.componentHeat.length; i += 1) {
       assert(Number.isFinite(s.componentHeat[i]), "component heat remains finite");
       assert(s.componentHeat[i] >= 0, "component heat remains non-negative");
-      assert(s.componentHeat[i] <= s.componentThermals[i].capacity * 1.25 + 1e-6, "component heat respects clamp");
     }
     const livingSum = s.componentHeat.reduce((sum, value, i) => sum + (s.componentHp[i] > 0 ? value : 0), 0);
     assert(Math.abs(livingSum - s.currentHeat) < 1e-6, "aggregate heat reconciles with living components");

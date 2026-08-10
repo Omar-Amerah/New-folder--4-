@@ -13,6 +13,9 @@ const assert = require("assert");
   const { evaluateShipCommandState, destroyShip, targetCoreAimWorldPosition } = require("../src/server/combat");
   const { reallocateShipPower } = require("../src/server/componentPower");
   const { buildSharedSnapshot, snapshotRoom } = require("../src/server/snapshots");
+  const BackupCoreRules = require("../public/src/shared/backupCoreRules");
+  const { signedTurnRate } = require("../src/server/movementCapability");
+  const { CONFIG: DRONE_CONFIG, buildBaySnapshots, _test: droneTest } = require("../src/server/drones");
 
   function makeTestShip(design, dataLinks = []) {
     const stats = computeStats(design, { dataLinks });
@@ -150,7 +153,7 @@ const assert = require("assert");
     console.log("✔ Test 6 passed: Main Core destruction with a powered backup keeps the ship alive.");
   }
 
-  // 7. Emergency penalties apply exactly once
+  // 7. One Backup Core effectiveness rule applies exactly once to every consumer
   {
     const design = [
       { x: 7, y: 7, type: "core" },
@@ -162,6 +165,8 @@ const assert = require("assert");
     const room = makeRoom([ship]);
 
     const { getEffectiveWeaponStatsInternal } = require("../src/server/componentData");
+    assert.strictEqual(BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS, 0.85,
+      "Backup Core has one explicit 85% active-system effectiveness rule");
     const baseProfile = getEffectiveWeaponStatsInternal(ship, 3);
     const baseAccuracy = baseProfile.accuracy;
 
@@ -169,10 +174,29 @@ const assert = require("assert");
     evaluateShipCommandState(room, ship, 1000, "p2");
 
     const backupProfile = getEffectiveWeaponStatsInternal(ship, 3);
-    assert.strictEqual(backupProfile.accuracy, baseAccuracy * 0.85, "Weapon accuracy penalized to exactly 85%");
+    assert.strictEqual(backupProfile.accuracy, baseAccuracy * BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS,
+      "Weapon accuracy uses the shared 85% effectiveness");
 
     const backupProfile2 = getEffectiveWeaponStatsInternal(ship, 3);
-    assert.strictEqual(backupProfile2.accuracy, baseAccuracy * 0.85, "Repeated evaluations retain exact 85% penalty without compounding");
+    assert.strictEqual(backupProfile2.accuracy, baseAccuracy * BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS,
+      "Repeated evaluations retain the shared penalty without compounding");
+
+    const turnStats = { turnRateLeft: 2, turnRateRight: 3 };
+    assert.strictEqual(signedTurnRate(turnStats, -1, ship), 2 * BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS,
+      "Backup turn rate uses the shared 85% effectiveness");
+    assert.strictEqual(signedTurnRate(turnStats, 1, ship), 3 * BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS,
+      "Backup turn rate uses the shared 85% effectiveness in both directions");
+
+    const fighter = { type: "fighter" };
+    const backupDroneConfig = droneTest.effectiveDroneConfig(ship, fighter).config;
+    assert.strictEqual(backupDroneConfig.commandRange,
+      DRONE_CONFIG.types.fighter.commandRange * BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS,
+      "Backup drone command range uses the shared 85% effectiveness");
+    ship.droneBays = [{ componentId: "test-bay", componentIndex: 3, droneType: "fighter", slots: [], mode: "guard" }];
+    assert.strictEqual(buildBaySnapshots(ship)[0].commandRange, backupDroneConfig.commandRange,
+      "Drone bay snapshots expose the effective Backup command range");
+    assert.strictEqual(BackupCoreRules.activeSystemMultiplier("mainCore"), 1,
+      "Main Core operation remains at full effectiveness");
     console.log("✔ Test 7 passed: Emergency penalties apply exactly once.");
   }
 

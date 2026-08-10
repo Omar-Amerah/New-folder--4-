@@ -65,7 +65,7 @@ console.log("✔ Flak balance supports direct/proximity/asteroid detonation mode
     map: { asteroids: [] }
   };
   const weapon = PARTS.flakCannon.weapon;
-  const bullet = { id: "f1", type: "flak", subtype: "flakCannon", ownerId: "blue", x: 0, y: 0, vx: 0, vy: 900, life: 10, damage: weapon.directDamage, directDamage: weapon.directDamage, blastDamage: weapon.blastDamage, blastRadius: weapon.blastRadius, proximityFuseRadius: weapon.proximityFuseRadius, innerFullDamageRadius: weapon.innerFullDamageRadius, falloffExponent: weapon.falloffExponent, shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1, hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1, armorInteractionSeconds: Math.min(1, weapon.armourPenetration ?? 1), maximumExplosionTargets: 1 };
+  const bullet = { id: "f1", type: "flak", subtype: "flakCannon", ownerId: "blue", x: 0, y: 0, vx: 0, vy: 900, life: 10, damage: weapon.directDamage, directDamage: weapon.directDamage, blastDamage: weapon.blastDamage, blastRadius: weapon.blastRadius, proximityFuseRadius: weapon.proximityFuseRadius, innerFullDamageRadius: weapon.innerFullDamageRadius, falloffExponent: weapon.falloffExponent, shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1, hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1, maximumExplosionTargets: 1 };
   room.bullets.push(bullet);
   updateBullets(room, 0.1, 0);
   const drone = room.drones.get("d1");

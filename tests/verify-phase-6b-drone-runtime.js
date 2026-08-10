@@ -422,6 +422,9 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   repairShipComponents(room, parent, 100, 1066);
   runCanonicalTick(room, 1066);
   assert.equal(first.state, "active", "repairing the destroyed Bay resumes the drone");
+  parent.componentPower.byComponentIndex[0].operationalMultiplier = 0.01;
+  runCanonicalTick(room, 1080);
+  assert.equal(first.state, "active", "positive low Bay Power keeps a living drone under command");
   parent.componentPower.byComponentIndex[0].operationalMultiplier = 0;
   runCanonicalTick(room, 1100);
   assert.equal(first.state, "fallback", "power loss keeps the Bay in fallback");

@@ -68,6 +68,71 @@ function makeShip(design) {
   close(advanced.storageCharges[1], 80 - 3.5 / PARTS.battery.dischargeEfficiency, "battery MJ discharge");
 }
 
+// Storage order is not a priority system. Identical storage units split both
+// a 6 MW shortage and a 6 MW charging surplus evenly, even when their array
+// order is reversed.
+{
+  const storageParts = {
+    cellA: {
+      energyCapacity: 80,
+      maxChargeRate: 4,
+      maxDischargeRate: 4,
+      chargeEfficiency: 1,
+      dischargeEfficiency: 1
+    },
+    cellB: {
+      energyCapacity: 80,
+      maxChargeRate: 4,
+      maxDischargeRate: 4,
+      chargeEfficiency: 1,
+      dischargeEfficiency: 1
+    },
+    load: { powerUse: 6 },
+    generator: { powerGeneration: 6 }
+  };
+  const dischargeOptions = {
+    componentStorageChargeByIndex: [80, 80, 0],
+    availabilitySeconds: 1
+  };
+  const orderedDischarge = UniversalPower.calculateUniversalPower(
+    [{ type: "cellA" }, { type: "cellB" }, { type: "load" }],
+    storageParts,
+    dischargeOptions
+  );
+  const reversedDischarge = UniversalPower.calculateUniversalPower(
+    [{ type: "cellB" }, { type: "cellA" }, { type: "load" }],
+    storageParts,
+    dischargeOptions
+  );
+  close(orderedDischarge.summary.storageDischargeMw, 6, "proportional discharge total");
+  close(orderedDischarge.byComponentIndex[0].storageDetails.dischargeRateMw, 3, "first storage shares shortage");
+  close(orderedDischarge.byComponentIndex[1].storageDetails.dischargeRateMw, 3, "second storage shares shortage");
+  close(reversedDischarge.byComponentIndex[0].storageDetails.dischargeRateMw, 3, "reversed first storage shares shortage");
+  close(reversedDischarge.byComponentIndex[1].storageDetails.dischargeRateMw, 3, "reversed second storage shares shortage");
+
+  const chargeOptions = {
+    componentStorageChargeByIndex: [0, 0, 0],
+    elapsedSeconds: 1,
+    availabilitySeconds: 1,
+    advanceStorage: true
+  };
+  const orderedCharge = UniversalPower.calculateUniversalPower(
+    [{ type: "generator" }, { type: "cellA" }, { type: "cellB" }],
+    storageParts,
+    chargeOptions
+  );
+  const reversedCharge = UniversalPower.calculateUniversalPower(
+    [{ type: "generator" }, { type: "cellB" }, { type: "cellA" }],
+    storageParts,
+    chargeOptions
+  );
+  close(orderedCharge.summary.storageChargingMw, 6, "proportional charging total");
+  close(orderedCharge.byComponentIndex[1].storageDetails.chargeRateMw, 3, "first storage shares surplus");
+  close(orderedCharge.byComponentIndex[2].storageDetails.chargeRateMw, 3, "second storage shares surplus");
+  close(reversedCharge.byComponentIndex[1].storageDetails.chargeRateMw, 3, "reversed first storage shares surplus");
+  close(reversedCharge.byComponentIndex[2].storageDetails.chargeRateMw, 3, "reversed second storage shares surplus");
+}
+
 {
   const design = [{ type: "core" }, { type: "beamEmitter" }];
   const stats = computeStats(design);

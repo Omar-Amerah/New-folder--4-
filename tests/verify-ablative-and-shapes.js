@@ -34,7 +34,7 @@ function damageOnce(type, dmg) {
   const r = room();
   r.ships.set(t.id, t);
   const before = t.hp;
-  applyHullDamage(r, t, dmg, 0, t.x + 13, t.y, { armorInteractionSeconds: 1 });
+  applyHullDamage(r, t, dmg, 0, t.x + 13, t.y);
   return before - t.hp;
 }
 

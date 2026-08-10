@@ -3,8 +3,10 @@
 import { componentIconDataUrl, rotatedFootprint, clearComponentIconCache } from "../ui/componentIcon.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
 import "../shared/componentTransform.js";
+import "../shared/weaponPresentationRules.js";
 
 const ComponentTransform = globalThis.ComponentTransform;
+const WeaponPresentationRules = globalThis.WeaponPresentationRules;
 
 export const PART_DEFS = {
   core: { name: "Core", color: "#f3f7ff", glyph: "radial-gradient(circle, #ffffff 0 28%, #86ddff 31% 58%, #2b5d92 60%)" },
@@ -110,10 +112,8 @@ export const PART_DEFS = {
   stabilizerNode: { name: "Stabilizer Node", color: "#ddd6fe", glyph: "conic-gradient(from 45deg, #4c1d95, #ddd6fe, #7c3aed, #4c1d95)" },
   repairBeam: { name: "Repair Beam", color: "#86efac", glyph: "linear-gradient(90deg, #052e16 0 18%, #22c55e 20% 70%, #dcfce7 72%)" },
   overclockedRepair: { name: "Overclocked Repair Unit", color: "#4ade80", glyph: "linear-gradient(45deg, #052e16 0 24%, #4ade80 26% 44%, #fdba74 46% 56%, #4ade80 58%)" },
-  sensorArray: { name: "Long-Range Sensor Array", color: "#38bdf8", glyph: "radial-gradient(circle, #e0f2fe 0 12%, #38bdf8 18% 34%, #0c4a6e 42% 60%)" },
   smallSensor: { name: "Small Sensor", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 14%, #22d3ee 22% 42%, #164e63 52%)" },
   largeSensor: { name: "Large Sensor", color: "#38bdf8", glyph: "radial-gradient(circle, #e0f2fe 0 12%, #38bdf8 18% 34%, #0c4a6e 42% 60%)" },
-  directedSensor: { name: "Directed Sensor", color: "#7dd3fc", glyph: "linear-gradient(90deg, #082f49 0 20%, #0ea5e9 22% 58%, #e0f2fe 60% 78%, transparent 80%)" },
   smallDirectedSensor: { name: "Small Directed Sensor", color: "#7dd3fc", glyph: "linear-gradient(90deg, #082f49 0 22%, #38bdf8 24% 60%, #e0f2fe 62% 78%, transparent 80%)" },
   largeDirectedSensor: { name: "Large Directed Sensor", color: "#38bdf8", glyph: "linear-gradient(90deg, #020617 0 18%, #0284c7 20% 58%, #bae6fd 60% 80%, transparent 82%)" },
   droneBay: { name: "Drone Bay", color: "#67e8f9", glyph: "radial-gradient(circle at 50% 50%, #e0f2fe 0 13%, #22d3ee 15% 28%, #0e7490 30% 43%, #082f49 45%)" },
@@ -228,7 +228,6 @@ export function isPalettePart(type) {
 
 export function partCategory(type) {
   const stat = PART_STATS[type] || {};
-  if (type === "droneBay") return "Command";
   if (stat.category) return stat.category === "Utility" ? "Support" : stat.category;
   if (type === "frame" || type === "armor") return "Structure";
   if (type === "reactor" || type === "battery") return "Power";
@@ -259,6 +258,10 @@ export function partIconMarkup(type, extraClass = "", rotationDeg = 0, flipped =
 export function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
+  const spinalCharge = stats.spinalCharge && typeof stats.spinalCharge === "object" && !Array.isArray(stats.spinalCharge)
+    ? { ...stats.spinalCharge }
+    : undefined;
+  const presentation = WeaponPresentationRules.weaponCyclePresentation({ damage, fireRate, spinalCharge });
   
   let tracking = stats.tracking || 0;
   // aimSpeed is an optional override of the shared TurretRules traverse rate.
@@ -279,7 +282,7 @@ export function makeWeapon(type, stats) {
     type,
     damage,
     fireRate,
-    reload: Number((1 / fireRate).toFixed(2)),
+    reload: Number(presentation.reloadSeconds.toFixed(2)),
     range: stats.range,
     radius: Number(stats.radius) || 0,
     projectileSpeed: stats.projectileSpeed,
@@ -289,7 +292,7 @@ export function makeWeapon(type, stats) {
     trackingDelay: Number(stats.trackingDelay) || 0,
     aimSpeed: aimSpeed !== undefined ? Number(aimSpeed) : undefined,
     arc: Number(stats.arc) || 360,
-    dps: Number((damage * fireRate).toFixed(1)),
+    dps: Number(presentation.dps.toFixed(1)),
     missileHp: Number(stats.missileHp) || 0,
     antiMissile: Boolean(stats.antiMissile),
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
@@ -308,7 +311,6 @@ export function makeWeapon(type, stats) {
     inductionAdjacentFraction: stats.inductionAdjacentFraction !== undefined ? Number(stats.inductionAdjacentFraction) : undefined,
     inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
     inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
-    inductionSelfHeatMaxMultiplier: stats.inductionSelfHeatMaxMultiplier !== undefined ? Number(stats.inductionSelfHeatMaxMultiplier) : undefined,
     beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
     // Multi-pellet fire and the spinal charge cycle are preview-only here: the
     // server owns the firing simulation, the inspector only reports them.
@@ -319,9 +321,7 @@ export function makeWeapon(type, stats) {
     innerFullDamageRadius: stats.innerFullDamageRadius !== undefined ? Number(stats.innerFullDamageRadius) : undefined,
     falloffExponent: stats.falloffExponent !== undefined ? Number(stats.falloffExponent) : undefined,
     directDamage: stats.directDamage !== undefined ? Number(stats.directDamage) : undefined,
-    spinalCharge: stats.spinalCharge && typeof stats.spinalCharge === "object" && !Array.isArray(stats.spinalCharge)
-      ? { ...stats.spinalCharge }
-      : undefined
+    spinalCharge
   };
 }
 
@@ -359,16 +359,15 @@ export function normalizeRuntimePart(part = {}) {
     mass: numberOr(part.mass, 0),
     hp: numberOr(part.hp ?? part.hull, 0),
     powerGeneration: numberOr(part.powerGeneration, 0),
+    activityHeat: numberOr(part.activityHeat, 0),
+    heatPerShot: numberOr(part.heatPerShot, 0),
     powerUse: numberOr(part.powerUse, 0),
     shield: numberOr(part.shield, 0),
     shieldRegen: numberOr(part.shieldRegen, 0),
     thrust: numberOr(part.thrust, 0),
-    lateralThrust: numberOr(part.lateralThrust, 0),
-    brakingThrust: numberOr(part.brakingThrust, 0),
-    reverseThrust: numberOr(part.reverseThrust, 0),
     turn: numberOr(part.turn, 0),
-    energyStorage: numberOr(part.energyStorage ?? part.energyCapacity ?? part.energy, 0),
-    energyCapacity: numberOr(part.energyCapacity ?? part.energyStorage ?? part.energy, 0),
+    energyStorage: numberOr(part.energyStorage ?? part.energyCapacity, 0),
+    energyCapacity: numberOr(part.energyCapacity ?? part.energyStorage, 0),
     maxChargeRate: numberOr(part.maxChargeRate, 0),
     maxDischargeRate: numberOr(part.maxDischargeRate, 0),
     chargeEfficiency: part.chargeEfficiency !== undefined ? numberOr(part.chargeEfficiency, 1) : 1,
@@ -419,16 +418,15 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     mass: numberOr(component.mass, 0),
     hp: numberOr(component.hp ?? component.hull, 0),
     powerGeneration: numberOr(component.powerGeneration, 0),
+    activityHeat: numberOr(component.activityHeat, 0),
+    heatPerShot: numberOr(component.heatPerShot, 0),
     powerUse: numberOr(component.powerUse, 0),
     shield: numberOr(component.shield, 0),
     shieldRegen: numberOr(component.shieldRegen, 0),
     thrust: numberOr(component.thrust, 0),
-    lateralThrust: numberOr(component.lateralThrust, 0),
-    brakingThrust: numberOr(component.brakingThrust, 0),
-    reverseThrust: numberOr(component.reverseThrust, 0),
     turn: numberOr(component.turn, 0),
-    energyStorage: numberOr(component.energyStorage ?? component.energyCapacity ?? component.energy, 0),
-    energyCapacity: numberOr(component.energyCapacity ?? component.energyStorage ?? component.energy, 0),
+    energyStorage: numberOr(component.energyStorage ?? component.energyCapacity, 0),
+    energyCapacity: numberOr(component.energyCapacity ?? component.energyStorage, 0),
     maxChargeRate: numberOr(component.maxChargeRate, 0),
     maxDischargeRate: numberOr(component.maxDischargeRate, 0),
     chargeEfficiency: component.chargeEfficiency !== undefined ? numberOr(component.chargeEfficiency, 1) : 1,
@@ -437,6 +435,9 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     repairRate,
     repair: repairRate > 0 ? 1 : numberOr(component.repairCount, 0),
     weapon,
+    aura: component.aura && typeof component.aura === "object" && !Array.isArray(component.aura)
+      ? { ...component.aura }
+      : null,
     description: component.description || "",
     utilityEffect: component.utilityEffect || component.utility || "",
     rangeBonus: numberOr(component.rangeBonus, 0),
@@ -485,15 +486,6 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
           damagesFriendlyShips: component.proximityCharge.damagesFriendlyShips !== false
         }
       : null,
-    propulsionCapacitor: component.propulsionCapacitor && typeof component.propulsionCapacitor === "object" ? Object.freeze({
-      capacity: numberOr(component.propulsionCapacitor.capacity, 100),
-      maxDischargeRate: numberOr(component.propulsionCapacitor.maxDischargeRate, 40),
-      maxChargeRate: numberOr(component.propulsionCapacitor.maxChargeRate, 15),
-      boostMultiplier: numberOr(component.propulsionCapacitor.boostMultiplier, 1.8),
-      activationThreshold: numberOr(component.propulsionCapacitor.activationThreshold, 0.6),
-      deactivationThreshold: numberOr(component.propulsionCapacitor.deactivationThreshold, 0.15),
-      minReserveFraction: numberOr(component.propulsionCapacitor.minReserveFraction, 0.05)
-    }) : null,
     maxPerShip: Number.isFinite(Number(component.maxPerShip)) ? Number(component.maxPerShip) : null,
     meltdownDamage: Number.isFinite(Number(component.meltdownDamage)) ? Number(component.meltdownDamage) : null,
     meltdownRadius: Number.isFinite(Number(component.meltdownRadius)) ? Number(component.meltdownRadius) : null,
@@ -502,7 +494,7 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {
-    part.activityHeat = numberOr(balance.drones.activeHeatPerSecond, 0);
+    if (!(part.activityHeat > 0)) part.activityHeat = numberOr(balance.drones.activeHeatPerSecond, 0);
     part.droneConfig = JSON.parse(JSON.stringify(balance.drones));
   }
   if (weapon) part[weapon.type] = 1;

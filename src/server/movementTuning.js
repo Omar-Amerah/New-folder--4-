@@ -38,9 +38,6 @@ module.exports = Object.freeze({
   // Converging on zero asymptotically never arrives, and there is no drag out
   // here to finish the job.
   REST_SPEED: 0.5,
-  // Turn penalty while running on the backup core.
-  BACKUP_CORE_TURN_SCALE: 0.9,
-
   // --- Command-time formations -------------------------------------------
   // The one visual gap between formation slots. Slot spacing itself is derived
   // from the physical collision radii of the ships being commanded, so this is
@@ -356,10 +353,5 @@ module.exports = Object.freeze({
   // How long a ship that could find nowhere safe to go waits before looking
   // again. Bounded, so being boxed in for a moment does not run the candidate
   // search every tick.
-  KITE_BLOCKED_RETRY_MS: 500,
-
-  // --- Component heat from movement --------------------------------------
-  ENGINE_HEAT_BASE: 2,
-  ENGINE_HEAT_PER_THRUST: 0.018,
-  MANEUVER_HEAT_PER_THRUST: 0.018
+   KITE_BLOCKED_RETRY_MS: 500
 });

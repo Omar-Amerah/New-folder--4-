@@ -63,9 +63,7 @@ export const HIDDEN_PARTS = new Set([
   "heavyBlaster",
   "lightMissile",
   "lightRailgun",
-  "heavyRailgun",
-  "sensorArray",
-  "directedSensor"
+  "heavyRailgun"
 ]);
 
 export let FLEET_COUNT_RULES = Object.freeze({ ...(GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs || {}) });

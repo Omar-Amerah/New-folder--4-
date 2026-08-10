@@ -136,14 +136,105 @@ global.window = { devicePixelRatio: 1 };
     "Ledger Warm threshold must match Heat rules");
   assert.strictEqual(statValue("heat", "Critical"), `${Math.round(heatRules.THRESHOLDS.critical * 100)}%`,
     "Ledger Critical threshold must match Heat rules");
+  const heatArticle = getArticleById("heat");
+  const recoveryPercent = `${Math.round((heatRules.THRESHOLDS.overheated - heatRules.HYSTERESIS.overheated) * 100)}%`;
+  const overheatedPercent = `${Math.round(heatRules.THRESHOLDS.overheated * 100)}%`;
+  const outputPercent = (state) => `${Math.round(heatRules.activeOutputForState(heatRules.STATE[state]) * 100)}%`;
+  assert.ok(heatArticle.howItWorks.includes("Overheated lockout:"),
+    "Ledger Heat article must label the intentional Overheated lockout rule");
+  assert.ok(heatArticle.howItWorks.includes(`shut down at ${overheatedPercent} Heat.`),
+    "Ledger must explain the shutdown event at the Overheated threshold");
+  assert.ok(heatArticle.howItWorks.includes(`restart only below ${recoveryPercent} Heat`),
+    "Ledger must state the authoritative Overheated recovery boundary");
+  assert.ok(heatArticle.howItWorks.includes("Thrust output")
+    && heatArticle.howItWorks.includes("Weapon output")
+    && heatArticle.howItWorks.includes("Power output")
+    && heatArticle.howItWorks.includes("Cooling output"),
+  "Ledger must name the component-specific Heat effect categories");
+  assert.strictEqual(statValue("heat", "Active systems"), `Hot ${outputPercent("HOT")}; Critical ${outputPercent("CRITICAL")}; Overheated ${outputPercent("OVERHEATED")}`,
+    "Ledger active-system effects must match Heat rules");
+  assert.strictEqual(statValue("heat", "Active cooling"), "Hot 75%; Critical 50%; Overheated 0%",
+    "Ledger active-cooling effects must match Heat rules");
+  assert.strictEqual(statValue("heat", "Structure damage"), "Hot 1.15x; Critical 1.35x; Overheated 1.60x",
+    "Ledger structural effects must match Heat rules");
+  assert.strictEqual(statValue("heat", "Armour reduction"), "Base 5: Hot 4.25 / 5; Critical 3.25 / 5; Overheated 2 / 5",
+    "Ledger armour effects must match Heat rules");
+  assert.strictEqual(statValue("heat", "Overheated: Entering"), `At ${overheatedPercent} Heat: shutdown`,
+    "Ledger Overheated entering behavior must match Heat rules");
+  assert.strictEqual(statValue("heat", "Overheated: Recovery"), `Below ${recoveryPercent} Heat: restart allowed`,
+    "Ledger Overheated recovery copy must match Heat rules");
+  assert.strictEqual(statValue("heat", "Overheat Lockout"), `${overheatedPercent} to shut down; below ${recoveryPercent} to restart`,
+    "Ledger must make entering and recovery thresholds distinct");
+  ok("Heat lockout copy and output states match Heat rules");
+
+  const engineArticle = getArticleById("component:engine");
+  const engineHeatMechanic = engineArticle.specialMechanics.find((mechanic) => mechanic.label === "Heat-State Scaling");
+  assert.ok(engineHeatMechanic?.detail?.includes(`below ${recoveryPercent} Heat`),
+    "Detailed component Heat help must state the authoritative recovery boundary");
+  assert.ok(engineHeatMechanic.detail.includes(`${outputPercent("HOT")}`)
+    && engineHeatMechanic.detail.includes(`${outputPercent("CRITICAL")}`)
+    && engineHeatMechanic.detail.includes(`${outputPercent("OVERHEATED")}`),
+  "Detailed component Heat help must include the shared output effects");
+  ok("Detailed component Heat help documents lockout");
+
+  const { buildHeatCardModel } = await import("../public/src/design/heatCardModel.js");
+  const overheatedCard = buildHeatCardModel({
+    design: [{ type: "engine", x: 7, y: 7, rotation: 0 }],
+    index: 0,
+    prediction: {
+      capacity: 85,
+      finalRatio: 1,
+      finalHeat: 85,
+      finalState: heatRules.STATE.OVERHEATED,
+      ratio: 1,
+      peakRatio: 1,
+      generation: 0,
+      received: 0,
+      transferredOut: 0,
+      cooling: 0,
+      timeToOverheat: 1,
+      meltdownTime: null
+    },
+    rules: heatRules
+  });
+  assert.ok(overheatedCard.statuses.some((status) => status.text === `Locked out until below ${recoveryPercent} Heat`),
+    "Detailed Heat card must show concise Overheated lockout status");
+  ok("Overheated Heat card status documents lockout");
   assert.strictEqual(statValue("command", "Aura Radius"), `${generatedBalance.commandAura.range} m`,
     "Ledger aura radius must match live balance");
+  const targetingArticle = getArticleById("targeting-and-arcs");
+  assert.ok(targetingArticle.howItWorks.includes("Automatic Component Targeting: Weapons preferentially target exposed active systems. Target selection is weighted, so this is a tendency rather than a guarantee."),
+    "Ledger targeting guide must explain weighted automatic component targeting");
+  const thermalArticle = getArticleById("component:thermalInductionLance");
+  assert.ok(thermalArticle.howItWorks.includes("Zero-damage induction beam that injects Heat into a target component"),
+    "Thermal Induction Lance article must document component Heat transfer");
+  assert.ok(thermalArticle.howItWorks.includes("Targeting: Prioritises functioning Power generators when available, then other active systems"),
+    "Thermal Induction Lance article must document its generator preference");
+  const removedAuraFields = Object.keys(PARTS.fireControlCommandCentre.aura)
+    .concat(Object.keys(PARTS.fleetDefenceCoordinator.aura))
+    .filter((key) => /Acquisition|Reaction/.test(key));
+  assert.deepStrictEqual(removedAuraFields, [],
+  "Removed command aura stats must not return to the component catalogue");
+  ok("targeting guide and component targeting copy");
   assert.strictEqual(statValue("sensors-detection", "Remembered Ship Contact"), `${generatedBalance.visibility.rememberedContactSeconds}s`,
     "Ledger remembered-contact duration must match live balance");
-  assert.ok(statValue("movement", "Turn Caps").includes(String(movementStats.turnCapForMass(54))),
-    "Ledger Light turn cap must match movement authority");
-  assert.ok(statValue("movement", "Turn Caps").includes(String(movementStats.turnCapForMass(230))),
-    "Ledger Capital turn cap must match movement authority");
+  const movementArticle = getArticleById("movement");
+  const movementText = JSON.stringify(movementArticle);
+  const massClassText = statValue("movement", "Mass Classes");
+  const turnCapsText = statValue("movement", "Turn Caps");
+  for (const definition of movementStats.MOVEMENT_CONFIG.massClasses) {
+    assert.ok(massClassText.includes(`${definition.name} ${movementStats.formatMassClassRange(definition)}`),
+      `${definition.name} mass range must match movement authority`);
+    assert.ok(turnCapsText.includes(String(definition.turnCap)),
+      `${definition.name} turn cap must match movement authority`);
+  }
+  assert.strictEqual(statValue("movement", "Braking"),
+    `${movementStats.BRAKE_ACCEL_RATIO}x forward acceleration`,
+    "Ledger braking copy must match movement authority");
+  assert.doesNotMatch(movementText, /speed cap|soft cap|speed threshold/i,
+    "Ledger must not describe removed speed-cap mechanics");
+  assert.doesNotMatch(movementText, /\b(?:340|285|215|165|2\.85|2\.05|1\.12|0\.72)\b/,
+    "Ledger must not retain obsolete movement documentation values");
 
   const effectiveManualText = JSON.stringify(manualArticles);
   const staleClaims = [
@@ -170,6 +261,7 @@ global.window = { devicePixelRatio: 1 };
     const article = getArticleById(articleId);
     assert.ok(article, `Missing component article for part: ${partId}`);
     assert.ok(article.importantStats && article.importantStats.length > 0, `Component article ${articleId} has no stats`);
+    assert.ok(article.importantStats.some((stat) => stat.label === "Heat effects"), `Component article ${articleId} has no Heat effects row`);
   }
   assert.ok(
     articles.filter((article) => article.isComponent).every((article) => article.category === "component-reference"),

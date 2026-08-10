@@ -20,19 +20,14 @@ const { addComponentHeat, componentPerformance } = require("./heat");
 const { getCommandAuraMultiplier } = require("./commandAuras");
 const {
   calculateDirectionalTurnInputs,
-  calculateMovementPowerMultiplier,
+  calculateGenericTurnModifier,
   calculateMovementStats,
+  calculateBrakingAcceleration,
   maneuverThrusterTorqueSign
 } = require("../../public/src/shared/movementStats.js");
 const { getComponentPowerMultiplier } = require("./componentPower");
 const { getShipComponentIndexes } = require("./componentIndexes");
-const { BALANCE } = require("./balanceConfig");
-const {
-  BACKUP_CORE_TURN_SCALE,
-  ENGINE_HEAT_BASE,
-  ENGINE_HEAT_PER_THRUST,
-  MANEUVER_HEAT_PER_THRUST
-} = require("./movementTuning");
+const BackupCoreRules = require("../../public/src/shared/backupCoreRules");
 
 function heatAdjustedMovementStats(ship, baseStats) {
   const design = ship.design || [];
@@ -60,6 +55,13 @@ function heatAdjustedMovementStats(ship, baseStats) {
     componentMultiplier: multiplier,
     isBlockedEngine
   });
+  // Generic turn is a live passive stat contribution. It follows the same
+  // health/Heat/Power multiplier as other live component effects, but it is
+  // not an actuator and therefore never creates turning Heat or Power demand.
+  const turnBonus = calculateGenericTurnModifier(design, PARTS, {
+    componentMultiplier: multiplier,
+    isBlockedEngine
+  });
   const powerSummary = ship.powerAnalysis?.summary || {};
   const livePowerGeneration = Number(powerSummary.availableGenerationMw);
   const livePowerUse = Number(powerSummary.demandMw);
@@ -72,14 +74,12 @@ function heatAdjustedMovementStats(ship, baseStats) {
   const movement = calculateMovementStats({
     mass: baseStats.mass,
     thrust: baseStats.thrust,
-    turnBonus: 0,
+    turnBonus,
     powerGeneration,
     powerUse,
     engineThrustValues,
     engineMassValues,
-    directionalTurnInputs,
-    hullControlThrust: BALANCE.movement?.hullControlThrust,
-    movementPowerMultiplier: calculateMovementPowerMultiplier(powerGeneration, powerUse)
+    directionalTurnInputs
   });
   const accelerationMultiplier = getCommandAuraMultiplier(ship, "accelerationMultiplier");
   const turnMultiplier = getCommandAuraMultiplier(ship, "turnRateMultiplier");
@@ -88,6 +88,7 @@ function heatAdjustedMovementStats(ship, baseStats) {
     && accelerationMultiplier !== 1) {
     movement.accel *= accelerationMultiplier;
   }
+  movement.brakingAcceleration = calculateBrakingAcceleration(movement.accel);
   if (Number.isFinite(movement.turnRate)
     && Number.isFinite(turnMultiplier)
     && turnMultiplier !== 1) {
@@ -119,7 +120,7 @@ function signedTurnRate(stats, direction, ship) {
     ? (stats.turnRateRight ?? stats.turnRate ?? 0)
     : (stats.turnRateLeft ?? stats.turnRate ?? 0);
   const rate = Number.isFinite(base) ? base : 0;
-  return ship?.commandState === "backupCore" ? rate * BACKUP_CORE_TURN_SCALE : rate;
+  return BackupCoreRules.applyActiveSystemEffectiveness(rate, ship);
 }
 
 // The floor keeps the braking-profile maths from dividing by zero. It reports a
@@ -153,10 +154,12 @@ function heatActiveManeuverThrusters(ship, turnActivity, dt) {
     const performance = componentPerformance(ship, index)
       * getComponentPowerMultiplier(ship, index);
     if (performance > 0) {
+      const rate = activityHeatRate(module.type, part);
+      if (!(rate > 0)) continue;
       addComponentHeat(
         ship,
         index,
-        (ENGINE_HEAT_BASE + (part.lateralThrust || 0) * MANEUVER_HEAT_PER_THRUST)
+        rate
           * Math.abs(turnActivity)
           * performance
           * dt
@@ -198,10 +201,12 @@ function applyEngineHeat(ship, activity, dt) {
     const performance = componentPerformance(ship, index)
       * getComponentPowerMultiplier(ship, index);
     if (performance > 0) {
+      const rate = activityHeatRate(ship.design[index].type, part);
+      if (!(rate > 0)) continue;
       addComponentHeat(
         ship,
         index,
-        (ENGINE_HEAT_BASE + (part.thrust || 0) * ENGINE_HEAT_PER_THRUST)
+        rate
           * activity * performance * dt
       );
     }

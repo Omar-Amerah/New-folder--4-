@@ -11,17 +11,16 @@ const {
 const { performanceNow } = require("./utils");
 const { bump, recordDuration } = require("./roomTelemetry");
 
-const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork } = HeatRules;
+const { TICK_SECONDS, STATE, profile, stateFor, activeOutputForState, activeCoolingForState, edgeTransfer, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork } = HeatRules;
 
-const TELEMETRY_STRIDE = 7;
+const TELEMETRY_STRIDE = 6;
 const TELEMETRY_FIELDS = Object.freeze([
   "componentHeatGenerated",
   "componentHeatReceived",
   "componentHeatTransferredOut",
   "componentHeatCooled",
   "componentHeatSentThroughFrame",
-  "componentHeatRadiated",
-  "componentVentedOverflowHeatThisTick"
+  "componentHeatRadiated"
 ]);
 const compareNumbers = (a, b) => a - b;
 
@@ -284,7 +283,6 @@ function beginSparseTelemetryStep(ship) {
     ship.componentHeatCooled[index] = 0;
     ship.componentHeatSentThroughFrame[index] = 0;
     ship.componentHeatRadiated[index] = 0;
-    ship.componentVentedOverflowHeatThisTick[index] = 0;
   }
   return previous;
 }
@@ -308,7 +306,6 @@ function finishSparseTelemetryStep(ship, previousTelemetry, candidateList) {
     const value3 = ship.componentHeatCooled[index] || 0;
     const value4 = ship.componentHeatSentThroughFrame[index] || 0;
     const value5 = ship.componentHeatRadiated[index] || 0;
-    const value6 = ship.componentVentedOverflowHeatThisTick[index] || 0;
     const values = runtime.telemetryValues;
     if (values[offset] !== value0) { values[offset] = value0; changed = true; }
     if (values[offset + 1] !== value1) { values[offset + 1] = value1; changed = true; }
@@ -316,9 +313,8 @@ function finishSparseTelemetryStep(ship, previousTelemetry, candidateList) {
     if (values[offset + 3] !== value3) { values[offset + 3] = value3; changed = true; }
     if (values[offset + 4] !== value4) { values[offset + 4] = value4; changed = true; }
     if (values[offset + 5] !== value5) { values[offset + 5] = value5; changed = true; }
-    if (values[offset + 6] !== value6) { values[offset + 6] = value6; changed = true; }
     const nonZero = value0 !== 0 || value1 !== 0 || value2 !== 0 || value3 !== 0
-      || value4 !== 0 || value5 !== 0 || value6 !== 0;
+      || value4 !== 0 || value5 !== 0;
     if (nonZero) {
       runtime.telemetryComponents.push(index);
     }
@@ -426,12 +422,6 @@ function initShipHeat(ship) {
   ship.componentHeatCooled = design.map(() => 0);
   ship.componentHeatSentThroughFrame = design.map(() => 0);
   ship.componentHeatRadiated = design.map(() => 0);
-  ship.componentVentedOverflowHeatThisTick = design.map(() => 0);
-  ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
-  ship.componentTotalVentedOverflowHeat = design.map(() => 0);
-  ship.ventedOverflowHeatThisTick = 0;
-  ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
-  ship.totalVentedOverflowHeat = 0;
   ship.componentHeatInput = design.map(() => 0);
   ship.componentMeltdown = design.map(() => 0);
   ship.heatAccumulator = 0;
@@ -538,7 +528,12 @@ function rebuildThermalNetworks(ship) {
       }
     }
     const members = new Set([...frames, ...attached]);
-    const generators = [...attached].filter(i => HeatRules.activityHeat(design[i].type, PARTS[design[i].type] || {}) > 0);
+    const generators = [...attached].filter((i) => {
+      const part = PARTS[design[i].type] || {};
+      return HeatRules.activityHeat(design[i].type, part) > 0
+        || HeatRules.heatPerShot(design[i].type, part) > 0
+        || Number(part.dischargeHeatAtMax) > 0;
+    });
     const sinks = [...attached].filter(i => design[i].type === "heatSink");
     const radiators = [...attached].filter(i => design[i].type === "radiator");
     const heatVents = [...attached].filter(i => design[i].type === "heatVent");
@@ -1049,8 +1044,6 @@ function updateShipHeatCore(ship, dt, room, now) {
   if (stable) {
     resetHeatScratch(runtime);
     const previousTelemetry = beginSparseTelemetryStep(ship);
-    ship.ventedOverflowHeatThisTick = 0;
-    ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
     const telemetryChanged = finishSparseTelemetryStep(ship, previousTelemetry, runtime.telemetryCandidateComponents);
     if (telemetryChanged) ship.heatTelemetryRevision = (ship.heatTelemetryRevision || 0) + 1;
     for (const network of ship.coolantNetworks || []) network.transportedHeat = 0;
@@ -1085,8 +1078,6 @@ function updateShipHeatCore(ship, dt, room, now) {
 
   resetHeatScratch(runtime);
   const previousTelemetry = beginSparseTelemetryStep(ship);
-  ship.ventedOverflowHeatThisTick = 0;
-  ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
   const heat = ship.componentHeat;
    buildHeatWorkSet(ship);
   const pendingInputCount = runtime.pendingInputComponents.length;
@@ -1096,13 +1087,15 @@ function updateShipHeatCore(ship, dt, room, now) {
     const alive = (ship.componentHp?.[index] ?? 1) > 0;
     const part = PARTS[ship.design[index].type] || {};
     const thermal = ship.componentThermals[index];
-    const damagedMultiplier = alive && ship.componentMaxHp?.[index]
-      ? 1 + 0.15 * (1 - ship.componentHp[index] / ship.componentMaxHp[index])
-      : 1;
-    const power = part.powerGeneration > 0 ? require("./componentPower").getComponentPowerMultiplier(ship, index) : 1;
-    const load = alive && activeOutputForState(ship.componentHeatState?.[index] || STATE.NORMAL) > 0 ? power : 0;
-    const steady = alive && part.powerGeneration > 0 ? (2 + part.powerGeneration * 0.42) * load * elapsed * damagedMultiplier : 0;
-    const generated = alive ? ship.componentHeatInput[index] * damagedMultiplier + steady : 0;
+    const generationUsedMw = Number(ship.powerAnalysis?.byComponentIndex?.[index]?.generationUsedMw);
+    const ratedGenerationMw = Math.max(0, Number(part.powerGeneration) || 0);
+    const generationFraction = ratedGenerationMw > 0 && Number.isFinite(generationUsedMw)
+      ? Math.max(0, Math.min(1, generationUsedMw / ratedGenerationMw))
+      : 0;
+    const steady = alive && ratedGenerationMw > 0
+      ? Math.max(0, Number(part.activityHeat) || 0) * generationFraction * elapsed
+      : 0;
+    const generated = alive ? (Number(ship.componentHeatInput[index]) || 0) + steady : 0;
     ship.componentHeatInput[index] = 0;
     ship.componentHeatGenerated[index] = generated;
     runtime.delta[index] += generated;
@@ -1208,10 +1201,8 @@ function updateShipHeatCore(ship, dt, room, now) {
     if (ship.design[index].type === "radiator") {
       const alive = (ship.componentHp?.[index] ?? 1) > 0;
       const exposure = thermal.exposedEdges > 0 ? RADIATOR_EXPOSED_MULTIPLIER : RADIATOR_ENCLOSED_MULTIPLIER;
-      const power = getComponentPowerMultiplier(ship, index);
-      const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) * power : 0;
-      const passiveFloor = thermal.cooling * RADIATOR_PASSIVE_COOLING_FRACTION;
-      coolingRate = Math.max(passiveFloor, active) * exposure * thermal.retention * heatDissipationMult;
+      const active = alive ? thermal.cooling * activeCoolingForState(ship.componentHeatState?.[index] || STATE.NORMAL) : 0;
+      coolingRate = active * exposure * thermal.retention * heatDissipationMult;
     } else if (ship.design[index].type === "heatVent") {
       // Passive hull grille: no Power, no heat-state scaling, and almost nothing
       // at all unless at least one of its edges opens onto space.
@@ -1228,10 +1219,7 @@ function updateShipHeatCore(ship, dt, room, now) {
       const config = burstCoolerConfig(ship, index);
       const recharging = (ship.componentBurstCoolerRecharge?.[index] || 0) > 0;
       coolingRate = thermal.cooling * (recharging ? config.rechargeCoolingFraction : 1) * thermal.retention * heatDissipationMult;
-    } else if (thermal.exposedEdges > 0) coolingRate *= 1.12;
-    const ratio = Math.max(0, (heat[index] + runtime.delta[index]) / Math.max(1, thermal.capacity));
-    const tempFactor = 0.7 + 0.9 * ratio * ratio;
-    coolingRate *= tempFactor;
+    }
     const currentState = ship.componentHeatState?.[index];
     if (currentState >= STATE.CRITICAL && overheatRecoveryMult > 1) coolingRate *= overheatRecoveryMult;
     const removed = Math.min(Math.max(0, heat[index] + runtime.delta[index]), coolingRate * elapsed);
@@ -1254,20 +1242,11 @@ function updateShipHeatCore(ship, dt, room, now) {
   for (const index of runtime.touchedComponents) {
     const alive = (ship.componentHp?.[index] ?? 1) > 0;
     const capacity = ship.componentThermals[index].capacity;
-    const oldHeat = Math.max(0, Number(heat[index]) || 0);
-    const retainedCeiling = Math.max(capacity * 1.25, heat[index]);
-    const unclampedNext = Math.max(0, heat[index] + runtime.delta[index]);
-    const next = Math.min(retainedCeiling, unclampedNext);
-    const overflow = Math.max(0, unclampedNext - next);
-    if (overflow > 0) {
-      ship.componentVentedOverflowHeatThisTick[index] += overflow;
-      ship.componentVentedOverflowHeat = ship.componentVentedOverflowHeatThisTick;
-      ship.componentTotalVentedOverflowHeat[index] = (ship.componentTotalVentedOverflowHeat[index] || 0) + overflow;
-      ship.ventedOverflowHeatThisTick += overflow;
-      ship.ventedOverflowHeat = ship.ventedOverflowHeatThisTick;
-      ship.totalVentedOverflowHeat = (ship.totalVentedOverflowHeat || 0) + overflow;
-      ship.componentHeatRemoved[index] += overflow;
-    }
+    const rawHeat = Number(heat[index]);
+    const rawDelta = Number(runtime.delta[index]);
+    const oldHeat = Number.isFinite(rawHeat) ? Math.max(0, rawHeat) : 0;
+    const unclampedNext = oldHeat + (Number.isFinite(rawDelta) ? rawDelta : 0);
+    const next = Number.isFinite(unclampedNext) ? Math.max(0, unclampedNext) : oldHeat;
     const oldState = ship.componentHeatState[index];
     const physicalState = stateFor(capacity > 0 ? next / capacity : (next > 0 ? Infinity : 0), oldState);
     const nextState = alive ? physicalState : STATE.NORMAL;
@@ -1288,7 +1267,6 @@ function updateShipHeatCore(ship, dt, room, now) {
       // defensive no-op for malformed externally-mutated state.
       setHotMembership(ship, index, alive, nextState);
     }
-    if (alive) ship.currentHeat += next - oldHeat;
     heat[index] = next;
     ship.componentHeatState[index] = nextState;
     runtime.lastHeatValues[index] = next;
@@ -1321,7 +1299,13 @@ function updateShipHeatCore(ship, dt, room, now) {
       ship.componentMeltdown[index] = 0;
     }
   }
-  ship.currentHeat = Math.max(0, ship.currentHeat);
+  ship.currentHeat = 0;
+  for (let index = 0; index < heat.length; index += 1) {
+    if ((ship.componentHp?.[index] ?? 1) > 0) {
+      const value = Number(heat[index]);
+      ship.currentHeat += Number.isFinite(value) ? Math.max(0, value) : 0;
+    }
+  }
   const nextPressure = ship.maxHeat > 0 ? ship.currentHeat / ship.maxHeat : 0;
   const nextHotCount = runtime.hotComponents.length;
   const nextOverheatedCount = runtime.overheatedComponentCount;
@@ -1402,9 +1386,6 @@ function buildHeatDebug(ship) {
     shipId: ship.id,
     currentHeat: ship.currentHeat,
     maxHeat: ship.maxHeat,
-    ventedOverflowHeat: ship.ventedOverflowHeat || 0,
-    ventedOverflowHeatThisTick: ship.ventedOverflowHeatThisTick || 0,
-    totalVentedOverflowHeat: ship.totalVentedOverflowHeat || 0,
     components: (ship.design || []).map((module, index) => ({
       index,
       type: module.type,
@@ -1417,8 +1398,6 @@ function buildHeatDebug(ship) {
       removedByRadiatorPerSecond: module.type === "radiator" ? (ship.componentHeatRadiated?.[index] || 0) / dt : 0,
       removedByHeatVentPerSecond: module.type === "heatVent" ? (ship.componentHeatRadiated?.[index] || 0) / dt : 0,
       removedByClosedCycleCoolerPerSecond: module.type === "closedCycleCooler" ? (ship.componentHeatCooled?.[index] || 0) / dt : 0,
-      ventedOverflowHeatPerSecond: (ship.componentVentedOverflowHeatThisTick?.[index] || 0) / dt,
-      totalVentedOverflowHeat: ship.componentTotalVentedOverflowHeat?.[index] || 0,
       thermalNetworkIds: (ship.componentThermalNetworks?.[index] || []).slice(),
       coolantNetworkId: coolantNetworkByComponent.has(index) ? coolantNetworkByComponent.get(index) : null,
       exposedEdges: ship.componentThermals?.[index]?.exposedEdges || 0,

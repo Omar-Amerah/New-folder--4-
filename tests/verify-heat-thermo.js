@@ -1,6 +1,6 @@
 "use strict";
-// Group 6 (thermodynamics): a hotter component sheds heat faster, and heat
-// routes through frames into a central heat sink (centralised heat-buffer layout).
+// Group 6 (thermodynamics): component cooling is literal, and heat routes
+// through frames into a central heat sink (centralised heat-buffer layout).
 const assert = require("assert");
 const { initShipHeat, updateShipHeat } = require("../src/server/heat");
 const { PARTS } = require("../src/server/components");
@@ -13,7 +13,7 @@ function shipFor(design) {
 }
 function ticks(ship, count) { for (let i = 0; i < count; i += 1) updateShipHeat(ship, 0.2); }
 
-// 1. Temperature-dependent dissipation: identical component, hotter sheds more.
+// 1. Cooling rate does not vary with the amount of stored Heat.
 function dissipatedAt(fillRatio) {
   const ship = shipFor([{ x: 7, y: 7, type: "blaster" }]);
   ship.componentHeat[0] = ship.componentThermals[0].capacity * fillRatio;
@@ -23,7 +23,7 @@ function dissipatedAt(fillRatio) {
 }
 const hot = dissipatedAt(0.9);
 const cool = dissipatedAt(0.3);
-assert(hot > cool * 1.5, `a hotter component should dissipate much faster (hot=${hot.toFixed(2)} cool=${cool.toFixed(2)})`);
+assert.strictEqual(hot, cool, `cooling rate is literal (hot=${hot.toFixed(2)} cool=${cool.toFixed(2)})`);
 
 // 2. Local conduction still works: a heat sink in direct contact with the source
 // buffers it and delays overheating versus an equivalent frame.

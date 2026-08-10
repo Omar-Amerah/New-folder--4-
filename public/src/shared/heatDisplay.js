@@ -6,15 +6,11 @@
 
 import { COMPONENT_HEAT_VALUE } from "./componentHeatSnapshot.js";
 
-// Overheated ships can store slightly more than capacity; cap the derived
-// percentage so runaway values cannot stretch progress bars indefinitely.
-export const SHIP_HEAT_PERCENT_CAP = 125;
-
 export function shipHeatPercent(ship) {
   const stored = Math.max(0, Number(ship?.heatNow) || 0);
   const capacity = Math.max(0, Number(ship?.heatMax) || 0);
   if (capacity <= 0) return 0;
-  return Math.min(SHIP_HEAT_PERCENT_CAP, (stored / capacity) * 100);
+  return (stored / capacity) * 100;
 }
 
 // 0 -> "0%", 0.04 -> "<0.1%", 0.32 -> "0.3%", 3.46 -> "3.5%", 42.1 -> "42%".

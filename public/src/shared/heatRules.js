@@ -21,6 +21,61 @@
   // an unreasonable multiplier from many shared edges.
   const MAX_SHARED_EDGE_MULTIPLIER = 3;
 
+  // Structural shapes are separate catalogue components, but they are still
+  // made from one of these five canonical materials. Keep this mapping exact:
+  // shape names are data identifiers, not material classification heuristics.
+  const STRUCTURAL_THERMAL_MATERIAL_BY_TYPE = Object.freeze({
+    frame: "frame",
+    halfFrameDiagonal: "frame",
+    wingFrame: "frame",
+    bevelFrame: "frame",
+    roundedFrame: "frame",
+    longWedgeFrame: "frame",
+    armor: "armor",
+    halfArmorDiagonal: "armor",
+    wingArmor: "armor",
+    bevelArmor: "armor",
+    roundedArmor: "armor",
+    longWedgeArmor: "armor",
+    compositeArmor: "compositeArmor",
+    halfCompositeArmorDiagonal: "compositeArmor",
+    wingCompositeArmor: "compositeArmor",
+    bevelCompositeArmor: "compositeArmor",
+    roundedCompositeArmor: "compositeArmor",
+    longWedgeCompositeArmor: "compositeArmor",
+    ablativeArmor: "ablativeArmor",
+    halfAblativeArmorDiagonal: "ablativeArmor",
+    wingAblativeArmor: "ablativeArmor",
+    bevelAblativeArmor: "ablativeArmor",
+    roundedAblativeArmor: "ablativeArmor",
+    longWedgeAblativeArmor: "ablativeArmor",
+    refractoryArmor: "refractoryArmor",
+    halfRefractoryArmorDiagonal: "refractoryArmor",
+    wingRefractoryArmor: "refractoryArmor",
+    bevelRefractoryArmor: "refractoryArmor",
+    roundedRefractoryArmor: "refractoryArmor",
+    longWedgeRefractoryArmor: "refractoryArmor"
+  });
+
+  // These are the existing base-material results of profile(). Quantities of
+  // material scale with statScale; conductivity and retention describe the
+  // material itself and therefore do not scale with a shape's size.
+  const STRUCTURAL_THERMAL_PROFILES = Object.freeze({
+    frame: Object.freeze({ capacity: 85, cooling: 1.25, passiveCooling: 0, conductivity: CONDUCTIVITY.frame, retention: 1 }),
+    armor: Object.freeze({ capacity: 125, cooling: 0.7, passiveCooling: 0, conductivity: CONDUCTIVITY.armor, retention: 0.9 }),
+    compositeArmor: Object.freeze({ capacity: 140, cooling: 0.6, passiveCooling: 0, conductivity: CONDUCTIVITY.compositeArmor, retention: 0.82 }),
+    // Ablative Plating currently uses the ordinary-system thermal baseline;
+    // naming it explicitly here makes its variants scale that baseline instead
+    // of accidentally treating each shape as a standalone generic component.
+    ablativeArmor: Object.freeze({ capacity: 85, cooling: 1.25, passiveCooling: 0, conductivity: CONDUCTIVITY.system, retention: 1 }),
+    refractoryArmor: Object.freeze({ capacity: 460, cooling: 2.4, passiveCooling: 0, conductivity: 0.9, retention: 1.2 })
+  });
+
+  // Legacy frame-like identifiers are retained as exact entries for the
+  // non-catalogue fallback path. This replaces the old case-sensitive
+  // substring test without changing those components' conductivity.
+  const FRAME_CONDUCTIVITY_TYPES = new Set(["frame", "lightFrame", "heavyFrame"]);
+
   // --- Coolant transport network ---------------------------------------------
   //
   // Every connected group of living Heat Pipes is one coolant network. Pipes are
@@ -57,7 +112,30 @@
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
+  function structuralThermalMaterial(type) {
+    return Object.prototype.hasOwnProperty.call(STRUCTURAL_THERMAL_MATERIAL_BY_TYPE, type)
+      ? STRUCTURAL_THERMAL_MATERIAL_BY_TYPE[type]
+      : null;
+  }
+
+  function structuralThermalProfile(type, part) {
+    const material = structuralThermalMaterial(type);
+    const base = material ? STRUCTURAL_THERMAL_PROFILES[material] : null;
+    if (!base) return null;
+    const statScale = Number.isFinite(Number(part?.statScale)) ? Number(part.statScale) : 1;
+    return {
+      capacity: base.capacity * statScale,
+      cooling: base.cooling * statScale,
+      passiveCooling: base.passiveCooling * statScale,
+      conductivity: base.conductivity,
+      retention: base.retention
+    };
+  }
+
   function profile(type, part) {
+    const structural = structuralThermalProfile(type, part);
+    if (structural) return structural;
+
     // Heat sinks are dedicated thermal-mass buffers (large capacity for their
     // cost). Normal system components hold less heat than before so hotspots form
     // and must be conducted away through frames to sinks/radiators.
@@ -71,45 +149,20 @@
       : type === "armor" ? 0.7 : type === "compositeArmor" ? 0.6 : 1.25;
     const passiveCooling = Number.isFinite(part?.heatPassiveCooling) ? part.heatPassiveCooling : 0;
     const conductivity = Number.isFinite(part?.heatConductivity) ? part.heatConductivity
-      : (CONDUCTIVITY[type] ?? (type.includes("Frame") || type === "frame" ? CONDUCTIVITY.frame : CONDUCTIVITY.system));
+      : (CONDUCTIVITY[type] ?? (FRAME_CONDUCTIVITY_TYPES.has(type) ? CONDUCTIVITY.frame : CONDUCTIVITY.system));
     const retention = Number.isFinite(part?.heatRetention) ? part.heatRetention
       : type === "armor" ? 0.9 : type === "compositeArmor" ? 0.82 : 1;
     return { capacity, cooling, passiveCooling, conductivity, retention };
   }
 
   function activityHeat(type, part) {
-    // Per-family heat rates mirror the per-shot heat combat.js actually adds
-    // when a weapon fires, so designer predictions and thermal-network overload
-    // flag agree with in-combat heating.
-    if (part.weapon) {
-      const damage = part.weapon.damage || 1;
-      const fireRate = part.weapon.fireRate || 1;
-      // A spinal mount's Heat comes from holding the charge, not from the shot,
-      // so its sustained rate is the charge burn plus the firing spike averaged
-      // over one full charge-and-reload cycle. Using the plain railgun formula
-      // here would understate a Spinal Accelerator by more than half.
-      const spinal = part.weapon.spinalCharge;
-      if (spinal) {
-        const chargeSeconds = Math.max(0.05, Number(spinal.chargeSeconds) || 10);
-        const cycleSeconds = chargeSeconds + (fireRate > 0 ? 1 / fireRate : 0);
-        const chargeHeat = Math.max(0, Number(spinal.chargeHeatPerSecond) || 0);
-        const fireHeat = Math.max(0, Number(spinal.fireHeat) || 0);
-        return (chargeHeat * chargeSeconds + fireHeat) / cycleSeconds;
-      }
-      if (part.weapon.type === "beam") return Math.max(3, Math.sqrt(damage));
-      if (part.weapon.type === "railgun") return Math.max(8, Math.sqrt(damage) * 1.8) * fireRate;
-      if (part.weapon.type === "pointDefense") return 4 * fireRate;
-      return Math.max(5, Math.sqrt(damage) * 1.5) * fireRate;
-    }
-    if (Number.isFinite(Number(part.activityHeat)) && Number(part.activityHeat) > 0) return Number(part.activityHeat);
-    if (type === "battery" || type === "capacitor") return 0;
-    if ((part.powerGeneration || 0) > 0) return 2 + part.powerGeneration * 0.42;
-    if ((part.thrust || 0) > 0) return 2 + part.thrust * 0.018;
-    if ((part.lateralThrust || 0) > 0) return 2 + part.lateralThrust * 0.018;
-    if ((part.turn || 0) > 0) return 2 + part.turn * 1.5;
-    if ((part.shieldRegen || 0) > 0) return part.shieldRegen * 0.7;
-    if ((part.repairRate || 0) > 0) return 1.5 + part.repairRate * 0.35;
-    return 0;
+    const value = Number(part?.activityHeat);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  function heatPerShot(type, part) {
+    const value = Number(part?.heatPerShot);
+    return Number.isFinite(value) && value > 0 ? value : 0;
   }
 
   function stateFor(ratio, previous) {
@@ -130,12 +183,11 @@
   const PASSIVE_PROTECTION = Object.freeze([1, 1, 0.85, 0.65, 0.40]);
   const ACTIVE_COOLING = Object.freeze([1, 1, 0.75, 0.50, 0]);
 
-  // Radiator-specific exposure and passive-floor rules.  These are the single
-  // authoritative source for both the server runtime (heat.js) and the Fleet
-  // Ledger article generation.  Do not duplicate these literals elsewhere.
+  // Radiator-specific exposure rules. These are the single authoritative source
+  // for both the server runtime (heat.js) and the Fleet Ledger article generation.
+  // Do not duplicate these literals elsewhere.
   const RADIATOR_EXPOSED_MULTIPLIER = 1;
   const RADIATOR_ENCLOSED_MULTIPLIER = 0.25;
-  const RADIATOR_PASSIVE_COOLING_FRACTION = 0.12;
   // Heat Vent exposure. A Vent is a bare hull grille: with no opening to space
   // it has nowhere to reject heat, so an enclosed Vent is very nearly inert.
   // Exposure is binary on purpose : extra exposed edges add nothing, so there is
@@ -272,5 +324,5 @@
     return Math.sqrt(a.conductivity * b.conductivity);
   }
 
-  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, MAX_SHARED_EDGE_MULTIPLIER, COOLANT_CONDUCTANCE, COOLANT_ATTACHMENT_BANDWIDTH, COOLANT_MAX_APPROACH, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_PASSIVE_COOLING_FRACTION, RADIATOR_ACTIVE_COOLING_BY_STATE, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, clamp, profile, activityHeat, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, effectiveSharedEdges, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork });
+  return Object.freeze({ TICK_SECONDS, STATE, STATE_LABELS, THRESHOLDS, HYSTERESIS, CONDUCTIVITY, MAX_SHARED_EDGE_MULTIPLIER, STRUCTURAL_THERMAL_MATERIAL_BY_TYPE, STRUCTURAL_THERMAL_PROFILES, COOLANT_CONDUCTANCE, COOLANT_ATTACHMENT_BANDWIDTH, COOLANT_MAX_APPROACH, REACTOR_MELTDOWN_SECONDS, REACTOR_EXPLOSION_RADIUS, REACTOR_EXPLOSION_DAMAGE, RADIATOR_EXPOSED_MULTIPLIER, RADIATOR_ENCLOSED_MULTIPLIER, RADIATOR_ACTIVE_COOLING_BY_STATE, HEAT_VENT_EXPOSED_MULTIPLIER, HEAT_VENT_ENCLOSED_MULTIPLIER, clamp, structuralThermalMaterial, structuralThermalProfile, profile, activityHeat, heatPerShot, stateFor, activeOutputForState, passiveProtectionForState, activeCoolingForState, structuralDamageMultiplierForState, isPassiveStructure, performanceForState, edgeTransfer, edgeConductivity, effectiveSharedEdges, isCoolantTransportType, coolantEdgeConductance, coolantEdgeBandwidth, solveCoolantNetwork });
 }));

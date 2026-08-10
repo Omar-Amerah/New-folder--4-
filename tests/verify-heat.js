@@ -76,11 +76,9 @@ const dirtyBefore = boundary.dirtyHeat.size; const revBefore = boundary.powerRev
 assert.strictEqual(boundary.componentHeatState[0], HeatRules.STATE.HOT, "fixed HOT hysteresis boundary does not flap");
 assert.strictEqual(boundary.dirtyHeat.size, dirtyBefore, "inactive fixed boundary does not churn dirtyHeat");
 assert.strictEqual(boundary.powerRevision || 0, revBefore, "non-source boundary does not churn Power revisions");
-const overflow = shipFor([{x:7,y:7,type:"frame"}]);
-overflow.componentHeat[0] = overflow.componentThermals[0].capacity * 1.25; addComponentHeat(overflow, 0, 50); ticks(overflow, 1);
-assert(overflow.ventedOverflowHeat > 0, "overflow heat is recorded as vented");
-const dbg = buildHeatDebug(overflow);
-assert(dbg.ventedOverflowHeat > 0 && dbg.components[0].ventedOverflowHeatPerSecond > 0, "overflow exposed in diagnostics");
+const retained = shipFor([{x:7,y:7,type:"frame"}]);
+retained.componentHeat[0] = retained.componentThermals[0].capacity; addComponentHeat(retained, 0, 50); ticks(retained, 1);
+assert(retained.componentHeat[0] > retained.componentThermals[0].capacity, "Heat above capacity is retained");
 const total = neighbour.componentHeat.reduce((sum, value) => sum + value, 0);
 assert(Math.abs(neighbour.currentHeat - total) < 0.001, "ship heat is not component heat sum");
 assert(Math.abs(neighbour.heatPressure - neighbour.currentHeat / neighbour.maxHeat) < 0.000001, "ship pressure is not summed heat/capacity");
@@ -203,23 +201,19 @@ assert.strictEqual(destroyedOverheated.componentHeatState[0], HeatRules.STATE.OV
 function assertConservation(label, ship, setup, tickCount = 1) {
   setup(ship);
   const initial = ship.componentHeat.reduce((sum, value) => sum + value, 0);
-  let generated = 0, removed = 0, overflowSum = 0;
+  let generated = 0, removed = 0;
   for (let i = 0; i < tickCount; i += 1) {
     updateShipHeat(ship, 0.2);
     generated += ship.componentHeatGenerated.reduce((sum, value) => sum + value, 0);
     removed += ship.componentHeatRemoved.reduce((sum, value) => sum + value, 0);
-    overflowSum += ship.ventedOverflowHeatThisTick || 0;
   }
   const final = ship.componentHeat.reduce((sum, value) => sum + value, 0);
   assert(Math.abs((initial + generated) - (final + removed)) < 1e-6, `${label} conserves ship Heat`);
-  assert(Math.abs((ship.totalVentedOverflowHeat || 0) - overflowSum) < 1e-6, `${label} cumulative overflow equals per-tick overflow sum`);
-  assert(ship.componentHeatRemoved.every((value, i) => value + 1e-9 >= (ship.componentVentedOverflowHeatThisTick?.[i] || 0)), `${label} overflow appears in removed exactly once`);
-  assert.strictEqual(ship.componentHeatRadiated.reduce((sum, value) => sum + value, 0), 0, `${label} overflow is separate from radiator cooling`);
 }
 assertConservation("normal component below ceiling", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = 5; addComponentHeat(s, 0, 1); s.hasActiveHeat = true; });
-assertConservation("component exactly at 125%", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.25; s.hasActiveHeat = true; });
-assertConservation("component exceeding 125%", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.25; addComponentHeat(s, 0, 20); s.hasActiveHeat = true; });
-assertConservation("repeated overflow", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.25; for (let i = 0; i < 3; i += 1) addComponentHeat(s, 0, 20); s.hasActiveHeat = true; }, 3);
+for (const ratio of [1.1, 1.25, 1.5, 2]) {
+  assertConservation(`component retains ${Math.round(ratio * 100)}% Heat`, shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity * ratio; s.hasActiveHeat = true; });
+}
 assertConservation("destroyed component retaining Heat", shipFor([{x:7,y:7,type:"frame"}]), s => { s.componentHeat[0] = s.componentThermals[0].capacity; s.componentHp[0] = 0; require("../src/server/heat").recalculateEffectiveThermalCapacities(s); s.hasActiveHeat = true; });
 const reduced = shipFor([{x:7,y:7,type:"heatSink"}]);
 assertConservation("capacity reduction above new ceiling", reduced, s => { s.componentHeat[0] = s.componentThermals[0].capacity * 1.1; s.componentHp[0] = s.componentMaxHp[0] * 0.2; require("../src/server/heat").recalculateEffectiveThermalCapacities(s); addComponentHeat(s, 0, 10); s.hasActiveHeat = true; });

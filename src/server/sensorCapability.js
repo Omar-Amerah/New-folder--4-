@@ -2,12 +2,10 @@
 
 // Authoritative sensor capability calculation.
 //
-// Small and Large Sensors occupy one diminishing stack. Large Sensors are
-// ordered first even if damaged, so adding a Small Sensor can never consume the
-// best multiplier ahead of an operational Large Sensor. Directed Sensors use a
-// separate bonus-sorted stack, so Large Directed Sensors take priority over
-// Small Directed Sensors. Components aimed along the same bearing combine their
-// diminished bonuses wherever their facing cones overlap.
+// Every live hull has the same base detection range. Sensor components add their
+// authored bonus linearly within their coverage family. General and Directed
+// Sensors remain separate, and components aimed along the same bearing combine
+// their bonuses wherever their facing cones overlap.
 
 const { BALANCE } = require("./balanceConfig");
 const { PARTS } = require("./components");
@@ -17,42 +15,15 @@ const RotationRules = require("../../public/src/shared/rotationRules");
 const SENSOR_BALANCE = BALANCE.visibility || {};
 const EMPTY_DIRECTED_COVERAGE = Object.freeze([]);
 
-const HULL_BASE_RANGES = Object.freeze({
-  light: Number(SENSOR_BALANCE.hullBaseSensorRange?.light) || 520,
-  medium: Number(SENSOR_BALANCE.hullBaseSensorRange?.medium) || 460,
-  heavy: Number(SENSOR_BALANCE.hullBaseSensorRange?.heavy) || 400,
-  capital: Number(SENSOR_BALANCE.hullBaseSensorRange?.capital) || 480
-});
-
-const DIMINISHING_STACKING = Object.freeze({
-  first: 1.0,
-  second: 0.65,
-  third: 0.45,
-  rest: 0.25
-});
-
-function stackingMultiplier(index) {
-  if (index <= 0) return DIMINISHING_STACKING.first;
-  if (index === 1) return DIMINISHING_STACKING.second;
-  if (index === 2) return DIMINISHING_STACKING.third;
-  return DIMINISHING_STACKING.rest;
-}
+const BASE_SENSOR_RANGE = Number(SENSOR_BALANCE.baseSensorRange) || 460;
 
 function normalizedSensorRole(part) {
   if (part?.sensorRole === "directed") return "directed";
   if (part?.sensorRole === "omniSmall") return "omniSmall";
-  // The old sensorArray did not carry a role. Treat any legacy range component
-  // as Large so saved designs preserve their former priority and capability.
   return "omniLarge";
 }
 
-function sensorRolePriority(role) {
-  return role === "omniSmall" ? 1 : 0;
-}
-
 function compareOmniBonuses(a, b) {
-  const priority = sensorRolePriority(a.role) - sensorRolePriority(b.role);
-  if (priority) return priority;
   return (Number(b.bonus) || 0) - (Number(a.bonus) || 0)
     || (Number(a.index) || 0) - (Number(b.index) || 0);
 }
@@ -76,15 +47,13 @@ function isOperationalSensorSource(entity) {
 function componentOperationalBonus(ship, index, part) {
   const hpValue = ship.componentHp?.[index];
   const hp = hpValue === undefined ? Number(part.hp) || 1 : Number(hpValue);
-  const max = Number(ship.componentMaxHp?.[index]) || Number(part.hp) || 1;
   if (!(hp > 0)) return 0;
   const powerRecord = ship.componentPower?.byComponentIndex?.[index];
   if (powerRecord && powerRecord.operationalMultiplier <= 0) return 0;
-  const healthFactor = Math.min(1, Math.max(0, hp / max));
   const operationalFactor = powerRecord
     ? Math.min(1, Math.max(0, Number(powerRecord.operationalMultiplier) || 0))
     : 1;
-  return (Number(part.sensorRangeBonus) || 0) * operationalFactor * (0.5 + 0.5 * healthFactor);
+  return (Number(part.sensorRangeBonus) || 0) * operationalFactor;
 }
 
 function sensorComponentBonuses(ship) {
@@ -111,20 +80,17 @@ function sensorComponentBonuses(ship) {
 }
 
 function stackedSensorRangeBonus(bonuses) {
-  bonuses.sort(compareOmniBonuses);
-  let total = 0;
-  for (let index = 0; index < bonuses.length; index += 1) {
-    total += (Number(bonuses[index].bonus) || 0) * stackingMultiplier(index);
-  }
-  return total;
+  return [...bonuses]
+    .sort(compareOmniBonuses)
+    .reduce((total, entry) => total + (Number(entry.bonus) || 0), 0);
 }
 
 function stackedDirectedSensorCoverage(bonuses, baseRange, auraMultiplier = 1) {
   const stacked = [...bonuses]
     .sort(compareDirectedBonuses)
-    .map((entry, stackIndex) => ({
+    .map((entry) => ({
       ...entry,
-      effectiveBonus: (Number(entry.bonus) || 0) * stackingMultiplier(stackIndex)
+      effectiveBonus: Number(entry.bonus) || 0
     }));
   const aura = Math.max(0, Number(auraMultiplier) || 0);
   return stacked.map((entry) => {
@@ -147,17 +113,16 @@ function stackedDirectedSensorCoverage(bonuses, baseRange, auraMultiplier = 1) {
   });
 }
 
-function getHullBaseSensorRange(massClass) {
-  return HULL_BASE_RANGES[String(massClass).toLowerCase()] || HULL_BASE_RANGES.medium;
+function getHullBaseSensorRange() {
+  return BASE_SENSOR_RANGE;
 }
 
-function designSensorProfile(design, massClass = "medium") {
-  const baseRange = getHullBaseSensorRange(massClass);
+function designSensorProfile(design) {
+  const baseRange = getHullBaseSensorRange();
   const ship = {
     alive: true,
     hp: 1,
-    design: Array.isArray(design) ? design : [],
-    stats: { massClass }
+    design: Array.isArray(design) ? design : []
   };
   const bonuses = sensorComponentBonuses(ship);
   const omni = bonuses.filter((entry) => entry.role !== "directed");
@@ -263,8 +228,6 @@ module.exports = {
   designSensorProfile,
   isOperationalSensorSource,
   getHullBaseSensorRange,
-  HULL_BASE_RANGES,
-  DIMINISHING_STACKING,
-  stackingMultiplier,
+  BASE_SENSOR_RANGE,
   normalizedSensorRole
 };

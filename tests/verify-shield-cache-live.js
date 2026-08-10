@@ -22,7 +22,7 @@ class Socket extends EventEmitter {
 }
 
 function makePlayer(id) {
-  return { id, name: id, color: '#39f', team: 'blue', isBot: false, connected: true, ready: false, money: 0, income: 0, earned: 0, spent: 0, shipCap: 5, deployedFleetCost: 0, destroyedEnemyCost: 0, lastReward: 0, kills: 0, losses: 0, captures: 0, ships: [], design: [{ type: 'core' }], stats: { unitCost: 1 }, shipsBuilt: 0, lostFleetCost: 0, rallyPoint: { x: 0, y: 0 } };
+  return { id, name: id, color: '#39f', team: 'blue', isBot: false, connected: true, ready: false, money: 0, income: 0, earned: 0, spent: 0, shipCap: 5, deployedFleetCost: 0, destroyedEnemyCost: 0, kills: 0, losses: 0, captures: 0, ships: [], design: [{ type: 'core' }], stats: { unitCost: 1 }, shipsBuilt: 0, lostFleetCost: 0, rallyPoint: { x: 0, y: 0 } };
 }
 
 function attach(r, id, pattern) {

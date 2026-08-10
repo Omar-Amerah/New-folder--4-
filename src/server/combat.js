@@ -35,6 +35,8 @@ const { applyHullDamage, repairShipComponents, isComponentAlive, zeroAllComponen
 const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance } = require("./heat");
 
 const TurretRules = require("../../public/src/shared/turretRules");
+const HeatRules = require("../../public/src/shared/heatRules");
+const ShieldRules = require("../../public/src/shared/shieldRules");
 
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 
@@ -49,6 +51,7 @@ const {
 const { getCommandAuraMultiplier } = require("./commandAuras");
 
 const { PRIORITY_COMPONENT_TYPES, getShipRepairCache, markShipRepairCacheDirty } = require("./repairCache");
+const RepairRules = require("../../public/src/shared/repairRules.js");
 
 const Relationships = require("./relationships");
 const { segmentStationHullHit, nearestStationHullPoint, isSegmentStationClear, stationAttackPoint } = require("./stationCollision");
@@ -75,7 +78,7 @@ const COMPONENT_RETARGET_SPAN_MS = 1500;
 
 const STRUCTURAL_COMPONENT_TYPES = new Set(["armor", "compositeArmor", "bulkhead", "frame", "weaponMount"]);
 
-const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = 0.12;
+const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = ShieldRules.IMPACT_HEAT_PER_BLOCKED_DAMAGE;
 
 
 
@@ -260,7 +263,6 @@ function selectInductionComponentIndex(room, target, ship, weaponIndex, now) {
     total += w;
   }
   if (!candidates.length) {
-    // Fallback: any living non-core component.
     for (let i = 0; i < target.design.length; i += 1) {
       if (!isComponentAlive(target, i)) continue;
       if (target.design[i].type === "core") continue;
@@ -270,7 +272,6 @@ function selectInductionComponentIndex(room, target, ship, weaponIndex, now) {
     }
   }
   if (!candidates.length) {
-    // Final fallback: the core if it is the only living component.
     for (let i = 0; i < target.design.length; i += 1) {
       if (!isComponentAlive(target, i)) continue;
       return i;
@@ -538,10 +539,6 @@ function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, world
     return;
   }
 
-  const baseFireRate = Number(part.weapon.fireRate) || 0;
-  const effectiveFireRate = Number(effectiveWeapon.fireRate) || baseFireRate;
-  const dataFireRateFactor = baseFireRate > 0 ? effectiveFireRate / baseFireRate : 1;
-
   const rampSeconds = Math.max(0, Number(effectiveWeapon.inductionRampSeconds) || 1);
   let progress = rampSeconds > 0 ? clampNumber(contact.contactDuration / rampSeconds, 0, 1) : 1;
   progress = clampNumber(progress, 0, 1);
@@ -553,7 +550,7 @@ function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, world
   const shieldAttenuated = Number(weaponTarget.shield) >= Number(SHIELD_HIT_MIN);
   const shieldMultiplier = shieldAttenuated ? (Number(effectiveWeapon.inductionShieldMultiplier) || 0.4) : 1;
 
-  const totalInductionHeat = rampedRate * dataFireRateFactor * activityMultiplier * shieldMultiplier * dt;
+  const totalInductionHeat = rampedRate * activityMultiplier * shieldMultiplier * dt;
 
   if (totalInductionHeat > 0 && !isInSafeZone(room, weaponTarget.x, weaponTarget.y, weaponTarget)) {
     const distributed = distributeInductionHeat(weaponTarget, componentIndex, totalInductionHeat, effectiveWeapon);
@@ -565,10 +562,7 @@ function fireInductionLance(room, ship, weaponIndex, weaponTarget, muzzle, world
     }
   }
 
-  const selfHeatMaxMult = Math.max(1, Number(effectiveWeapon.inductionSelfHeatMaxMultiplier) || 1);
-  const selfHeatMultiplier = 1 + (selfHeatMaxMult - 1) * progress;
-  const selfHeatBase = Math.max(3, Math.sqrt(Number(effectiveWeapon.damage) || 1)) * dataFireRateFactor * activityMultiplier * dt;
-  addComponentHeat(ship, weaponIndex, selfHeatBase * selfHeatMultiplier);
+  addComponentHeat(ship, weaponIndex, HeatRules.activityHeat("thermalInductionLance", part) * activityMultiplier * dt);
 
   if (now - (ship.beamEffectsAt[weaponIndex] || 0) > 55) {
     ship.beamEffectsAt[weaponIndex] = now;
@@ -706,87 +700,46 @@ function isComponentExposed(ship, index) {
 
 
 function componentAimWeight(ship, index, previousIndex = null) {
-
   const module = ship?.design?.[index];
-
   if (!module || !isComponentAlive(ship, index)) return 0;
-
   const type = module.type;
-
   let weight = 1;
-
   if (isComponentExposed(ship, index)) weight += 4;
-
   if (PRIORITY_COMPONENT_TYPES.has(type) || PARTS[type]?.weapon) weight += 3;
-
   if (STRUCTURAL_COMPONENT_TYPES.has(type)) weight += 1.2;
-
   if (type === "core") weight *= 0.25;
-
   if (previousIndex !== null && index === previousIndex) weight *= 0.2;
-
   return weight;
-
 }
 
-
-
 function selectComponentAimIndex(room, target, previousIndex = null) {
-
   if (!target?.alive || !target.design?.length || !target.componentHp) return -1;
-
   const living = [];
-
   const livingNonCore = [];
-
   for (let i = 0; i < target.design.length; i += 1) {
-
     if (!isComponentAlive(target, i)) continue;
-
     if (!componentAimLocalPosition(target, i)) continue;
-
     living.push(i);
-
     if (target.design[i].type !== "core") livingNonCore.push(i);
-
   }
-
   let candidates = livingNonCore.length ? livingNonCore : living;
-
   if (candidates.length > 1 && previousIndex !== null) {
-
     const different = candidates.filter((idx) => idx !== previousIndex);
-
     if (different.length) candidates = different;
-
   }
-
   if (!candidates.length) return -1;
-
   let total = 0;
-
   const weighted = candidates.map((idx) => {
-
     const weight = Math.max(0.01, componentAimWeight(target, idx, previousIndex));
-
     total += weight;
-
     return { idx, weight };
-
   });
-
   let roll = roomCombatRandom(room)() * total;
-
   for (const entry of weighted) {
-
     roll -= entry.weight;
-
     if (roll <= 0) return entry.idx;
-
   }
-
   return weighted[weighted.length - 1].idx;
-
 }
 
 
@@ -855,7 +808,6 @@ function weaponComponentAimPoint(room, ship, weaponIndex, target, now) {
   if (targetChanged || invalid || expired) {
 
     const previous = targetChanged ? null : currentIndex;
-
     currentIndex = selectComponentAimIndex(room, target, previous);
 
     ship.weaponComponentTargetIds[weaponIndex] = target.id;
@@ -888,19 +840,28 @@ function shipRepairNeed(ship) {
 
 // deterministic and prevents spare nominal capacity from producing heat.
 
-function allocateRepairHeat(ship, entries, actualRestored) {
+function allocateRepairHeat(ship, entries, actualRestored, { useRepairStack = false } = {}) {
 
   const delivered = Math.max(0, Number(actualRestored) || 0);
 
-  const total = entries.reduce((sum, entry) => sum + Math.max(0, entry.output || 0), 0);
+  const contributions = useRepairStack
+    ? RepairRules.effectiveRepairContributions(entries, BALANCE, (entry) => entry.output)
+    : entries.map((entry, index) => ({ item: entry, index, effectiveRate: Math.max(0, Number(entry.output) || 0) }));
+  const total = contributions.reduce((sum, contribution) => sum + contribution.effectiveRate, 0);
 
   if (delivered <= 0 || total <= 0) return;
 
-  for (const entry of entries) {
+  for (const contribution of contributions) {
 
-    const work = delivered * Math.max(0, entry.output || 0) / total;
+    const entry = contribution.item;
 
-    addComponentHeat(ship, entry.index, work * (1.5 + entry.repairRate * 0.35) / Math.max(entry.repairRate, 0.0001));
+    const work = delivered * contribution.effectiveRate / total;
+
+    addComponentHeat(
+      ship,
+      entry.index,
+      work * HeatRules.activityHeat(entry.module.type, PARTS[entry.module.type] || {}) / Math.max(entry.repairRate, 0.0001)
+    );
 
   }
 
@@ -955,17 +916,16 @@ function updateShipSupport(room, ships, dt, now) {
 
     // like a ranged support beam without the intended turret/targeting cost.
 
-    const selfRepairRate = activeRepairModules
+    const localRepairModules = activeRepairModules
 
-      .filter((entry) => entry.module.type !== "repairBeam")
-
-      .reduce((sum, entry) => sum + entry.output, 0);
+      .filter((entry) => entry.module.type !== "repairBeam");
+    const selfRepairRate = RepairRules.getEffectiveRepairRate(localRepairModules, BALANCE, (entry) => entry.output);
 
     if (selfRepairRate > 0 && shipRepairNeed(ship) > 0) {
 
       const delivered = repairShipComponents(room, ship, selfRepairRate * dt, now);
 
-      allocateRepairHeat(ship, activeRepairModules.filter((entry) => entry.module.type !== "repairBeam"), delivered);
+      allocateRepairHeat(ship, localRepairModules, delivered, { useRepairStack: true });
 
       ship._repairIntentAt = now; // Section 7D-2: repair systems have a valid action this cycle.
 
@@ -979,7 +939,7 @@ function updateShipSupport(room, ships, dt, now) {
 
     // also traverse like beam weapons and emit a green beam from their muzzle.
 
-    const beamRepairRate = activeRepairBeams.reduce((sum, entry) => sum + entry.output, 0);
+    const beamRepairRate = RepairRules.sumRepairRates(activeRepairBeams.map((entry) => entry.output));
 
     if (beamRepairRate <= 0) continue;
 
@@ -1223,43 +1183,13 @@ function roomScratch(room, key) {
 
 
 
-function weaponSpreadRadians(weapon, family, targetEvasionFactor) {
+function weaponSpreadRadians(weapon, family) {
 
   const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
 
   const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : (family === "flak" ? 0.16 : 0.22));
 
-  let spread = (1 - accuracy) * scale;
-
-  const evasion = Number(targetEvasionFactor) || 0;
-  if (evasion > 0) {
-    const evasionConfig = BALANCE?.movement?.evasion;
-    const maxPenalty = evasionConfig?.maxAccuracyPenalty ?? 0.75;
-    const exponent = evasionConfig?.evasionExponent ?? 1.4;
-    const trackingBase = evasionConfig?.trackingBase ?? 200;
-    const evasionPenalty = Math.min(maxPenalty, Math.pow(evasion / trackingBase, exponent));
-    spread += evasionPenalty * scale;
-  }
-
-  return spread;
-
-}
-
-function computeTransversalVelocity(ship, target) {
-  if (!target || !ship) return 0;
-  const point = targetAttackPoint(ship.x || 0, ship.y || 0, target);
-  const dx = point.x - (ship.x || 0);
-  const dy = point.y - (ship.y || 0);
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < 0.001) return 0;
-  const dirX = dx / dist;
-  const dirY = dy / dist;
-  const relVx = (target.vx || 0) - (ship.vx || 0);
-  const relVy = (target.vy || 0) - (ship.vy || 0);
-  const radial = relVx * dirX + relVy * dirY;
-  const transverseX = relVx - radial * dirX;
-  const transverseY = relVy - radial * dirY;
-  return Math.sqrt(transverseX * transverseX + transverseY * transverseY);
+  return (1 - accuracy) * scale;
 }
 
 
@@ -1754,13 +1684,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       ship.weaponAimTargetIds[i] = null;
 
       ship.weaponFireTargetIds[i] = null;
-      if (ship.weaponAcquiredTargetIds) ship.weaponAcquiredTargetIds[i] = null;
-      if (ship.weaponPendingTargetIds) ship.weaponPendingTargetIds[i] = null;
-      if (ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt[i] = 0;
-      if (ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds[i] = null;
-      if (ship.pdPendingTargetIds) ship.pdPendingTargetIds[i] = null;
-      if (ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt[i] = 0;
-      if (ship.pdReactionReadyAt) ship.pdReactionReadyAt[i] = 0;
 
       clearWeaponComponentAim(ship, i);
 
@@ -1783,13 +1706,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       ship.weaponAimTargetIds[i] = null;
 
       ship.weaponFireTargetIds[i] = null;
-      if (ship.weaponAcquiredTargetIds) ship.weaponAcquiredTargetIds[i] = null;
-      if (ship.weaponPendingTargetIds) ship.weaponPendingTargetIds[i] = null;
-      if (ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt[i] = 0;
-      if (ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds[i] = null;
-      if (ship.pdPendingTargetIds) ship.pdPendingTargetIds[i] = null;
-      if (ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt[i] = 0;
-      if (ship.pdReactionReadyAt) ship.pdReactionReadyAt[i] = 0;
 
       clearWeaponComponentAim(ship, i);
 
@@ -1818,6 +1734,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     const spinalConfig = effectiveWeapon.spinalCharge || null;
 
     const spinalProgress = spinalConfig ? decaySpinalCharge(ship, i, spinalConfig, dt) : 0;
+    let spinalActivityHeatApplied = false;
 
     if (spinalConfig && spinalProgress > 0) {
       spinalTurnPenalty = Math.min(spinalTurnPenalty, spinalHullTurnScale(spinalConfig, spinalProgress));
@@ -1935,23 +1852,14 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     } else if (family === "flak" || family === "pointDefense") {
 
-      // Fleet Defence Coordinator: interception reacquisition delay.
-      // Each defensive weapon separately tracks its acquired target, pending
-      // target, and the simulation timestamp when the pending acquisition
-      // completes. When no threats exist, no timer is scheduled — the weapon
-      // simply scans each tick. A new threat can never inherit a previous
-      // threat's timer.
-      const pdLen = ship.design ? ship.design.length : 0;
-      if (!ship.pdAcquiredTargetIds) ship.pdAcquiredTargetIds = new Array(pdLen).fill(null);
-      if (!ship.pdPendingTargetIds) ship.pdPendingTargetIds = new Array(pdLen).fill(null);
-      if (!ship.pdAcquireCompleteAt) ship.pdAcquireCompleteAt = new Array(pdLen).fill(0);
-      if (!ship.pdReactionReadyAt) ship.pdReactionReadyAt = new Array(pdLen).fill(0);
-
+      // Defensive target selection uses the shared search cadence. A valid
+      // tracked threat remains selected between searches; invalidation forces
+      // a search immediately, with no separate reaction or switch timer.
       const worldWeaponAngle = (ship.angle || 0) + (ship.weaponAngles[i] || 0);
       const pdArcRadians = arcRadians;
       const pdBaseWeapon = part.weapon || effectiveWeapon;
-      const pdCachedId = ship.pdAcquiredTargetIds[i] ?? null;
-      const pdCached = pdCachedId ? _lookupPointDefenceEntity(room, pdCachedId) : null;
+      const pdTrackedId = ship.weaponFireTargetIds[i] ?? null;
+      const pdTracked = pdTrackedId ? _lookupPointDefenceEntity(room, pdTrackedId) : null;
       const isPdCandidateValid = (candidate) => {
         if (!candidate) return false;
         const valid = Targeting.isPointDefenceTargetValid(room, ship.ownerId, candidate, effectiveWeapon.range || 0, now, {
@@ -1969,121 +1877,27 @@ function updateShipWeapons(room, ship, ships, dt, now) {
         );
       };
       let pdCurrentValid = false;
-      if (pdCached) {
-        pdCurrentValid = isPdCandidateValid(pdCached);
+      if (pdTracked) {
+        pdCurrentValid = isPdCandidateValid(pdTracked);
         if (!pdCurrentValid) TargetingTelemetry.bump(room, "pointDefenceImmediateReacquisitions");
       }
 
       const pdDue = TargetingCadence.isAcquisitionDue(ship, "pointDefence", i, now);
-      const pdForce = pdCachedId !== null && !pdCurrentValid;
+      const pdForce = pdTrackedId !== null && !pdCurrentValid;
       if (pdCurrentValid && !pdDue) {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
-        currentPdTarget = pdCached;
+        currentPdTarget = pdTracked;
       } else if (!pdDue && !pdForce) {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearchDeferred");
-        const pendingPdId = ship.pdPendingTargetIds[i] ?? null;
-        const pendingPd = pendingPdId ? _lookupPointDefenceEntity(room, pendingPdId) : null;
-        currentPdTarget = isPdCandidateValid(pendingPd) ? pendingPd : null;
+        currentPdTarget = null;
       } else {
         TargetingTelemetry.bump(room, "pointDefenceTargetSearches");
         currentPdTarget = findPointDefenseTarget(room, worldX, worldY, ship.ownerId, effectiveWeapon, ships, ship.id, now);
         TargetingCadence.markAcquisitionCompleted(ship, "pointDefence", i, now);
       }
 
-      const newPdId = currentPdTarget ? (currentPdTarget.entity.id ?? null) : null;
-      const pdAcquiredId = ship.pdAcquiredTargetIds[i] ?? null;
-      const pdPendingId = ship.pdPendingTargetIds[i] ?? null;
-      const pdReactionReady = ship.pdReactionReadyAt[i] || 0;
-
-      if (!newPdId) {
-        // No threat: if we had an acquired target, start a reaction period
-        // so a new threat arriving after a gap still respects the delay.
-        if (pdAcquiredId) {
-          const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
-          const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
-          ship.pdReactionReadyAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
-        }
-        ship.pdPendingTargetIds[i] = null;
-        ship.pdAcquireCompleteAt[i] = 0;
-        ship.pdAcquiredTargetIds[i] = null;
-        currentPdTarget = null;
-        aimEntity = null;
-        clearWeaponComponentAim(ship, i);
-      } else if (newPdId === pdAcquiredId) {
-        // Threat matches acquired target: fire normally, no timer.
-        ship.pdPendingTargetIds[i] = null;
-        ship.pdAcquireCompleteAt[i] = 0;
-        ship.pdReactionReadyAt[i] = 0;
-        aimEntity = currentPdTarget.entity;
-      } else {
-        // Threat differs from acquired target.
-        // Escalation — a strictly higher-priority threat class than the one
-        // currently held — bypasses the break-track cost entirely. Every
-        // defensive targetPriority list ends in "ship", so a mount with no
-        // ordnance to shoot settles onto an enemy hull; charging the full
-        // reacquisition delay from there meant the mount stayed silent while
-        // an inbound missile crossed its envelope and usually hit first. The
-        // delay still applies between threats of the same class, which is what
-        // stops the turret cycling through a salvo without killing anything.
-        const pdPriorityList = pdBaseWeapon.targetPriority
-          || ["missile", "torpedo", "projectile", "droneFighter", "droneOther", "drone", "ship"];
-        const pdRank = (candidate) => {
-          const idx = candidate ? Targeting.getCandidatePriorityIndex(candidate, pdPriorityList) : -1;
-          return idx < 0 ? Infinity : idx;
-        };
-        const isPdEscalation = Boolean(pdCached) && pdCurrentValid
-          && pdRank(currentPdTarget) < pdRank(pdCached);
-
-        if (isPdEscalation) {
-          ship.pdPendingTargetIds[i] = newPdId;
-          ship.pdAcquireCompleteAt[i] = 0;
-        } else if (newPdId !== pdPendingId) {
-          ship.pdPendingTargetIds[i] = newPdId;
-          // Only start a new reaction delay if there was no pending target.
-          // If a different target appears while we are already reacting,
-          // we keep the existing timer so the turret does not get stuck
-          // cycling through nearby threats.
-          if (!pdPendingId) {
-            if (pdReactionReady > 0) {
-              // A reaction period opened when the previous threat was lost is
-              // already counting down, and usually finishes while the next
-              // threat is still flying in. Honour the time already served.
-              // Restarting a full delay from the moment this threat came into
-              // reach stacked two consecutive delays and collapsed the usable
-              // envelope: a 450-unit Laser PD only opened fire at ~110 units,
-              // roughly 650 ms after the threat entered range.
-              ship.pdAcquireCompleteAt[i] = pdReactionReady;
-            } else {
-              // Switching off a target that is still alive: the full delay is
-              // the cost of breaking track mid-engagement.
-              const reactMult = getCommandAuraMultiplier(ship, "interceptionReactionMultiplier");
-              const baseDelay = Number(BALANCE?.fleetDefence?.baseReacquisitionDelayMs) || 600;
-              ship.pdAcquireCompleteAt[i] = now + Math.round(baseDelay / Math.max(0.01, reactMult));
-            }
-          }
-        }
-        // While reaction delay is pending, the turret may track the threat
-        // visually but must not fire. Check if timer has completed.
-        // First-ever target on this weapon fires immediately (no previous
-        // acquisition and no reaction ready time from a prior loss).
-        const isFirstEver = !pdAcquiredId && pdReactionReady <= 0;
-        if (isFirstEver || now >= ship.pdAcquireCompleteAt[i]) {
-          // Reaction complete: promote pending to acquired.
-          ship.pdAcquiredTargetIds[i] = newPdId;
-          ship.pdPendingTargetIds[i] = null;
-          ship.pdAcquireCompleteAt[i] = 0;
-          ship.pdReactionReadyAt[i] = 0;
-          // currentPdTarget stays as-is; aimEntity set below.
-          aimEntity = currentPdTarget.entity;
-        } else {
-          // Still reacting: turret may track but not fire.
-          // Set aimEntity so the turret rotates toward the threat.
-          aimEntity = currentPdTarget.entity;
-          // Null currentPdTarget so the firing check at line ~1664 fails.
-          currentPdTarget = null;
-        }
-        clearWeaponComponentAim(ship, i);
-      }
+      aimEntity = currentPdTarget ? currentPdTarget.entity : null;
+      if (!aimEntity) clearWeaponComponentAim(ship, i);
 
     } else {
 
@@ -2095,59 +1909,11 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       // itself is retained at the ship level and resumed once it is attackable.
 
-      // Fire-Control Command Centre: offensive reacquisition delay.
-      // Each weapon separately tracks its acquired target, pending target,
-      // and the simulation timestamp when the pending acquisition completes.
-      // A new target can never inherit a previous target's timer.
-      const wLen = ship.design ? ship.design.length : 0;
-      if (!ship.weaponAcquiredTargetIds) ship.weaponAcquiredTargetIds = new Array(wLen).fill(null);
-      if (!ship.weaponPendingTargetIds) ship.weaponPendingTargetIds = new Array(wLen).fill(null);
-      if (!ship.weaponAcquireCompleteAt) ship.weaponAcquireCompleteAt = new Array(wLen).fill(0);
-
+      // Fire-Control target selection remains cadence-limited, but a newly
+      // selected valid target can be fired at immediately once other weapon
+      // requirements are satisfied.
       weaponTarget = getCadencedWeaponTarget(room, ship, ships, worldX, worldY, target, range, { weapon: effectiveWeapon, module }, i, now, "ordinaryShip");
-
-      const newTargetId = weaponTarget ? (weaponTarget.id ?? null) : null;
-      const acquiredId = ship.weaponAcquiredTargetIds[i] ?? null;
-      const pendingId = ship.weaponPendingTargetIds[i] ?? null;
-      let pendingAimEntity = null;
-
-      if (!newTargetId) {
-        // No target available: clear pending state. Clear acquired if it
-        // is no longer the selected target (it may still be valid and
-        // will be resumed without a new timer if reselected).
-        ship.weaponPendingTargetIds[i] = null;
-        ship.weaponAcquireCompleteAt[i] = 0;
-        // Do not clear acquiredId here — if the same target reappears
-        // next tick we want to resume firing immediately.
-      } else if (newTargetId === acquiredId) {
-        // Target matches acquired target: fire normally, no timer.
-        ship.weaponPendingTargetIds[i] = null;
-        ship.weaponAcquireCompleteAt[i] = 0;
-      } else {
-        // Target differs from acquired target.
-        if (newTargetId !== pendingId) {
-          // Fresh target: start a new acquisition timer.
-          const acqMult = getCommandAuraMultiplier(ship, "targetAcquisitionMultiplier");
-          const baseDelay = Number(BALANCE?.fireControl?.baseReacquisitionDelayMs) || 400;
-          ship.weaponPendingTargetIds[i] = newTargetId;
-          ship.weaponAcquireCompleteAt[i] = now + Math.round(baseDelay / Math.max(0.01, acqMult));
-        }
-        // While acquisition is pending, the weapon may track (aimEntity
-        // is set below) but must not fire. Check if timer has completed.
-        
-        if (now >= ship.weaponAcquireCompleteAt[i]) {
-          // Acquisition complete: promote pending to acquired.
-          ship.weaponAcquiredTargetIds[i] = newTargetId;
-          ship.weaponPendingTargetIds[i] = null;
-          ship.weaponAcquireCompleteAt[i] = 0;
-        } else {
-          // Still acquiring: weapon may aim but not fire.
-          pendingAimEntity = weaponTarget;
-          weaponTarget = null;
-        }
-      }
-
-      aimEntity = weaponTarget || pendingAimEntity || (target && target.alive !== false && !target.destroyed ? target : null);
+      aimEntity = weaponTarget || (target && target.alive !== false && !target.destroyed ? target : null);
 
       if (aimEntity) {
 
@@ -2316,6 +2082,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     }
 
+    if (spinalConfig
+      && spinalProgress > 0
+      && (ship.weaponChargeIdle[i] || 0) <= Math.max(0, finiteOr(spinalConfig.chargeHoldSeconds, 0))) {
+      addComponentHeat(ship, i, HeatRules.activityHeat(module.type, part) * activityMultiplier * dt);
+      spinalActivityHeatApplied = true;
+    }
+
 
 
     // Tracking is continuous while reloading. Only firing is cooldown-gated;
@@ -2384,9 +2157,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-    const targetEvasion = (family !== "pointDefense" && family !== "flak") ? computeTransversalVelocity(ship, targetEntity) : 0;
-
-    const spreadScale = weaponSpreadRadians(effectiveWeapon, family, targetEvasion);
+    const spreadScale = weaponSpreadRadians(effectiveWeapon, family);
 
     const spread = rngRange(roomCombatRandom(room), -spreadScale, spreadScale);
 
@@ -2458,9 +2229,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
             life: life,
 
-            bornAt: now,
-
-            armorInteractionSeconds: Math.min(1, reload)
+            bornAt: now
 
           });
 
@@ -2478,7 +2247,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       }
 
-      addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
+      addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
     } else if (family === "missile") {
 
@@ -2510,9 +2279,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         y: muzzle.y,
 
-        vx: Math.cos(shotAngle) * speed + ship.vx * 0.15,
+        vx: Math.cos(shotAngle) * speed,
 
-        vy: Math.sin(shotAngle) * speed + ship.vy * 0.15,
+        vy: Math.sin(shotAngle) * speed,
 
         damage: effectiveWeapon.damage,
 
@@ -2526,15 +2295,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         trackingDelay: effectiveWeapon.trackingDelay ?? 0.25,
 
-        maxSpeed: speed * 1.45,
+        projectileSpeed: speed,
 
         life: life,
 
         bornAt: now,
 
-        age: 0,
-
-        armorInteractionSeconds: Math.min(1, reload)
+        age: 0
 
       });
 
@@ -2542,7 +2309,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       ship.weaponCooldowns[i] = reload;
 
-      addComponentHeat(ship, i, Math.max(5, Math.sqrt(effectiveWeapon.damage || 1) * 1.5));
+      addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
     } else if (family === "beam" && isInductionBeam(effectiveWeapon)) {
 
@@ -2583,7 +2350,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         impactHeatPerDamage: effectiveWeapon.impactHeatPerDamage,
 
-        armorInteractionSeconds: dt,
+        beamDeltaSeconds: dt,
 
         weaponIndex: i
 
@@ -2649,7 +2416,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-      addComponentHeat(ship, i, Math.max(3, Math.sqrt(effectiveWeapon.damage || 1)) * dataFireRateFactor * beamPerformance * dt);
+      addComponentHeat(ship, i, HeatRules.activityHeat(module.type, part) * activityMultiplier * dt);
 
       if (now - (ship.beamEffectsAt[i] || 0) > 55) {
 
@@ -2742,8 +2509,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
           hullDamageMultiplier: effectiveWeapon.hullDamageMultiplier ?? 1,
 
-          armorInteractionSeconds: Math.min(1, effectiveWeapon.armourPenetration ?? 1),
-
           life: life,
 
           bornAt: now
@@ -2754,7 +2519,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         ship.weaponCooldowns[i] = reload;
 
-        addComponentHeat(ship, i, 4);
+        addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
       }
 
@@ -2808,11 +2573,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                   const mult = Number(effectiveWeapon.shipDamageMultiplier ?? 0.04);
 
-                  damageShip(room, targetEnt, damage * mult, ship.ownerId, now, muzzle.x, muzzle.y, {
-
-                     armorInteractionSeconds: Math.min(1, reload)
-
-                  });
+                  damageShip(room, targetEnt, damage * mult, ship.ownerId, now, muzzle.x, muzzle.y);
 
                }
 
@@ -2826,7 +2587,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                ship.weaponCooldowns[i] = reload;
 
-               addComponentHeat(ship, i, 4);
+                addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
             }
 
@@ -2903,9 +2664,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                life: life,
 
-               bornAt: now,
-
-               armorInteractionSeconds: currentPdTarget.type === "ship" ? Math.min(1, reload) : undefined
+               bornAt: now
 
             });
 
@@ -2913,7 +2672,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
             ship.weaponCooldowns[i] = reload;
 
-            addComponentHeat(ship, i, 4);
+             addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
          }
 
@@ -2935,8 +2694,10 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         const progress = clampNumber(ship.weaponCharge[i] / chargeSeconds, 0, 1);
 
-        // Charging is what makes the weapon expensive and hot, not firing it.
-        addComponentHeat(ship, i, Math.max(0, finiteOr(spinalConfig.chargeHeatPerSecond, 0)) * activityMultiplier * dt);
+        if (!spinalActivityHeatApplied) {
+          addComponentHeat(ship, i, HeatRules.activityHeat(module.type, part) * activityMultiplier * dt);
+          spinalActivityHeatApplied = true;
+        }
 
         if (progress < 1) {
 
@@ -2990,9 +2751,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         life: life,
 
-        bornAt: now,
-
-        armorInteractionSeconds: Math.min(1, reload)
+        bornAt: now
 
       });
 
@@ -3004,13 +2763,13 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         clearSpinalCharge(ship, i);
 
-        addComponentHeat(ship, i, Math.max(0, finiteOr(spinalConfig.fireHeat, 0)));
+        addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
         room.effects.push({ type: "railhit", subtype: "spinal", x: muzzle.x, y: muzzle.y, at: now });
 
       } else {
 
-        addComponentHeat(ship, i, Math.max(8, Math.sqrt(effectiveWeapon.damage || 1) * 1.8));
+        addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
       }
 
@@ -3233,13 +2992,13 @@ function beamImpactPoint(room, x, y, angle, range, beamRadius = 0) {
 
 
 
-function normalizedArmorInteractionSeconds(value) {
+function normalizedBeamDeltaSeconds(value) {
 
   const parsed = Number(value);
 
   if (!Number.isFinite(parsed)) return 1;
 
-  return Math.max(0, Math.min(1, parsed));
+  return Math.max(0, parsed);
 
 }
 
@@ -3307,9 +3066,9 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
     const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx1] || HeatRules.STATE.NORMAL);
 
-    const interactionSeconds = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
+    const beamDeltaSeconds = normalizedBeamDeltaSeconds(options.beamDeltaSeconds);
 
-    const reduction = part1.armorFlatReduction * protection * interactionSeconds;
+    const reduction = part1.armorFlatReduction * protection * beamDeltaSeconds;
 
     effectiveDamage1 = Math.max(0, damage - Math.max(0, reduction));
 
@@ -3445,9 +3204,9 @@ function applyBeamHullDamage(room, ship, damage, now, intersections, options = {
 
           const protection2 = HeatRules.passiveProtectionForState(ship.componentHeatState?.[idx2] || HeatRules.STATE.NORMAL);
 
-          const interactionSeconds2 = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
+          const beamDeltaSeconds2 = normalizedBeamDeltaSeconds(options.beamDeltaSeconds);
 
-          const reduction2 = part2.armorFlatReduction * protection2 * interactionSeconds2;
+          const reduction2 = part2.armorFlatReduction * protection2 * beamDeltaSeconds2;
 
           effectiveDamage2 = Math.max(0, carryThroughDamage - Math.max(0, reduction2));
 
@@ -3859,7 +3618,7 @@ function damageBeamTargets(room, ship, ships, x1, y1, x2, y2, beamRadius, damage
 
 
 
-function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, options = {}) {
+function applyDirectComponentDamage(room, ship, index, damage, attackerId, now) {
 
   if (isInSafeZone(room, ship.x, ship.y, ship) || damage <= 0) return 0;
 
@@ -3877,9 +3636,7 @@ function applyDirectComponentDamage(room, ship, index, damage, attackerId, now, 
 
     const protection = HeatRules.passiveProtectionForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL);
 
-    const interactionSeconds = normalizedArmorInteractionSeconds(options.armorInteractionSeconds);
-
-    const reduction = part.armorFlatReduction * protection * interactionSeconds;
+    const reduction = part.armorFlatReduction * protection;
 
     effectiveDamage = Math.max(0, effectiveDamage - Math.max(0, reduction));
 
@@ -4053,8 +3810,10 @@ function holdFacingWeapons(ship) {
     if (family === "pointDefense" || family === "flak") continue;
 
     const range = Number(effectiveWeapon.range) || 0;
-    const dps = Number(effectiveWeapon.dps)
-      || ((Number(effectiveWeapon.damage) || 0) * (Number(effectiveWeapon.fireRate) || 0));
+    const dps = Number.isFinite(Number(effectiveWeapon.combatDps))
+      ? Math.max(0, Number(effectiveWeapon.combatDps))
+      : (Number(effectiveWeapon.dps)
+        || ((Number(effectiveWeapon.damage) || 0) * (Number(effectiveWeapon.fireRate) || 0)));
     const induction = isInductionBeam(effectiveWeapon) ? (Number(effectiveWeapon.inductionHeatMaxPerSecond) || 0) : 0;
     const tacticalOutput = isInductionBeam(effectiveWeapon) ? induction : dps;
     if (!(range > 0) || !(tacticalOutput > 0)) continue;
@@ -4475,7 +4234,7 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 
       applied = applyHullDamage(room, ship, hullDamage, now, impactX, impactY, {
 
-        armorInteractionSeconds: options.armorInteractionSeconds,
+        beamDeltaSeconds: options.beamDeltaSeconds,
 
         impactHeatPerDamage: options.impactHeatPerDamage,
 
@@ -4675,13 +4434,6 @@ function destroyShip(room, ship, attackerId, now) {
 
   ship.weaponComponentRetargetAt = null;
 
-  ship.pdAcquiredTargetIds = null;
-  ship.pdPendingTargetIds = null;
-  ship.pdAcquireCompleteAt = null;
-  ship.pdReactionReadyAt = null;
-  ship.weaponAcquiredTargetIds = null;
-  ship.weaponPendingTargetIds = null;
-  ship.weaponAcquireCompleteAt = null;
   ship._weaponTargetState = null;
   ship._targetAcquisitionSchedule = null;
   ship._targetAcquisitionOffsets = null;
@@ -4873,14 +4625,6 @@ function detonateSelfDestruct(room, ship, now) {
 
   ship.weaponComponentRetargetAt = null;
 
-  ship.pdAcquiredTargetIds = null;
-  ship.pdPendingTargetIds = null;
-  ship.pdAcquireCompleteAt = null;
-  ship.pdReactionReadyAt = null;
-  ship.weaponAcquiredTargetIds = null;
-  ship.weaponPendingTargetIds = null;
-  ship.weaponAcquireCompleteAt = null;
-
   ship.vx *= 0.2;
 
   ship.vy *= 0.2;
@@ -4932,14 +4676,6 @@ function updateDestroyedShips(room, now) {
         ship.weaponComponentTargetIndices = null;
 
         ship.weaponComponentRetargetAt = null;
-
-        ship.pdAcquiredTargetIds = null;
-        ship.pdPendingTargetIds = null;
-        ship.pdAcquireCompleteAt = null;
-        ship.pdReactionReadyAt = null;
-        ship.weaponAcquiredTargetIds = null;
-        ship.weaponPendingTargetIds = null;
-        ship.weaponAcquireCompleteAt = null;
 
         invalidateShipCollisionGeometry(ship);
 
@@ -6331,7 +6067,7 @@ function applyBlastDamageToShip(room, target, origin, cfg, damageMultiplier, con
     let dmg = (hullBudget * fractions[k]) / fracTotal;
     if (!c.exposed && !c.isArmour) dmg *= (1 - internalReduction);
     if (dmg > 0) {
-      const dealt = applyDirectComponentDamage(room, target, c.index, dmg, attackerId, now, {});
+      const dealt = applyDirectComponentDamage(room, target, c.index, dmg, attackerId, now);
       totalRemoved += dealt;
     }
   }
@@ -6342,22 +6078,8 @@ function applyBlastDamageToShip(room, target, origin, cfg, damageMultiplier, con
 
 
 
-const CHARGE_DIMINISHING_RETURNS = [1.0, 0.5, 0.25, 0.1, 0.1, 0.1, 0.1];
-
-
-
-function calculateCombinedChargeMultiplier(armedCount) {
-
-  let sum = 0;
-
-  for (let i = 0; i < armedCount; i += 1) {
-
-    sum += CHARGE_DIMINISHING_RETURNS[Math.min(i, CHARGE_DIMINISHING_RETURNS.length - 1)];
-
-  }
-
-  return sum;
-
+function calculateLinearChargeMultiplier(armedCount) {
+  return Math.max(0, Number(armedCount) || 0);
 }
 
 
@@ -6416,7 +6138,7 @@ function detonateProximityCharge(room, ship, index, now, markDetonated = true, c
 
   const exp = Math.max(0, cfg.falloffExponent);
 
-  const damageMultiplier = calculateCombinedChargeMultiplier(armedIndexes.length);
+  const damageMultiplier = calculateLinearChargeMultiplier(armedIndexes.length);
 
   const attackerId = ship.ownerId;
 
@@ -6736,8 +6458,6 @@ module.exports = {
   shipHasOperationalDemolitionCharge,
 
   PRIORITY_COMPONENT_TYPES,
-
-  computeTransversalVelocity,
 
   weaponSpreadRadians
 

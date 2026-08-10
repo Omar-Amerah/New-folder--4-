@@ -5,6 +5,7 @@
 
 import { state } from "../state.js";
 import { PART_STATS } from "../design/parts.js";
+import { componentMaxHpForDesign } from "../shared/componentHullRules.js";
 import { getOccupiedCells } from "../design/footprint.js";
 
 export const FLASH_DURATION_MS = 450;
@@ -134,22 +135,12 @@ export function recordComponentHpChanges(ship, oldChp, newChp) {
   }
 }
 
-// Component max hp mirror (same scaling the renderers use): the indestructible
-// core is excluded from the damageable sum but keeps its own display pool.
+// Component max hp mirror: every component uses its listed Hull value directly.
+// Core remains outside ship.hp in the server, but keeps its own displayed pool.
 export function componentMaxFromShip(ship, index) {
   const design = ship.design;
   if (!design) return 0;
-  // The core has its own unscaled HP pool that is not part of the hull sum,
-  // mirroring the server's initComponentState logic.
-  if (design[index]?.type === "core") return Math.max(1, Number(PART_STATS.core?.hp) || 340);
-  let sum = 0;
-  for (const part of design) {
-    if (part.type === "core") continue;
-    sum += Math.max(1, Number(PART_STATS[part.type]?.hp) || 1);
-  }
-  if (!sum) return 0;
-  const raw = Math.max(1, Number(PART_STATS[design[index].type]?.hp) || 1);
-  return raw * ((Number(ship.maxHp) || sum) / sum);
+  return componentMaxHpForDesign(design, PART_STATS)[index] || 0;
 }
 
 // Active flash strength (0..1) for a component, or 0 when idle.

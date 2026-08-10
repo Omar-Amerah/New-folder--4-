@@ -830,8 +830,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           pdTargetType: pdTarget.type,
           pdTargetId: entity.id,
           life: range / speed,
-          bornAt: now,
-          armorInteractionSeconds: pdTarget.type === "ship" ? Math.min(1, reload) : undefined
+          bornAt: now
         }));
         if (detailed) bump(room, "stationWeaponShotsCreated");
         station.weaponCooldowns[i] = reload;
@@ -854,8 +853,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1,
           hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1,
           life: range / speed,
-          bornAt: now,
-          armorInteractionSeconds: Math.min(1, reload)
+          bornAt: now
         });
         });
         if (detailed) bump(room, "stationWeaponShotsCreated");
@@ -878,11 +876,10 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           tracking: weapon.tracking ?? 0.75,
           trackRemaining: weapon.trackTime ?? 1.4,
           trackingDelay: weapon.trackingDelay ?? 0.25,
-          maxSpeed: speed * 1.45,
+          projectileSpeed: speed,
           life: range / speed,
           bornAt: now,
-          age: 0,
-          armorInteractionSeconds: Math.min(1, reload)
+          age: 0
         });
         });
         if (detailed) bump(room, "stationWeaponShotsCreated");
@@ -906,8 +903,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1,
           hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1,
           life: range / speed,
-          bornAt: now,
-          armorInteractionSeconds: Math.min(1, reload)
+          bornAt: now
         });
         });
         if (detailed) bump(room, "stationWeaponShotsCreated");

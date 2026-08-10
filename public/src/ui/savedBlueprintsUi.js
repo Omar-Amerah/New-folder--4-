@@ -28,7 +28,8 @@ export function setSavedBlueprintPersistenceForTests(overrides = {}) {
 
 
 export function weaponAbbrevText(stats) {
-  return `${stats.weaponDps} DPS`;
+  const label = stats.weaponDpsLabel || "Weapon DPS";
+  return `${stats.weaponDps} ${label === "Weapon DPS" ? "DPS" : label}`;
 }
 
 // Preview tint: use the player's own colour when known, else the saved preference, else a neutral blue.
@@ -172,9 +173,10 @@ export function renderSavedDesigns() {
 }
 
 function statChips(stats) {
+  const weaponLabel = stats.weaponDpsLabel || "Weapon DPS";
   return `
     <span class="bp-chip" title="Unit cost">$${stats.unitCost}</span>
-    <span class="bp-chip" title="Weapon DPS">${stats.weaponDps} DPS</span>
+    <span class="bp-chip" title="${weaponLabel}">${stats.weaponDps} ${weaponLabel === "Weapon DPS" ? "DPS" : weaponLabel}</span>
     <span class="bp-chip" title="Hull">${Math.round(stats.maxHp)} HP</span>
     ${stats.maxShield > 0 ? `<span class="bp-chip bp-chip-shield" title="Shield">${Math.round(stats.maxShield)} SH</span>` : ""}
     <span class="bp-chip" title="Top speed">${formatSpeed(Math.round(stats.maxSpeed))}</span>`;

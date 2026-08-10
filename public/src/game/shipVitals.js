@@ -5,37 +5,30 @@
 import { clamp } from "../shared/math.js";
 import { PART_STATS } from "../design/parts.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { componentMaxHpForDesign } from "../shared/componentHullRules.js";
 import { shipLocalBounds } from "./shipGeometry.js";
 
-// Per-component max hp mirrors the server: each part's base hp scaled so the
-// design total matches ship.maxHp. Cached per design array (designs are static
-// and their object identity is reused across snapshots).
+// Per-component max hp mirrors the server: each component uses its listed Hull
+// value directly. Cached per design array (designs are static and their object
+// identity is reused across snapshots).
 const designComponentHpCache = new WeakMap();
 
 // Remaining health fraction (0..1) for design[index], or null when unknown
 // (no component data yet, e.g. ships from older servers). Mirrors the server's
-// scaling: the indestructible core is excluded from the damageable sum.
+// direct Hull values: Core is a separate damageable pool, while ship.hp tracks
+// only non-Core components.
 export function componentHealthRatio(ship, index) {
   const chp = ship?.chp;
   if ((!chp || chp[index] === undefined) && Array.isArray(ship?.chpVisual) && ship.chpVisual[index] !== undefined) {
     return clamp(Number(ship.chpVisual[index]) / 10, 0, 1);
   }
   if (!chp || chp[index] === undefined || !ship.design) return null;
-  if (ship.design[index]?.type === "core") {
-    const hasBackupCore = ship.design.some((part) => part.type === "backupCore");
-    if (!hasBackupCore) return 1;
-    const coreMax = Math.max(1, Number(PART_STATS.core?.hp) || 340);
-    return clamp(chp[index] / coreMax, 0, 1);
+  let componentMaxValues = designComponentHpCache.get(ship.design);
+  if (!componentMaxValues) {
+    componentMaxValues = componentMaxHpForDesign(ship.design, PART_STATS);
+    designComponentHpCache.set(ship.design, componentMaxValues);
   }
-  let raw = designComponentHpCache.get(ship.design);
-  if (!raw) {
-    const values = ship.design.map((part) => Math.max(1, Number(PART_STATS[part.type]?.hp) || 1));
-    const sum = ship.design.reduce((total, part, i) => (part.type === "core" ? total : total + values[i]), 0) || 1;
-    raw = { values, sum };
-    designComponentHpCache.set(ship.design, raw);
-  }
-  const maxHp = Number(ship.maxHp) || raw.sum;
-  const componentMax = raw.values[index] * (maxHp / raw.sum);
+  const componentMax = componentMaxValues[index];
   if (!(componentMax > 0)) return null;
   return clamp(chp[index] / componentMax, 0, 1);
 }
