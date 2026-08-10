@@ -208,22 +208,26 @@ function handleStatusTabKeydown(event) {
   }
 }
 
-function diagramIndexAt(event) {
+function diagramIndexAt(event, ship = selectedSingleShip()) {
   if (!diagramInteraction) return undefined;
   const canvas = event.currentTarget;
   const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return undefined;
   const x = (event.clientX - rect.left) * (canvas.width / rect.width);
   const y = (event.clientY - rect.top) * (canvas.height / rect.height);
-  const gx = Math.round(SHIP_DAMAGE_GRID_CENTER + (x - diagramInteraction.originX) / diagramInteraction.cellSize);
-  const gy = Math.round(SHIP_DAMAGE_GRID_CENTER + (y - diagramInteraction.originY) / diagramInteraction.cellSize);
-  return diagramInteraction.cellMap.get(gx + "," + gy);
+  const geometry = ship
+    ? shipDamageDiagramGeometry(ship, canvas.width, canvas.height)
+    : diagramInteraction;
+  const gx = Math.round(SHIP_DAMAGE_GRID_CENTER + (x - geometry.originX) / geometry.cellSize);
+  const gy = Math.round(SHIP_DAMAGE_GRID_CENTER + (y - geometry.originY) / geometry.cellSize);
+  return geometry.cellMap.get(gx + "," + gy);
 }
 
 function handleDiagramPointerMove(event) {
   const ship = selectedSingleShip();
   if (!ship || !diagramInteraction || diagramInteraction.shipId !== ship.id) return;
   if (event.pointerType && event.pointerType !== "mouse") return;
-  const index = diagramIndexAt(event);
+  const index = diagramIndexAt(event, ship);
   if (diagramInteraction.hoverIndex !== index) {
     diagramInteraction.hoverIndex = index;
     invalidatePresentation("telemetry-component");
@@ -235,7 +239,14 @@ function handleDiagramPointerDown(event) {
   if (!ship || !diagramInteraction || diagramInteraction.shipId !== ship.id) return;
   event.preventDefault?.();
   event.stopPropagation?.();
-  diagramInteraction.componentIndex = diagramIndexAt(event);
+  // A redraw can move the scrollable side panel after the last mousemove. In
+  // that case the event coordinates describe the shifted canvas, while the
+  // hover state still identifies the component the pointer was over. Keep the
+  // hover-to-click contract for mouse input; touch has no hover state to trust.
+  const hoveredIndex = event.pointerType === "mouse" && validComponentIndex(ship, diagramInteraction.hoverIndex)
+    ? diagramInteraction.hoverIndex
+    : undefined;
+  diagramInteraction.componentIndex = hoveredIndex ?? diagramIndexAt(event, ship);
   if (event.pointerType && event.pointerType !== "mouse") diagramInteraction.hoverIndex = undefined;
   invalidatePresentation("telemetry-component");
 }
@@ -835,6 +846,7 @@ function synchronizePanelShell() {
   bindOnce();
   const view = state.shipStatusView === "heat" ? "heat" : "damage";
   state.shipStatusView = view;
+  panel.dataset.statusView = view;
   const damageView = view === "damage";
   const heatView = view === "heat";
   dom.shipDamageTab?.classList.toggle("active", damageView);
