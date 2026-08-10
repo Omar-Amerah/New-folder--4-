@@ -96,7 +96,13 @@ function handleMessage(client, message) {
   if (message.type === "requestFullState") {
     const now = Date.now();
     client.lastFullStateRequestAt ||= 0;
-    if (now - client.lastFullStateRequestAt < 1000) return;
+    if (now - client.lastFullStateRequestAt < 1000) {
+      // Keep the recovery requirement latched even when the request itself is
+      // rate-limited. The next scheduled snapshot must promote to a full
+      // baseline instead of continuing the compact stream.
+      if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
+      return;
+    }
     client.lastFullStateRequestAt = now;
     if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
     sendFullSnapshot(client, performanceNow(), message.reason || "client-request");
