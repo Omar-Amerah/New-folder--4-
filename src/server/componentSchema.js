@@ -272,9 +272,9 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
   if (!Array.isArray(balance.components)) {
     return { ok: false, errors: [`${filePath}.components must be an array.`] };
   }
-  for (const key of ["metadata","shipPricing","economy","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
+  for (const key of ["metadata","economy","movement","projectiles","missileGuidance","fleetLimits","capture","repair","drones"]) validateRequiredSection(balance, key, errors);
   if (balance.drones) {
-    const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "fuelSeconds", "refuelSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw", "standbyHeatPerSecond", "activeHeatPerSecond", "productionHeatPerSecond"];
+    const required = ["squadSize", "maxBaysPerShip", "maxActivePerShip", "maxActivePerPlayer", "launchIntervalSeconds", "launchDurationSeconds", "fuelSeconds", "refuelSeconds", "orphanLifetimeSeconds", "standbyPowerMw", "activePowerMw", "productionPowerMw"];
     for (const field of required) if (!isFiniteNonNegative(balance.drones[field])) errors.push(`${filePath}.drones.${field} must be a finite non-negative number.`);
     if (!balance.drones.types || typeof balance.drones.types !== "object") errors.push(`${filePath}.drones.types must be an object.`);
     for (const type of ["fighter", "defence", "repair"]) {

@@ -2,7 +2,7 @@
 
 const assert = require("assert");
 const { PARTS } = require("../src/server/components");
-const { weaponSpreadRadians } = require("../src/server/combat");
+const { weaponSpreadRadians, ACCURACY_SPREAD_SCALE } = require("../src/server/combat");
 const { updateBullets } = require("../src/server/projectiles");
 
 function approx(actual, expected, message) {
@@ -17,6 +17,11 @@ function approx(actual, expected, message) {
   const lateral = weaponSpreadRadians(weapon, "blaster", 5000);
   approx(lateral, stationary, "target movement does not change weapon spread");
   assert(weaponSpreadRadians({ accuracy: 0.9 }, "blaster") < stationary, "authored accuracy still changes spread");
+
+  const expected = (1 - weapon.accuracy) * ACCURACY_SPREAD_SCALE;
+  for (const family of ["missile", "blaster", "railgun", "flak", "pointDefense", "beam"]) {
+    approx(weaponSpreadRadians(weapon, family), expected, `${family} uses the universal accuracy spread rule`);
+  }
 }
 
 // Missile-family authored speeds have been migrated to the former in-flight

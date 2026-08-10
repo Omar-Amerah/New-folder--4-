@@ -22,8 +22,8 @@ const { BALANCE, BALANCE_REVISION } = require("../src/server/balanceConfig");
 
 // 2. Revision is deterministic and key-order independent.
 (function deterministicKeyOrder() {
-  const a = { components: [{ id: "x", cost: 1, weapon: { family: "beam", damage: 2 } }], shipPricing: {}, economy: {} };
-  const b = { economy: {}, shipPricing: {}, components: [{ weapon: { damage: 2, family: "beam" }, cost: 1, id: "x" }] };
+  const a = { components: [{ id: "x", cost: 1, weapon: { family: "beam", damage: 2 } }], economy: {} };
+  const b = { economy: {}, components: [{ weapon: { damage: 2, family: "beam" }, cost: 1, id: "x" }] };
   assert.strictEqual(B.computeBalanceRevision(a), B.computeBalanceRevision(b), "key ordering does not change the revision");
   console.log("PASS: revision is deterministic and key-order independent");
 })();
@@ -53,17 +53,17 @@ const { BALANCE, BALANCE_REVISION } = require("../src/server/balanceConfig");
   assert.strictEqual(B.validateBalancePayload(null).ok, false, "null payload rejected");
   assert.strictEqual(B.validateBalancePayload([]).ok, false, "array payload rejected");
   assert.strictEqual(B.validateBalancePayload({}).ok, false, "empty object rejected (missing components)");
-  assert.strictEqual(B.validateBalancePayload({ components: [] , shipPricing:{}, economy:{} }).ok, false, "empty components rejected");
-  assert.strictEqual(B.validateBalancePayload({ components: [{}], shipPricing:{}, economy:{} }).ok, false, "component without id rejected");
+  assert.strictEqual(B.validateBalancePayload({ components: [] , economy:{} }).ok, false, "empty components rejected");
+  assert.strictEqual(B.validateBalancePayload({ components: [{}], economy:{} }).ok, false, "component without id rejected");
   const missingSections = B.validateBalancePayload({ components: [{ id: "x" }] });
   assert.strictEqual(missingSections.ok, false, "missing required sections rejected");
-  assert.ok(missingSections.errors.some((e) => /shipPricing/.test(e)), "diagnostic names the missing section");
+  assert.ok(missingSections.errors.some((e) => /economy/.test(e)), "diagnostic names the missing section");
   console.log("PASS: malformed balance payloads are rejected with diagnostics, never zero-filled");
 })();
 
 // 6. A valid payload passes validation.
 (function acceptsValid() {
-  const valid = { components: [{ id: "beamEmitter" }], shipPricing: {}, economy: {} };
+  const valid = { components: [{ id: "beamEmitter" }], economy: {} };
   assert.deepStrictEqual(B.validateBalancePayload(valid), { ok: true, errors: [] });
   console.log("PASS: a structurally valid balance payload is accepted");
 })();

@@ -399,6 +399,15 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     }
   });
 
+  check("Thermal Induction Lance exposes its specialist targeting priority", () => {
+    const model = build("thermalInductionLance");
+    const targeting = allRows(model).find((row) => row.id === "weapon.componentSelection");
+    assert.ok(targeting, "Thermal Induction Lance has a targeting-priority row");
+    assert.equal(targeting.label, "Targeting Priority");
+    assert.match(targeting.value, /functioning Power generators/);
+    assert.match(PART_STATS.thermalInductionLance.description, /designed to overload critical powered systems/);
+  });
+
   check("no advanced section is rendered empty", () => {
     for (const type of REPRESENTATIVE) {
       for (const section of build(type, { droneType: "fighter" }).sections) {

@@ -80,6 +80,11 @@ const STRUCTURAL_COMPONENT_TYPES = new Set(["armor", "compositeArmor", "bulkhead
 
 const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = ShieldRules.IMPACT_HEAT_PER_BLOCKED_DAMAGE;
 
+// Accuracy has one universal angular interpretation for weapon fire. The
+// authored percentage is the same stat for every weapon family; family-specific
+// spread coefficients make the displayed value mean different things.
+const ACCURACY_SPREAD_SCALE = 0.22;
+
 
 
 function componentAimLocalPosition(ship, index) {
@@ -1183,13 +1188,11 @@ function roomScratch(room, key) {
 
 
 
-function weaponSpreadRadians(weapon, family) {
+function weaponSpreadRadians(weapon) {
 
   const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
 
-  const scale = family === "missile" ? 0.35 : (family === "pointDefense" ? 0.05 : (family === "flak" ? 0.16 : 0.22));
-
-  return (1 - accuracy) * scale;
+  return (1 - accuracy) * ACCURACY_SPREAD_SCALE;
 }
 
 
@@ -1931,9 +1934,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
           if (aimPoint && effectiveWeapon.accuracy < 1 && !isInductionBeam(effectiveWeapon)) {
 
-            const acc = clampNumber(Number(effectiveWeapon.accuracy) || 0.99, 0.1, 0.99);
-
-            const maxErrorRad = (1 - acc) * 0.15;
+            const maxErrorRad = weaponSpreadRadians(effectiveWeapon);
 
             const seed = (((String(ship.id).split("").reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)) & 0x7fffffff) + i * 37) % 1000;
 
@@ -2157,7 +2158,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
 
 
-    const spreadScale = weaponSpreadRadians(effectiveWeapon, family);
+    const spreadScale = weaponSpreadRadians(effectiveWeapon);
 
     const spread = rngRange(roomCombatRandom(room), -spreadScale, spreadScale);
 
@@ -2614,7 +2615,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
             const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
 
-            const pdSpreadScale = weaponSpreadRadians(effectiveWeapon, family);
+            const pdSpreadScale = weaponSpreadRadians(effectiveWeapon);
 
             const pdDx = targetEnt.x - muzzle.x;
 
@@ -6459,7 +6460,8 @@ module.exports = {
 
   PRIORITY_COMPONENT_TYPES,
 
-  weaponSpreadRadians
+  weaponSpreadRadians,
+  ACCURACY_SPREAD_SCALE
 
 };
 

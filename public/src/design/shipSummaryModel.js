@@ -119,7 +119,7 @@ function affectedSystems(stats, power) {
   if (Number(stats.effectiveThrust || 0) > 0) affected.push("engines");
   if (Number(stats.maxShield || 0) > 0) affected.push("shields");
   if (Number(stats.weaponDps || 0) > 0) affected.push("weapons");
-  if (Number(stats.repairRate || 0) > 0) affected.push("repair");
+  if (Number(stats.selfRepairRate ?? stats.repairRate ?? 0) > 0 || Number(stats.repairBeamOutput ?? stats.repairBeamRate ?? 0) > 0) affected.push("repair");
   return affected;
 }
 
@@ -335,15 +335,13 @@ function combatSection(stats, ledger, context = {}) {
 }
 
 function supportSection(stats, ledger) {
-  const repairSourceCount = Number(stats.repairRateSourceCount || 0);
-  const multipleRepairSources = repairSourceCount > 1;
-  const installedRepair = Number(stats.repairRateInstalled ?? stats.repairRate ?? 0) || 0;
-  const effectiveRepair = Number(stats.repairRate || 0) || 0;
+  const selfRepairSourceCount = Number(stats.selfRepairSourceCount ?? stats.repairRateSourceCount ?? 0);
+  const selfRepair = Number(stats.selfRepairRate ?? stats.repairRate ?? 0) || 0;
+  const repairBeamOutput = Number(stats.repairBeamOutput ?? stats.repairBeamRate ?? 0) || 0;
   const rows = [
-    // Zero-value capabilities are omitted entirely : never "Repair: 0 HP/s".
-    statRow("repair", multipleRepairSources ? "Installed/Base Repair" : "Repair Rate", installedRepair > 0 ? formatRepair(installedRepair) : null),
-    statRow("repair.effective", "Effective Repair", multipleRepairSources ? formatRepair(effectiveRepair) : null),
-    statRow("repair.stacking", "Repair Stacking", multipleRepairSources ? "Diminishing returns" : null),
+    statRow("repair.self", "Self Repair", selfRepair > 0 ? formatRepair(selfRepair) : null),
+    statRow("repair.beamOutput", "Repair Beam Output", repairBeamOutput > 0 ? formatRepair(repairBeamOutput) : null),
+    statRow("repair.stacking", "Repair Stacking", selfRepairSourceCount > 1 ? "Diminishing returns" : null),
     statRow("drones", "Drone Capacity", Number(stats.droneCapacity || 0) > 0 ? `${stats.droneCapacity}` : null),
     statRow("dronesByType", "Drone Squads", droneSquadText(stats)),
     statRow("capture", "Capture Pressure", Number(stats.captureBonus || 0) > 0 ? `+${formatPercent(stats.captureBonus)}` : null),

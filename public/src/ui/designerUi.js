@@ -2338,8 +2338,8 @@ Final Hull HP: ${stats.maxHp} HP`
     case "shield":
       return {
         label: "Shield Buffers",
-        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase this. Blocked damage also heats the shield generators, and recharging generates heat : hot shield modules recharge slower.",
-        formula: "EffectiveMaxShield = Round(BaseShield × component-local predicted Power)",
+        desc: "Shield barrier capacity. Shields absorb 95% of incoming blocked damage, leaking 5% to the hull. Shield generators and batteries increase maximum Shield Capacity; Power affects regeneration, not maximum Shield Capacity. Blocked damage also heats the shield generators, and recharging generates heat : hot shield modules recharge slower.",
+        formula: "Maximum Shield Capacity = Round(BaseShield)",
         breakdown: `Base Shield: ${stats.baseMaxShield ?? stats.maxShield} SP
 Effective Shield SP: ${stats.maxShield} SP
 Effective Shield Recharge: +${stats.shieldRegen}/s`
@@ -2495,17 +2495,21 @@ Total ${dpsLabel}: ${stats.weaponDps}`
       };
 
     case "repair": {
-      const sourceCount = Number(stats.repairRateSourceCount || 0);
-      const installedRepair = Number(stats.repairRateInstalled ?? stats.repairRate ?? 0) || 0;
-      const effectiveRepair = Number(stats.repairRate || 0) || 0;
+      const sourceCount = Number(stats.selfRepairSourceCount ?? stats.repairRateSourceCount ?? 0);
+      const selfRepair = Number(stats.selfRepairRate ?? stats.repairRate ?? 0) || 0;
+      const repairBeamOutput = Number(stats.repairBeamOutput ?? stats.repairBeamRate ?? 0) || 0;
       const multiplier = getRepairStackingMultiplier(GENERATED_BALANCE);
+      const lines = [];
+      if (selfRepair > 0) lines.push(`Self Repair: ${selfRepair.toFixed(1)} HP/s`);
+      if (repairBeamOutput > 0) lines.push(`Repair Beam Output: ${repairBeamOutput.toFixed(1)} HP/s`);
+      if (sourceCount > 1) lines.push(`Local stacking progression: ${stackingProgression(sourceCount, GENERATED_BALANCE).join(", ")}`);
       return {
-        label: "Hull Repair Rate",
-        desc: "Active repair rate of hull integrity per second. Does not restore shield capacity.",
-        formula: `Diminishing Returns (${Math.round(multiplier * 100)}% stack factor)`,
-        breakdown: `Installed/Base Repair: ${installedRepair.toFixed(1)} HP/s
-Effective Repair: ${effectiveRepair.toFixed(1)} HP/s
-Stacking progression: ${stackingProgression(Math.max(1, sourceCount), GENERATED_BALANCE).join(", ")}`
+        label: "Repair Output",
+        desc: "Self Repair restores this ship. Repair Beams project linear output to allied ships. Neither restores shield capacity.",
+        formula: sourceCount > 1
+          ? `Self Repair diminishing returns (${Math.round(multiplier * 100)}% stack factor)`
+          : repairBeamOutput > 0 ? "Repair Beam Output: linear sum" : "Self Repair: single-source output",
+        breakdown: lines.join("\n") || "No active repair output"
       };
     }
 

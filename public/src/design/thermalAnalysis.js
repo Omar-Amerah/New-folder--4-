@@ -682,6 +682,10 @@ function predictionActivityLevel(module, part, mode) {
   const category = part.powerCategory;
   const isRepair = Number(part.repair) > 0;
   const isRadiator = module.type === "radiator";
+  // Drone Bay activity is not the Command category's always-on baseline:
+  // production or an active drone is required, while an idle bay generates
+  // no authored activity Heat.
+  if (module.type === "droneBay") return mode === "idle" ? 0 : 1;
   const alwaysOn = category === "command" || (category === "coolingSupport" && !isRepair && !isRadiator);
   if (alwaysOn) return 1;
   if (mode === "full") return 1;

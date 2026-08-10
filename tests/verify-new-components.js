@@ -149,7 +149,7 @@ function ok(message) {
       `${id} ${label}: ${actual} should be ${expected}`);
     close(part.hp, base.hp * scale, "hull");
     close(part.mass, base.mass * scale, "mass");
-    close(part.cost, base.cost * scale, "cost");
+    close(part.cost, Math.round(base.cost * scale), "cost");
     close(part.heatCapacity, base.heatCapacity * scale, "heat capacity");
     close(part.heatCooling, base.heatCooling * scale, "heat cooling");
     // Conductivity and retention are material properties, not quantities.

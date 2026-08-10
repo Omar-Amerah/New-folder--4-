@@ -1340,8 +1340,14 @@ function updateDroneBays(room, ships, dt, now) {
       const overheated = state.heatState >= HeatRules.STATE.OVERHEATED;
       advanceBayProduction(bay, dt, power, overheated, true);
       refreshBayFrameCounts(state, bay);
-      const heatPerSecond = state.producing ? CONFIG.productionHeatPerSecond : state.activeSlotCount > 0 ? CONFIG.activeHeatPerSecond : CONFIG.standbyHeatPerSecond;
-      addComponentHeat(ship, bay.componentIndex, heatPerSecond * power * dt);
+      // A bay's authored activity is discrete: production or at least one
+      // active/launching/returning/docking/refuelling slot is activity. A
+      // merely powered standby bay has no activity Heat.
+      const activityMultiplier = !overheated && (state.producing || state.activeSlotCount > 0) ? 1 : 0;
+      const heatPerSecond = HeatRules.activityHeat("droneBay", PARTS.droneBay);
+      if (activityMultiplier > 0 && heatPerSecond > 0) {
+        addComponentHeat(ship, bay.componentIndex, heatPerSecond * activityMultiplier * power * dt);
+      }
       if (inSpawnZone || bay.mode !== "deployed" || now < bay.nextLaunchAt || power <= 0 || overheated) continue;
       const ready = bay.slots.find((slot) => slot.state === "ready" || slot.state === "stored");
       if (ready) {

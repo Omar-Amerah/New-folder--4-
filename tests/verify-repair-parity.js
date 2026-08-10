@@ -1,8 +1,7 @@
 "use strict";
 
-// Repair preview, server stats, and live support must share one diminishing-
-// returns stack. Power, Heat, destruction, target need, and command auras then
-// scale the work that the runtime can actually deliver.
+// Repair preview, server stats, and live support must share local diminishing-
+// returns rules while Repair Beams remain a linear allied-output channel.
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -151,18 +150,26 @@ async function run() {
   close(RepairRules.getEffectiveRepairRate([8, 8, 8], BALANCE), 19.52, "shared Repair effective rate for three equal sources");
 
   const statCases = [
-    ["single Repair", ["core", "frame", "repair"], 8],
-    ["two Repairs", ["core", "frame", "repair", "repair"], 14.4],
-    ["three Repairs", ["core", "frame", "repair", "repair", "repair"], 19.52],
-    ["Repair plus Overclocked Repair", ["core", "frame", "repair", "overclockedRepair"], 30.4],
-    ["Repair Beam", ["core", "frame", "repairBeam"], 16]
+    ["single Repair", ["core", "frame", "repair"], 8, 0, 1],
+    ["two Repairs", ["core", "frame", "repair", "repair"], 14.4, 0, 2],
+    ["three Repairs", ["core", "frame", "repair", "repair", "repair"], 19.52, 0, 3],
+    ["Repair plus Overclocked Repair", ["core", "frame", "repair", "overclockedRepair"], 30.4, 0, 2],
+    ["Repair Beam", ["core", "frame", "repairBeam"], 0, 16, 0],
+    ["Repair plus Repair Beam", ["core", "frame", "repair", "repairBeam"], 8, 16, 1],
+    ["two Repair Beams", ["core", "frame", "repairBeam", "repairBeam"], 0, 32, 0]
   ];
-  for (const [label, types, expected] of statCases) {
+  for (const [label, types, expectedSelf, expectedBeam, expectedSources] of statCases) {
     const design = designFor(types);
     const server = computeStats(design);
     const client = clientComputeStats(design);
-    close(server.repairRate, expected, `${label} server effective rate`);
-    close(client.repairRate, expected, `${label} designer effective rate`);
+    close(server.selfRepairRate, expectedSelf, `${label} server self Repair rate`);
+    close(client.selfRepairRate, expectedSelf, `${label} designer self Repair rate`);
+    close(server.repairBeamOutput, expectedBeam, `${label} server Repair Beam output`);
+    close(client.repairBeamOutput, expectedBeam, `${label} designer Repair Beam output`);
+    assert.equal(server.selfRepairSourceCount, expectedSources, `${label} local Repair source count`);
+    assert.equal(client.selfRepairSourceCount, expectedSources, `${label} designer local Repair source count`);
+    close(server.repairRate, expectedSelf, `${label} legacy server local rate`);
+    close(client.repairRate, expectedSelf, `${label} legacy designer local rate`);
     close(client.repairRate, server.repairRate, `${label} designer/server parity`);
   }
 
@@ -208,6 +215,8 @@ async function run() {
   updateShipSupport(beamRoom, [beam, beamTarget], 1, 1000);
   close(beamTarget.hp - beamBeforeTarget, 16, "Repair Beam projected runtime output");
   close(beam.hp - beamBeforeSource, 0, "Repair Beam does not self-repair");
+  close(beam.stats.repairRate, 0, "Repair Beam has no local self-repair stat");
+  close(beam.stats.repairBeamOutput, 16, "Repair Beam exposes linear output stat");
   assert(beamRoom.effects.some((effect) => effect.type === "repairbeam"), "Repair Beam keeps its projected role");
 
   const engineer = makeShip("engineer", ["core", "engineeringCommandCentre"], 0);

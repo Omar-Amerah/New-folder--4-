@@ -197,11 +197,6 @@ function getComponentPowerMultiplier(ship, componentIndex) {
   return clampNumber(Number.isFinite(value) ? value : 1, 0, 1);
 }
 
-function getShieldCapacityPowerMultiplier(ship, componentIndex) {
-  if (!isAlive(ship, componentIndex) || ship?.componentPowerState?.[componentIndex] === 0) return 0;
-  return 1;
-}
-
 function effectiveLiveSourceGeneration(ship, index) {
   const module = ship?.design?.[index];
   const part = PARTS[module?.type] || {};
@@ -210,17 +205,15 @@ function effectiveLiveSourceGeneration(ship, index) {
 
 function effectiveShieldCapacityContributions(ship) {
   return ShieldRules.calculateShieldCapacityContributions(ship.design || [], PARTS, {
-    isLive: (index) => isAlive(ship, index),
-    powerMultiplier: (index) => getShieldCapacityPowerMultiplier(ship, index)
+    isLive: (index) => isOperational(ship, index)
   });
 }
 
 function calculateEffectiveShieldStats(ship) {
   const HeatRules = require("../../public/src/shared/heatRules");
   const stats = ShieldRules.calculateShieldStats(ship.design || [], PARTS, {
-    isLive: (index) => isAlive(ship, index),
+    isLive: (index) => isOperational(ship, index),
     powerMultiplier: (index) => getComponentPowerMultiplier(ship, index),
-    capacityPowerMultiplier: (index) => getShieldCapacityPowerMultiplier(ship, index),
     heatMultiplier: (index, module, part) => (Number(part.shieldRegen) || 0) > 0
       ? HeatRules.activeOutputForState(ship.componentHeatState?.[index] || HeatRules.STATE.NORMAL)
       : 1
@@ -288,7 +281,6 @@ module.exports = {
   updateShipPower,
   applyShipPowerAllocation,
   getComponentPowerMultiplier,
-  getShieldCapacityPowerMultiplier,
   effectiveLiveSourceGeneration,
   effectiveShieldStats,
   __setShieldCacheVerification,

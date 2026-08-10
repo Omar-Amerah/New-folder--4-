@@ -203,13 +203,42 @@ global.window = { devicePixelRatio: 1 };
   assert.strictEqual(statValue("command", "Aura Radius"), `${generatedBalance.commandAura.range} m`,
     "Ledger aura radius must match live balance");
   const targetingArticle = getArticleById("targeting-and-arcs");
-  assert.ok(targetingArticle.howItWorks.includes("Automatic Component Targeting: Weapons preferentially target exposed active systems. Target selection is weighted, so this is a tendency rather than a guarantee."),
-    "Ledger targeting guide must explain weighted automatic component targeting");
+  const automaticTargetingArticle = getArticleById("automatic-component-targeting");
+  assert.ok(automaticTargetingArticle, "Fleet Ledger has an Automatic Component Targeting article");
+  const automaticTargetingText = JSON.stringify(automaticTargetingArticle);
+  assert.match(automaticTargetingText, /weighted random/i, "Ledger must explain weighted random component targeting");
+  assert.match(automaticTargetingText, /completely random[^.]*equal odds/i, "Ledger must distinguish equal-odds random selection");
+  assert.match(automaticTargetingText, /Exposed and important active systems are more likely to be targeted/i,
+    "Ledger must explain the exposed and active-system tendency");
+  assert.match(automaticTargetingText, /preference, not a guarantee/i,
+    "Ledger must state that the targeting preference is not guaranteed");
+  assert.match(automaticTargetingText, /Structure, weapons, engines, support systems, and other living components/i,
+    "Ledger must name ordinary components that can still be selected");
+  assert.match(automaticTargetingText, /usually avoid immediately selecting the same component/i,
+    "Ledger must explain immediate retarget avoidance");
+  assert.match(automaticTargetingText, /another weighted selection is made/i,
+    "Ledger must explain weighted selection after retargeting");
+  assert.match(automaticTargetingText, /Point Defence uses separate threat priorities/i,
+    "Ledger must distinguish Point Defence threat selection");
+  assert.match(automaticTargetingText, /missiles, torpedoes, drones, projectiles, or ships/i,
+    "Ledger must give Point Defence threat examples");
+  assert.doesNotMatch(automaticTargetingText, /(?:Exposed|Weapon|Structure|Core|Previous target)\s*:\s*(?:\+4|\+3|\+1\.2|x0\.25|x0\.2)/i,
+    "Ledger must not expose internal targeting weights");
+  assert.doesNotMatch(automaticTargetingText, /componentAimWeight|COMPONENT_RETARGET/i,
+    "Ledger must not expose targeting implementation identifiers");
+  assert.match(targetingArticle.howItWorks, /Automatic Component Targeting/i,
+    "Targeting article must link the global component-targeting explanation");
   const thermalArticle = getArticleById("component:thermalInductionLance");
   assert.ok(thermalArticle.howItWorks.includes("Zero-damage induction beam that injects Heat into a target component"),
     "Thermal Induction Lance article must document component Heat transfer");
-  assert.ok(thermalArticle.howItWorks.includes("Targeting: Prioritises functioning Power generators when available, then other active systems"),
+  assert.ok(thermalArticle.howItWorks.includes("Targeting Priority: Prioritises functioning Power generators when available, then other active systems"),
     "Thermal Induction Lance article must document its generator preference");
+  assert.ok(thermalArticle.howItWorks.includes("designed to overload critical powered systems"),
+    "Thermal Induction Lance article must explain its specialist role");
+  assert.ok(thermalArticle.specialMechanics.some((mechanic) => mechanic.label === "Targeting Priority"
+    && mechanic.value.includes("functioning Power generators")
+    && mechanic.detail.includes("ordinary weapon")),
+  "Thermal Induction Lance special mechanics must expose its specialist targeting rule");
   const removedAuraFields = Object.keys(PARTS.fireControlCommandCentre.aura)
     .concat(Object.keys(PARTS.fleetDefenceCoordinator.aura))
     .filter((key) => /Acquisition|Reaction/.test(key));

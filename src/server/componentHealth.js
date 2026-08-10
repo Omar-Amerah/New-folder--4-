@@ -435,7 +435,8 @@ const EFFECTIVE_STAT_KEYS = [
   "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight", "massClass", "turnCap",
   "powerEfficiency", "powerDebuff",
   "blaster", "missile", "railgun", "beam", "pointDefense",
-  "repair", "repairRate", "repairRange",
+  "repair", "selfRepairRateInstalled", "selfRepairSourceCount", "selfRepairRate", "repairBeamOutput", "repairBeamRate",
+  "repairRateInstalled", "repairRateSourceCount", "repairRate", "repairRange",
   "coolingBonus", "captureBonus", "ecmStrength",
 
   "frontDamageReduction", "frontArc",

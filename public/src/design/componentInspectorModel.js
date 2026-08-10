@@ -175,6 +175,8 @@ export function heatProfileFor(type, stat) {
     cadence = stat.weapon.spinalCharge
       ? "while charging or holding"
       : stat.weapon.type === "beam" ? "while firing" : "per shot";
+  } else if (type === "droneBay") {
+    cadence = "while producing or operating active drones";
   } else if ((stat.powerGeneration || 0) > 0) {
     cadence = "at power load";
   } else if ((stat.thrust || 0) > 0) {
@@ -718,7 +720,7 @@ function weaponDetailRows(type, stat) {
     rows.push(statRow("weapon.impactHeat", "Impact Heating", `${Number(weapon.impactHeatPerDamage || 0).toFixed(2)} Heat per damage`));
   }
   if (Number.isFinite(weapon.inductionHeatBasePerSecond) && Number.isFinite(weapon.inductionHeatMaxPerSecond)) {
-    rows.push(statRow("weapon.componentSelection", "Targeting", "Prioritises functioning Power generators when available, then other active systems"));
+    rows.push(statRow("weapon.componentSelection", "Targeting Priority", "Prioritises functioning Power generators when available, then other active systems"));
     rows.push(statRow("weapon.damage", "Direct damage", "0"));
     rows.push(statRow("weapon.vsShields", "Shield damage", "0"));
     rows.push(statRow("weapon.vsHull", "Hull damage", "0"));

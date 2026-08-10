@@ -1,8 +1,6 @@
-// Calculations for ship statistics, mass classes, power efficiency, fleet count, and builder warnings.
+// Calculations for ship statistics, mass classes, power efficiency, and builder warnings.
 
-import { clamp } from "../shared/math.js";
 import { PART_STATS } from "./parts.js";
-import { FLEET_COUNT_RULES } from "../constants.js";
 import ShieldRules from "../shared/shieldRules.js";
 
 import { angleDifference, directionalFootprintToShipRadians, normalizeRotation } from "./rotation.js";
@@ -12,7 +10,7 @@ import { calculateMovementStats,
   calculateGenericTurnModifier,
   MOVEMENT_CONFIG } from "../shared/movementStats.js";
 import { calculateUniversalPower } from "../shared/universalPower.js";
-import { getEffectiveRepairRate, installedRepairRate } from "../shared/repairRules.js";
+import { getEffectiveRepairRate, installedRepairRate, isLocalRepairSource } from "../shared/repairRules.js";
 import { nonCoreHullTotal } from "../shared/componentHullRules.js";
 import "../shared/weaponPresentationRules.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
@@ -101,7 +99,6 @@ export function computeStats(modules, options = {}) {
   let cost = 0;
   let mass = 0;
   const maxHp = nonCoreHullTotal(modules, PART_STATS);
-  let maxShield = 0;
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
@@ -115,8 +112,8 @@ export function computeStats(modules, options = {}) {
   let railgun = 0;
   let beam = 0;
   let repair = 0;
-  let repairRate = 0;
-  const repairRateValues = [];
+  const selfRepairRateValues = [];
+  const repairBeamRateValues = [];
   let rangeBonus = 0;
   let accuracyBonus = 0;
   let fireRateBonus = 0;
@@ -158,7 +155,6 @@ export function computeStats(modules, options = {}) {
 
     cost += part.cost;
     mass += part.mass;
-    maxShield += part.shield;
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
@@ -186,7 +182,11 @@ export function computeStats(modules, options = {}) {
       }
     }
     repair += part.repair || 0;
-    if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
+    const repairRate = Number(part.repairRate) || 0;
+    if (repairRate > 0) {
+      if (isLocalRepairSource(module.type, part)) selfRepairRateValues.push(repairRate);
+      else repairBeamRateValues.push(repairRate);
+    }
 
     rangeBonus += part.rangeBonus || 0;
     accuracyBonus += part.accuracyBonus || 0;
@@ -203,19 +203,24 @@ export function computeStats(modules, options = {}) {
 
     if (part.weapon && weaponTotals[part.weapon.type]) {
       const support = weaponBonusByIndex ? weaponBonusByIndex[moduleIndex] : null;
-      const fireRateMultiplier = support ? 1 + (Number(support.fireRateBonus) || 0) : 1;
-      addWeaponStats(weaponTotals[part.weapon.type], part.weapon, fireRateMultiplier);
+      const effectiveWeapon = support && DataSupportRules?.effectiveWeaponProfile
+        ? DataSupportRules.effectiveWeaponProfile(part.weapon, support)
+        : part.weapon;
+      addWeaponStats(weaponTotals[part.weapon.type], effectiveWeapon);
     }
   }
 
-  const repairRateInstalled = installedRepairRate(repairRateValues);
-  repairRate = getEffectiveRepairRate(repairRateValues, GENERATED_BALANCE);
+  const selfRepairRateInstalled = installedRepairRate(selfRepairRateValues);
+  const selfRepairRate = getEffectiveRepairRate(selfRepairRateValues, GENERATED_BALANCE);
+  const repairBeamOutput = installedRepairRate(repairBeamRateValues);
   const baseShieldStats = ShieldRules.calculateShieldStats(modules, PART_STATS);
   const shieldStats = baseShieldStats;
 
   applyWeaponUtilityBonuses(weaponTotals, {
-    rangeBonus,
-    accuracyBonus,
+    // Data Links are allocated per weapon above. Keep the legacy aggregate
+    // path only for environments where the shared allocator is unavailable.
+    rangeBonus: weaponBonusByIndex ? 0 : rangeBonus,
+    accuracyBonus: weaponBonusByIndex ? 0 : accuracyBonus,
     fireRateBonus: weaponBonusByIndex ? 0 : fireRateBonus,
     coolingBonus
   });
@@ -254,20 +259,6 @@ export function computeStats(modules, options = {}) {
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
 
   const unitCost = cost;
-  const fleetRules = FLEET_COUNT_RULES;
-  const fleetCount = clamp(
-    Math.floor(
-      (Number(fleetRules.base) || 260) /
-        Math.max(
-          Number(fleetRules.minimumDivisor) || 58,
-          unitCost * (Number(fleetRules.unitCostMultiplier) || 0.72) +
-            mass * (Number(fleetRules.massMultiplier) || 0.45)
-        )
-    ),
-    Number(fleetRules.minimum) || 1,
-    Number(fleetRules.maximum) || 5
-  );
-
   const warnings = shipWarnings({
     modules,
     powerGeneration,
@@ -291,7 +282,6 @@ export function computeStats(modules, options = {}) {
     turnRateRight: movement.turnRateRight,
     directionalTurn: movement.directionalTurn,
     repair,
-    shield: maxShield,
     modules,
     powerEfficiency: movement.powerEfficiency,
     powerDebuff: movement.powerDebuff
@@ -335,9 +325,16 @@ export function computeStats(modules, options = {}) {
     beam,
     pointDefense,
     repair,
-    repairRateInstalled,
-    repairRateSourceCount: repairRateValues.length,
-    repairRate,
+    selfRepairRateInstalled,
+    selfRepairSourceCount: selfRepairRateValues.length,
+    selfRepairRate,
+    repairBeamOutput,
+    repairBeamRate: repairBeamOutput,
+    // Legacy names remain aliases for self-repair so presentation and runtime
+    // consumers cannot treat a projected beam as local ship maintenance.
+    repairRateInstalled: selfRepairRateInstalled,
+    repairRateSourceCount: selfRepairRateValues.length,
+    repairRate: selfRepairRate,
     coolingBonus: Number(coolingBonus.toFixed(2)),
     captureBonus: Number(captureBonus.toFixed(2)),
     blasterRange: weaponRange(weaponTotals.blaster),
@@ -358,7 +355,6 @@ export function computeStats(modules, options = {}) {
     weapons: summarizeWeaponTotals(weaponTotals),
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     warnings,
-    fleetCount,
     baseSensorRange: sensorProfile.baseRange,
     sensorRange: Number(sensorProfile.omniRange.toFixed(1)),
     directedSensorRange: Number(sensorProfile.directedRange.toFixed(1)),

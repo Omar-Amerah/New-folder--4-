@@ -450,7 +450,7 @@ export const COMPONENT_MECHANICS = {
     ],
     interactions: [
       { label: "Power", value: "Standby, active, and production power modes" },
-      { label: "Heat", value: "Generates heat during production" }
+      { label: "Activity Heat", value: "Uses authored activityHeat while producing or operating active drones", detail: "Delivered Power scales the authored rate. A bay that is merely idle generates no Heat." }
     ]
   },
 
@@ -499,12 +499,12 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       shieldImpactHeatMechanics(),
       { label: "Shield Leakage", value: "5% of blocked damage leaks to hull", detail: "Shields absorb 95% of blocked damage; 5% passes through to hull." },
-      { label: "Power-Dependent Regen", value: "Shield regeneration requires power", detail: "Underpowered shields regenerate more slowly, scaled by pow(ratio, 1.35)." },
+      { label: "Power-Dependent Regen", value: "Shield regeneration requires power", detail: "Power scales Shield regeneration proportionally before Heat and aura effects: 50% delivered Power provides 50% of the authored rate." },
       { label: "Regeneration Stacking", value: "Linear", detail: "Each live shield contributes its full authored regeneration rate after Power, Heat, and aura modifiers." },
       shieldRestartMechanic()
     ],
     interactions: [
-      { label: "Power", value: "Power deficit reduces shield efficiency" },
+      { label: "Power", value: "Power deficit reduces shield regeneration proportionally" },
       { label: "Command Auras", value: "Shield regen and restart delay can be improved by auras" }
     ]
   },
@@ -518,7 +518,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power" }
     ],
     interactions: [
-      { label: "Power", value: "Power deficit reduces shield efficiency" }
+      { label: "Power", value: "Power deficit reduces shield regeneration proportionally" }
     ]
   },
 
@@ -531,7 +531,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power" }
     ],
     interactions: [
-      { label: "Power", value: "Power deficit reduces shield efficiency" }
+      { label: "Power", value: "Power deficit reduces shield regeneration proportionally" }
     ]
   },
 
@@ -545,7 +545,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power" }
     ],
     interactions: [
-      { label: "Power", value: "Power deficit reduces shield efficiency" }
+      { label: "Power", value: "Power deficit reduces shield regeneration proportionally" }
     ]
   },
 
@@ -639,7 +639,7 @@ export const COMPONENT_MECHANICS = {
   repair: {
     specialMechanics: [
       repairStackingMechanic(),
-      { label: "Repair Range", value: "410 m", detail: "Repair modules restore hull HP to the parent ship and nearby allies within range." },
+      { label: "Self Repair", value: "Repairs this ship", detail: "Ordinary Repair modules restore their own ship's hull and do not project healing to nearby allies." },
       { label: "Activity Heat", value: "Uses authored activityHeat while repairing" }
     ],
     interactions: [
@@ -683,7 +683,7 @@ export const COMPONENT_MECHANICS = {
 
   thermalInductionLance: {
     specialMechanics: [
-      { label: "Targeting", value: "Prioritises functioning Power generators when available, then other active systems", detail: "Target selection is weighted, so this is a tendency rather than a guarantee." },
+      { label: "Targeting Priority", value: "Prioritises functioning Power generators when available, then other active systems", detail: "The Lance is designed to overload critical powered systems rather than choose targets like an ordinary weapon. If no functioning generator is available, it falls back to other active systems; this specialist priority is separate from ordinary weighted component targeting." },
       { label: "Thermal Induction", value: "Sustained contact transfers increasing Heat into the selected subsystem and nearby components" }
     ],
     interactions: [

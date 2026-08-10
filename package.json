@@ -149,6 +149,7 @@
     "balance:summary": "node tools/balance-summary.js",
     "release:check": "node tools/release-check.js && npm run test:ship-hull-outline",
     "test:data-support-designer": "node tests/verify-data-support-designer.js",
+    "test:data-support-stats": "node tests/verify-data-support-stats.js",
     "test:data-links-editor": "npm run build && node tests/verify-data-links-editor.js",
     "test:data-support-balance": "node tests/verify-data-support-balance.js",
     "balance:data-support": "node tools/data-support-balance-report.js",

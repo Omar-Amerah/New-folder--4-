@@ -139,10 +139,31 @@ advanceBayProduction(independentB, 2, 1, false);
 assert.equal(independentA.slots[0].productionProgress, 1 / CONFIG.types.fighter.productionSeconds);
 assert.equal(independentB.slots[0].productionProgress, 2 / CONFIG.types.repair.productionSeconds);
 
-assert.equal(PARTS.droneBay.activityHeat, CONFIG.activeHeatPerSecond);
-assert.equal(CONFIG.standbyHeatPerSecond, 0.5);
-assert.equal(CONFIG.activeHeatPerSecond, 1.2);
-assert.equal(CONFIG.productionHeatPerSecond, 3);
+assert.equal(PARTS.droneBay.activityHeat, 1.2, "Drone Bay Heat uses the authored component activityHeat");
+assert.equal(Object.hasOwn(CONFIG, "standbyHeatPerSecond"), false, "standby Heat is not a separate Drone Bay balance mode");
+assert.equal(Object.hasOwn(CONFIG, "activeHeatPerSecond"), false, "active Heat is not a separate Drone Bay balance mode");
+assert.equal(Object.hasOwn(CONFIG, "productionHeatPerSecond"), false, "production Heat is not a separate Drone Bay balance mode");
+
+const idle = makeRoomAndShip();
+idle.bay.mode = "recalled";
+updateDroneBays(idle.room, [idle.ship], 1, 0);
+assert.equal(idle.ship.componentHeatInput[0], 0, "a merely idle Drone Bay generates no Heat");
+
+const active = makeRoomAndShip();
+active.bay.mode = "recalled";
+active.bay.slots[0].state = "active";
+active.bay.slots[0].productionProgress = 1;
+active.ship.componentPower = { byComponentIndex: [{ operationalMultiplier: 0.5 }] };
+updateDroneBays(active.room, [active.ship], 2, 0);
+assert.equal(active.ship.componentHeatInput[0], PARTS.droneBay.activityHeat * 0.5 * 2,
+  "active Drone Bay Heat uses authored activityHeat and delivered Power");
+
+const producing = makeRoomAndShip();
+producing.bay.slots[0] = { slot: 0, state: "destroyed", droneId: null, productionProgress: 0, pauseReason: null };
+producing.ship.componentPower = { byComponentIndex: [{ operationalMultiplier: 0.25 }] };
+updateDroneBays(producing.room, [producing.ship], 2, 0);
+assert.equal(producing.ship.componentHeatInput[0], PARTS.droneBay.activityHeat * 0.25 * 2,
+  "production Drone Bay Heat uses the same authored activityHeat rate");
 assert.equal(CONFIG.fuelSeconds, 15);
 assert.equal(CONFIG.refuelSeconds, 2);
 assert.equal(CONFIG.standbyPowerMw, 3);

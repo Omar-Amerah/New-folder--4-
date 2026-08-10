@@ -5,7 +5,6 @@
 ## Sections
 
 - `components`: direct component cost, mass, hull, power, shield, thrust, turning, repair, utility and weapon values; generic component heat is intentionally unsupported.
-- `shipPricing`: inputs for the per-design fleet-count formula. Ship price is the sum of direct component costs; the fleet formula remains in code so future edits change inputs, not implementation.
 - `economy`: starting money, income, maximum money, in-match kill/capture bonuses and ship cap.
 - `movement`, `power`, `heat`, `projectiles`, `missileGuidance`, `combatStyles`, `fleetLimits`, `capture`, and `repair`: gameplay inputs used by their named systems when present.
 

@@ -15,7 +15,7 @@ const COMPARE_STATS = [
   ["frontDamageReduction", "Armour / DR", "%"], ["maxShield", "Shield", "SP"], ["shieldRegen", "Shield Recharge", "SP/s"],
   ["powerGeneration", "Power Generated", "MW"], ["powerUse", "Power Required", "MW"], ["energyStorage", "Energy Storage", "MJ"],
   ["effectiveThrust", "Thrust", "kN"], ["maxSpeed", "Est. Max Speed", "u/s"], ["turnRate", "Est. Turning", "°/s"],
-  ["repairRate", "Repair Rate", "HP/s"], ["coolingBonus", "Cooling", ""], ["weaponDps", "Weapon DPS", "DPS"],
+  ["selfRepairRate", "Self Repair", "HP/s"], ["repairBeamOutput", "Repair Beam Output", "HP/s"], ["coolingBonus", "Cooling", ""], ["weaponDps", "Weapon DPS", "DPS"],
   ["blasterDps", "Blaster DPS", "DPS"], ["missileDps", "Missile DPS", "DPS"], ["railgunDps", "Railgun DPS", "DPS"], ["beamDps", "Beam DPS", "DPS"],
   ["maxWeaponRange", "Weapon Range", "m"]
 ];

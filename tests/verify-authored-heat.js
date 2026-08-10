@@ -213,11 +213,23 @@ async function clientParityChecks() {
   };
   globalThis.window = { devicePixelRatio: 1 };
   globalThis.HeatRules = HeatRules;
+  globalThis.EngineExhaustRules = require("../public/src/shared/engineExhaust");
   const { PART_STATS } = await import("../public/src/design/parts.js");
-  for (const type of ["reactor", "engine", "shield", "repair", "beamEmitter", "blaster", "spinalAccelerator"]) {
+  for (const type of ["reactor", "engine", "shield", "repair", "droneBay", "beamEmitter", "blaster", "spinalAccelerator"]) {
     assert.strictEqual(PART_STATS[type].activityHeat, PARTS[type].activityHeat, `${type} client/server activityHeat parity`);
     assert.strictEqual(PART_STATS[type].heatPerShot, PARTS[type].heatPerShot, `${type} client/server heatPerShot parity`);
   }
+  const { buildThermalModel, buildThermalLoad } = await import("../public/src/design/thermalAnalysis.js");
+  const droneDesign = [
+    { x: 7, y: 7, type: "core" },
+    { x: 7, y: 6, type: "reactor" },
+    { x: 5, y: 7, type: "droneBay", droneType: "fighter" }
+  ];
+  const thermalModel = buildThermalModel(droneDesign);
+  close(buildThermalLoad(thermalModel, "idle").generationRates[2], 0,
+    "idle Drone Bay prediction has no authored activity Heat");
+  close(buildThermalLoad(thermalModel, "full").generationRates[2], PARTS.droneBay.activityHeat,
+    "full Drone Bay prediction uses the authored activityHeat rate");
 }
 
 (async () => {

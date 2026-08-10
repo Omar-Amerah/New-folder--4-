@@ -114,27 +114,40 @@ function designFor(types) {
   for (const [label, design, expected, installed] of [["two", two, 14.4, 16], ["three", three, 19.52, 24]]) {
     const server = serverComputeStats(design);
     const client = ClientStats.computeStats(design);
-    close(server.repairRateInstalled, installed, `${label} server Installed/Base Repair`);
-    close(client.repairRateInstalled, installed, `${label} client Installed/Base Repair`);
-    close(server.repairRate, expected, `${label} server Effective Repair`);
-    close(client.repairRate, expected, `${label} client Effective Repair`);
-    close(server.repairRate, client.repairRate, `${label} server/client Effective Repair parity`);
-    assert.equal(server.repairRateSourceCount, 2 + (label === "three" ? 1 : 0), `${label} Repair source count`);
+    close(server.selfRepairRateInstalled, installed, `${label} server installed Self Repair`);
+    close(client.selfRepairRateInstalled, installed, `${label} client installed Self Repair`);
+    close(server.selfRepairRate, expected, `${label} server Self Repair`);
+    close(client.selfRepairRate, expected, `${label} client Self Repair`);
+    close(server.selfRepairRate, client.selfRepairRate, `${label} server/client Self Repair parity`);
+    assert.equal(server.selfRepairSourceCount, 2 + (label === "three" ? 1 : 0), `${label} local Repair source count`);
   }
 
   const summary = Summary.buildShipSummaryModel(ClientStats.computeStats(two), { design: two });
   const support = summary.sections.find((section) => section.id === "support");
   assert(support, "Ship summary includes Support details");
-  assert.equal(support.rows.find((row) => row.id === "repair")?.label, "Installed/Base Repair", "summary labels installed Repair");
-  assert.equal(support.rows.find((row) => row.id === "repair.effective")?.label, "Effective Repair", "summary labels effective Repair");
+  assert.equal(support.rows.find((row) => row.id === "repair.self")?.label, "Self Repair", "summary labels Self Repair");
+  assert.equal(support.rows.find((row) => row.id === "repair.beamOutput"), undefined, "summary omits zero Repair Beam output");
   assert.equal(support.rows.find((row) => row.id === "repair.stacking")?.value, "Diminishing returns", "summary explains Repair stacking");
-  assert.match(support.rows.find((row) => row.id === "repair")?.value || "", /16/);
-  assert.match(support.rows.find((row) => row.id === "repair.effective")?.value || "", /14\.4/);
+  assert.match(support.rows.find((row) => row.id === "repair.self")?.value || "", /14\.4/);
+
+  const mixed = designFor(["core", "frame", "repair", "repairBeam"]);
+  const mixedServer = serverComputeStats(mixed);
+  const mixedClient = ClientStats.computeStats(mixed);
+  close(mixedServer.selfRepairRate, 8, "mixed server Self Repair stays local");
+  close(mixedClient.selfRepairRate, 8, "mixed client Self Repair stays local");
+  close(mixedServer.repairBeamOutput, 16, "mixed server Repair Beam output stays linear");
+  close(mixedClient.repairBeamOutput, 16, "mixed client Repair Beam output stays linear");
+  const mixedSummary = Summary.buildShipSummaryModel(mixedClient, { design: mixed });
+  const mixedSupport = mixedSummary.sections.find((section) => section.id === "support");
+  assert.equal(mixedSupport.rows.find((row) => row.id === "repair.self")?.label, "Self Repair", "mixed summary labels Self Repair");
+  assert.equal(mixedSupport.rows.find((row) => row.id === "repair.beamOutput")?.label, "Repair Beam Output", "mixed summary labels Repair Beam output");
+  assert(!mixedSupport.rows.some((row) => row.id === "repair.stacking"), "one local Repair plus a beam has no diminishing warning");
 
   const shieldMechanics = Mechanics.getMechanics("shield");
   assert(shieldMechanics.specialMechanics.some((entry) => entry.value === "0.12 H / damage blocked"), "Shield Ledger mechanic uses the shared rate");
   const repairMechanics = Mechanics.getMechanics("repair");
   assert(repairMechanics.specialMechanics.some((entry) => entry.value === "Diminishing returns"), "Repair Ledger mechanic states diminishing returns");
+  assert(!JSON.stringify(repairMechanics).includes("parent ship and nearby allies"), "Repair Ledger no longer assigns allied healing to ordinary Repair");
   assert(!Mechanics.getMechanics("repairBeam").specialMechanics.some((entry) => /diminishing/i.test(`${entry.label} ${entry.value} ${entry.detail || ""}`)), "Repair Beam Ledger mechanic omits local stack warning");
   assert.match(JSON.stringify(Ledger.getArticleById("defence")), /0\.12 H \/ damage blocked/);
   assert.match(JSON.stringify(Ledger.getArticleById("repair-mechanics")), /diminishing/i);

@@ -40,20 +40,20 @@ function damageOnce(type, dmg) {
 
 const newComponents = {
   ablativeArmor: { cost: 13, mass: 8, hull: 380, armorFlatReduction: 0, turn: -0.03, shapeType: null, statScale: 1, footprint: { width: 1, height: 1 }, rotatable: false },
-  halfAblativeArmorDiagonal: { cost: 6.5, mass: 4, hull: 190, armorFlatReduction: 0, turn: -0.015, shapeType: 'halfDiagonal', statScale: 0.5, footprint: { width: 1, height: 1 }, rotatable: true },
-  wingAblativeArmor: { cost: 10.4, mass: 6.4, hull: 304, armorFlatReduction: 0, turn: -0.024, shapeType: 'wing', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
-  bevelAblativeArmor: { cost: 9.75, mass: 6, hull: 285, armorFlatReduction: 0, turn: -0.0225, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
-  roundedAblativeArmor: { cost: 10.4, mass: 6.4, hull: 304, armorFlatReduction: 0, turn: -0.024, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
-  longWedgeAblativeArmor: { cost: 19.5, mass: 12, hull: 570, armorFlatReduction: 0, turn: -0.045, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true },
+  halfAblativeArmorDiagonal: { cost: 7, mass: 4, hull: 190, armorFlatReduction: 0, turn: -0.015, shapeType: 'halfDiagonal', statScale: 0.5, footprint: { width: 1, height: 1 }, rotatable: true },
+  wingAblativeArmor: { cost: 10, mass: 6.4, hull: 304, armorFlatReduction: 0, turn: -0.024, shapeType: 'wing', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  bevelAblativeArmor: { cost: 10, mass: 6, hull: 285, armorFlatReduction: 0, turn: -0.0225, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
+  roundedAblativeArmor: { cost: 10, mass: 6.4, hull: 304, armorFlatReduction: 0, turn: -0.024, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  longWedgeAblativeArmor: { cost: 20, mass: 12, hull: 570, armorFlatReduction: 0, turn: -0.045, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true },
   bevelArmor: { cost: 9, mass: 8.25, hull: 180, armorFlatReduction: 3.75, turn: -0.045, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
-  bevelCompositeArmor: { cost: 11.7, mass: 4.5, hull: 142.5, armorFlatReduction: 2.625, turn: -0.015, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
-  bevelFrame: { cost: 2.7, mass: 2.7, hull: 30, armorFlatReduction: 0, turn: 0, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
-  roundedArmor: { cost: 9.6, mass: 8.8, hull: 192, armorFlatReduction: 4, turn: -0.048, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
-  roundedCompositeArmor: { cost: 12.48, mass: 4.8, hull: 152, armorFlatReduction: 2.8, turn: -0.016, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
-  roundedFrame: { cost: 2.88, mass: 2.88, hull: 32, armorFlatReduction: 0, turn: 0, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  bevelCompositeArmor: { cost: 12, mass: 4.5, hull: 142.5, armorFlatReduction: 2.625, turn: -0.015, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
+  bevelFrame: { cost: 3, mass: 2.7, hull: 30, armorFlatReduction: 0, turn: 0, shapeType: 'bevel', statScale: 0.75, footprint: { width: 1, height: 1 }, rotatable: true },
+  roundedArmor: { cost: 10, mass: 8.8, hull: 192, armorFlatReduction: 4, turn: -0.048, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  roundedCompositeArmor: { cost: 12, mass: 4.8, hull: 152, armorFlatReduction: 2.8, turn: -0.016, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
+  roundedFrame: { cost: 3, mass: 2.88, hull: 32, armorFlatReduction: 0, turn: 0, shapeType: 'roundedCorner', statScale: 0.8, footprint: { width: 1, height: 1 }, rotatable: true },
   longWedgeArmor: { cost: 18, mass: 16.5, hull: 360, armorFlatReduction: 5, turn: -0.09, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true },
-  longWedgeCompositeArmor: { cost: 23.4, mass: 9, hull: 285, armorFlatReduction: 3.5, turn: -0.03, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true },
-  longWedgeFrame: { cost: 5.4, mass: 5.4, hull: 60, armorFlatReduction: 0, turn: 0, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true }
+  longWedgeCompositeArmor: { cost: 23, mass: 9, hull: 285, armorFlatReduction: 3.5, turn: -0.03, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true },
+  longWedgeFrame: { cost: 5, mass: 5.4, hull: 60, armorFlatReduction: 0, turn: 0, shapeType: 'longWedge', statScale: 1.5, footprint: { width: 2, height: 1 }, rotatable: true }
 };
 
 (async () => {
@@ -95,7 +95,7 @@ const newComponents = {
   for (const id of ablativeFamily.filter((n) => n !== 'ablativeArmor')) {
     const scale = PARTS[id].statScale;
     close(PARTS[id].hp, PARTS.ablativeArmor.hp * scale, `${id} hull is the base block scaled by statScale`);
-    close(PARTS[id].cost, PARTS.ablativeArmor.cost * scale, `${id} cost is the base block scaled by statScale`);
+    close(PARTS[id].cost, Math.round(PARTS.ablativeArmor.cost * scale), `${id} cost is the rounded base block scaled by statScale`);
     close(PARTS[id].mass, PARTS.ablativeArmor.mass * scale, `${id} mass is the base block scaled by statScale`);
   }
 

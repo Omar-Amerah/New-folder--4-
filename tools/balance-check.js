@@ -4,14 +4,11 @@ const path = require('path');
 const { loadBalance } = require('../src/server/balanceConfig');
 const root = path.join(__dirname, '..');
 const balancePath = path.join(root, 'component-balance.json');
-const required = ['metadata','components','shipPricing','economy','drones','movement','projectiles','missileGuidance','fleetLimits','capture','repair'];
+const required = ['metadata','components','economy','drones','movement','projectiles','missileGuidance','fleetLimits','capture','repair'];
 const balance = loadBalance(balancePath);
 for (const key of required) if (balance[key] === undefined) throw new Error(`Missing required balance section: ${key}`);
 const forbidden = [];
-const legacyPricingFields = ['baseShipCost','partCostMultiplier','massCostMultiplier','hullCostMultiplier','shieldCostMultiplier','repairCostMultiplier','weaponPremiums'];
-for (const field of legacyPricingFields) {
-  if (Object.prototype.hasOwnProperty.call(balance.shipPricing || {}, field)) forbidden.push(`component-balance.json.shipPricing.${field}`);
-}
+if (Object.prototype.hasOwnProperty.call(balance, 'shipPricing')) forbidden.push('component-balance.json.shipPricing');
 for (const file of ['src/server/components.js','public/src/design/parts.js','public/src/constants.js']) {
   const text = fs.readFileSync(path.join(root,file),'utf8');
   if (/FALLBACK_PARTS\s*=\s*Object\.freeze\(\{\s*[a-zA-Z]/.test(text) || /FALLBACK_PART_STATS\s*=\s*\{\s*[a-zA-Z]/.test(text)) forbidden.push(file);

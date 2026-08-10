@@ -27,7 +27,6 @@ function computeStats(modules) {
   let cost = 0;
   let mass = 0;
   const maxHp = nonCoreHullTotal(modules, PARTS);
-  let maxShield = 0;
   let powerGeneration = 0;
   let powerUse = 0;
   let thrust = 0;
@@ -41,8 +40,8 @@ function computeStats(modules) {
   let railgun = 0;
   let beam = 0;
   let repair = 0;
-  let repairRate = 0;
-  const repairRateValues = [];
+  const selfRepairRateValues = [];
+  const repairBeamRateValues = [];
   let coolingBonus = 0;
   let captureBonus = 0;
   let ecmStrength = 0;
@@ -75,7 +74,6 @@ function computeStats(modules) {
     const blockedEngine = (part.thrust > 0 || module.type === "maneuverThruster") && !exhaustAnalysis.validEngineIndices.has(moduleIndex);
     cost += part.cost;
     mass += part.mass;
-    maxShield += part.shield;
     powerGeneration += part.powerGeneration || 0;
     powerUse += part.powerUse || 0;
     thrust += blockedEngine ? 0 : part.thrust;
@@ -102,7 +100,11 @@ function computeStats(modules) {
       }
     }
     repair += part.repair || 0;
-    if ((part.repairRate || 0) > 0) repairRateValues.push(part.repairRate);
+    const repairRate = Number(part.repairRate) || 0;
+    if (repairRate > 0) {
+      if (RepairRules.isLocalRepairSource(module.type, part)) selfRepairRateValues.push(repairRate);
+      else repairBeamRateValues.push(repairRate);
+    }
     // Cooling is simulated locally per component; it is not a global reload buff.
     captureBonus += part.captureBonus || 0;
     if (part.ecmStrength) ecmStrength += part.ecmStrength;
@@ -117,8 +119,9 @@ function computeStats(modules) {
     maxY = Math.max(maxY, module.y);
   }
 
-  const repairRateInstalled = RepairRules.installedRepairRate(repairRateValues);
-  repairRate = RepairRules.getEffectiveRepairRate(repairRateValues, BALANCE);
+  const selfRepairRateInstalled = RepairRules.installedRepairRate(selfRepairRateValues);
+  const selfRepairRate = RepairRules.getEffectiveRepairRate(selfRepairRateValues, BALANCE);
+  const repairBeamOutput = RepairRules.installedRepairRate(repairBeamRateValues);
   const shieldStats = ShieldRules.calculateShieldStats(modules, PARTS);
   const powerFlow = UniversalPower.calculateUniversalPower(modules, PARTS);
   const availablePower = powerFlow.summary.availableGenerationMw;
@@ -145,6 +148,8 @@ function computeStats(modules) {
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
   const sensorProfile = designSensorProfile(modules);
   const unitCost = cost;
+  // Keep the server's fleet-count field authoritative while the client no
+  // longer needs to mirror this pricing-only calculation.
   const fleetRules = BALANCE.shipPricing?.fleetCountFormulaInputs || {
     base: 260,
     minimumDivisor: 58,
@@ -165,7 +170,7 @@ function computeStats(modules) {
   const weapons = summarizeWeaponTotals(weaponTotals);
   const warnings = shipWarnings({ powerGeneration, powerUse, availablePower, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
-    turnRateRight: movement.turnRateRight, repair, shield: maxShield, modules, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
+    turnRateRight: movement.turnRateRight, repair, modules, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
   if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
 
   return {
@@ -206,9 +211,16 @@ function computeStats(modules) {
     railgun,
     beam,
     repair,
-    repairRateInstalled,
-    repairRateSourceCount: repairRateValues.length,
-    repairRate,
+    selfRepairRateInstalled,
+    selfRepairSourceCount: selfRepairRateValues.length,
+    selfRepairRate,
+    repairBeamOutput,
+    repairBeamRate: repairBeamOutput,
+    // Legacy names remain aliases for self-repair so runtime consumers do not
+    // accidentally treat a projected beam as local ship maintenance.
+    repairRateInstalled: selfRepairRateInstalled,
+    repairRateSourceCount: selfRepairRateValues.length,
+    repairRate: selfRepairRate,
     coolingBonus: round(coolingBonus),
     captureBonus: round(captureBonus),
     pointDefense,
@@ -392,6 +404,11 @@ function summarizeStats(stats) {
     railgun: stats.railgun,
     beam: stats.beam,
     repair: stats.repair,
+    selfRepairRateInstalled: stats.selfRepairRateInstalled,
+    selfRepairSourceCount: stats.selfRepairSourceCount,
+    selfRepairRate: stats.selfRepairRate,
+    repairBeamOutput: stats.repairBeamOutput,
+    repairBeamRate: stats.repairBeamRate,
     repairRateInstalled: stats.repairRateInstalled,
     repairRateSourceCount: stats.repairRateSourceCount,
     repairRate: stats.repairRate,

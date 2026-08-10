@@ -1,6 +1,5 @@
 // Bootstraps the browser client by connecting state, networking, UI, input, and rendering.
 
-import { applyFleetCountRules } from "./constants.js";
 import { notify } from "./ui/toastUi.js";
 import { dom } from "./ui/dom.js";
 import { state } from "./state.js";
@@ -317,7 +316,6 @@ async function loadComponentBalance() {
     return;
   }
 
-  applyFleetCountRules(balance.shipPricing);
   const applied = applyComponentBalance(balance);
   if (!applied) return;
   renderPalette();

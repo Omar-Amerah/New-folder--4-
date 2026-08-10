@@ -1014,6 +1014,8 @@ export function showPurchaseTooltip(optionId, event) {
   const optionState = getPurchaseOptionState(option, state.purchaseQuantity);
   const stats = option.stats;
   const dpsLabel = stats.weaponDpsLabel === "Weapon DPS" ? "DPS" : (stats.weaponDpsLabel || "DPS");
+  const selfRepair = Number(stats.selfRepairRate ?? stats.repairRate ?? 0) || 0;
+  const repairBeamOutput = Number(stats.repairBeamOutput ?? stats.repairBeamRate ?? 0) || 0;
   const displayStyle = (option.combatStyle || "hold").charAt(0).toUpperCase() + (option.combatStyle || "hold").slice(1);
   dom.purchaseTooltip.innerHTML = `
     <div class="purchase-tooltip-head">
@@ -1035,7 +1037,8 @@ export function showPurchaseTooltip(optionId, event) {
       ${tooltipStat("Mass", formatMass(stats.mass))}
       ${tooltipStat("Power Use/Gen", `${round2(stats.powerUse)}/${round2(stats.powerGeneration)} MW`)}
       ${tooltipStat("Energy", formatEnergy(stats.energyStorage))}
-      ${tooltipStat("Repair", formatRepair(stats.repairRate))}
+      ${selfRepair > 0 ? tooltipStat("Self Repair", formatRepair(selfRepair)) : ""}
+      ${repairBeamOutput > 0 ? tooltipStat("Repair Beam Output", formatRepair(repairBeamOutput)) : ""}
       ${stats.coolingBonus > 0 ? tooltipStat("Cooling", `${formatPercent(stats.coolingBonus)} reload`) : ""}
       ${stats.captureBonus > 0 ? tooltipStat("Capture", `+${formatPercent(stats.captureBonus)}`) : ""}
       ${tooltipStat("Weapons", weaponSummaryText(stats))}

@@ -16,14 +16,13 @@ generateBalanceArtifacts();
 // the burn-through-specific validation result.
 function balanceWith(weapon) {
   return {
-    metadata: {}, shipPricing: {}, economy: { shipCap: 1 },
+    metadata: {}, economy: { shipCap: 1 },
     movement: {}, projectiles: {}, missileGuidance: {},
     fleetLimits: {}, capture: {}, repair: {},
     drones: {
       squadSize: 1, maxBaysPerShip: 1, maxActivePerShip: 1, maxActivePerPlayer: 1,
       launchIntervalSeconds: 1, launchDurationSeconds: 1, orphanLifetimeSeconds: 1,
       standbyPowerMw: 1, activePowerMw: 1, productionPowerMw: 1,
-      standbyHeatPerSecond: 1, activeHeatPerSecond: 1, productionHeatPerSecond: 1,
       types: {
         fighter: { productionSeconds: 1, hull: 1, speed: 1 },
         defence: { productionSeconds: 1, hull: 1, speed: 1 },

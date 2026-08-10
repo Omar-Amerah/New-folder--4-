@@ -13,7 +13,8 @@ const legacyPricingFields = [
   "hullCostMultiplier",
   "shieldCostMultiplier",
   "repairCostMultiplier",
-  "weaponPremiums"
+  "weaponPremiums",
+  "fleetCountFormulaInputs"
 ];
 
 for (const field of legacyPricingFields) {
@@ -58,7 +59,8 @@ global.window = { devicePixelRatio: 1 };
     assert.strictEqual(client.cost, expected, "client cost is the direct component sum");
     assert.strictEqual(client.unitCost, expected, "client unitCost is the direct component sum");
     assert.strictEqual(server.unitCost, client.unitCost, "client and server ship costs match");
-    assert.strictEqual(server.fleetCount, client.fleetCount, "client and server fleet-count rules still match");
+    assert.strictEqual("fleetCount" in server, false, "server no longer exposes the legacy fleet count");
+    assert.strictEqual("fleetCount" in client, false, "client no longer exposes the legacy fleet count");
     assert.strictEqual("costBreakdown" in server, false, "server no longer exposes a cost breakdown");
     assert.strictEqual("costBreakdown" in client, false, "client no longer exposes a cost breakdown");
   }

@@ -501,7 +501,7 @@ const MANUAL_ARTICLES_PART_2 = [
     title: "Drones",
     summary: "Drone bays, fighter/defence/repair drones, and squadron mechanics.",
     keywords: ["drone", "drone bay", "fighter", "defence drone", "repair drone", "squadron", "launch"],
-    howItWorks: `Drone Bays launch and rebuild configurable squads. Squad sizes, fuel durations and rebuild times depend on the selected drone type: ${droneTypeSummary("squadSize", " drones")}; ${droneTypeSummary("fuelSeconds", "s")} of fuel. Fighter drones attack the parent ship's target, Defence drones guard the parent ship, and Repair drones restore friendly hulls. Drones must return to refuel, and a bay needs one complete two-cell edge exposed for launch.`,
+    howItWorks: `Drone Bays launch and rebuild configurable squads. Squad sizes, fuel durations and rebuild times depend on the selected drone type: ${droneTypeSummary("squadSize", " drones")}; ${droneTypeSummary("fuelSeconds", "s")} of fuel. Fighter drones attack the parent ship's target, Defence drones guard the parent ship, and Repair drones restore friendly hulls. Drones must return to refuel, and a bay needs one complete two-cell edge exposed for launch. A bay uses its authored Activity Heat rate only while producing or operating active drones; a merely idle bay generates no Heat.`,
     importantStats: [
       { label: "Squad Size", value: droneTypeSummary("squadSize", " drones") },
       { label: "Max Bays Per Ship", value: `${DRONES.maxBaysPerShip ?? 4}` },
@@ -515,9 +515,7 @@ const MANUAL_ARTICLES_PART_2 = [
       { label: "Standby Power", value: `${DRONES.standbyPowerMw ?? 3} MW` },
       { label: "Active Power", value: `${DRONES.activePowerMw ?? 7} MW` },
       { label: "Production Power", value: `${DRONES.productionPowerMw ?? 11} MW` },
-      { label: "Standby Heat", value: `${DRONES.standbyHeatPerSecond ?? 0.5}/s` },
-      { label: "Active Heat", value: `${DRONES.activeHeatPerSecond ?? 1.2}/s` },
-      { label: "Production Heat", value: `${DRONES.productionHeatPerSecond ?? 3}/s` }
+      { label: "Activity Heat", value: `${PART_STATS.droneBay?.activityHeat ?? 0} H/s while producing or operating active drones` }
     ],
     practicalUse: "Fighter drones add DPS to any build. Defence drones protect against enemy drone swarms. Repair drones extend ship longevity. Mix types based on your strategy.",
     commonProblems: [
@@ -970,7 +968,7 @@ const MANUAL_CONTENT_UPDATES_2 = Object.freeze({
   },
   defence: {
     summary: "Shield absorption and regeneration, armour behaviours, active interception, and decoys.",
-    howItWorks: `Shield capacity sources add together after the ship's mass scaling and their live Power state. Regeneration sources add their full authored rates linearly, then explicit Power, Heat, and aura modifiers apply. ${SHIELD_DEPLETION_TEXT} ${SHIELD_RESTART_TEXT} ${SHIELD_COMMAND_RELAY_TEXT} A shield hit blocks 95% of the shield-eligible damage it can absorb; 5% of that blocked hull damage leaks through, and shield overflow also reaches hull. Each ${SHIELD_IMPACT_HEAT_TEXT} of blocked Shield damage generates Heat in the Shield system; 100 blocked damage creates 12 H total, distributed across active Shield generators rather than added independently to each generator. Armour then contributes component durability and family-specific protection: each discrete projectile hit applies flat reduction once, while a continuous beam applies that reduction per second while it remains on the plate. Hot, Critical, and Overheated armour reduce that protection multiplier. Ablative structure offers high raw durability without flat reduction, and Refractory protection resists Heat and blocks Thermal Induction Lance transfer while intact. Point defence, flak, interceptors, and decoys act before guided threats land.`,
+    howItWorks: `Shield capacity sources add together; Power affects regeneration, not maximum Shield Capacity. Regeneration sources add their full authored rates linearly, then delivered Power scales regeneration proportionally before Heat and aura modifiers apply. ${SHIELD_DEPLETION_TEXT} ${SHIELD_RESTART_TEXT} ${SHIELD_COMMAND_RELAY_TEXT} A shield hit blocks 95% of the shield-eligible damage it can absorb; 5% of that blocked hull damage leaks through, and shield overflow also reaches hull. Each ${SHIELD_IMPACT_HEAT_TEXT} of blocked Shield damage generates Heat in the Shield system; 100 blocked damage creates 12 H total, distributed across active Shield generators rather than added independently to each generator. Armour then contributes component durability and family-specific protection: each discrete projectile hit applies flat reduction once, while a continuous beam applies that reduction per second while it remains on the plate. Hot, Critical, and Overheated armour reduce that protection multiplier. Ablative structure offers high raw durability without flat reduction, and Refractory protection resists Heat and blocks Thermal Induction Lance transfer while intact. Point defence, flak, interceptors, and decoys act before guided threats land.`,
     importantStats: [
       { label: "Shield Absorption", value: "95% Of Blocked Damage" },
       { label: "Shield Leakage", value: "5% Of Blocked Hull Damage" },
@@ -1210,21 +1208,38 @@ const MANUAL_CONTENT_UPDATES_3 = Object.freeze({
   }
 });
 
+const AUTOMATIC_COMPONENT_TARGETING_TEXT = "Most weapons automatically choose which component of an enemy ship to aim at. Selection is weighted rather than completely random. Completely random selection would give every valid component equal odds; weighted random selection still rolls between valid components, but some components have better odds than others. Exposed and important active systems are more likely to be targeted, while protected Core components are less likely to be selected while other components remain. This is a preference, not a guarantee: ordinary weapons can still target Structure, weapons, engines, support systems, and other living components. Weapons usually avoid immediately selecting the same component again when they choose a new component. Once a weapon has selected a component, it may continue aiming at that component for a period before choosing again. When it retargets, another weighted selection is made. Specialist weapons may have explicit targeting priorities. The Thermal Induction Lance prioritises functioning Power generators when available, then other active systems, because it is designed to overload critical powered systems rather than choose targets like an ordinary weapon. Point Defence uses separate threat priorities to decide which incoming entity to engage, such as missiles, torpedoes, drones, projectiles, or ships; component targeting rules apply when weapons aim at components inside a ship.";
+
 const EXTRA_MANUAL_ARTICLES = Object.freeze([
   {
     id: "targeting-and-arcs",
     category: "weapons",
     title: "Targeting, Arcs & Firing Solutions",
     summary: "Why a valid enemy may still not be a valid shot.",
-    keywords: ["targeting", "arc", "turret", "aim", "line of sight", "range", "detected", "focus fire"],
-    howItWorks: "Target selection and weapon permission are separate. A ship may hold an explicit or automatic target, but each weapon independently checks team visibility, target type, range, authored firing arc, turret aim, operational state, and any weapon-specific solution. Narrow fixed arcs reward hull facing; wide turrets trade less hull dependence for their own tracking and aim time. Losing live detection invalidates hostile targeting even while a remembered contact remains visible on the map. Automatic Component Targeting: Weapons preferentially target exposed active systems. Target selection is weighted, so this is a tendency rather than a guarantee. Retained component aims and Heat mechanics remain otherwise unchanged.",
+    keywords: ["targeting", "arc", "turret", "aim", "line of sight", "range", "detected", "focus fire", "component", "weighted random", "point defence"],
+    howItWorks: `Target selection and weapon permission are separate. A ship may hold an explicit or automatic target, but each weapon independently checks team visibility, target type, range, authored firing arc, turret aim, operational state, and any weapon-specific solution. Narrow fixed arcs reward hull facing; wide turrets trade less hull dependence for their own tracking and aim time. Losing live detection invalidates hostile targeting even while a remembered contact remains visible on the map. ${AUTOMATIC_COMPONENT_TARGETING_TEXT} Retained component aims and Heat mechanics remain otherwise unchanged.`,
     practicalUse: "Design one overlapping battery envelope and choose a combat style that keeps it on target. Test front, side, and retreat bearings. Use directed sensors and Data Links only after the geometry already works.",
     commonProblems: [
       "Some guns fire and others do not? Their arcs, ranges, or aim states differ.",
       "Remembered marker cannot be focused? Last-known information is not live targeting permission.",
       "Kiting ship loses its main battery? Rotate the defining weapons toward the retreat bearing."
     ],
-    related: ["weapons", "combat", "combat-styles", "sensors-detection", "support"]
+    related: ["weapons", "combat", "combat-styles", "sensors-detection", "support", "automatic-component-targeting"]
+  },
+  {
+    id: "automatic-component-targeting",
+    category: "weapons",
+    title: "Automatic Component Targeting",
+    summary: "How ordinary weapons choose components inside an enemy ship.",
+    keywords: ["automatic", "component", "targeting", "weighted", "random", "retarget", "point defence", "specialist"],
+    howItWorks: AUTOMATIC_COMPONENT_TARGETING_TEXT,
+    practicalUse: "Expose important systems when you want them to be attractive targets, but do not rely on an ordinary weapon to select one exact subsystem every time. Use a specialist weapon when its documented priority matches the system you need to pressure.",
+    commonProblems: [
+      "The weapon chose Structure or another system instead? Ordinary component targeting is weighted, not guaranteed.",
+      "The same component stayed under fire? Weapons can retain a component aim for a period before selecting again.",
+      "Point Defence ignored a ship component? Point Defence chooses incoming threats, not components inside a ship."
+    ],
+    related: ["targeting-and-arcs", "weapons", "combat", "defence", "component-reference"]
   },
   {
     id: "damage-and-destruction",

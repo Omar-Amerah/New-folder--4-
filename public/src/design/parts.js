@@ -494,7 +494,6 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     footprint: component.footprint ? { width: numberOr(component.footprint.width, 1), height: numberOr(component.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (component.id === "droneBay" && balance?.drones) {
-    if (!(part.activityHeat > 0)) part.activityHeat = numberOr(balance.drones.activeHeatPerSecond, 0);
     part.droneConfig = JSON.parse(JSON.stringify(balance.drones));
   }
   if (weapon) part[weapon.type] = 1;

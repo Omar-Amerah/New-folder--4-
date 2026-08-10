@@ -66,11 +66,6 @@ export const HIDDEN_PARTS = new Set([
   "heavyRailgun"
 ]);
 
-export let FLEET_COUNT_RULES = Object.freeze({ ...(GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs || {}) });
-export function applyFleetCountRules(shipPricing) {
-  FLEET_COUNT_RULES = Object.freeze({ ...(shipPricing?.fleetCountFormulaInputs || {}) });
-}
-
 export function syncUrlParams() {
   if (typeof window === "undefined" || typeof window.location === "undefined" || typeof localStorage === "undefined") return;
   const params = new URLSearchParams(window.location.search);

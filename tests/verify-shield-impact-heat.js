@@ -87,7 +87,6 @@ assert.equal(effectiveShieldStats(ship).capacity, effectiveShieldStats(ship).cap
 const shared = ShieldRules.calculateShieldStats(ship.design, PARTS, {
   isLive: (index) => (ship.componentHp[index] ?? 1) > 0,
   powerMultiplier: () => 1,
-  capacityPowerMultiplier: () => 1,
   heatMultiplier: (index) => HeatRules.activeOutputForState(ship.componentHeatState[index] || HeatRules.STATE.NORMAL)
 });
 close(shared.capacity, effectiveShieldStats(ship).capacity, "shared and runtime shield capacity remain in parity");
