@@ -204,6 +204,9 @@ async function showCombatState(page, {
     assert.match(await page.locator('[data-drone-type="fighter"]').textContent(), /Fighter/);
     assert.match(await page.locator("#partInspector").textContent(), /3 drones/);
     assert.match(await page.locator("#partInspector").textContent(), /3\s*\/\s*7\s*\/\s*11 MW/);
+    assert.match(await page.locator('[data-drone-type="fighter"]').textContent(), /Projectile Evasion:\s*Yes, up to \+30% speed while dodging/);
+    assert.match(await page.locator('[data-drone-type="defence"]').textContent(), /Projectile Evasion:\s*Yes, up to \+25% speed while dodging/);
+    assert.match(await page.locator('[data-drone-type="repair"]').textContent(), /Projectile Evasion:\s*None/);
     assert.match(await page.locator(".drone-bay-type-badge").textContent(), /Fighter|F/);
 
     const persisted = await page.evaluate(async () => {

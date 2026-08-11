@@ -21,9 +21,12 @@ function makeRoom() {
     map: { asteroids: [], safeZones: [] },
     players: new Map([["me", { id: "me" }], ["foe", { id: "foe" }]]),
     bullets: [],
+    drones: new Map(),
+    decoys: new Map(),
     effects: [],
     nextEntityId: 1,
-    ships: new Map()
+    ships: new Map(),
+    world: { width: 4000, height: 4000 }
   };
 }
 
@@ -46,6 +49,54 @@ function runTicks(room, me, ships, count, dt) {
   }
   return log;
 }
+
+// The old weapon-specific gates allowed both defensive families to fire
+// during a visible traverse. Keep a real runtime check for those paths, not
+// just a source assertion that the old constants disappeared.
+function assertDefensiveWeaponWaitsForAlignment(type, targetBearing, legacyThreshold) {
+  const design = [
+    { x: 7, y: 7, type: "core", rotation: 0 },
+    { x: 8, y: 7, type, rotation: 0 }
+  ];
+  const room = makeRoom();
+  const me = makeShip("me", 0, 0, design);
+  const foe = makeShip("foe", 300, 0, [{ x: 7, y: 7, type: "core", rotation: 0 }]);
+  room.ships.set(me.id, me);
+  room.ships.set(foe.id, foe);
+
+  const origin = weaponModuleWorldPosition(me, design[1]);
+  const threat = {
+    id: `${type}-threat`, type: "missile", ownerId: foe.ownerId, targetId: me.id,
+    x: origin.x + Math.cos(targetBearing) * 300,
+    y: origin.y + Math.sin(targetBearing) * 300,
+    vx: -100, vy: 0, life: 5, interceptable: true, hp: 20
+  };
+  room.bullets.push(threat);
+  me.weaponAngles = design.map(() => 0);
+
+  const dt = 1 / 60;
+  const bulletsBefore = room.bullets.length;
+  const hpBefore = threat.hp;
+  updateShipWeapons(room, me, [me, foe], dt, 0);
+  const targetRelative = Math.atan2(threat.y - origin.y, threat.x - origin.x);
+  const errorAfterSweep = Math.abs(angleDifference(me.weaponAngles[1], targetRelative));
+  assert(errorAfterSweep > TurretRules.FIRING_ALIGNMENT_TOLERANCE
+    && errorAfterSweep < legacyThreshold,
+  `${type} premise must sit inside the retired alignment window (error ${errorAfterSweep.toFixed(4)} rad)`);
+  assert.strictEqual(room.bullets.length, bulletsBefore, `${type} must not fire before exact alignment`);
+  assert.strictEqual(threat.hp, hpBefore, `${type} must not damage a threat before exact alignment`);
+
+  me.weaponAngles[1] = targetRelative;
+  updateShipWeapons(room, me, [me, foe], dt, 100);
+  if (type === "pointDefense") {
+    assert(threat.hp < hpBefore, "pointDefense must fire after reaching alignment");
+  } else {
+    assert(room.bullets.length > bulletsBefore, "interceptorPod must fire after reaching alignment");
+  }
+}
+
+assertDefensiveWeaponWaitsForAlignment("pointDefense", 0.15, 0.035);
+assertDefensiveWeaponWaitsForAlignment("interceptorPod", 0.25, 0.2);
 
 // 1. Turrets sweep gradually at the shared traverse rate instead of snapping.
 {
@@ -75,11 +126,13 @@ function runTicks(room, me, ships, count, dt) {
     assert(step <= rate * dt + 1e-9, `traverse step ${step.toFixed(4)} exceeded rate limit at tick ${t}`);
   }
 
-  // 2. No firing while the barrel is still far off target (> 0.26 rad).
+  // 2. Firing waits for the turret to reach the firing solution; the old
+  // family-specific 0.26-rad gate must not allow a mid-sweep shot.
   for (let t = 0; t < log.length; t += 1) {
     if (log[t].bullets > 0) {
       const err = Math.abs(angleDifference(log[t].angle[1], targetRelative));
-      assert(err <= 0.26 + rate * dt, `fired while misaligned by ${err.toFixed(3)} rad`);
+      assert(err <= TurretRules.FIRING_ALIGNMENT_TOLERANCE + 1e-9,
+        `fired while misaligned by ${err.toFixed(3)} rad`);
       break;
     }
   }
@@ -91,8 +144,7 @@ function runTicks(room, me, ships, count, dt) {
   const expected = weaponMuzzleDistance(design[1], "blaster");
   assert(Math.abs(spawnOffset - expected) < 0.01, `bullet spawned ${spawnOffset.toFixed(2)}px from pivot, expected ${expected.toFixed(2)}`);
   assert(Math.abs(expected / SCALE - TurretRules.MUZZLE_TIP_TILES.blaster) < 1e-9, "blaster muzzle should be at the art barrel tip");
-  // The shot may legally fire mid-sweep (within the 0.26 rad alignment gate),
-  // so compare the spawn offset direction against the shot's own velocity: the
+  // Compare the spawn offset direction against the shot's own velocity: the
   // bullet must leave from the barrel it travels along, within the weapon's
   // real accuracy spread (accuracy bonuses come from components, not ship
   // stats, so the blaster's base accuracy applies here).
@@ -342,7 +394,8 @@ function runTicks(room, me, ships, count, dt) {
   for (let t = 0; t < inLog.length; t += 1) {
     if (inLog[t].bullets > 0) {
       const err = Math.abs(angleDifference(inLog[t].angle[1], inRelative));
-      assert(err <= 0.26 + rate * dt, `fired while misaligned by ${err.toFixed(3)} rad after entering range`);
+      assert(err <= TurretRules.FIRING_ALIGNMENT_TOLERANCE + 1e-9,
+        `fired while misaligned by ${err.toFixed(3)} rad after entering range`);
       break;
     }
   }

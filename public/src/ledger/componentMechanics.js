@@ -117,6 +117,35 @@ function droneTypeSummary(field, suffix = "") {
   return entries.join(", ") || `${GENERATED_BALANCE.drones?.[field] ?? 0}${suffix}`;
 }
 
+export function droneProjectileEvasionSummary() {
+  const types = GENERATED_BALANCE.drones?.types || {};
+  return ["fighter", "defence", "repair"]
+    .map((typeId) => {
+      const type = types[typeId] || {};
+      const label = type.label || typeId;
+      const boost = Number(type.evasionSpeedBoost);
+      return Number.isFinite(boost) && boost > 0
+        ? `${label}: Yes, up to +${fmtPct(boost)} speed while dodging`
+        : `${label}: None`;
+    })
+    .join("; ");
+}
+
+export function droneProjectileEvasionDetail() {
+  const types = GENERATED_BALANCE.drones?.types || {};
+  const boosted = ["fighter", "defence"]
+    .map((typeId) => {
+      const type = types[typeId] || {};
+      const boost = Number(type.evasionSpeedBoost);
+      return Number.isFinite(boost) && boost > 0
+        ? `${type.label || typeId} can briefly reach ${fmtPct(1 + boost)} of listed speed`
+        : null;
+    })
+    .filter(Boolean);
+  const reach = boosted.length ? `${boosted.join(" and ")} while dodging` : "Boosted movement is not configured";
+  return `When a projectile dodge is active, ${reach}. Repair drones have no projectile-evasion boost.`;
+}
+
 const NUCLEAR_MELTDOWN_DAMAGE = reactorMeltdownValue("nuclearReactor", "meltdownDamage", getHeatRules().REACTOR_EXPLOSION_DAMAGE ?? 60);
 const NUCLEAR_MELTDOWN_RADIUS = reactorMeltdownValue("nuclearReactor", "meltdownRadius", getHeatRules().REACTOR_EXPLOSION_RADIUS ?? 1.9);
 
@@ -445,6 +474,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       { label: "Squad Size", value: droneTypeSummary("squadSize", " drones per squad") },
       { label: "Fuel", value: `${droneTypeSummary("fuelSeconds", "s")} fuel; drones must return to refuel` },
+      { label: "Projectile Evasion", value: droneProjectileEvasionSummary(), detail: droneProjectileEvasionDetail() },
       { label: "Rebuild", value: "Destroyed drones are rebuilt over time" },
       { label: "Parent Destruction", value: "Orphaned drones survive briefly then are lost", warning: true }
     ],

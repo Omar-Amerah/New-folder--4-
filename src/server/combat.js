@@ -2148,13 +2148,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const worldAngleToTarget = Math.atan2(targetAimY - worldY, targetAimX - worldX);
 
-    // Alignment tolerance is tighter for Laser PD than for ballistic
-    // interceptor pods; flak keeps the legacy wider cone.
-    const alignmentThreshold = module.type === "pointDefense" ? 0.035 : (module.type === "interceptorPod" ? 0.2 : 0.26);
-
     const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
 
-    if (family !== "beam" && angleErr > alignmentThreshold) return;
+    if (family !== "beam" && angleErr > TurretRules.FIRING_ALIGNMENT_TOLERANCE) return;
 
 
 

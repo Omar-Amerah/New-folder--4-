@@ -228,6 +228,16 @@ global.window = { devicePixelRatio: 1 };
     "Ledger must not expose targeting implementation identifiers");
   assert.match(targetingArticle.howItWorks, /Automatic Component Targeting/i,
     "Targeting article must link the global component-targeting explanation");
+  const combatArticle = getArticleById("combat");
+  assert.match(combatArticle.howItWorks, /Spawn Protection: While a ship remains inside its own\/team spawn zone/i,
+    "Combat article must document spawn protection");
+  assert.match(combatArticle.howItWorks, /cannot fire and cannot take combat damage or hostile Heat/i,
+    "Combat article must document both spawn-zone restrictions");
+  for (const protectedEffect of ["normal damage", "direct component damage", "induction Heat", "impact Heat"]) {
+    assert.match(combatArticle.howItWorks, new RegExp(protectedEffect.replace(" ", "\\s+"), "i"),
+      `Combat article must document ${protectedEffect} protection`);
+  }
+  ok("spawn protection rule copy");
   const thermalArticle = getArticleById("component:thermalInductionLance");
   assert.ok(thermalArticle.howItWorks.includes("Zero-damage induction beam that injects Heat into a target component"),
     "Thermal Induction Lance article must document component Heat transfer");

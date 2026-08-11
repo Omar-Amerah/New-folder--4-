@@ -768,8 +768,7 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         : target;
       const worldAngleToTarget = Math.atan2(targetPoint.y - origin.y, targetPoint.x - origin.x);
       const angleErr = Math.abs(angleDifference(worldWeaponAngle, worldAngleToTarget));
-      const alignmentThreshold = module.type === "pointDefense" ? 0.035 : 0.26;
-      if (family !== "beam" && angleErr > alignmentThreshold) {
+      if (family !== "beam" && angleErr > TurretRules.FIRING_ALIGNMENT_TOLERANCE) {
         if (detailed) bump(room, "stationWeaponArcRejects");
         continue;
       }

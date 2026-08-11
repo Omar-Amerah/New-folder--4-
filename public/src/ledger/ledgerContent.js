@@ -12,7 +12,7 @@ import "../shared/weaponPresentationRules.js";
 import "../shared/backupCoreRules.js";
 import "../shared/shieldRules.js";
 import "../shared/repairRules.js";
-import { getMechanics, getMechanicsSearchText, SPECIAL_MECHANICS_COMPONENTS, LEDGER_RULE_CONTRACTS } from "./componentMechanics.js";
+import { getMechanics, getMechanicsSearchText, SPECIAL_MECHANICS_COMPONENTS, LEDGER_RULE_CONTRACTS, droneProjectileEvasionDetail } from "./componentMechanics.js";
 
 const HeatRules = globalThis.HeatRules;
 const WeaponPresentationRules = globalThis.WeaponPresentationRules;
@@ -499,7 +499,7 @@ const MANUAL_ARTICLES_PART_2 = [
     title: "Drones",
     summary: "Drone bays, fighter/defence/repair drones, and squadron mechanics.",
     keywords: ["drone", "drone bay", "fighter", "defence drone", "repair drone", "squadron", "launch"],
-    howItWorks: `Drone Bays launch and rebuild configurable squads. Squad sizes, fuel durations and rebuild times depend on the selected drone type: ${droneTypeSummary("squadSize", " drones")}; ${droneTypeSummary("fuelSeconds", "s")} of fuel. Fighter drones attack the parent ship's target, Defence drones guard the parent ship, and Repair drones restore friendly hulls. Drones must return to refuel, and a bay needs one complete two-cell edge exposed for launch. A bay uses its authored Activity Heat rate only while producing or operating active drones; a merely idle bay generates no Heat.`,
+    howItWorks: `Drone Bays launch and rebuild configurable squads. Squad sizes, fuel durations and rebuild times depend on the selected drone type: ${droneTypeSummary("squadSize", " drones")}; ${droneTypeSummary("fuelSeconds", "s")} of fuel. Fighter drones attack the parent ship's target, Defence drones guard the parent ship, and Repair drones restore friendly hulls. ${droneProjectileEvasionDetail()} Drones must return to refuel, and a bay needs one complete two-cell edge exposed for launch. A bay uses its authored Activity Heat rate only while producing or operating active drones; a merely idle bay generates no Heat.`,
     importantStats: [
       { label: "Squad Size", value: droneTypeSummary("squadSize", " drones") },
       { label: "Max Bays Per Ship", value: `${DRONES.maxBaysPerShip ?? 4}` },
@@ -918,12 +918,15 @@ const MANUAL_CONTENT_UPDATES = Object.freeze({
 const MANUAL_CONTENT_UPDATES_2 = Object.freeze({
   combat: {
     summary: "Detection, target validity, firing solutions, damage, and loss of systems.",
-    howItWorks: "Right-clicking a visible enemy assigns it as the selected ships' explicit target. A weapon fires only when its target is alive, currently targetable by the team, inside range and firing arc, and accepted by its firing-solution checks. Turrets rotate toward their solution rather than firing through an invalid bearing. Shields, armour, and component placement determine where damage goes. Destroyed components immediately lose their function. Destroying the main Core destroys the ship unless an operational Backup Command Core takes control.",
-    practicalUse: "Concentrate fire to remove a dangerous system or hull before repairs recover it. Match weapon arcs to the combat style, protect the Core and propulsion, and keep a sensor source near long-range ships in restricted visibility modes.",
+    keywords: ["combat", "attack", "target", "focus fire", "range", "firing arc", "line of sight", "spawn protection", "safe zone", "spawn zone", "hostile heat"],
+    howItWorks: "Right-clicking a visible enemy assigns it as the selected ships' explicit target. A weapon fires only when its target is alive, currently targetable by the team, inside range and firing arc, and accepted by its firing-solution checks. Turrets rotate toward their solution rather than firing through an invalid bearing. Shields, armour, and component placement determine where damage goes. Destroyed components immediately lose their function. Spawn Protection: While a ship remains inside its own/team spawn zone, it cannot fire and cannot take combat damage or hostile Heat. This covers normal damage, direct component damage, induction Heat, and impact Heat. Normal combat begins after it leaves the zone. Destroying the main Core destroys the ship unless an operational Backup Command Core takes control.",
+    practicalUse: "Concentrate fire to remove a dangerous system or hull before repairs recover it. Leave your own/team spawn zone before expecting weapons to fire or incoming damage and hostile Heat to resolve. Match weapon arcs to the combat style, protect the Core and propulsion, and keep a sensor source near long-range ships in restricted visibility modes.",
     commonProblems: [
       "Target is visible but a weapon does not fire? Check that weapon's range, arc, aim, Power, Heat, and line of fire.",
       "Fleet stopped focus firing? The explicit target died or ceased to be a valid live target.",
-      "Ship survives but performs poorly? Inspect component damage; intact hull does not mean intact systems."
+      "Ship survives but performs poorly? Inspect component damage; intact hull does not mean intact systems.",
+      "Turrets track but do not fire? The ship may still be inside its own/team spawn zone; leave the zone to begin normal combat.",
+      "Enemy damage or Heat has no effect? The target may still be inside its own/team spawn zone."
     ],
     related: ["targeting-and-arcs", "combat-styles", "damage-and-destruction", "defence", "sensors-detection"]
   },

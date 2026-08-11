@@ -30,6 +30,7 @@ import "../shared/backupCoreRules.js";
 const WeaponPresentationRules = globalThis.WeaponPresentationRules;
 const BackupCoreRules = globalThis.BackupCoreRules;
 const BACKUP_EFFECTIVENESS_TEXT = `${Math.round(BackupCoreRules.ACTIVE_SYSTEM_EFFECTIVENESS * 100)}%`;
+const ACCURACY_HINT = "Accuracy controls angular shot spread; it is not a hit chance.";
 
 // ---------------------------------------------------------------------------
 // Value hygiene
@@ -247,8 +248,8 @@ function weaponCapability(stat) {
   const rows = [statRow("weapon.dps", presentation.dpsLabel, presentation.dps.toFixed(1))];
   rows.push(statRow("weapon.range", "Range", formatDistance(weapon.range)));
   // A "cannot miss" weapon states its guarantee instead of a redundant 100%.
-  if ((weapon.accuracy ?? 1) >= 1) rows.push(statRow("weapon.accuracy", "Accuracy", "Cannot miss"));
-  else rows.push(statRow("weapon.accuracy", "Accuracy", formatPercent(weapon.accuracy)));
+  if ((weapon.accuracy ?? 1) >= 1) rows.push(statRow("weapon.accuracy", "Accuracy", "Cannot miss", { hint: ACCURACY_HINT }));
+  else rows.push(statRow("weapon.accuracy", "Accuracy", formatPercent(weapon.accuracy), { hint: ACCURACY_HINT }));
   rows.push(statRow("weapon.arc", "Firing arc", degrees(weapon.arc || 360)));
   if (weapon.type === "flak") {
     rows.push(statRow("weapon.blastDamage", "Blast damage", formatDamage(weapon.blastDamage ?? 0)));
@@ -379,7 +380,7 @@ function capabilityRows(type, stat, family, context = {}) {
       const rows = [];
       rows.push(...repairCapabilityRows(type, stat));
       rows.push(statRow("bonus.range", "Weapon Range Bonus", (stat.rangeBonus || 0) ? `+${formatDistance(stat.rangeBonus)}` : null, { kind: "bonus", raw: stat.rangeBonus }));
-      rows.push(statRow("bonus.accuracy", "Accuracy Bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus }));
+      rows.push(statRow("bonus.accuracy", "Accuracy Bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus, hint: ACCURACY_HINT }));
       rows.push(statRow("bonus.fireRate", "Fire Rate Bonus", `+${formatPercent(stat.fireRateBonus)}`, { kind: "bonus", raw: stat.fireRateBonus }));
       rows.push(statRow("bonus.capture", "Capture Pressure", `+${formatPercent(stat.captureBonus)}`, { kind: "bonus", raw: stat.captureBonus }));
       rows.push(statRow("bonus.ecm", "Missile Tracking Penalty", `-${formatPercent(stat.ecmStrength)}`, { kind: "bonus", raw: stat.ecmStrength }));
@@ -855,7 +856,7 @@ function advancedSections(type, stat, family, ledger, context) {
     const detailsTitle = type === "targetingComputer" ? "Targeting Details" : "Sensor Details";
     push("sensor", detailsTitle, [
       statRow("bonus.range", "Weapon Range Bonus", (stat.rangeBonus || 0) ? `+${formatDistance(stat.rangeBonus)}` : null, { kind: "bonus", raw: stat.rangeBonus }),
-      statRow("bonus.accuracy", "Accuracy Bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus }),
+      statRow("bonus.accuracy", "Accuracy Bonus", `+${formatPercent(stat.accuracyBonus)}`, { kind: "bonus", raw: stat.accuracyBonus, hint: ACCURACY_HINT }),
       statRow("bonus.fireRate", "Fire Rate Bonus", `+${formatPercent(stat.fireRateBonus)}`, { kind: "bonus", raw: stat.fireRateBonus }),
       statRow("bonus.sharing", "Allocation", "Split evenly between every weapon on the same Data network.")
     ]);

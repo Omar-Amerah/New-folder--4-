@@ -36,10 +36,15 @@ async function readInspector(page) {
   return page.evaluate(() => {
     const root = document.querySelector("#partInspector");
     const text = (node) => (node?.textContent || "").trim();
-    const cells = (selector) => Array.from(root.querySelectorAll(selector)).map((cell) => ({
-      label: text(cell.querySelector(".part-spec-label")),
-      value: text(cell.querySelector(".part-spec-value, .part-detail-value"))
-    }));
+    const cells = (selector) => Array.from(root.querySelectorAll(selector)).map((cell) => {
+      const label = cell.querySelector(".part-spec-label");
+      return {
+        label: text(label),
+        value: text(cell.querySelector(".part-spec-value, .part-detail-value")),
+        hint: label?.getAttribute("title") || "",
+        ariaLabel: label?.getAttribute("aria-label") || ""
+      };
+    });
     return {
       name: text(root.querySelector(".part-inspector-name")),
       badge: text(root.querySelector(".part-category-label")),
@@ -162,6 +167,13 @@ async function readInspector(page) {
         ].map((label) => label.trim().toLowerCase()).filter(Boolean);
         assert.equal(new Set(labels).size, labels.length, `${type} renders no duplicate label (${labels})`);
       }
+    });
+
+    check("Accuracy tooltip explains angular spread rather than hit chance", () => {
+      const accuracy = snapshots.blaster.capability.find((cell) => cell.label.toLowerCase() === "accuracy");
+      assert.ok(accuracy, "Blaster shows an Accuracy capability cell");
+      assert.equal(accuracy.hint, "Accuracy controls angular shot spread; it is not a hit chance.");
+      assert.match(accuracy.ariaLabel, /angular shot spread/i);
     });
 
     check("no empty or placeholder value is rendered", () => {

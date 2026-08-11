@@ -67,9 +67,12 @@ use room-injectable combat RNG for deterministic tests.
 
 ## Safe zones, damage, repair and destruction
 
-Safe zones block firing and damage against protected ships; aiming continues and
-blocked shots consume no cooldown or firing heat. Shields absorb damage before
-hull overflow according to the existing shield multiplier and absorption rules.
+Spawn protection applies while a ship remains inside its own/team spawn zone:
+the ship cannot fire and cannot take combat damage or hostile Heat. This covers
+normal damage, direct component damage, induction Heat, and impact Heat. Turrets
+may continue aiming, but normal combat begins only after the ship leaves the
+zone. Blocked shots consume no cooldown or firing heat. Shields absorb damage
+before hull overflow according to the existing shield multiplier and absorption rules.
 Hull/component damage uses footprint-aware component geometry and destroyed
 components no longer act. Local repair modules repair self only; repair beams can
 repair damaged living allies in range, with assigned repair targets preferred

@@ -21,6 +21,12 @@
     default: 3.0
   });
 
+  // Non-beam weapons may fire only when their turret has effectively reached
+  // the current firing solution. This is a numerical guard, not a gameplay
+  // cone: aim speed controls how quickly the solution is reached, while
+  // accuracy controls the shot's post-fire spread.
+  const FIRING_ALIGNMENT_TOLERANCE = 0.001;
+
   function turnRateFor(weapon) {
     if (!weapon) return TURN_RATES.default;
     if (typeof weapon === "string") return TURN_RATES[weapon] ?? TURN_RATES.default;
@@ -99,6 +105,7 @@
 
   return Object.freeze({
     TURN_RATES,
+    FIRING_ALIGNMENT_TOLERANCE,
     MUZZLE_TIP_TILES,
     BARRELS,
     turnRateFor,

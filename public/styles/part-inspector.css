@@ -137,6 +137,12 @@
   text-transform: uppercase;
 }
 
+.part-spec-label.has-hint {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
 .part-spec-value {
   display: block;
   color: var(--text);
@@ -702,7 +708,8 @@
 }
 
 .drone-choice-name,
-.drone-choice-role { display: block; }
+.drone-choice-role,
+.drone-choice-evasion { display: block; }
 .drone-choice-name { margin-top: 7px; color: var(--text); font-size: 12px; line-height: 1.15; }
 .drone-choice-stats {
   display: flex;
@@ -721,6 +728,7 @@
   line-height: 1.2;
 }
 .drone-choice-role { margin-top: 6px; color: #aebdd0; font-size: 9.5px; line-height: 1.35; }
+.drone-choice-evasion { margin-top: 5px; color: var(--drone-accent); font-size: 9.5px; font-weight: 700; line-height: 1.35; }
 
 .drone-type-choice.is-selected,
 .drone-type-choice[aria-checked="true"] {

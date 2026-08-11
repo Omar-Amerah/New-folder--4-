@@ -158,6 +158,12 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     const capability = model.capability.map((row) => row.id);
     assert.deepEqual(capability, ["weapon.dps", "weapon.range", "weapon.accuracy", "weapon.arc"]);
 
+    const accuracy = model.capability.find((row) => row.id === "weapon.accuracy");
+    assert.equal(accuracy.hint, "Accuracy controls angular shot spread; it is not a hit chance.",
+      "accuracy explains angular spread rather than implying a hit chance");
+    const accuracyBonus = allRows(build("targetingComputer")).find((row) => row.id === "bonus.accuracy");
+    assert.equal(accuracyBonus.hint, accuracy.hint, "accuracy bonuses carry the same angular-spread explanation");
+
     const weaponSection = model.sections.find((section) => section.id === "weapon");
     assert.ok(weaponSection, "Blaster has a Weapon details section");
     const detailIds = weaponSection.rows.map((row) => row.id);

@@ -13,6 +13,7 @@ import { openArticle } from "../ledger/fleetLedgerUi.js";
 import { analyzeDesignHeat } from "../design/thermalAnalysis.js";
 import { getOccupiedCells } from "../design/footprint.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
+import { formatPercent } from "../design/statFormatting.js";
 import { getCachedDesignDataSupport, getDesignSourceAllocation } from "../design/dataSupportAnalysis.js";
 import { buildComponentInspectorModel, powerRequirementState, dataRequirementState } from "../design/componentInspectorModel.js";
 import { calculateUniversalPower } from "../shared/universalPower.js";
@@ -104,13 +105,21 @@ function isNoOpModifier(row) {
   return row.kind === "modifier" && row.raw === 1;
 }
 
+function statLabelMarkup(row) {
+  const hint = row.hint ? String(row.hint) : "";
+  const hintAttributes = hint
+    ? ` title="${escapeHtml(hint)}" aria-label="${escapeHtml(`${row.label}: ${hint}`)}"`
+    : "";
+  return `<span class="part-spec-label${hint ? " has-hint" : ""}"${hintAttributes}>${escapeHtml(row.label)}</span>`;
+}
+
 function coreSpecMarkup(model) {
   if (!model.core.length) return "";
   return `
     <div class="part-core-specs" role="list" aria-label="Core specifications">
       ${model.core.filter((row) => !isNoOpModifier(row)).map((row) => `
         <div class="part-spec-cell${row.tone ? ` is-${row.tone}` : ""}" role="listitem">
-          <span class="part-spec-label">${escapeHtml(row.label)}</span>
+          ${statLabelMarkup(row)}
           <strong class="part-spec-value">${escapeHtml(row.value)}</strong>
         </div>`).join("")}
     </div>`;
@@ -124,7 +133,7 @@ function capabilityMarkup(model) {
       <div class="part-capability-grid">
         ${model.capability.filter((row) => !isNoOpModifier(row)).map((row) => `
           <div class="part-capability-cell">
-            <span class="part-spec-label">${escapeHtml(row.label)}</span>
+            ${statLabelMarkup(row)}
             <strong class="part-spec-value">${escapeHtml(row.value)}</strong>
           </div>`).join("")}
       </div>
@@ -336,7 +345,7 @@ function commandAuraMarkup(model) {
       <div class="part-detail-list">
         ${section.rows.filter((row) => !isNoOpModifier(row)).map((row) => `
           <div class="part-detail-row${row.tone ? ` is-${row.tone}` : ""}">
-            <span class="part-spec-label">${escapeHtml(row.label)}</span>
+            ${statLabelMarkup(row)}
             <strong class="part-detail-value">${escapeHtml(row.value)}</strong>
           </div>`).join("")}
       </div>
@@ -360,7 +369,7 @@ function accordionMarkup(section, openState) {
         <div class="part-detail-list">
           ${section.rows.filter((row) => !isNoOpModifier(row)).map((row) => `
             <div class="part-detail-row${row.tone ? ` is-${row.tone}` : ""}">
-              <span class="part-spec-label">${escapeHtml(row.label)}</span>
+              ${statLabelMarkup(row)}
               <strong class="part-detail-value">${escapeHtml(row.value)}</strong>
             </div>`).join("")}
         </div>
@@ -474,6 +483,10 @@ function droneBayControlsMarkup(type) {
     if (config.productionSeconds) statsList.push(`${config.productionSeconds}s rebuild`);
     if (config.damage) statsList.push(`${config.damage} dmg`);
     if (config.repairPerSecond) statsList.push(`${config.repairPerSecond} HP/s rep`);
+    const evasionSpeedBoost = Number(config.evasionSpeedBoost);
+    const projectileEvasion = Number.isFinite(evasionSpeedBoost) && evasionSpeedBoost > 0
+      ? `Projectile Evasion: Yes, up to +${formatPercent(evasionSpeedBoost)} speed while dodging`
+      : "Projectile Evasion: None";
 
     const statChipsMarkup = statsList.map((stat) => `<span class="drone-stat-tag">${escapeHtml(stat)}</span>`).join("");
 
@@ -485,6 +498,7 @@ function droneBayControlsMarkup(type) {
       <strong class="drone-choice-name">${escapeHtml(label)}</strong>
       <div class="drone-choice-stats">${statChipsMarkup}</div>
       <small class="drone-choice-role">${escapeHtml(roles[value])}</small>
+      <small class="drone-choice-evasion">${escapeHtml(projectileEvasion)}</small>
     </button>`;
   };
   const selectedConfig = selected ? types[selected] : null;
