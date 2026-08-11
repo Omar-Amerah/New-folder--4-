@@ -2216,9 +2216,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
             y: muzzle.y,
 
-            vx: Math.cos(pelletAngle) * speed + ship.vx * 0.25,
+            vx: Math.cos(pelletAngle) * speed,
 
-            vy: Math.sin(pelletAngle) * speed + ship.vy * 0.25,
+            vy: Math.sin(pelletAngle) * speed,
 
             damage: effectiveWeapon.damage,
 
@@ -2490,9 +2490,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
           y: muzzle.y,
 
-          vx: Math.cos(shotAngle) * speed + ship.vx * 0.2,
+          vx: Math.cos(shotAngle) * speed,
 
-          vy: Math.sin(shotAngle) * speed + ship.vy * 0.2,
+          vy: Math.sin(shotAngle) * speed,
 
           damage: effectiveWeapon.directDamage ?? effectiveWeapon.damage ?? 0,
 
@@ -2647,9 +2647,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
                y: muzzle.y,
 
-               vx: Math.cos(shotAngle) * speed + ship.vx * 0.25,
+               vx: Math.cos(shotAngle) * speed,
 
-               vy: Math.sin(shotAngle) * speed + ship.vy * 0.25,
+               vy: Math.sin(shotAngle) * speed,
 
                damage: pdDamage,
 
@@ -2736,9 +2736,9 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         y: muzzle.y,
 
-        vx: Math.cos(shotAngle) * speed + ship.vx * 0.12,
+        vx: Math.cos(shotAngle) * speed,
 
-        vy: Math.sin(shotAngle) * speed + ship.vy * 0.12,
+        vy: Math.sin(shotAngle) * speed,
 
         damage: effectiveWeapon.damage,
 

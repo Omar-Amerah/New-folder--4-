@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { PARTS } = require("../src/server/components");
-const { computeStats: computeServerStats } = require("../src/server/shipStats");
+const { computeStats: computeServerStats, summarizeStats } = require("../src/server/shipStats");
 const balance = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "component-balance.json"), "utf8"));
 
 const legacyPricingFields = [
@@ -60,6 +60,7 @@ global.window = { devicePixelRatio: 1 };
     assert.strictEqual(client.unitCost, expected, "client unitCost is the direct component sum");
     assert.strictEqual(server.unitCost, client.unitCost, "client and server ship costs match");
     assert.strictEqual("fleetCount" in server, false, "server no longer exposes the legacy fleet count");
+    assert.strictEqual("fleet" in summarizeStats(server), false, "server snapshots no longer expose the legacy fleet count");
     assert.strictEqual("fleetCount" in client, false, "client no longer exposes the legacy fleet count");
     assert.strictEqual("costBreakdown" in server, false, "server no longer exposes a cost breakdown");
     assert.strictEqual("costBreakdown" in client, false, "client no longer exposes a cost breakdown");

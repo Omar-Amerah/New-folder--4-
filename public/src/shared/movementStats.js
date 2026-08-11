@@ -18,7 +18,6 @@ const MASS_TURN_DIV = 100;
 const MASS_TURN_EXP = 0.70;
 const ENGINE_TURN_PER_THRUST = 0.001;
 const TURN_GENERIC_SCALE = 3.12;
-const TURN_SOFTNESS = 0.2;
 export const BRAKE_ACCEL_RATIO = 5;
 const MOVEMENT_POWER_NO_DEMAND = 1;
 const MOVEMENT_POWER_MAX = 1;
@@ -53,8 +52,7 @@ export const MOVEMENT_CONFIG = Object.freeze({
     enginePerThrust: ENGINE_TURN_PER_THRUST,
     genericScale: TURN_GENERIC_SCALE,
     massDivisor: MASS_TURN_DIV,
-    massExponent: MASS_TURN_EXP,
-    capSoftness: TURN_SOFTNESS
+    massExponent: MASS_TURN_EXP
   }),
   power: Object.freeze({
     noDemandMultiplier: MOVEMENT_POWER_NO_DEMAND,
@@ -144,6 +142,15 @@ export function calculateBrakingDistanceFromDeceleration(speed, deceleration) {
   return safeDeceleration > 0 ? (safeSpeed * safeSpeed) / (2 * safeDeceleration) : 0;
 }
 
+// A class turn limit is a hard ceiling. Runtime modifiers such as command
+// auras must use this helper too, so the same limit remains authoritative after
+// the paper calculation has been adjusted for live ship state.
+export function clampTurnRate(value, cap) {
+  const rate = Math.max(0, Number(value) || 0);
+  const limit = Number(cap);
+  return Number.isFinite(limit) && limit >= 0 ? Math.min(rate, limit) : rate;
+}
+
 export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs }) {
   const safeMass = Math.max(mass, 1);
   const powerRatio = calculateMovementPowerMultiplier(powerGeneration, powerUse);
@@ -172,7 +179,7 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const toRate = positive => {
     const effectiveTurn = positive + negativeTurnDrag;
     return (hasTurnAuthority && effectiveTurn > 0)
-      ? softCap(effectiveTurn * MOVEMENT_CONFIG.turn.genericScale * massTurnPenalty, turnCap, MOVEMENT_CONFIG.turn.capSoftness)
+      ? clampTurnRate(effectiveTurn * MOVEMENT_CONFIG.turn.genericScale * massTurnPenalty, turnCap)
       : 0;
   };
   const turnRateRight = toRate(symmetricTurn + (directional.clockwiseManeuverTurn || 0));
@@ -186,9 +193,8 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
 export function calculateSystemEfficiency(powerGeneration,powerUse){ return calculateMovementPowerMultiplier(powerGeneration, powerUse); }
 export function calculateMovementPowerMultiplier(powerGeneration,powerUse){ if(powerUse<=0)return MOVEMENT_CONFIG.power.noDemandMultiplier; return clamp(powerGeneration/Math.max(powerUse,1), MOVEMENT_CONFIG.power.minimumMultiplier, MOVEMENT_CONFIG.power.maximumMultiplier); }
 export function sumValues(values = []) { return (values || []).reduce((total, value) => total + (Number(value) || 0), 0); }
-export function softCap(value,cap,softness=0.35){ return value<=cap?value:cap+(value-cap)*softness; }
 export function getMovementClassDefinition(mass){ const value = Math.max(0, Number(mass) || 0); return MOVEMENT_CONFIG.massClasses.find((entry) => value >= entry.minMass && value < entry.maxMass) || MOVEMENT_CONFIG.massClasses[MOVEMENT_CONFIG.massClasses.length - 1]; }
 export function formatMassClassRange(definition){ const entry = typeof definition === "string" ? MOVEMENT_CONFIG.massClasses.find((candidate) => candidate.name === definition) : definition; if (!entry) return ""; if (!Number.isFinite(entry.maxMass)) return `${entry.minMass}+ T`; if (entry.minMass === 0) return `< ${entry.maxMass} T`; return `${entry.minMass}-${entry.maxMass - 1} T`; }
 export function massClassForMass(mass){ return getMovementClassDefinition(mass).name; }
 export function turnCapForMass(mass){ return getMovementClassDefinition(mass).turnCap; }
-if (typeof module !== "undefined" && module.exports) { module.exports = { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG, calculateBrakingAcceleration, calculateBrakingDistance, calculateBrakingDistanceFromDeceleration, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, calculateGenericTurnModifier, getMovementClassDefinition, formatMassClassRange, sumValues, softCap, massClassForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }
+if (typeof module !== "undefined" && module.exports) { module.exports = { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG, calculateBrakingAcceleration, calculateBrakingDistance, calculateBrakingDistanceFromDeceleration, clampTurnRate, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, calculateGenericTurnModifier, getMovementClassDefinition, formatMassClassRange, sumValues, massClassForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }

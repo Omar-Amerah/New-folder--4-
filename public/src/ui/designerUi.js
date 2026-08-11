@@ -2306,7 +2306,7 @@ function buildStatTooltipData(key, stats) {
     case "class":
       return {
         label: "Ship Weight Class",
-        desc: "Weight class category of this design based on mass. Mass continuously reduces speed and turn rate, while the current class supplies its turn limit.",
+        desc: "Weight class category of this design based on mass. Mass continuously reduces speed and turn rate, while the current class supplies its hard turn limit.",
         formula: MOVEMENT_CONFIG.massClasses.map((entry) => `${entry.name} (${formatMassClassRange(entry)})`).join(" | "),
         breakdown: `Mass: ${stats.mass} T\nWeight Class: ${stats.massClass}`
       };
@@ -2361,10 +2361,10 @@ Final Speed: ${Math.round(stats.maxSpeed)} m/s`
     case "turn":
       return {
         label: "Hull Turn Rate",
-        desc: "Directional hull turn rates. Uneven values indicate manoeuvre thrusters favour one turn direction; neither direction is automatically better.",
-        formula: `RawTurn = ${MOVEMENT_CONFIG.turn.base} + (DirectionalTurn + GenericTurnModifier) * ${MOVEMENT_CONFIG.turn.genericScale}\nTurnRate = SoftCap(RawTurn, TurnCap, ${MOVEMENT_CONFIG.turn.capSoftness})`,
+        desc: "Directional hull turn rates. Uneven values indicate manoeuvre thrusters favour one turn direction; neither direction is automatically better. The class Turn Limit is a hard ceiling: extra turn authority does not raise the rate above it.",
+        formula: `RawTurn = EffectiveTurnAuthority * ${MOVEMENT_CONFIG.turn.genericScale} * MassTurnPenalty\nTurnRate = min(RawTurn, Turn Limit)`,
         breakdown: `Reliable Turn: ${stats.turnRate.toFixed(2)} rad/s (${Math.round(stats.turnRate * (180 / Math.PI))} deg/s)\nLeft Turn: ${(stats.turnRateLeft ?? stats.turnRate).toFixed(2)} rad/s\nRight Turn: ${(stats.turnRateRight ?? stats.turnRate).toFixed(2)} rad/s
-Mass Turn Cap Limit: ${stats.turnCap.toFixed(2)} rad/s`
+Turn Limit: ${stats.turnCap.toFixed(2)} rad/s`
       };
 
     case "power": {

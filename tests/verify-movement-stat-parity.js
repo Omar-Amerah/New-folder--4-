@@ -175,6 +175,38 @@ async function run() {
   const expectedEngineTurn = 0.2 * movement.MOVEMENT_CONFIG.turn.genericScale
     / Math.pow(1 + 20 / movement.MOVEMENT_CONFIG.turn.massDivisor, movement.MOVEMENT_CONFIG.turn.massExponent);
   close(engineTurn.turnRate, expectedEngineTurn, 1e-9, "turn rate has no hidden base contribution");
+
+  const hardTurnLimit = movement.calculateMovementStats({
+    mass: 20,
+    thrust: 200,
+    turnBonus: 0,
+    powerGeneration: 0,
+    powerUse: 0,
+    engineThrustValues: [200],
+    engineMassValues: [4],
+    directionalTurnInputs: { mainEngineVectorTurn: 10, gyroscopeTurn: 10, clockwiseManeuverTurn: 10, anticlockwiseManeuverTurn: 10 }
+  });
+  const lightTurnLimit = movement.turnCapForMass(20);
+  assert.strictEqual(hardTurnLimit.turnRate, lightTurnLimit, "turn rate stops at the class hard limit");
+  assert.strictEqual(hardTurnLimit.turnRateLeft, lightTurnLimit, "left turn rate stops at the class hard limit");
+  assert.strictEqual(hardTurnLimit.turnRateRight, lightTurnLimit, "right turn rate stops at the class hard limit");
+
+  const turnSourceText = fs.readFileSync(path.join(__dirname, "..", "public", "src", "shared", "movementStats.js"), "utf8");
+  assert.doesNotMatch(turnSourceText, /softCap|TURN_SOFTNESS|capSoftness/, "movement turn calculation must not use a soft cap");
+  const designerTurnSource = fs.readFileSync(path.join(__dirname, "..", "public", "src", "ui", "designerUi.js"), "utf8");
+  assert.doesNotMatch(designerTurnSource, /TurnRate = SoftCap|capSoftness/, "Blueprint turn copy must describe the hard limit");
+
+  const auraDesign = baseDesign();
+  for (let index = 0; index < 8; index += 1) {
+    auraDesign.push({ x: 10 + index, y: 7, type: "gyroscope" });
+  }
+  const auraShip = runtimeShip(auraDesign);
+  auraShip.commandAuraMultipliers = { turnRateMultiplier: 2 };
+  const auraAdjusted = heatAdjustedMovementStats(auraShip, auraShip.stats);
+  assert.strictEqual(auraAdjusted.turnRate, auraAdjusted.turnCap, "live turn-rate aura cannot exceed the class hard limit");
+  assert.strictEqual(auraAdjusted.turnRateLeft, auraAdjusted.turnCap, "live left turn-rate aura cannot exceed the class hard limit");
+  assert.strictEqual(auraAdjusted.turnRateRight, auraAdjusted.turnCap, "live right turn-rate aura cannot exceed the class hard limit");
+
   const heavyEngineTurn = movement.calculateMovementStats({
     mass: 200,
     thrust: 200,

@@ -250,12 +250,12 @@ global.window = { devicePixelRatio: 1 };
   const movementArticle = getArticleById("movement");
   const movementText = JSON.stringify(movementArticle);
   const massClassText = statValue("movement", "Mass Classes");
-  const turnCapsText = statValue("movement", "Turn Caps");
+  const turnLimitsText = statValue("movement", "Turn Limits");
   for (const definition of movementStats.MOVEMENT_CONFIG.massClasses) {
     assert.ok(massClassText.includes(`${definition.name} ${movementStats.formatMassClassRange(definition)}`),
       `${definition.name} mass range must match movement authority`);
-    assert.ok(turnCapsText.includes(String(definition.turnCap)),
-      `${definition.name} turn cap must match movement authority`);
+    assert.ok(turnLimitsText.includes(String(definition.turnCap)),
+      `${definition.name} turn limit must match movement authority`);
   }
   assert.strictEqual(statValue("movement", "Braking"),
     `${movementStats.BRAKE_ACCEL_RATIO}x forward acceleration`,

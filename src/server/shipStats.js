@@ -12,8 +12,7 @@ const {
   calculateMovementPowerMultiplier,
   MOVEMENT_CONFIG,
   massClassForMass,
-  turnCapForMass,
-  softCap
+  turnCapForMass
 } = require("../../public/src/shared/movementStats.js");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
@@ -148,25 +147,6 @@ function computeStats(modules) {
   frontDamageReduction = Math.min(frontDamageReduction, 0.35);
   const sensorProfile = designSensorProfile(modules);
   const unitCost = cost;
-  // Keep the server's fleet-count field authoritative while the client no
-  // longer needs to mirror this pricing-only calculation.
-  const fleetRules = BALANCE.shipPricing?.fleetCountFormulaInputs || {
-    base: 260,
-    minimumDivisor: 58,
-    unitCostMultiplier: 0.72,
-    massMultiplier: 0.45,
-    minimum: 1,
-    maximum: 5
-  };
-  const fleetCount = clampNumber(
-    Math.floor((Number(fleetRules.base) || 260) / Math.max(
-      Number(fleetRules.minimumDivisor) || 58,
-      unitCost * (Number(fleetRules.unitCostMultiplier) || 0.72) +
-        mass * (Number(fleetRules.massMultiplier) || 0.45)
-    )),
-    Number(fleetRules.minimum) || 1,
-    Number(fleetRules.maximum) || 5
-  );
   const weapons = summarizeWeaponTotals(weaponTotals);
   const warnings = shipWarnings({ powerGeneration, powerUse, availablePower, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
@@ -264,7 +244,6 @@ function computeStats(modules) {
     blockedEngines: exhaustAnalysis.blockedEngineIndices.size,
     weapons,
     warnings,
-    fleetCount,
     repairRange: repair > 0 ? BALANCE.repair.repairRange : 0,
     radius: round(radius),
     baseSensorRange: sensorProfile.baseRange,
@@ -397,7 +376,6 @@ function summarizeStats(stats) {
     turnCap: stats.turnCap,
     powerEfficiency: stats.powerEfficiency,
     powerDebuff: stats.powerDebuff,
-    fleet: stats.fleetCount,
     unitCost: stats.unitCost,
     blaster: stats.blaster,
     missile: stats.missile,
@@ -446,7 +424,6 @@ module.exports = {
   calculateCenterOfMass,
   calculateDirectionalTurnInputs,
   calculateMovementPowerMultiplier,
-  softCap,
   massClassForMass,
   turnCapForMass,
   shipWarnings,

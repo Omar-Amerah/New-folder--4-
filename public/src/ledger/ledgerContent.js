@@ -322,11 +322,9 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Ship Cost Formula",
     summary: "Ship Cost Is The Sum Of The Direct Costs On Its Components.",
     keywords: ["cost", "price", "formula", "component cost"],
-    howItWorks: "Ship Cost = Sum Of Each Component's Direct Cost. Component costs are defined on the component itself; no base cost, multiplier, weapon premium, or infrastructure surcharge is added. The separate fleet-count rule uses the configured cost and mass inputs.",
+    howItWorks: "Ship Cost = Sum Of Each Component's Direct Cost. Component costs are defined on the component itself; no base cost, multiplier, weapon premium, or infrastructure surcharge is added.",
     importantStats: [
-      { label: "Component Cost", value: "Direct value on each component" },
-      { label: "Fleet Count Base", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.base ?? 260}` },
-      { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` }
+      { label: "Component Cost", value: "Direct value on each component" }
     ],
     practicalUse: "Balance a ship by changing the direct cost on the components it uses. A Missile that should cost $75 should have cost 75 in the component balance.",
     commonProblems: [
@@ -392,7 +390,7 @@ const MANUAL_ARTICLES_PART_1 = [
     title: "Movement & Orders",
     summary: "Engines, thrust, turn rate, mass classes, and issuing commands.",
     keywords: ["movement", "engine", "thrust", "turn", "speed", "mass", "orders", "command", "right-click", "rally"],
-    howItWorks: `Ships move using engine thrust. Live engines and directional actuators stack linearly: each contributes its full authored value after explicit Power, Heat, exhaust, and geometry conditions. Generic positive and negative turn modifiers from non-actuator components adjust the ship's symmetric turn rate. Maneuver thrusters provide directional torque based on their distance from the ship's centre of mass, with a lever from ${MOVEMENT.maneuverThrusterLever.minimumLever} up to ${MOVEMENT.maneuverThrusterLever.maximumLever}. Mass applies a continuous speed drag and class-based turn caps. Functioning generators and available battery discharge supply one ship-wide Power pool. Each powered movement consumer receives a linear share of available Power, and surplus supply does not increase movement. Issue orders by selecting ships and right-clicking the arena. Right-click an enemy to focus fire. Set a rally point to direct newly built ships. Ships without engines cannot move. Under Backup Command, turn rate follows ${BACKUP_EFFECTIVENESS_TEXT} effectiveness.`,
+    howItWorks: `Ships move using engine thrust. Live engines and directional actuators stack linearly: each contributes its full authored value after explicit Power, Heat, exhaust, and geometry conditions. Generic positive and negative turn modifiers from non-actuator components adjust the ship's symmetric turn rate. Maneuver thrusters provide directional torque based on their distance from the ship's centre of mass, with a lever from ${MOVEMENT.maneuverThrusterLever.minimumLever} up to ${MOVEMENT.maneuverThrusterLever.maximumLever}. Mass applies a continuous speed drag and a hard class-based turn limit. Functioning generators and available battery discharge supply one ship-wide Power pool. Each powered movement consumer receives a linear share of available Power, and surplus supply does not increase movement. Issue orders by selecting ships and right-clicking the arena. Right-click an enemy to focus fire. Set a rally point to direct newly built ships. Ships without engines cannot move. Under Backup Command, turn rate follows ${BACKUP_EFFECTIVENESS_TEXT} effectiveness.`,
     importantStats: [
       { label: "Engine And Actuator Stacking", value: "Linear per live component" },
       { label: "Maneuver Min Lever", value: `${MOVEMENT.maneuverThrusterLever.minimumLever}` },
@@ -400,7 +398,7 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Maneuver Max Lever", value: `${MOVEMENT.maneuverThrusterLever.maximumLever}` },
       { label: "Maximum Speed", value: "Calculated continuously from thrust and mass" },
       { label: "Braking", value: `${BRAKE_ACCEL_RATIO}x current acceleration` },
-      { label: "Mass Turn Scaling", value: "Continuous mass penalty with class turn limits" },
+      { label: "Mass Turn Scaling", value: "Continuous mass penalty with hard class turn limits" },
       { label: "Movement Power Scaling", value: `Linear per consumer, capped at ${Math.round(MOVEMENT.power.maximumMultiplier * 100)}%` },
       { label: "Surplus Power", value: "Charges storage; no movement bonus" },
       ...((MOVEMENT.massClasses || []).map((c) => ({
@@ -625,9 +623,7 @@ const MANUAL_ARTICLES_PART_3 = [
     keywords: ["ship pricing", "cost", "formula", "component cost"],
     howItWorks: "The server and client both calculate ship cost by summing component.cost for every component in the design. The component balance is the only place to change a component's price. Fleet capacity and hangar availability are separate rules and do not alter ship cost.",
     importantStats: [
-      { label: "Component Cost", value: "Direct value on each component" },
-      { label: "Fleet Count Base", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.base ?? 260}` },
-      { label: "Fleet Count Min Divisor", value: `${GENERATED_BALANCE.shipPricing?.fleetCountFormulaInputs?.minimumDivisor ?? 58}` }
+      { label: "Component Cost", value: "Direct value on each component" }
     ],
     practicalUse: "Set direct component prices to control ship cost. Lower-cost ships leave more money for additional purchases, up to the fleet cap.",
     commonProblems: [
@@ -907,7 +903,7 @@ const MANUAL_CONTENT_UPDATES = Object.freeze({
        { label: "Turn Authority", value: "No built-in hull turn; Engines, Gyroscopes, and Maneuver Thrusters" },
        { label: "Maneuver Lever", value: `${MOVEMENT.maneuverThrusterLever.minimumLever} Minimum, +${MOVEMENT.maneuverThrusterLever.leverPerCell} Per Cell, ${MOVEMENT.maneuverThrusterLever.maximumLever} Maximum` },
        { label: "Mass Classes", value: MOVEMENT.massClasses.map((entry) => `${entry.name} ${formatMassClassRange(entry)}`).join(", ") },
-       { label: "Turn Caps", value: MOVEMENT.massClasses.map((entry) => `${entry.name} ${entry.turnCap} rad/s`).join(", ") },
+       { label: "Turn Limits", value: MOVEMENT.massClasses.map((entry) => `${entry.name} ${entry.turnCap} rad/s`).join(", ") },
        { label: "Movement Power Scaling", value: `Linear per consumer, capped at ${Math.round(MOVEMENT.power.maximumMultiplier * 100)}%` }
     ],
     practicalUse: `Plan braking distance and facing before contact. Ships brake at ${BRAKE_ACCEL_RATIO}x their forward acceleration, so stopping distance is much shorter than an acceleration-only estimate. Put Maneuver Thrusters above or below centre of mass and fit both turning directions unless asymmetry is deliberate. Use queued waypoints for a precise route around obstacles; use combat styles for continuing behaviour around a target.`,
@@ -1105,7 +1101,7 @@ const MANUAL_CONTENT_UPDATES_3 = Object.freeze({
   },
   "capture-mechanics": {
     summary: "Classic pressure capture and station-mode neutral capture, destruction transfer, and recovery.",
-    howItWorks: "In Classic mode, every nearby ship contributes pressure equal to one plus its effective capture bonus. The team or solo player with strictly highest pressure advances the relay; a tie contests it and freezes progress. Empty progress decays. Capture speed is the base rate plus leader pressure times the per-ship rate. When all relays are fully owned and uncontested, the 20-second victory countdown begins. Station-mode relays use structural state instead: a neutral relay takes 10 uncontested seconds to claim, while reducing an enemy relay to zero hull transfers it immediately to the attacker at 35% hull. A transferred relay recovers without shields and becomes operational after reaching 25% hull. Station relays never trigger victory.",
+    howItWorks: "In Classic mode, every nearby ship contributes pressure equal to one plus its effective capture bonus. The team or solo player with strictly highest pressure advances the relay; a tie contests it and freezes progress. Empty progress decays. Capture speed is the base rate plus leader pressure times the per-ship rate. After a relay changes ownership, its first progress step is tripled to establish the new owner's foothold. When all relays are fully owned and uncontested, the 20-second victory countdown begins. Station-mode relays use structural state instead: a neutral relay takes 10 uncontested seconds to claim, while reducing an enemy relay to zero hull transfers it immediately to the attacker at 35% hull. A transferred relay recovers without shields and becomes operational after reaching 25% hull. Station relays never trigger victory.",
     importantStats: [
       { label: "Classic Base Rate", value: `${GENERATED_BALANCE.capture?.baseCaptureRate ?? 0.1}/s` },
       { label: "Classic Per Pressure", value: `+${GENERATED_BALANCE.capture?.captureRatePerShip ?? 0.045}/s` },

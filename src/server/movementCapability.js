@@ -23,6 +23,7 @@ const {
   calculateGenericTurnModifier,
   calculateMovementStats,
   calculateBrakingAcceleration,
+  clampTurnRate,
   maneuverThrusterTorqueSign
 } = require("../../public/src/shared/movementStats.js");
 const { getComponentPowerMultiplier } = require("./componentPower");
@@ -106,6 +107,11 @@ function heatAdjustedMovementStats(ship, baseStats) {
     movement.turnRateLeft *= spinalTurnPenalty;
     movement.turnRateRight *= spinalTurnPenalty;
   }
+  // The class turn limit is a hard ceiling even after live modifiers such as
+  // command auras have adjusted the paper movement envelope.
+  movement.turnRate = clampTurnRate(movement.turnRate, movement.turnCap);
+  movement.turnRateLeft = clampTurnRate(movement.turnRateLeft, movement.turnCap);
+  movement.turnRateRight = clampTurnRate(movement.turnRateRight, movement.turnCap);
   return { ...baseStats, ...movement };
 }
 

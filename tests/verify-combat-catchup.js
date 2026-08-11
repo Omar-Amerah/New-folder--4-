@@ -2,6 +2,7 @@
 
 const assert = require("assert");
 const { seededRandom } = require("../src/server/utils");
+const { PARTS } = require("../src/server/components");
 const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initShipHeat } = require("../src/server/heat");
@@ -64,6 +65,63 @@ function tickWeapons(r, s, ships, steps = 80) { for (let i = 0; i < steps; i++) 
   for (const hz of [15, 30, 60]) { const target = ship(`t${hz}`, "b", 300, 0); const r = room([target]); r.bullets.push({ id: `p${hz}`, type: "shot", ownerId: "a", x: 0, y: 0, vx: 300, vy: 0, damage: 1, life: 2 }); for (let i = 0; i < hz; i++) updateBullets(r, 1 / hz, i * 1000 / hz); assert(Math.abs((r.bullets[0]?.x || 300) - 300) < 25 || target.hp < target.maxHp, `${hz}Hz movement/collision deterministic`); }
   const a = ship("a1", "b", 100, 0); const b = ship("b1", "b", 101, 0); const r = room([a, b]); r.bullets.push({ id: "fast", type: "rail", ownerId: "a", x: 0, y: 0, vx: 2000, vy: 0, damage: 10, life: 1 }); updateBullets(r, 0.1, 10); assert(a.hp < a.maxHp || a.shield < a.maxShield, "high-speed swept collision hits earliest ship/component once"); assert.strictEqual(r.bullets.length, 0, "one projectile produces one hit and is consumed");
   const r2 = room([]); r2.bullets.push({ id: "bad", type: "shot", ownerId: "a", x: NaN, y: 0, vx: Infinity, vy: 0, damage: 1, life: 1 }, { id: "expired", type: "shot", ownerId: "a", x: 0, y: 0, vx: 1, vy: 0, damage: 1, life: -1 }); updateBullets(r2, 0.1, 10); assert.strictEqual(r2.bullets.length, 0, "malformed/non-finite/expired projectiles rejected");
+}
+
+// Every ballistic projectile leaves a moving ship at its listed projectile
+// speed. The lifetime uses that same speed, so inherited ship velocity cannot
+// extend a projectile beyond its authored range.
+{
+  const projectileCases = [
+    { component: "blaster", projectileType: "bolt" },
+    { component: "scatterCannon", projectileType: "bolt" },
+    { component: "flakCannon", projectileType: "flak", needsThreat: true },
+    { component: "interceptorPod", projectileType: "pdShot", needsThreat: true },
+    { component: "railgun", projectileType: "rail" }
+  ];
+
+  for (const testCase of projectileCases) {
+    const design = [
+      { x: 7, y: 7, type: "core" },
+      { x: 8, y: 7, type: testCase.component },
+      { x: 7, y: 6, type: "reactor" },
+      { x: 7, y: 8, type: "engine" }
+    ];
+    const shooter = ship(`speed-${testCase.component}`, "a", 100, 100, design);
+    shooter.vx = 420;
+    shooter.vy = -180;
+    const target = ship(`speed-target-${testCase.component}`, "b", 300, 100);
+    const r = room([shooter, target]);
+    r.world = { width: 4000, height: 4000 };
+    r.drones = new Map();
+    r.decoys = new Map();
+    if (testCase.needsThreat) {
+      r.bullets.push({
+        id: `speed-threat-${testCase.component}`,
+        type: "missile",
+        ownerId: "b",
+        targetId: shooter.id,
+        x: 250,
+        y: 100,
+        vx: -100,
+        vy: 0,
+        life: 5,
+        hp: 20,
+        interceptable: true
+      });
+    }
+
+    updateShipWeapons(r, shooter, [shooter, target], 0.1, 1000);
+    const projectile = r.bullets.find((bullet) =>
+      bullet.ownerId === shooter.ownerId && bullet.type === testCase.projectileType
+    );
+    assert(projectile, `${testCase.component} must spawn its projectile`);
+
+    const weapon = PARTS[testCase.component].weapon;
+    assert(Math.abs(Math.hypot(projectile.vx, projectile.vy) - weapon.projectileSpeed) < 1e-9,
+      `${testCase.component} projectile speed must be literal`);
+    assert.strictEqual(projectile.life, weapon.range / weapon.projectileSpeed,
+      `${testCase.component} lifetime must use listed projectile speed`);
+  }
 }
 
 // PD/repair/damage/reward/safe-zone/effect cleanup coverage.
