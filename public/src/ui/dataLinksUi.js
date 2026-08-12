@@ -281,14 +281,14 @@ function componentIndexAtClientPoint(clientX, clientY) {
 
 // Written into the Build view's interaction guide line (which would otherwise
 // advertise placement, and placement is paused here), so it reads in the same
-// "action: input" shorthand rather than as its own paragraph.
+// compact linking instruction rather than as its own paragraph.
 export function dataLinksHintText() {
   const armed = dataLinksUiState.armedSourceIndex;
   if (!state.design?.some((_, i) => isSourceIndex(i))) {
     return "Add a Fire Control, Signal Amplifier, Targeting Computer or Stabilizer Node to create Data links";
   }
   if (armed == null) {
-    return "Select: click a Data source · Link: click a weapon, or drag source → weapon";
+    return "Select a Data source · Link a weapon by click or drag";
   }
   const name = PART_DEFS[state.design[armed]?.type]?.name || "Source";
   const linked = (state.dataLinks || []).filter((l) => l.sourceIndex === armed).length;

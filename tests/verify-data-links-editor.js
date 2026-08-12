@@ -271,7 +271,7 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
       designer.renderBuildGrid();
     }, DESIGN);
 
-    assert.match(await hint(), /Select: click a Data source/, "idle hint invites selecting a source");
+    assert.match(await hint(), /Select a Data source/, "idle hint invites selecting a source");
     await page.locator("#analysisDataPanel").screenshot({ path: `${out}-panel-before.png` }).catch(() => {});
 
     // --- click-to-connect ---
@@ -356,7 +356,7 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
     await clickOn(AMPLIFIER);
     assert.match(await hint(), /Signal Amplifier selected/, "amplifier arms");
     await page.keyboard.press("Escape");
-    assert.match(await hint(), /Select: click a Data source/, "Escape deselects");
+    assert.match(await hint(), /Select a Data source/, "Escape deselects");
 
     await page.locator("#dataLinksClearButton").click();
     assert.deepEqual(await links(), [], "Clear all links empties the set");
@@ -503,6 +503,7 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
     assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.design.length), DESIGN.length, "Undo still restores the design after Auto-link and Clear");
     assert.deepEqual(await links(), ["1:2"], "Undo restores the pre-action Data Links snapshot");
     assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), true, "Undo is consumed after restoring the snapshot");
+    await page.locator("#blueprintBuildTab").click();
 
     // Re-clicking the active view tab must not yank a manually chosen section.
     await page.locator("#designerBlueprintsTab").click();
