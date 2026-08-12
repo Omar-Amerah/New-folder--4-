@@ -76,8 +76,10 @@ async function main() {
       assert.strictEqual(d.activeShipViews, 20, `expected 20 active views, got ${d.activeShipViews}`);
       assert.strictEqual(hull.live, 1, `expected 1 hull texture, got ${hull.live}`);
       assert.strictEqual(hull.refs, 20, `expected hull refcount 20, got ${hull.refs}`);
-      // Two distinct rotating weapon types (blaster, railgun) -> 2 turret textures.
-      assert.strictEqual(turret.live, 2, `expected 2 turret textures, got ${turret.live}`);
+      // Two distinct rotating weapon types (blaster, railgun) -> 2 actively
+      // leased turret textures. Charging weapons may also retain an idle
+      // resting-art entry after switching to their reported charge stage.
+      assert.strictEqual(turret.live - turret.zeroLease, 2, `expected 2 leased turret textures, got ${turret.live - turret.zeroLease}`);
       assert.strictEqual(turret.refs, 40, `expected turret refcount 40 (20 ships x 2), got ${turret.refs}`);
       // Confirm sprites really share the same Texture objects across ships.
       const shared = await page.evaluate(() => {
