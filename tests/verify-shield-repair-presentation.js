@@ -95,7 +95,7 @@ function designFor(types) {
   assert(localRepairTypes.includes("overclockedRepair"), "Overclocked Repair uses the local stack");
   for (const type of localRepairTypes) {
     const rows = allRows(build(type));
-    assert.equal(rows.find((row) => row.id === "repair.stacking")?.value, "Diminishing returns", `${type} states diminishing Repair returns`);
+    assert.equal(rows.find((row) => row.id === "repair.stacking")?.value, "100% → 80% → 64% → …", `${type} shows the compact diminishing Repair progression`);
     assert.equal(rows.find((row) => row.id === "repair.stackRule")?.value,
       "Additional Repair modules contribute 80% as much as the previous one.", `${type} states the 80% Repair rule`);
     assert.match(rows.find((row) => row.id === "repair.stackProgression")?.value || "", /1st: 100%.*2nd: 80%.*3rd: 64%.*4th: 51\.2%/,

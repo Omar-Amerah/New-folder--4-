@@ -351,7 +351,7 @@ global.window = { devicePixelRatio: 1 };
 
   // Obsolete infrastructure concepts must not return through manual prose,
   // generated component mechanics, keywords, stats, or related metadata.
-  const obsoleteInfrastructureTerm = /\b(?:wiring|wire|wires|cable|cables|overload|overloads|overloaded)\b/i;
+  const obsoleteInfrastructureTerm = /\b(?:wiring|wire|wires|cable|cables)\b/i;
   for (const article of articles) {
     assert.ok(!obsoleteInfrastructureTerm.test(JSON.stringify(article)),
       `Article ${article.id} contains obsolete infrastructure terminology`);

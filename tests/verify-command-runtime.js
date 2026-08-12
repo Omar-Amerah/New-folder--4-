@@ -189,7 +189,8 @@ function obsoleteLockState(ship) {
   ok("T8: Fleet Defence retains Point Defence and Flak tracking effects.");
 }
 
-// T9: target selection still controls aiming and firing on the same tick.
+// T9: target selection starts aiming immediately; physical turret traverse is
+// the only delay before an off-axis shot.
 {
   const shooter = makeShip("s9", "p1", 0, 0, offensiveDesign());
   const enemy = makeShip("e9", "p2", 200, 50, [{ x: 7, y: 7, type: "core" }]);
@@ -197,9 +198,13 @@ function obsoleteLockState(ship) {
   updateCommandAuras(room, [shooter, enemy], 0);
   updateShipWeapons(room, shooter, [shooter, enemy], DT, 0);
   assert.strictEqual(shooter.weaponAimTargetIds[1], enemy.id);
-  assert(room.bullets.length > 0);
+  assert.strictEqual(room.bullets.length, 0, "off-axis weapon waits for physical turret alignment");
+  for (let tick = 1; tick <= 10 && room.bullets.length === 0; tick += 1) {
+    updateShipWeapons(room, shooter, [shooter, enemy], DT, tick * MS);
+  }
+  assert(room.bullets.length > 0, "weapon fires as soon as its turret reaches alignment");
   assert.deepStrictEqual(obsoleteLockState(shooter), []);
-  ok("T9: Newly selected targets are aimed and eligible to fire immediately.");
+  ok("T9: Newly selected targets begin aiming immediately and fire when aligned.");
 }
 
 // T10: Shield depletion timestamp at simulation time zero.
