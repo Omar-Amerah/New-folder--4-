@@ -199,6 +199,14 @@ function projectileHitRadius(bullet) {
   return bullet?.type === "missile" ? PROJECTILES.hitRadius.missile : bullet?.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
 }
 
+function projectileHullBroadPhaseRadius(ship) {
+  return Math.max(
+    0,
+    Number(ship?.radius) || 0,
+    Number(ship?.physicalRadius) || 0
+  );
+}
+
 // Shield bubble radius used for projectile collision — must match the client's
 // rendered shield ring (renderer.js shieldRingRadius) so bullets visually stop
 // exactly at the ring the player sees.
@@ -911,13 +919,14 @@ function updateBullets(room, dt, now) {
         continue;
       }
 
+      const broadHullRadius = projectileHullBroadPhaseRadius(ship);
       if (isEmpProjectile(bullet)) {
-        const empHullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ship.radius + hitRadius);
+        const empHullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, broadHullRadius + hitRadius);
         if (!empHullHit) continue;
         recordHit({ kind: "ship", t: empHullHit.t, x: empHullHit.x, y: empHullHit.y, ship, entityId: ship.id, shield: false, empLowShield: true });
         continue;
       }
-      const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ship.radius + hitRadius);
+      const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, broadHullRadius + hitRadius);
       if (!hullHit) continue;
       bump(room, "hullBroadPhaseHits");
 

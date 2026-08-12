@@ -118,6 +118,39 @@ test("event batch delivers spawn then remove", () => {
   assert.strictEqual(compact.events[0].projectileId, "b1");
 });
 
+test("EMP stays ballistic while missiles receive periodic corrections", () => {
+  function collectCorrections(type) {
+    const room = makeRoom();
+    const client = makeClient();
+    room.clients.add(client);
+    const bullet = makeBullet(`${type}-1`, 100, 100, type);
+    room.bullets.push(bullet);
+    room.projectileById.set(bullet.id, bullet);
+    recordProjectileSpawn(room, bullet, 0);
+
+    const baseline = {};
+    const baselineDelivery = applyClientProjectiles(room, client, 0, true, baseline);
+    markProjectilesWritten(client, room, baselineDelivery);
+
+    const corrections = [];
+    for (let now = 100; now <= 1000; now += 100) {
+      const snapshot = {};
+      const delivery = applyClientProjectiles(room, client, now, false, snapshot);
+      corrections.push(...(snapshot.projectileEvents || []).filter((event) => event.type === "projectileCorrection"));
+      markProjectilesWritten(client, room, delivery);
+    }
+    return { corrections, diagnostics: getProjectileReplicationDiagnostics(room) };
+  }
+
+  const emp = collectCorrections("emp");
+  assert.strictEqual(emp.corrections.length, 0, "EMP produces no projectileCorrection events during travel");
+  assert.strictEqual(emp.diagnostics.projectileCorrectionRecordsCreated, 0, "EMP does not create correction records");
+
+  const missile = collectCorrections("missile");
+  assert.strictEqual(missile.corrections.length, 10, "missile receives one correction every 100 ms for one second");
+  assert.ok(missile.diagnostics.projectileCorrectionRecordsCreated >= 1, "missile correction records are created");
+});
+
 test("duplicate spawn and duplicate removal are harmless", () => {
   const room = makeRoom();
   const client = makeClient();

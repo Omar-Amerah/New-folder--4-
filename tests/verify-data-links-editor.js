@@ -420,6 +420,42 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
       };
     });
 
+    const designerLayout = async () => page.evaluate(() => {
+      const grid = document.getElementById("buildGrid");
+      const forward = document.querySelector(".forward-marker");
+      const rect = grid.getBoundingClientRect();
+      const forwardRect = forward.getBoundingClientRect();
+      return {
+        grid: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        forwardY: forwardRect.y
+      };
+    });
+    const assertSameDesignerLayout = (actual, expected, label) => {
+      for (const key of ["x", "y", "width", "height"]) {
+        assert.ok(
+          Math.abs(actual.grid[key] - expected.grid[key]) <= 0.01,
+          `${label} keeps grid ${key} stationary (${expected.grid[key]} -> ${actual.grid[key]})`
+        );
+      }
+      assert.ok(
+        Math.abs(actual.forwardY - expected.forwardY) <= 0.01,
+        `${label} keeps FORWARD stationary (${expected.forwardY} -> ${actual.forwardY})`
+      );
+    };
+
+    // The Data Links controls live in the fixed header, so changing mode must
+    // not add a row above FORWARD or move the grid.
+    await page.locator("#blueprintBuildTab").click();
+    const buildLayout = await designerLayout();
+    assert.equal(await page.locator("#dataLinksAutoButton").isVisible(), false, "Auto-link is hidden in Build");
+    assert.equal(await page.locator("#dataLinksClearButton").isVisible(), false, "Clear all links is hidden in Build");
+
+    await page.locator("#blueprintDataLinksTab").click();
+    const dataLinksLayout = await designerLayout();
+    assertSameDesignerLayout(dataLinksLayout, buildLayout, "Data Links mode");
+    assert.equal(await page.locator("#dataLinksAutoButton").isVisible(), true, "Auto-link is visible in Data Links");
+    assert.equal(await page.locator("#dataLinksClearButton").isVisible(), true, "Clear all links is visible in Data Links");
+
     // Each view auto-opens the inspector section that reads on it.
     await page.locator("#blueprintDataLinksTab").click();
     let vs = await viewState();
@@ -429,18 +465,44 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
     assert.equal(vs.toolbarHidden, false, "Data Links shows its toolbar");
 
     await page.locator("#blueprintHeatTab").click();
+    const heatLayout = await designerLayout();
+    assertSameDesignerLayout(heatLayout, buildLayout, "Heat mode");
     vs = await viewState();
     assert.equal(vs.inspector, "analysis", "Heat opens the Analysis inspector");
     assert.equal(vs.analysis, "heat", "Heat opens the Heat analysis tab");
     assert.equal(vs.gridDimmed, false, "Heat undims the grid");
     assert.equal(vs.overlayActive, false, "Heat tears down the Data Links overlay");
+    assert.equal(await page.locator("#dataLinksAutoButton").isVisible(), false, "Auto-link is hidden in Heat");
+    assert.equal(await page.locator("#dataLinksClearButton").isVisible(), false, "Clear all links is hidden in Heat");
 
     await page.locator("#blueprintDataLinksTab").click();
+    const dataLinksAfterHeatLayout = await designerLayout();
+    assertSameDesignerLayout(dataLinksAfterHeatLayout, buildLayout, "Data Links after Heat");
     await page.locator("#blueprintBuildTab").click();
     vs = await viewState();
     assert.equal(vs.inspector, "design", "Build opens the Design inspector");
     assert.equal(vs.gridDimmed, false, "Build undims the grid");
     assert.equal(vs.toolbarHidden, true, "Build hides the Data Links toolbar");
+
+    // A normal physical edit remains undoable even after the Data Links actions
+    // have been used. The link actions must not interfere with that history.
+    await page.evaluate(async () => {
+      const { state } = await import("/src/state.js");
+      const designer = await import("/src/ui/designerUi.js");
+      state.selectedPart = "frame";
+      state.previewRotation = 0;
+      state.previewFlipped = false;
+      designer.editCell(0, 1);
+    });
+    assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.design.length), DESIGN.length + 1, "physical edit creates an undoable design change");
+    assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), false, "Undo stays enabled after the physical edit");
+    await page.locator("#blueprintDataLinksTab").click();
+    await page.locator("#dataLinksAutoButton").click();
+    await page.locator("#dataLinksClearButton").click();
+    await page.locator("#undoBlueprintEditButton").click();
+    assert.equal(await page.evaluate(async () => (await import("/src/state.js")).state.design.length), DESIGN.length, "Undo still restores the design after Auto-link and Clear");
+    assert.deepEqual(await links(), ["1:2"], "Undo restores the pre-action Data Links snapshot");
+    assert.equal(await page.locator("#undoBlueprintEditButton").isDisabled(), true, "Undo is consumed after restoring the snapshot");
 
     // Re-clicking the active view tab must not yank a manually chosen section.
     await page.locator("#designerBlueprintsTab").click();

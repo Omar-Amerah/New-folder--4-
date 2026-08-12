@@ -108,6 +108,18 @@ const RELAY_CELLS = 9;
 // Relays are structures too, but far smaller than a home station.
 const RELAY_MODULE_SCALE = 20;
 
+// Two deliberate Point Defence hardpoints: one centred on the top face and one
+// centred on the bottom face. Keeping these authored explicitly prevents a
+// ring-pattern change from silently adding defensive mounts.
+const RELAY_POINT_DEFENCE_MOUNTS = Object.freeze([
+  Object.freeze({ x: GRID_CENTER, y: GRID_CENTER - 4 }),
+  Object.freeze({ x: GRID_CENTER, y: GRID_CENTER + 4 })
+]);
+
+function isRelayPointDefenceMount(x, y) {
+  return RELAY_POINT_DEFENCE_MOUNTS.some((mount) => mount.x === x && mount.y === y);
+}
+
 function inCorridorVoid(x, y) {
   return bayIndexAt(x) >= 0 && y >= CORRIDOR_Y_MIN && y <= CORRIDOR_Y_MAX;
 }
@@ -262,7 +274,7 @@ function buildRelayStationDesign() {
       let type;
       if (ring === 0) type = "core";
       else if (ring === 1) type = (x + y) % 2 === 0 ? "auxGenerator" : "shield";
-      else if (ring === half) type = (x + y) % 5 === 0 ? "pointDefense" : "armor";
+      else if (ring === half) type = isRelayPointDefenceMount(x, y) ? "pointDefense" : "armor";
       else if ((x + y) % 4 === 0) type = "repair";
       else if ((x + y) % 4 === 2) type = "radiator";
       else type = "auxGenerator";

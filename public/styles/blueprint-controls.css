@@ -170,6 +170,19 @@
   font-size: 11px;
 }
 
+.designer-top-right .build-interaction-guide {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.designer-top-right .rotation-indicator {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .blueprint-cost-banner strong {
   white-space: nowrap;
 }

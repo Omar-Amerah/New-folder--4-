@@ -374,7 +374,15 @@ function run() {
 
   section("Relay geometry and current component systems remain intact");
   const relay = buildRelayStationDesign();
-  assert(relay.some((module) => module.type === "pointDefense"), "relay keeps point defence");
+  const relayPointDefence = relay.filter((module) => module.type === "pointDefense");
+  assert.deepStrictEqual(
+    relayPointDefence.map(({ x, y, rotation }) => ({ x, y, rotation })),
+    [
+      { x: 7, y: 3, rotation: 0 },
+      { x: 7, y: 11, rotation: 180 }
+    ],
+    "relay has one centred top and one centred bottom Point Defence mount"
+  );
   assert(!relay.some((module) => module.type === "missile"), "relay keeps its light weapon layout");
   const relayGeometry = buildRelayStationGeometry();
   assert.strictEqual(relayGeometry.moduleScale, 20, "relay module scale remains unchanged");

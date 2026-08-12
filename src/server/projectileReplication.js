@@ -32,7 +32,6 @@ const DEFAULTS = Object.freeze({
   maxEventBatch: 512,
   maxPermittedSeqGap: 1024,
   missileCorrectionIntervalMs: 100,
-  guidedCorrectionIntervalMs: 100,
   maxVisibleProjectileCacheMs: 100
 });
 
@@ -480,10 +479,11 @@ function shouldCorrect(bullet, now) {
   if (bullet.type === "missile" || bullet.type === "torpedo") {
     return now - (bullet._lastCorrectionAt || 0) >= DEFAULTS.missileCorrectionIntervalMs;
   }
-  if (bullet.type === "flak" || bullet.type === "pdShot" || bullet.type === "bolt" || bullet.type === "rail") {
-    return false;
-  }
-  return now - (bullet._lastCorrectionAt || 0) >= DEFAULTS.guidedCorrectionIntervalMs;
+  // Corrections are opt-in.  Ballistic projectiles have a constant velocity
+  // and the client can advance them continuously from their spawn sample;
+  // silently treating a new projectile type as guided would re-anchor it and
+  // make its rendered travel visibly choppy.
+  return false;
 }
 
 function prepareRoomCorrections(room, now) {

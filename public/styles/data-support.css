@@ -101,12 +101,10 @@
 .data-links-toolbar {
   display: flex;
   align-items: center;
-  /* The linking hint lives in the Build interaction guide, so only the
-     Auto-link and Clear actions sit here. */
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  width: 100%;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-width: 0;
+  width: auto;
 }
 
 .data-links-toolbar[hidden] {
@@ -115,17 +113,27 @@
 
 .data-links-action {
   flex-shrink: 0;
-  min-height: 24px;
-  padding: 3px 10px;
+  min-height: 25px;
+  padding: 3px 8px;
   border: 1px solid rgba(126, 160, 210, 0.28);
   border-radius: 6px;
   background: rgba(20, 32, 52, 0.6);
   color: #cfe8ff;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 850;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+#dataLinksAutoButton {
+  border-color: rgba(34, 211, 238, 0.36);
+  background: rgba(14, 77, 94, 0.42);
+}
+
+#dataLinksClearButton {
+  color: #d8b9c2;
 }
 
 .data-links-action:hover:not(:disabled) {

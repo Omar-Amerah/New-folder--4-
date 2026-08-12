@@ -554,6 +554,10 @@
               <div class="designer-top-right">
                 <div id="buildInteractionGuide" class="build-interaction-guide" aria-live="polite">Place: left-click · Rotate: R or click again · Mirror: F · Remove: right-click</div>
                 <div id="rotationIndicator" class="rotation-indicator" aria-label="Pending placement rotation" hidden></div>
+                <div id="dataLinksToolbar" class="data-links-toolbar" role="toolbar" aria-label="Data Links editor" hidden>
+                  <button type="button" id="dataLinksAutoButton" class="data-links-action" title="Link every Data-support source to every weapon. Each source still divides one budget, so every weapon gets a smaller share.">Auto-Link All</button>
+                  <button type="button" id="dataLinksClearButton" class="data-links-action">Clear All Links</button>
+                </div>
                 <div class="designer-actions">
                   <button id="undoBlueprintEditButton" type="button" class="icon-button blueprint-undo-button" title="Undo last blueprint edit (Ctrl+Z)" aria-label="Undo last blueprint edit" disabled>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 14-5-5 5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
@@ -578,10 +582,6 @@
                 <div id="blueprintModeControls" class="blueprint-mode-controls">
               <div id="thermalScenarioLabel" class="sr-only" aria-live="polite" hidden></div>
                 </div>
-              </div>
-              <div id="dataLinksToolbar" class="data-links-toolbar" role="toolbar" aria-label="Data Links editor" hidden>
-                <button type="button" id="dataLinksAutoButton" class="data-links-action" title="Link every Data-support source to every weapon. Each source still divides one budget, so every weapon gets a smaller share.">Auto-link all</button>
-                <button type="button" id="dataLinksClearButton" class="data-links-action">Clear all links</button>
               </div>
               <div class="forward-marker" aria-hidden="true">▲ FORWARD</div>
               <div id="buildGridStage" class="build-grid-stage">
