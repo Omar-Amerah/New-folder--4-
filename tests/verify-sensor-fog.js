@@ -60,16 +60,11 @@ function testSensorCapability() {
     componentHp: [38],
     componentMaxHp: [38],
     componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] },
-    stats: { massClass: "medium", unitCost: 100 }
+    stats: { unitCost: 100 }
   };
   const range = effectiveSensorRange(ship);
-  assert(range > getHullBaseSensorRange("medium"), "sensor component increases range");
-  const baseRanges = ["light", "medium", "heavy", "capital"].map((massClass) => getHullBaseSensorRange(massClass));
-  assert.deepStrictEqual(
-    baseRanges,
-    baseRanges.map(() => baseRanges[0]),
-    "every hull mass class uses the same base sensor range"
-  );
+  const baseRange = getHullBaseSensorRange();
+  assert(range > baseRange, "sensor component increases range");
 
   const damagedSensor = { ...ship, componentHp: [19], componentMaxHp: [38] };
   assert.strictEqual(
@@ -80,7 +75,7 @@ function testSensorCapability() {
   const destroyedSensor = { ...ship, componentHp: [0], componentMaxHp: [38] };
   assert.strictEqual(
     effectiveSensorRange(destroyedSensor),
-    baseRanges[0],
+    baseRange,
     "a destroyed sensor contributes no range bonus"
   );
 
@@ -158,7 +153,6 @@ function testDirectedSensorProfileAndCoverage() {
     componentHp: [100, 26, 58, 44],
     componentMaxHp: [100, 26, 58, 44],
     componentPower: { byComponentIndex: design.map(() => ({ operationalMultiplier: 1 })) },
-    stats: { massClass: "medium" }
   };
   const profile = effectiveSensorProfile(ship);
   const cone = {
@@ -187,7 +181,7 @@ function testDirectedSensorProfileAndCoverage() {
   assert.strictEqual(doubledProfile.directed.length, 2);
   assert.strictEqual(doubledProfile.directed[0].componentIndex, 3,
     "Large Directed Sensors receive the first directed stack slot");
-  const expectedStackedForwardRange = getHullBaseSensorRange("medium")
+  const expectedStackedForwardRange = getHullBaseSensorRange()
     + PARTS.largeDirectedSensor.sensorRangeBonus
     + PARTS.smallDirectedSensor.sensorRangeBonus;
   assert.strictEqual(
@@ -254,8 +248,8 @@ function testTeamVisibility() {
   room.players.set(blue.id, blue);
   room.players.set(red.id, red);
 
-  const s1 = { id: "s1", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [{ x: 7, y: 7, type: "core" }], componentHp: [260], componentMaxHp: [260], componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] }, stats: { massClass: "medium" }, radius: 32 };
-  const s2 = { id: "s2", ownerId: red.id, x: 400, y: 0, alive: true, hp: 100, design: [{ x: 7, y: 7, type: "core" }], componentHp: [260], componentMaxHp: [260], componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] }, stats: { massClass: "medium" }, radius: 32 };
+  const s1 = { id: "s1", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [{ x: 7, y: 7, type: "core" }], componentHp: [260], componentMaxHp: [260], componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] }, radius: 32 };
+  const s2 = { id: "s2", ownerId: red.id, x: 400, y: 0, alive: true, hp: 100, design: [{ x: 7, y: 7, type: "core" }], componentHp: [260], componentMaxHp: [260], componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }] }, radius: 32 };
   const drone = { id: "d1", ownerId: red.id, teamId: "red", x: 300, y: 0, radius: 10, hull: 10, alive: true };
   const station = { id: "st1", ownerId: red.id, team: "red", stationType: "relay", x: 350, y: 0, radius: 40, hp: 100, alive: true, state: "operational" };
   room.ships.set(s1.id, s1);
@@ -348,11 +342,10 @@ function testDirectedTeamVisibility() {
     ],
     componentHp: [100, 44],
     componentMaxHp: [100, 44],
-    componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }, { operationalMultiplier: 1 }] },
-    stats: { massClass: "medium" }
+    componentPower: { byComponentIndex: [{ operationalMultiplier: 1 }, { operationalMultiplier: 1 }] }
   };
-  const forward = { id: "forward", ownerId: red.id, x: 1400, y: 0, radius: 25, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
-  const rear = { id: "rear", ownerId: red.id, x: -1400, y: 0, radius: 25, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
+  const forward = { id: "forward", ownerId: red.id, x: 1400, y: 0, radius: 25, alive: true, hp: 100, design: [] };
+  const rear = { id: "rear", ownerId: red.id, x: -1400, y: 0, radius: 25, alive: true, hp: 100, design: [] };
   room.ships.set(source.id, source);
   room.ships.set(forward.id, forward);
   room.ships.set(rear.id, rear);
@@ -371,8 +364,8 @@ function testGenerationCache() {
   const red = { id: "p2", team: "red" };
   room.players.set(blue.id, blue);
   room.players.set(red.id, red);
-  const source = { id: "source", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
-  const target = { id: "target", ownerId: red.id, x: 100, y: 0, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
+  const source = { id: "source", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [] };
+  const target = { id: "target", ownerId: red.id, x: 100, y: 0, alive: true, hp: 100, design: [] };
   room.ships.set(source.id, source);
   room.ships.set(target.id, target);
   let queries = 0;
@@ -423,7 +416,7 @@ function testSnapshotFiltering() {
   const red = { id: "red-player", team: "red" };
   room.players.set(blue.id, blue);
   room.players.set(red.id, red);
-  const source = { id: "blue-ship", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
+  const source = { id: "blue-ship", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [] };
   const nearDrone = { id: "near-drone", ownerId: red.id, teamId: "red", x: 100, y: 0, radius: 10 };
   const farDrone = { id: "far-drone", ownerId: red.id, teamId: "red", x: 2000, y: 0, radius: 10 };
   room.ships.set(source.id, source);
@@ -458,8 +451,8 @@ function testTeamSnapshotCacheInvalidation() {
   room.players.set(blue.id, blue);
   room.players.set(blueAlly.id, blueAlly);
   room.players.set(red.id, red);
-  const blueSource = { id: "blue-source", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
-  const redSource = { id: "red-source", ownerId: red.id, x: 2000, y: 0, alive: true, hp: 100, design: [], stats: { massClass: "medium" } };
+  const blueSource = { id: "blue-source", ownerId: blue.id, x: 0, y: 0, alive: true, hp: 100, design: [] };
+  const redSource = { id: "red-source", ownerId: red.id, x: 2000, y: 0, alive: true, hp: 100, design: [] };
   room.ships.set(blueSource.id, blueSource);
   room.ships.set(redSource.id, redSource);
   room.spatialIndex = null;

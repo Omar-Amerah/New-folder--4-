@@ -17,13 +17,6 @@ const DETECTION_LINGER_MS = Math.max(0, Number(VISIBILITY_BALANCE.detectionLinge
 const REMEMBERED_CONTACT_MS = Math.max(0, Number(VISIBILITY_BALANCE.rememberedContactSeconds) || 12) * 1000;
 const MAX_INVALIDATION_REASONS = 12;
 
-const CONTACT_CLASS_BY_MASS = Object.freeze({
-  light: "Light Contact",
-  medium: "Medium Contact",
-  heavy: "Heavy Contact",
-  capital: "Capital Contact"
-});
-
 function usesSensorVisibility(room) {
   const mode = room?.rules?.visibilityMode;
   return mode === "sensors" || mode === "dark";
@@ -77,8 +70,7 @@ function contactClassForEntity(entity) {
   if (entity.stationType === "home") return "Home Station";
   if (entity.stationType === "relay") return "Relay Station";
   if (entity.type === "drone" || entity.entityType === "drone") return "Drone Contact";
-  const mass = String(entity.stats?.massClass || "medium").toLowerCase();
-  return CONTACT_CLASS_BY_MASS[mass] || "Unknown Contact";
+  return "Ship Contact";
 }
 
 function buildRememberedContact(entity, now, room = null) {

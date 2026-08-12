@@ -14,6 +14,33 @@
     return Boolean(weapon?.spinalCharge && typeof weapon.spinalCharge === "object" && !Array.isArray(weapon.spinalCharge));
   }
 
+  // Weapons whose art is authored as a function of charge, but which do NOT have
+  // a spinal charge cycle: they fire the instant their reload ends, and the
+  // artwork simply shows the mount recovering toward that moment. The EMP Cannon
+  // is one : its emitter fork is dead right after a discharge and crackling
+  // again by the time the next pulse is ready. This is presentation only and
+  // must never gate firing; combat owns that.
+  const RELOAD_TELEGRAPH_FAMILIES = new Set(["emp"]);
+
+  function hasReloadTelegraph(weapon) {
+    if (!weapon || isSpinalChargeWeapon(weapon)) return false;
+    // Authored data spells the family as `family`, the runtime weapon objects as
+    // `type`; both reach this rule, so both are checked.
+    return RELOAD_TELEGRAPH_FAMILIES.has(weapon.family) || RELOAD_TELEGRAPH_FAMILIES.has(weapon.type);
+  }
+
+  // 0 immediately after the shot, 1 when the mount is ready again. Measured
+  // against the authored reload, so a mount reloading more slowly than authored
+  // (an under-powered one) simply sits at full a little early rather than
+  // reporting a charge that outruns its own weapon.
+  function reloadTelegraphProgress(weapon, cooldownSeconds) {
+    const reload = Math.max(0, finiteOr(weapon?.fireRate, 0)) > 0 ? 1 / weapon.fireRate : 0;
+    if (!(reload > 0)) return 1;
+    const remaining = Math.max(0, finiteOr(cooldownSeconds, 0));
+    const progress = 1 - remaining / reload;
+    return progress <= 0 ? 0 : progress >= 1 ? 1 : progress;
+  }
+
   /**
    * Resolve the cadence facts that may be shown for one weapon.
    *
@@ -65,5 +92,11 @@
     return "DPS (charge-aware)";
   }
 
-  return Object.freeze({ weaponCyclePresentation, dpsLabelForProfiles, isSpinalChargeWeapon });
+  return Object.freeze({
+    weaponCyclePresentation,
+    dpsLabelForProfiles,
+    isSpinalChargeWeapon,
+    hasReloadTelegraph,
+    reloadTelegraphProgress
+  });
 }));

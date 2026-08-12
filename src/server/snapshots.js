@@ -27,6 +27,7 @@ const {
   ENTITY_DELTA_FORMAT_VERSION
 } = require("../../public/src/shared/snapshotEntityDelta");
 const { signature: snapshotEntitySignature } = require("./snapshotEntityDelta");
+const WeaponPresentationRules = require("../../public/src/shared/weaponPresentationRules.js");
 
 // Component heat network format:
 //   componentHeat: array of [heat value, state, ratio, capacity] tuples.
@@ -138,20 +139,38 @@ function buildStationWeaponAnglePairs(station) {
   return pairs;
 }
 
-// Spinal charge progress per weapon slot, 0..1, or null when the ship carries no
-// charging mount. Returning null keeps the field off every ordinary ship rather
-// than sending a design-length array of zeroes on every frame.
-function buildSpinalChargeProgress(ship) {
+// Charge progress per weapon slot, 0..1, or null when the ship carries no mount
+// whose art is drawn as a function of charge. Returning null keeps the field off
+// every ordinary ship rather than sending a design-length array of zeroes on
+// every frame.
+//
+// Two kinds of mount report here, and they mean different things:
+//   * a spinal mount reports accumulated charge : it is not allowed to fire
+//     until this reaches 1, and the value is the balance telegraph itself;
+//   * a reload-telegraph mount (the EMP Cannon) reports its recovery toward
+//     being ready. It changes nothing about when the weapon fires; it is the
+//     same cooldown the mount already had, expressed so the emitter can be drawn
+//     dead after a discharge and crackling again as the next pulse comes up.
+// Reload progress is quantised to 5% steps because the client only ever renders
+// it as a handful of baked charge stages, and an unquantised value would put a
+// changed field on the wire every single tick for the whole reload.
+function buildWeaponChargeProgress(ship) {
   const charge = ship.weaponCharge;
   if (!Array.isArray(charge) || !charge.length) return null;
   let any = false;
   const progress = charge.map((seconds, index) => {
-    const config = PARTS[ship.design?.[index]?.type]?.weapon?.spinalCharge;
-    if (!config) return 0;
-    const chargeSeconds = Math.max(0.05, Number(config.chargeSeconds) || 10);
-    const value = clampNumber((Number(seconds) || 0) / chargeSeconds, 0, 1);
-    if (value > 0) any = true;
-    return Math.round(value * 1000) / 1000;
+    const weapon = PARTS[ship.design?.[index]?.type]?.weapon;
+    const config = weapon?.spinalCharge;
+    if (config) {
+      const chargeSeconds = Math.max(0.05, Number(config.chargeSeconds) || 10);
+      const value = clampNumber((Number(seconds) || 0) / chargeSeconds, 0, 1);
+      if (value > 0) any = true;
+      return Math.round(value * 1000) / 1000;
+    }
+    if (!WeaponPresentationRules.hasReloadTelegraph(weapon)) return 0;
+    const value = WeaponPresentationRules.reloadTelegraphProgress(weapon, ship.weaponCooldowns?.[index]);
+    any = true;
+    return Math.round(value * 20) / 20;
   });
   return any ? progress : null;
 }
@@ -356,10 +375,12 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       focusTargetId: ship.focusTargetId || ship.repairTargetId || null,
       combatTargetId: ship.combatTargetId || null,
       weaponAngles: (ship.weaponAngles || []).map(round),
-      // Spinal charge progress per weapon slot, 0..1. This is a public field on
-      // purpose: the telegraph is the balance justification for the shot, so an
-      // opponent must be able to see a capital gun coming up to full charge.
-      weaponCharge: buildSpinalChargeProgress(ship),
+      // Weapon charge progress per slot, 0..1. This is a public field on
+      // purpose: the telegraph is the balance justification for the spinal shot,
+      // so an opponent must be able to see a capital gun coming up to full
+      // charge, and an EMP mount visibly recovering toward its next pulse is the
+      // same kind of readable warning.
+      weaponCharge: buildWeaponChargeProgress(ship),
       commandState: ship.commandState || "mainCore",
       emergencyReserveUntil: ship.emergencyReserveUntil || null,
       alive: ship.alive,
@@ -370,6 +391,7 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       missileRange: Number(effectiveRanges.missile) || 0,
       railgunRange: Number(effectiveRanges.railgun) || 0,
       beamRange: Number(effectiveRanges.beam) || 0,
+      empRange: Number(effectiveRanges.emp) || 0,
       weaponRanges: (effectiveWeapons?.profiles || []).map((profile, index) => (
         profile && (ship.componentHp?.[index] ?? 1) > 0 ? Number(profile.range) || 0 : null
       )),

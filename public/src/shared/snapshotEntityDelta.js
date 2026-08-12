@@ -36,7 +36,7 @@
     "focusTargetId", "combatTargetId", "weaponAngles", "weaponCharge", "commandState",
     "emergencyReserveUntil", "alive", "commandAuraActive", "commandAuraReceived",
     "proximityChargeDetonated", "blasterRange", "missileRange", "railgunRange",
-    "beamRange", "weaponRanges", "beamRadius", "sensorRange", "sensorCones",
+    "beamRange", "empRange", "weaponRanges", "beamRadius", "sensorRange", "sensorCones",
     "respawnIn", "removeIn", "heat", "heatNow", "heatMax", "hot", "overheated",
     "heatRevision", "heatStateRevision", "destructProgress",
     "droneBays", "decoyLaunchers", "engBlocked"

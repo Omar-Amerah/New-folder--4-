@@ -25,18 +25,21 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.designer-left-col {
   overflow-y: auto;
   /* Reserve the scrollbar channel so switching to a long category (Structure)
-     does not steal width from the part grid. The gutter replaces the old
-     padding-right, and the column below is widened to compensate. */
+     does not steal width from the part grid. The right column has its own
+     scrolling inspector and must not inherit this gutter. */
   scrollbar-gutter: stable;
-  padding-right: 0;
 }
 
 .designer-right-col {
   gap: 0;
+  /* The column owns the fixed inspector tabs. Only its panel below scrolls. */
   overflow: hidden;
-  padding-right: 0;
+  scrollbar-gutter: auto;
   border: 1px solid rgba(174, 199, 231, .16);
   border-radius: 10px;
   background: rgba(5, 10, 18, .62);
@@ -49,7 +52,54 @@
   align-items: stretch;
   overflow: hidden;
   height: 100%;
+  position: relative;
 }
+
+.blueprint-designer-notice {
+  position: absolute;
+  z-index: 38;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(390px, calc(100% - 20px));
+  box-sizing: border-box;
+  padding: 7px 11px 7px 8px;
+  border: 1px solid rgba(251, 113, 133, .42);
+  border-left: 2px solid #fb7185;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(49, 18, 31, .96), rgba(26, 13, 24, .96));
+  color: #ffe4e6;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.blueprint-designer-notice[hidden] { display: none; }
+.blueprint-designer-notice.is-visible { opacity: 1; transform: translateY(0); }
+.blueprint-designer-notice-icon {
+  display: inline-grid;
+  flex: 0 0 16px;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(255, 228, 230, .56);
+  border-radius: 50%;
+  background: rgba(190, 24, 93, .38);
+  color: #fff1f2;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
+}
+.blueprint-designer-notice-icon::before { content: "!"; }
+.blueprint-designer-notice-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .designer-top {
   display: flex;
@@ -97,29 +147,37 @@
 .blueprint-view-tabs { display:flex; gap:4px; padding:3px; border:1px solid rgba(174,199,231,.16); border-radius:8px; background:rgba(6,12,21,.72); }
 .blueprint-view-tabs button { min-height:25px; padding:3px 12px; border:0; border-radius:6px; background:transparent; color:#8fa7c6; font-size:10px; font-weight:850; text-transform:uppercase; letter-spacing:.05em; box-shadow:none; }
 .blueprint-view-tabs button.active { background:rgba(25,128,168,.3); color:#9eefff; box-shadow:inset 0 0 0 1px rgba(125,211,252,.32); }
-.heat-toolbar { display:flex; align-items:center; justify-content:center; justify-self:stretch; width:100%; max-width:100%; }
+.heat-toolbar { display:flex; align-items:center; justify-self:stretch; width:100%; max-width:100%; }
 .heat-toolbar[hidden] { display:none; }
-.heat-control-panel { display:grid; gap:5px; width:min(100%,620px); padding:6px 8px; border:1px solid rgba(174,199,231,.15); border-radius:9px; background:rgba(5,11,19,.78); box-sizing:border-box; }
+.heat-control-panel { position:relative; display:block; width:100%; padding:6px 0 7px; border-bottom:1px solid rgba(174,199,231,.12); background:rgba(5,11,19,.12); box-sizing:border-box; }
 .heat-control-row { display:grid; align-items:center; gap:6px 8px; min-width:0; }
-.heat-scenario-row { grid-template-columns:58px minmax(0,1fr); }
-.heat-flow-row { grid-template-columns:58px minmax(0,1fr); }
+.heat-scenario-row { grid-template-columns:auto minmax(0,1fr) auto; }
 .heat-control-label { color:#cfe8ff; font-size:9px; font-weight:900; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
-.blueprint-heat-legend { color:#8fa7c6; font-size:9px; font-weight:800; }
-.blueprint-heat-legend[hidden] { display:none; }
-.blueprint-heat-legend summary { cursor:pointer; color:#cfe8ff; font-size:9px; font-weight:900; letter-spacing:.05em; text-transform:uppercase; }
-.heat-legend-content { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px; padding-top:6px; }
-.heat-legend-content h4 { margin:0 0 4px; color:#cfe8ff; font-size:9px; text-transform:uppercase; letter-spacing:.04em; }
-.heat-legend-content ul { margin:0; padding-left:14px; line-height:1.35; }
-.heat-state-list { display:grid; gap:3px; }
-.heat-state-list span::before { content:""; display:inline-block; width:7px; height:7px; margin-right:3px; border-radius:50%; background:#38bdf8; }
-.heat-state-list span:nth-child(2)::before { background:#fbbf24; }
-.heat-state-list span:nth-child(3)::before { background:#ff713d; }
-.heat-state-list span:nth-child(4)::before { background:#fff; box-shadow:0 0 5px #ff334f; }
-.thermal-load-modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; width:100%; padding:2px; border-radius:7px; background:rgba(5,11,19,.78); box-sizing:border-box; }
+.thermal-load-modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; width:100%; min-width:0; padding:2px; border:1px solid rgba(174,199,231,.12); border-radius:7px; background:rgba(5,11,19,.46); box-sizing:border-box; }
 .thermal-load-modes[hidden] { display:none; }
-.thermal-load-modes button { width:100%; min-width:0; min-height:23px; padding:2px 6px; box-sizing:border-box; border:0; border-radius:5px; background:transparent; color:#849ab7; font-size:9px; font-weight:850; white-space:nowrap; box-shadow:none; }
+.thermal-load-modes button { width:100%; min-width:0; min-height:25px; padding:3px 6px; box-sizing:border-box; border:0; border-radius:5px; background:transparent; color:#849ab7; font-size:9px; font-weight:850; white-space:nowrap; box-shadow:none; }
 .thermal-load-modes button.active { background:rgba(251,146,60,.2); color:#ffd2ad; box-shadow:inset 0 0 0 1px rgba(251,146,60,.34); }
-#heatFlowHint { min-width:0; color:#8ea9c2; font-size:9px; font-weight:700; line-height:1.2; }
+.thermal-load-modes button:focus-visible { outline:1px solid #7dd3fc; outline-offset:1px; }
+.heat-legend-button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:25px; padding:3px 9px; border:1px solid rgba(174,199,231,.2); border-radius:6px; background:rgba(5,11,19,.38); color:#a9c4df; font-size:9px; font-weight:850; letter-spacing:.03em; box-shadow:none; white-space:nowrap; }
+.heat-legend-button:focus-visible { outline:1px solid #7dd3fc; outline-offset:2px; }
+.blueprint-heat-legend { position:fixed; z-index:50; width:min(360px,calc(100vw - 16px)); max-height:min(340px,calc(100vh - 16px)); overflow:auto; padding:10px 12px; border:1px solid rgba(125,211,252,.28); border-radius:9px; background:rgba(6,12,21,.98); color:#8fa7c6; box-shadow:0 12px 30px rgba(0,0,0,.42),0 0 0 1px rgba(5,11,19,.55); box-sizing:border-box; }
+.blueprint-heat-legend[hidden] { display:none; }
+.heat-legend-content { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:10px 16px; }
+.heat-legend-group { min-width:0; }
+.heat-legend-content h4 { margin:0 0 6px; color:#cfe8ff; font-size:9px; text-transform:uppercase; letter-spacing:.06em; }
+.heat-state-list { display:grid; gap:5px; }
+.heat-state-entry { position:relative; display:grid; grid-template-columns:minmax(78px,max-content) minmax(0,1fr); align-items:baseline; gap:1px 7px; padding-left:12px; min-width:0; font-size:9px; line-height:1.3; }
+.heat-state-entry::before { content:""; position:absolute; left:0; top:.35em; width:7px; height:7px; border-radius:50%; background:#38bdf8; }
+.heat-state-entry[data-heat-state="hot"]::before { background:#fbbf24; }
+.heat-state-entry[data-heat-state="critical"]::before { background:#ff713d; }
+.heat-state-entry[data-heat-state="overheated"]::before { background:#fff; box-shadow:0 0 5px #ff334f; }
+.heat-state-name { color:#dceeff; font-weight:850; white-space:nowrap; }
+.heat-state-rule { color:#8fa7c6; }
+.heat-overlay-meaning-list { display:grid; gap:5px; }
+.heat-overlay-meaning-list > div { display:grid; grid-template-columns:minmax(54px,max-content) minmax(0,1fr); gap:4px 10px; min-width:0; font-size:9px; line-height:1.3; }
+.heat-overlay-meaning-list > div > span:first-child { color:#dceeff; font-weight:800; }
+.heat-overlay-meaning-list > div > span:last-child { color:#8fa7c6; }
+.heat-legend-footer { margin:9px 0 0; padding-top:7px; border-top:1px solid rgba(174,199,231,.11); color:#7186a3; font-size:8px; line-height:1.35; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .full-load-thermal-panel { display:grid; gap:8px; padding:12px; border:1px solid rgba(251,146,60,.24); border-radius:10px; background:linear-gradient(180deg,rgba(48,24,11,.44),rgba(9,15,25,.82)); }
 .full-load-thermal-panel[hidden] { display:none; }
@@ -204,6 +262,11 @@
   .designer-center-col {
     min-height: 520px;
     height: min(76dvh, 720px);
+  }
+
+  .blueprint-designer-notice {
+    right: 8px;
+    max-width: calc(100% - 16px);
   }
 
   .designer-left-col {
@@ -379,7 +442,14 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: 10px;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.designer-inspector-panel::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .designer-inspector-panel[hidden],
@@ -569,8 +639,7 @@
 }
 
 .movement-speed-hero {
-  display: grid;
-  gap: 12px;
+  display: block;
   min-width: 0;
   padding: 11px;
   border: 1px solid rgba(34, 211, 238, .19);
@@ -582,15 +651,12 @@
 }
 
 .movement-speed-primary span,
-.movement-speed-primary strong,
-.movement-speed-primary small {
+.movement-speed-primary strong {
   display: block;
 }
 
 .movement-speed-primary span,
-.movement-speed-comparison span,
 .movement-metric-grid span,
-.movement-efficiency-grid span,
 .movement-engine-impact > div > span {
   color: #7186a3;
   font-size: 8px;
@@ -608,89 +674,6 @@
   text-shadow: 0 0 18px rgba(34, 211, 238, .18);
 }
 
-.movement-speed-primary small {
-  margin-top: 3px;
-  color: #8fa3be;
-  font-size: 9px;
-}
-
-.movement-speed-visual {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.movement-speed-track {
-  position: relative;
-  height: 5px;
-  margin: 3px 4px 0;
-  border-radius: 999px;
-  background: rgba(113, 134, 163, .18);
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, .06);
-}
-
-.movement-speed-track i {
-  position: absolute;
-  inset: 0 auto 0 0;
-  max-width: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #0891b2, #22d3ee 72%, #a5f3fc);
-  box-shadow: 0 0 10px rgba(34, 211, 238, .3);
-}
-
-.movement-speed-track b {
-  position: absolute;
-  top: -4px;
-  width: 1px;
-  height: 13px;
-  background: #fbbf24;
-  box-shadow: 0 0 6px rgba(251, 191, 36, .38);
-  transform: translateX(-1px);
-}
-
-.movement-speed-track em {
-  position: absolute;
-  top: 50%;
-  width: 9px;
-  height: 9px;
-  border: 2px solid #ecfeff;
-  border-radius: 50%;
-  background: #0891b2;
-  box-shadow: 0 0 8px rgba(34, 211, 238, .65);
-  transform: translate(-50%, -50%);
-}
-
-.movement-speed-comparison,
-.movement-efficiency-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.movement-speed-comparison > div {
-  min-width: 0;
-}
-
-.movement-speed-comparison > div:last-child {
-  text-align: right;
-}
-
-.movement-speed-comparison span,
-.movement-speed-comparison strong {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.movement-speed-comparison strong {
-  margin-top: 2px;
-  color: #cfe8ff;
-  font-size: 10px;
-}
-
-.movement-speed-comparison > div:last-child strong {
-  color: #fde68a;
-}
-
 .movement-section-heading {
   color: #8fa7c6;
   font-size: 8px;
@@ -705,8 +688,7 @@
   gap: 6px;
 }
 
-.movement-metric-grid > div,
-.movement-efficiency-grid > div {
+.movement-metric-grid > div {
   min-width: 0;
   padding: 8px;
   border: 1px solid rgba(125, 211, 252, .08);
@@ -715,36 +697,21 @@
 }
 
 .movement-metric-grid span,
-.movement-metric-grid strong,
-.movement-metric-grid small,
-.movement-efficiency-grid span,
-.movement-efficiency-grid strong {
+.movement-metric-grid strong {
   display: block;
   overflow-wrap: anywhere;
 }
 
-.movement-metric-grid strong,
-.movement-efficiency-grid strong {
+.movement-metric-grid strong {
   margin-top: 2px;
   color: var(--text);
   font-size: 12px;
   line-height: 1.25;
 }
 
-.movement-metric-grid small {
-  margin-top: 2px;
-  color: #7186a3;
-  font-size: 8px;
-  line-height: 1.3;
-}
-
-.movement-efficiency-grid strong {
-  color: #a5f3fc;
-}
-
 .movement-engine-impact {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   min-width: 0;
   padding: 8px;
@@ -755,6 +722,7 @@
 
 .movement-engine-impact-icon {
   display: grid;
+  align-self: center;
   flex: 0 0 25px;
   width: 25px;
   height: 25px;
@@ -765,50 +733,28 @@
   color: #c7d2fe;
   font-size: 17px;
   font-weight: 700;
+  line-height: 1;
 }
 
 .movement-engine-impact > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-width: 0;
 }
 
-.movement-engine-impact strong,
-.movement-engine-impact small {
+.movement-engine-impact > div > span {
   display: block;
-  overflow-wrap: anywhere;
+  line-height: 1.1;
 }
 
 .movement-engine-impact strong {
+  display: block;
+  overflow-wrap: anywhere;
   margin-top: 2px;
   color: #e0e7ff;
   font-size: 10px;
   line-height: 1.35;
-}
-
-.movement-engine-impact small {
-  margin-top: 1px;
-  color: #7186a3;
-  font-size: 8px;
-}
-
-.movement-limit-note {
-  display: grid;
-  gap: 2px;
-  padding: 7px 8px;
-  border-left: 2px solid rgba(34, 211, 238, .65);
-  background: rgba(14, 116, 144, .08);
-}
-
-.movement-limit-note strong {
-  color: #a5f3fc;
-  font-size: 9px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.movement-limit-note span {
-  color: #8fa3be;
-  font-size: 9px;
-  line-height: 1.45;
 }
 
 .sensor-coverage-card {
@@ -992,115 +938,21 @@
   background: transparent;
 }
 
-.sensor-stack-explanation {
-  display: grid;
-  gap: 2px;
-  padding: 7px 8px;
-  border-left: 2px solid rgba(34, 211, 238, .65);
-  background: rgba(14, 116, 144, .08);
-}
-
-.sensor-stack-explanation strong {
-  color: #a5f3fc;
-  font-size: 9px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.sensor-stack-explanation span {
-  color: #8fa3be;
-  font-size: 9px;
-  line-height: 1.4;
-}
-
-.sensor-stack-groups {
-  display: grid;
-  gap: 10px;
-}
-
-.sensor-stack-groups > section {
-  min-width: 0;
-}
-
-.sensor-stack-groups h4 {
-  margin: 0 0 5px;
-  color: #b9d9ef;
-  font-size: 9px;
-  letter-spacing: .07em;
-  text-transform: uppercase;
-}
-
-.sensor-stack-list {
-  display: grid;
-  gap: 6px;
-}
-
-.sensor-stack-entry {
-  display: grid;
-  gap: 4px;
-  padding: 7px;
-  border: 1px solid rgba(125, 211, 252, .1);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .025);
-}
-
-.sensor-stack-entry-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sensor-stack-entry-head strong {
-  min-width: 0;
-  color: #d7edff;
-  font-size: 9px;
-}
-
-.sensor-stack-entry-head b {
-  color: #67e8f9;
-  font-size: 9px;
-}
-
-.sensor-stack-track {
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(125, 211, 252, .1);
-}
-
-.sensor-stack-track i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #0891b2, #67e8f9);
-  box-shadow: 0 0 7px rgba(34, 211, 238, .38);
-}
-
-.sensor-stack-entry-detail {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 2px 8px;
-  color: #7186a3;
-  font-size: 8px;
-  line-height: 1.35;
-}
-
-.sensor-stack-empty {
-  margin: 0;
-  padding: 7px;
-  border: 1px dashed rgba(125, 211, 252, .12);
-  border-radius: 7px;
-  color: #7186a3;
-  font-size: 9px;
-}
-
 #analysisHeatPanel .heat-toolbar {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 #analysisHeatPanel .heat-control-panel {
   width: 100%;
+}
+
+@media (max-width: 600px) {
+  .heat-scenario-row { grid-template-columns:minmax(0,1fr) auto; }
+  .heat-control-label { grid-column:1 / -1; }
+  .thermal-load-modes { grid-column:1; }
+  .heat-legend-button { grid-column:2; align-self:end; }
+  .blueprint-heat-legend { width:min(420px,calc(100vw - 16px)); }
+  .heat-legend-content { grid-template-columns:1fr; }
 }
 
 @media (max-width: 430px) {
@@ -1133,13 +985,13 @@
     grid-template-columns: 1fr;
   }
 
-  .heat-scenario-row,
-  .heat-flow-row {
-    grid-template-columns: 1fr;
-  }
+  .heat-scenario-row { grid-template-columns:1fr auto; }
+  .heat-control-label { grid-column:1 / -1; }
+  .thermal-load-modes { grid-column:1 / -1; }
+  .heat-legend-button { grid-column:2; justify-self:end; }
 
   .thermal-load-modes button {
-    min-height: 38px;
+    min-height: 34px;
     white-space: normal;
   }
 

@@ -188,7 +188,7 @@ function rebuildEffectiveWeaponProfileCache(ship, reason = "profile-cache") {
   const design = Array.isArray(ship?.design) ? ship.design : [];
   const baseProfiles = new Array(design.length).fill(null);
   const profiles = new Array(design.length).fill(null);
-  const familyRanges = { blaster: 0, missile: 0, railgun: 0, beam: 0 };
+  const familyRanges = { blaster: 0, missile: 0, railgun: 0, beam: 0, emp: 0 };
   let maxRange = 420;
   for (let i = 0; i < design.length; i += 1) {
     const baseWeapon = PARTS[design[i]?.type]?.weapon;
@@ -256,7 +256,8 @@ function getEffectiveWeaponRanges(ship) {
     blaster: Number(ranges?.blaster) || 0,
     missile: Number(ranges?.missile) || 0,
     railgun: Number(ranges?.railgun) || 0,
-    beam: Number(ranges?.beam) || 0
+    beam: Number(ranges?.beam) || 0,
+    emp: Number(ranges?.emp) || 0
   };
 }
 

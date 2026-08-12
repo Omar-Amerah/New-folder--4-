@@ -705,7 +705,7 @@ function updatePixiEffects(env, now, bounds, renderTime) {
     if (impactFade <= 0) continue;
     const owner = players.get(p.terminal.ownerId);
     const color = owner?.color || "#ffffff";
-    const maxRadius = p.terminal.type === "missile" ? 34 : 10;
+    const maxRadius = p.terminal.type === "missile" ? 34 : p.terminal.type === "emp" ? 22 : 10;
     const r = maxRadius * (0.4 + t * 0.6);
     const alpha = impactFade;
     gfx.circle(x, y, r);
@@ -866,6 +866,33 @@ function updatePixiEffects(env, now, bounds, renderTime) {
       } else if (effect.type === "repair") {
         gfx.circle(x, y, 16 + t * 28);
         gfx.stroke({ width: 3 / zoom, color: "#67e08a", alpha });
+      } else if (effect.type === "empImpact") {
+        const empT = clamp(age / 480, 0, 1);
+        const charged = effect.charged !== false;
+        const empAlpha = (1 - empT) * (charged ? 1 : 0.42);
+        const radius = (charged ? 16 : 10) + empT * (charged ? 20 : 10);
+        const nx = Number(effect.nx) || 0;
+        const ny = Number(effect.ny) || 0;
+        const phase = Math.atan2(ny, nx);
+        // Fuchsia, matching the EMP Cannon's component colour (parts.js) and its
+        // projectile art (worldArt.js): the impact used to be cyan, which put the
+        // one anti-Shield event in the game in the same colour as engine wash.
+        gfx.circle(x, y, radius * 0.42);
+        gfx.fill({ color: "#fdf4ff", alpha: empAlpha * 0.95 });
+        gfx.circle(x, y, radius);
+        gfx.fill({ color: "#d946ef", alpha: empAlpha * 0.18 });
+        gfx.circle(x, y, radius);
+        gfx.stroke({ width: 2.4 / zoom, color: "#e879f9", alpha: empAlpha * 0.92 });
+        gfx.arc(x, y, radius * 1.35, phase - 0.8, phase - 0.1);
+        gfx.arc(x, y, radius * 1.35, phase + 0.2, phase + 0.9);
+        gfx.stroke({ width: 2 / zoom, color: "#fae8ff", alpha: empAlpha * 0.85 });
+        gfx.arc(x, y, radius * 0.7, phase + Math.PI - 0.7, phase + Math.PI + 0.7);
+        gfx.stroke({ width: 1.4 / zoom, color: "#f5d0fe", alpha: empAlpha * 0.7 });
+        if (charged) {
+          gfx.moveTo(x - nx * radius * 0.3, y - ny * radius * 0.3);
+          gfx.lineTo(x + nx * radius * 1.5, y + ny * radius * 1.5);
+          gfx.stroke({ width: 1.3 / zoom, color: "#fdf4ff", alpha: empAlpha * 0.6 });
+        }
       } else if (effect.type === "railhit") {
         gfx.moveTo(x - 24 - t * 24, y);
         gfx.lineTo(x + 24 + t * 24, y);

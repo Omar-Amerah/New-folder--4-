@@ -146,6 +146,7 @@ const cellKeys = (cells) => cells.map((cell) => `${cell.x},${cell.y}`).sort();
   const storage = await import("../public/src/design/blueprintStorage.js");
   const clientFootprint = await import("../public/src/design/footprint.js");
   const { createPlacementCandidate } = await import("../public/src/design/placementCandidate.js");
+  const { validateBlueprint, formatDisconnectedComponents, formatDisconnectedComponentDetails } = await import("../public/src/design/blueprintValidation.js");
 
   const clientFlippable = Object.keys(PARTS).filter((id) => parts.isFlippablePart(id)).sort();
   assert.deepEqual(clientFlippable, EXPECTED_FLIPPABLE, "client and server agree on which parts are flippable");
@@ -227,6 +228,48 @@ const cellKeys = (cells) => cells.map((cell) => `${cell.x},${cell.y}`).sort();
   });
   assert.equal(offGrid.ok, false, "a mirrored placement leaving the grid is rejected");
   assert.equal(offGrid.reasonCode, "out-of-bounds", "rejection names the bounds failure");
+
+  // ----------------------------------------------------- temporary disconnected edits
+  const connectedChain = [
+    { x: 7, y: 7, type: "core" },
+    { x: 6, y: 7, type: "frame" },
+    { x: 5, y: 7, type: "frame" },
+    { x: 4, y: 7, type: "armor" }
+  ];
+  const disconnectedPlacement = createPlacementCandidate({
+    grid: { x: 1, y: 1 },
+    componentType: "frame",
+    design: connectedChain,
+    catalogue: parts.PART_STATS,
+    mode: "add"
+  });
+  assert.equal(disconnectedPlacement.ok, true, "placement allows a temporary disconnected component");
+  assert.equal(disconnectedPlacement.reasonCode, null, "placement does not report connectivity as an edit rejection");
+  assert.equal(disconnectedPlacement.message, "Placement valid", "the edit candidate remains valid despite temporary disconnection");
+  const placementValidation = validateBlueprint(disconnectedPlacement.nextDesign, { requireThrust: false });
+  assert.equal(placementValidation.ok, false, "final design validation still reports the disconnected placement");
+  assert.match(formatDisconnectedComponents(disconnectedPlacement.nextDesign, placementValidation.disconnectedComponentIndices),
+    /Frame at \(1, 1\)/, "validation identifies the disconnected placement anchor");
+
+  const disconnectedReplacement = createPlacementCandidate({
+    grid: { x: 5, y: 7 },
+    componentType: "heatPipe",
+    design: connectedChain,
+    catalogue: parts.PART_STATS
+  });
+  assert.equal(disconnectedReplacement.ok, true, "replacement allows a temporary Heat Pipe disconnection");
+  assert.equal(disconnectedReplacement.reasonCode, null, "replacement does not report connectivity as an edit rejection");
+  const replacementValidation = validateBlueprint(disconnectedReplacement.nextDesign, { requireThrust: false });
+  assert.equal(replacementValidation.ok, false, "final validation reports ordinary structure stranded by a Heat Pipe chain");
+  assert.match(formatDisconnectedComponentDetails(disconnectedReplacement.nextDesign, replacementValidation.disconnectedComponentIndices),
+    /Armor at \(4, 7\) has no structural path to the Core/,
+    "validation names the ordinary component stranded by a Heat Pipe chain");
+
+  const disconnectedAfterRemoval = connectedChain.filter((part) => !(part.type === "frame" && part.x === 5));
+  const removalValidation = validateBlueprint(disconnectedAfterRemoval, { requireThrust: false });
+  assert.equal(removalValidation.ok, false, "final validation reports a bridge removal that leaves structure disconnected");
+  assert.match(formatDisconnectedComponents(disconnectedAfterRemoval, removalValidation.disconnectedComponentIndices),
+    /Armor at \(4, 7\)/, "the validation diagnostic identifies the component left behind by removal");
 
   // ------------------------------------------------------------ save and load
   const mirroredDesign = [

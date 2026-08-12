@@ -176,6 +176,8 @@
     "test:ship-hull-outline-browser": "npm run build && node tests/verify-ship-hull-outline-browser.js",
     "test:command-panel-browser": "npm run build && node tests/verify-command-panel-browser.js",
     "test:lobby-designer-browser": "npm run build && node tests/verify-lobby-designer-browser.js",
+    "test:blueprint-placement-preview-browser": "npm run build && node tests/verify-blueprint-placement-preview-browser.js",
+    "test:blueprint-inspector-scroll": "npm run build && node tests/verify-blueprint-inspector-scroll-browser.js",
     "test:command-auras": "node tests/verify-command-auras.js",
     "test:command-runtime": "node tests/verify-command-runtime.js",
     "test:command-runtime-dynamic": "node tests/verify-phase-6d-command-aura-runtime.js",

@@ -10,9 +10,7 @@ const {
   calculateDirectionalTurnInputs,
   calculateGenericTurnModifier,
   calculateMovementPowerMultiplier,
-  MOVEMENT_CONFIG,
-  massClassForMass,
-  turnCapForMass
+  MOVEMENT_CONFIG
 } = require("../../public/src/shared/movementStats.js");
 const ShieldRules = require("../../public/src/shared/shieldRules");
 const EngineExhaustRules = require("../../public/src/shared/engineExhaust.js");
@@ -38,6 +36,7 @@ function computeStats(modules) {
   let missile = 0;
   let railgun = 0;
   let beam = 0;
+  let emp = 0;
   let repair = 0;
   const selfRepairRateValues = [];
   const repairBeamRateValues = [];
@@ -56,6 +55,7 @@ function computeStats(modules) {
     missile: weaponAccumulator(),
     railgun: weaponAccumulator(),
     beam: weaponAccumulator(),
+    emp: weaponAccumulator(),
     pointDefense: weaponAccumulator()
   };
 
@@ -88,6 +88,7 @@ function computeStats(modules) {
     missile += part.missile || 0;
     railgun += part.railgun || 0;
     beam += part.beam || 0;
+    emp += part.emp || 0;
     pointDefense += part.pointDefense || 0;
     if (module.type === "droneBay") {
       droneBays += 1;
@@ -148,7 +149,7 @@ function computeStats(modules) {
   const sensorProfile = designSensorProfile(modules);
   const unitCost = cost;
   const weapons = summarizeWeaponTotals(weaponTotals);
-  const warnings = shipWarnings({ powerGeneration, powerUse, availablePower, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, mass, turnRate: movement.turnRate,
+  const warnings = shipWarnings({ powerGeneration, powerUse, availablePower, thrust, effectiveThrust: movement.effectiveThrust, thrustRatio: movement.thrustRatio, blaster, missile, railgun, beam, emp, mass, turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
     turnRateRight: movement.turnRateRight, repair, modules, powerEfficiency: movement.powerEfficiency, powerDebuff: movement.powerDebuff });
   if (exhaustAnalysis.blockedEngineIndices.size) warnings.push(`${exhaustAnalysis.blockedEngineIndices.size} blocked engine${exhaustAnalysis.blockedEngineIndices.size === 1 ? "" : "s"}: blocked exhaust provides no thrust.`);
@@ -182,14 +183,13 @@ function computeStats(modules) {
     turnRateLeft: round(movement.turnRateLeft),
     turnRateRight: round(movement.turnRateRight),
     directionalTurn: movement.directionalTurn,
-    massClass: movement.massClass,
-    turnCap: movement.turnCap,
     powerEfficiency: round(movement.powerEfficiency),
     powerDebuff: round(movement.powerDebuff),
     blaster,
     missile,
     railgun,
     beam,
+    emp,
     repair,
     selfRepairRateInstalled,
     selfRepairSourceCount: selfRepairRateValues.length,
@@ -215,6 +215,7 @@ function computeStats(modules) {
     missileRange: weaponRange(weaponTotals.missile),
     railgunRange: weaponRange(weaponTotals.railgun),
     beamRange: weaponRange(weaponTotals.beam),
+    empRange: weaponRange(weaponTotals.emp),
     beamRadius: weapons.beam.radius,
     blasterDamage: weapons.blaster.damage,
     missileDamage: weapons.missile.damage,
@@ -256,7 +257,7 @@ function computeStats(modules) {
 }
 
 function weaponAccumulator() {
-  return { count: 0, damage: 0, range: 0, radius: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, dps: 0, rateProfiles: [] };
+  return { count: 0, damage: 0, range: 0, radius: 0, projectileRadius: 0, fireRate: 0, reload: 0, projectileSpeed: 0, accuracy: 0, tracking: 0, shieldDisruptionFraction: 0, dps: 0, rateProfiles: [] };
 }
 
 function addWeaponStats(total, weapon) {
@@ -265,11 +266,13 @@ function addWeaponStats(total, weapon) {
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
   total.radius = Math.max(total.radius, weapon.radius || 0);
+  total.projectileRadius = Math.max(total.projectileRadius, weapon.projectileRadius || weapon.radius || 0);
   total.fireRate += weapon.fireRate;
   total.reload += presentation.reloadSeconds * 1000;
   total.projectileSpeed += weapon.projectileSpeed;
   total.accuracy += weapon.accuracy;
   total.tracking += weapon.tracking || 0;
+  total.shieldDisruptionFraction += Number(weapon.shieldDisruptionFraction) || 0;
   total.dps += presentation.dps;
   total.rateProfiles.push({ ...weapon });
 }
@@ -315,11 +318,13 @@ function summarizeWeaponTotals(totals) {
       damage: total.damage,
       range: total.range,
       radius: total.radius,
+      projectileRadius: total.count ? round(total.projectileRadius / total.count) : 0,
       fireRate: round(total.fireRate),
       reload: total.count ? round(total.reload / total.count) : 0,
       projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
       accuracy: total.count ? round(total.accuracy / total.count) : 0,
       tracking: total.count ? round(total.tracking / total.count) : 0,
+      shieldDisruptionFraction: total.count ? round(total.shieldDisruptionFraction / total.count) : 0,
       dps: round(total.dps),
       dpsLabel: WeaponPresentationRules.dpsLabelForProfiles(total.rateProfiles),
       hasChargeWeapon: (Array.isArray(total.rateProfiles) ? total.rateProfiles : [])
@@ -338,13 +343,13 @@ function weaponDpsLabel(totals) {
 
 function shipWarnings(stats) {
   const warnings = [];
-  const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.pointDefense || 0);
+  const weaponCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.emp || 0) + (stats.pointDefense || 0);
   const availablePower = Number(stats.availablePower ?? stats.powerGeneration ?? 0);
   const powerUse = Number(stats.powerUse || 0);
   if (powerUse > availablePower + 0.0005) warnings.push(`Power shortage: ${availablePower.toFixed(1)} MW available for ${powerUse.toFixed(1)} MW demand.`);
   if (stats.effectiveThrust <= 0) warnings.push("No engines: this ship cannot move");
-  if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: heavy for its engine power");
-  if (stats.effectiveThrust > 0 && (stats.mass > 85 || stats.turnRate < 0.85)) warnings.push("Heavy ship: turning will be slow");
+  if (stats.thrustRatio < 3.2 && stats.mass > 18) warnings.push("Low mobility: high mass for its engine power");
+  if (stats.effectiveThrust > 0 && (stats.mass > 85 || stats.turnRate < 0.85)) warnings.push("High mass: turning will be slow");
   if (stats.effectiveThrust > 0 && (stats.turnRateLeft || 0) < 0.15) warnings.push("No meaningful left-turn capability");
   if (stats.effectiveThrust > 0 && (stats.turnRateRight || 0) < 0.15) warnings.push("No meaningful right-turn capability");
   if (stats.modules.some((module) => module.type === "maneuverThruster" && Math.abs((module.y || 0) - 7) < 0.75)) warnings.push("Manoeuvre thrusters near the centre provide weak torque");
@@ -372,8 +377,6 @@ function summarizeStats(stats) {
     engineEfficiency: stats.engineEfficiency,
     thrustRatio: stats.thrustRatio,
     speed: stats.maxSpeed,
-    massClass: stats.massClass,
-    turnCap: stats.turnCap,
     powerEfficiency: stats.powerEfficiency,
     powerDebuff: stats.powerDebuff,
     unitCost: stats.unitCost,
@@ -381,6 +384,7 @@ function summarizeStats(stats) {
     missile: stats.missile,
     railgun: stats.railgun,
     beam: stats.beam,
+    emp: stats.emp,
     repair: stats.repair,
     selfRepairRateInstalled: stats.selfRepairRateInstalled,
     selfRepairSourceCount: stats.selfRepairSourceCount,
@@ -424,8 +428,6 @@ module.exports = {
   calculateCenterOfMass,
   calculateDirectionalTurnInputs,
   calculateMovementPowerMultiplier,
-  massClassForMass,
-  turnCapForMass,
   shipWarnings,
   summarizeStats
 };

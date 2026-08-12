@@ -259,14 +259,16 @@ global.window = { devicePixelRatio: 1 };
     "Ledger remembered-contact duration must match live balance");
   const movementArticle = getArticleById("movement");
   const movementText = JSON.stringify(movementArticle);
-  const massClassText = statValue("movement", "Mass Classes");
-  const turnLimitsText = statValue("movement", "Turn Limits");
-  for (const definition of movementStats.MOVEMENT_CONFIG.massClasses) {
-    assert.ok(massClassText.includes(`${definition.name} ${movementStats.formatMassClassRange(definition)}`),
-      `${definition.name} mass range must match movement authority`);
-    assert.ok(turnLimitsText.includes(String(definition.turnCap)),
-      `${definition.name} turn limit must match movement authority`);
-  }
+  assert.strictEqual(statValue("movement", "Mass"), "Affects movement continuously",
+    "Ledger movement documentation treats mass as continuous");
+  assert.strictEqual(statValue("movement", "Acceleration"), "Shows how quickly the ship changes velocity",
+    "Ledger movement documentation explains Acceleration");
+  assert.strictEqual(statValue("movement", "Turn Rate"), "Turning systems, reduced continuously by mass",
+    "Ledger movement documentation explains continuous turning");
+  assert.doesNotMatch(movementText, /mass classes|class-based|turn limits?|Light ships|Medium ships|Heavy ships|Capital ships/i,
+    "Ledger must not teach movement classes or class turn caps");
+  assert.doesNotMatch(JSON.stringify(getArticleById("ship-summary")), /\bClass\b|Turn Limit/i,
+    "Ledger Ship Summary article must not teach Class or Turn Limit");
   assert.strictEqual(statValue("movement", "Braking"),
     `${movementStats.BRAKE_ACCEL_RATIO}x forward acceleration`,
     "Ledger braking copy must match movement authority");

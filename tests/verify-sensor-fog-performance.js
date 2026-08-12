@@ -40,7 +40,6 @@ function fixture() {
       x: 300 + (index % 10) * 540,
       y: 300 + Math.floor(index / 10) * 540,
       radius: 28,
-      stats: { massClass: "medium" },
       design: []
     };
     ships.set(ship.id, ship);

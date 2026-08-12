@@ -22,7 +22,7 @@ const COMPARE_STATS = [
 
 function enrich(stats) {
   const weapons = stats?.weapons || {};
-  const ranges = [stats?.blasterRange, stats?.missileRange, stats?.railgunRange, stats?.beamRange].map(Number).filter(Number.isFinite);
+  const ranges = [stats?.blasterRange, stats?.missileRange, stats?.railgunRange, stats?.beamRange, stats?.empRange].map(Number).filter(Number.isFinite);
   return {
     ...stats,
     blasterDps: weapons.blaster?.dps,
@@ -92,7 +92,7 @@ function oneShipSummary(ship) {
     ? delivered / Number(required)
     : ship.powerEfficiency ?? ship.efficiency ?? ship.stats?.efficiency;
   const power = formatPowerState(generated, required, liveEfficiency);
-  const ranges = [ship.blasterRange, ship.missileRange, ship.railgunRange, ship.beamRange].map(Number).filter(Number.isFinite);
+  const ranges = [ship.blasterRange, ship.missileRange, ship.railgunRange, ship.beamRange, ship.empRange].map(Number).filter(Number.isFinite);
   const range = ranges.length ? Math.max(...ranges) : 0;
   return { text: `Hull ${formatNumber(ship.hp)}/${formatNumber(ship.maxHp)} · Shield ${formatNumber(ship.shield || 0)}/${formatNumber(ship.maxShield || 0)} · Heat ${formatHeatPercent(shipHeatPercent(ship))} · ${Number(ship.overheated || 0)} overheated · Speed ${formatNumber(ship.speed || 0)} · Power ${power} · Range ${formatNumber(range)} · Style ${STYLE_LABELS[style] || style} · ${ship.order || ship.currentOrder || "No order"}${ship.targetName ? ` · Target ${ship.targetName}` : ""}`, style };
 }

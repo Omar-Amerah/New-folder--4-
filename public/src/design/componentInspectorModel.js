@@ -138,13 +138,20 @@ function shieldImpactHeatRows(stat) {
   ];
 }
 
-function repairStackRows(type, stat) {
+function repairStackingHeadline(type, stat) {
+  if (!isLocalRepairSource(type, stat)) return null;
+  const progression = stackingProgression(3, GENERATED_BALANCE)
+    .map((entry) => entry.slice(entry.indexOf(":") + 1).trim())
+    .join(" → ");
+  return statRow("repair.stacking", "Stacking", `${progression} → …`);
+}
+
+function repairStackDetailRows(type, stat) {
   if (!isLocalRepairSource(type, stat)) return [];
   const multiplier = getRepairStackingMultiplier(GENERATED_BALANCE);
   return [
-    statRow("repair.stacking", "Repair stacking", "Diminishing returns"),
-    statRow("repair.stackRule", "Stacking rule", `Additional Repair modules contribute ${Math.round(multiplier * 100)}% as much as the previous one.`),
-    statRow("repair.stackProgression", "Stacking progression", stackingProgression(5, GENERATED_BALANCE).join(", "))
+    statRow("repair.stackRule", "Rule", `Additional Repair modules contribute ${Math.round(multiplier * 100)}% as much as the previous one.`),
+    statRow("repair.stackProgression", "Progression", stackingProgression(5, GENERATED_BALANCE).join(" · "))
   ];
 }
 
@@ -152,7 +159,7 @@ function repairCapabilityRows(type, stat) {
   if (!((stat.repairRate || 0) > 0)) return [];
   return [
     statRow("repair.rate", "Repair Rate", formatRepair(stat.repairRate)),
-    ...repairStackRows(type, stat)
+    repairStackingHeadline(type, stat)
   ];
 }
 
@@ -244,6 +251,17 @@ function buildCore(type, stat, ledger, effectiveCost) {
 function weaponCapability(stat) {
   const weapon = stat.weapon;
   if (!weapon) return [];
+  if (weapon.type === "emp") {
+    const disruption = Math.round((Number(weapon.shieldDisruptionFraction) || 0) * 100);
+    return [
+      statRow("weapon.shieldDisruption", "Shield Disruption", `${disruption}% Max Shield per hit`),
+      statRow("weapon.hullDamage", "Hull Damage", "0"),
+      statRow("weapon.range", "Range", formatDistance(weapon.range)),
+      statRow("weapon.accuracy", "Accuracy", formatPercent(weapon.accuracy), { hint: ACCURACY_HINT }),
+      statRow("weapon.arc", "Firing arc", degrees(weapon.arc || 360)),
+      statRow("weapon.maxPerShip", "Maximum Per Ship", `${stat.maxPerShip || 2}`)
+    ];
+  }
   const presentation = WeaponPresentationRules.weaponCyclePresentation(weapon);
   const rows = [statRow("weapon.dps", presentation.dpsLabel, presentation.dps.toFixed(1))];
   rows.push(statRow("weapon.range", "Range", formatDistance(weapon.range)));
@@ -297,12 +315,7 @@ function capabilityRows(type, stat, family, context = {}) {
     return [
       statRow("sensor.role", "Coverage", directed ? "Forward cone" : "Omnidirectional"),
       statRow("sensor.rangeBonus", "Range bonus", `+${formatDistance(stat.sensorRangeBonus)}`),
-      statRow("sensor.arc", "Cone width", directed ? degrees(stat.sensorArc) : null),
-      statRow(
-        "sensor.stacking",
-        "Linear stack",
-        directed ? "Full authored bonus; Directed only" : "Full authored bonus per sensor"
-      )
+      statRow("sensor.arc", "Cone width", directed ? degrees(stat.sensorArc) : null)
     ];
   }
 
@@ -521,6 +534,9 @@ function warningsFor(type, stat, family, context = {}) {
     warnings.push({ id: "one-per-ship", title: "One per ship", body: "Only one of this component may be installed on a ship.", tone: "warning", calloutCategory: "condition" });
   }
 
+  if (Number(stat.maxPerShip) === 2) {
+    warnings.push({ id: "two-per-ship", title: "Maximum two per ship", body: "Up to two of this component may be installed on a ship.", tone: "warning", calloutCategory: "condition" });
+  }
   if (type === "droneBay") {
     const launch = context.launchEdge || null;
     const preferred = context.preferredLaunchEdge || null;
@@ -677,6 +693,16 @@ export function formatTargetPriority(priority) {
 function weaponDetailRows(type, stat) {
   const weapon = stat.weapon;
   const presentation = WeaponPresentationRules.weaponCyclePresentation(weapon);
+  if (weapon.type === "emp") {
+    return [
+      statRow("weapon.reload", "Reload", `${presentation.reloadSeconds.toFixed(1)} s`),
+      statRow("weapon.projectileSpeed", "Projectile Speed", formatSpeed(weapon.projectileSpeed)),
+      statRow("weapon.projectileRadius", "Projectile Radius", formatDistance(weapon.projectileRadius || weapon.radius || 0)),
+      statRow("weapon.traverse", "Turret Traverse", aimSpeedText(turretRules().turnRateFor(weapon))),
+      statRow("weapon.guidance", "Guidance", "Unguided"),
+      statRow("weapon.impactHeat", "Shield Impact Heat", "None")
+    ];
+  }
   const rows = [];
   if (weapon.type === "beam") {
     rows.push(statRow("weapon.damage", "Damage", `${formatDamage(weapon.damage)}/s`));
@@ -847,7 +873,7 @@ function advancedSections(type, stat, family, ledger, context) {
   if ((stat.repairRate || 0) > 0) {
     push("repair", "Repair Details", [
       statRow("repair.rate", "Repair Rate", formatRepair(stat.repairRate)),
-      ...repairStackRows(type, stat),
+      ...repairStackDetailRows(type, stat),
       statRow("repair.target", "Targeting", type === "repairBeam" ? "Projects onto a damaged allied ship in range." : "Repairs this ship's damaged components.")
     ]);
   }
@@ -1045,24 +1071,33 @@ function thermalSection(type, stat, ledger, context) {
   const inspectedState = context.heatState !== undefined && context.heatState !== null
     ? context.heatState
     : prediction?.state;
+  let inspectedStateIndex = null;
   if (Number.isFinite(Number(inspectedState))) {
     const presentation = getHeatEffectsForComponent(type, stat, inspectedState, rules);
+    inspectedStateIndex = presentation.stateIndex;
     rows.push(statRow("heat.state", "Heat", presentation.state, { tone: presentation.hasPenalty ? "hot" : "condition" }));
     const penaltyEffects = presentation.effects.filter((effect) => effect.isPenalty);
     const detail = penaltyEffects.length
       ? penaltyEffects.map(formatHeatEffect).join("; ")
       : "Direct Heat penalty: None";
     rows.push(statRow("heat.effect", "State effect", detail, { tone: presentation.hasPenalty ? "hot" : "condition" }));
-  } else {
-    for (const state of [rules.STATE.HOT, rules.STATE.CRITICAL, rules.STATE.OVERHEATED]) {
-      const presentation = getHeatEffectsForComponent(type, stat, state, rules);
-      const detail = presentation.effects.length
-        ? presentation.effects.map(formatHeatEffect).join("; ")
-        : "Direct Heat penalty: None";
-      rows.push(statRow(`heat.preview.${state}`, `When ${presentation.state}`, detail, {
-        tone: presentation.hasPenalty ? "hot" : "condition"
-      }));
-    }
+  }
+
+  // A placed component has an inspected (predicted or observed) state as well
+  // as future state effects. Keep the inspected-state row above, then show
+  // only the state transitions that have not happened yet. Without this, a
+  // cool placed Armour/Frame reports
+  // "Direct Heat penalty: None" and hides the penalties that the unplaced
+  // catalogue preview already shows.
+  for (const state of [rules.STATE.HOT, rules.STATE.CRITICAL, rules.STATE.OVERHEATED]) {
+    if (inspectedStateIndex !== null && state <= inspectedStateIndex) continue;
+    const presentation = getHeatEffectsForComponent(type, stat, state, rules);
+    const detail = presentation.effects.length
+      ? presentation.effects.map(formatHeatEffect).join("; ")
+      : "Direct Heat penalty: None";
+    rows.push(statRow(`heat.preview.${state}`, `When ${presentation.state}`, detail, {
+      tone: presentation.hasPenalty ? "hot" : "condition"
+    }));
   }
 
   const kept = ledger.take(rows);

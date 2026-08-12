@@ -190,6 +190,15 @@ function assertProjectileLookupConsistency(room) {
 // zero); damageShip's shield/hull damage split is unaffected.
 const SHIELD_HIT_MIN = PROJECTILES.shieldHitMinimum;
 
+function isEmpProjectile(bullet) {
+  return bullet?.type === "emp";
+}
+
+function projectileHitRadius(bullet) {
+  if (Number.isFinite(bullet?.radius) && bullet.radius > 0) return bullet.radius;
+  return bullet?.type === "missile" ? PROJECTILES.hitRadius.missile : bullet?.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
+}
+
 // Shield bubble radius used for projectile collision — must match the client's
 // rendered shield ring (renderer.js shieldRingRadius) so bullets visually stop
 // exactly at the ring the player sees.
@@ -199,7 +208,7 @@ function shieldCollisionRadius(ship) {
 }
 
 function projectileMapImpact(room, x1, y1, bullet, spatialIndex = room.spatialIndex, scratch = []) {
-  const margin = bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
+  const margin = isEmpProjectile(bullet) ? projectileHitRadius(bullet) : bullet.type === "missile" ? PROJECTILES.mapImpactMargins.missile : bullet.type === "rail" ? PROJECTILES.mapImpactMargins.rail : PROJECTILES.mapImpactMargins.default;
   let hit = null;
   if (spatialIndex) {
     bump(room, "projectileSpatialQueries");
@@ -390,6 +399,7 @@ function missileEcmModifier(room, target, cache) {
 function updateBullets(room, dt, now) {
   const { areEnemies, damageShip } = require("./combat");
   const { damageStation } = require("./stationCombat");
+  const { applyEmpShieldDisruption } = require("./empCannon");
   const { recordFlakMetrics } = require("./performanceTelemetry");
 
   const liveShips = getLiveShips(
@@ -888,7 +898,7 @@ function updateBullets(room, dt, now) {
     const shipNarrowStart = timeThisBullet ? performanceNow() : 0;
     for (const ship of possibleShips) {
       if (!areEnemies(room, bullet.ownerId, ship.ownerId)) continue;
-      const hitRadius = bullet.type === "missile" ? PROJECTILES.hitRadius.missile : bullet.type === "rail" ? PROJECTILES.hitRadius.rail : PROJECTILES.hitRadius.default;
+      const hitRadius = projectileHitRadius(bullet);
 
       // While the shield holds, it presents a clean swept bubble hitbox. The
       // earliest collision across asteroids and all valid enemy ships wins.
@@ -901,6 +911,12 @@ function updateBullets(room, dt, now) {
         continue;
       }
 
+      if (isEmpProjectile(bullet)) {
+        const empHullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ship.radius + hitRadius);
+        if (!empHullHit) continue;
+        recordHit({ kind: "ship", t: empHullHit.t, x: empHullHit.x, y: empHullHit.y, ship, entityId: ship.id, shield: false, empLowShield: true });
+        continue;
+      }
       const hullHit = segmentCircleHit(previousX, previousY, bullet.x, bullet.y, ship.x, ship.y, ship.radius + hitRadius);
       if (!hullHit) continue;
       bump(room, "hullBroadPhaseHits");
@@ -938,11 +954,7 @@ function updateBullets(room, dt, now) {
     for (const station of possibleStations) {
       if (station.alive === false || station.state === "destroyed") continue;
       if (!Relationships.areEntityEnemies(room, bullet.ownerId, station)) continue;
-      const hitRadius = bullet.type === "missile"
-        ? PROJECTILES.hitRadius.missile
-        : bullet.type === "rail"
-          ? PROJECTILES.hitRadius.rail
-          : PROJECTILES.hitRadius.default;
+      const hitRadius = projectileHitRadius(bullet);
       if (station.shield >= SHIELD_HIT_MIN) {
         bump(room, "shieldBubbleTests");
         const ringR = shieldCollisionRadius(station) + hitRadius;
@@ -975,11 +987,7 @@ function updateBullets(room, dt, now) {
     const droneNarrowPhaseStart = timeThisBullet ? performanceNow() : 0;
     for (const drone of possibleDrones) {
       if (drone.destroyed || drone.removed || room.drones?.get?.(drone.id) !== drone || !areEnemies(room, bullet.ownerId, drone.ownerId)) continue;
-      const hitRadius = bullet.type === "missile"
-        ? PROJECTILES.hitRadius.missile
-        : bullet.type === "rail"
-          ? PROJECTILES.hitRadius.rail
-          : PROJECTILES.hitRadius.default;
+      const hitRadius = projectileHitRadius(bullet);
       const hit = segmentCircleHit(
         previousX,
         previousY,
@@ -998,6 +1006,12 @@ function updateBullets(room, dt, now) {
     if (timeThisBullet) recordDuration(room, "projectileDroneCollisionMs", droneStart);
 
     if (earliest?.kind === "asteroid") {
+      if (isEmpProjectile(bullet)) {
+        room.effects.push({ type: "empImpact", radius: 22, subtype: bullet.subtype, x: earliest.x, y: earliest.y, nx: 0, ny: 0, charged: false, shieldRemoved: 0, at: now });
+        recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
       room.effects.push({ type: "rockhit", x: earliest.x, y: earliest.y, at: now });
       detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
@@ -1035,6 +1049,13 @@ function updateBullets(room, dt, now) {
     if (earliest?.kind === "ship") {
       recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       const ship = earliest.ship;
+      if (isEmpProjectile(bullet)) {
+        const disruption = applyEmpShieldDisruption(ship, bullet.shieldDisruptionFraction, bullet.ownerId, now);
+        const angle = Math.atan2(earliest.y - ship.y, earliest.x - ship.x);
+        room.effects.push({ type: "empImpact", radius: 22, subtype: bullet.subtype, x: earliest.x, y: earliest.y, nx: Math.cos(angle), ny: Math.sin(angle), charged: disruption.shieldAfter > 0, shieldRemoved: disruption.removed, at: now });
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
       const shipDamage = Number.isFinite(bullet.shipDamageMultiplier) ? bullet.damage * bullet.shipDamageMultiplier : bullet.damage;
       damageShip(room, ship, shipDamage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,
@@ -1064,6 +1085,11 @@ function updateBullets(room, dt, now) {
 
     if (earliest?.kind === "drone") {
       recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
+      if (isEmpProjectile(bullet)) {
+        room.effects.push({ type: "empImpact", radius: 22, subtype: bullet.subtype, x: earliest.x, y: earliest.y, nx: 0, ny: 0, charged: false, shieldRemoved: 0, at: now });
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
       require("./drones").damageDrone(room, earliest.drone, bullet.damage, bullet.ownerId, now);
       detonateImpactBurst(bullet, earliest.x, earliest.y, now);
       room.effects.push({
@@ -1079,6 +1105,13 @@ function updateBullets(room, dt, now) {
     if (earliest?.kind === "station") {
       recordProjectileReason(bullet, "impact", earliest.x, earliest.y);
       const station = earliest.station;
+      if (isEmpProjectile(bullet)) {
+        const disruption = applyEmpShieldDisruption(station, bullet.shieldDisruptionFraction, bullet.ownerId, now);
+        const angle = Math.atan2(earliest.y - station.y, earliest.x - station.x);
+        room.effects.push({ type: "empImpact", radius: 22, subtype: bullet.subtype, x: earliest.x, y: earliest.y, nx: Math.cos(angle), ny: Math.sin(angle), charged: disruption.shieldAfter > 0, shieldRemoved: disruption.removed, at: now });
+        discardBullet(room, bulletsById, bullet);
+        continue;
+      }
       damageStation(room, station, bullet.damage, bullet.ownerId, now, earliest.x, earliest.y, {
         shieldDamageMultiplier: bullet.shieldDamageMultiplier,
         hullDamageMultiplier: bullet.hullDamageMultiplier
@@ -1128,7 +1161,7 @@ function updateBullets(room, dt, now) {
   const keptEffects = room._effectSpare && room._effectSpare !== sourceEffects ? room._effectSpare : [];
   keptEffects.length = 0;
   for (const effect of sourceEffects) {
-    const life = effect.type === "beam" ? 140 : effect.type === "shieldhit" ? 340 : 900;
+    const life = effect.type === "empImpact" ? 480 : effect.type === "beam" ? 140 : effect.type === "shieldhit" ? 340 : 900;
     if (now - effect.at < life) keptEffects.push(effect);
   }
   sourceEffects.length = 0;
@@ -1176,6 +1209,8 @@ module.exports = {
   removeProjectileRuntime,
   projectileMapImpact,
   segmentCircleHit,
+  isEmpProjectile,
+  projectileHitRadius,
   updateBullets,
   shieldCollisionRadius,
   SHIELD_HIT_MIN

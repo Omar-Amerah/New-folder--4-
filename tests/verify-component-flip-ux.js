@@ -64,8 +64,8 @@ function matches(el, sel) {
 
 const ids = ["buildGrid", "buildGridStage", "buildInteractionGuide", "rotationIndicator", "emptyGridInstruction",
   "blueprintBuildTab", "blueprintHeatTab", "blueprintDataLinksTab", "dataLinksToolbar", "heatToolbar",
-  "blueprintThermalHud", "blueprintHeatLegend", "thermalLoadModes", "thermalScenarioLabel", "heatFlowViewControls",
-  "showAllHeatFlows", "heatFlowHint", "heatFlowOverlayHost", "dataLinksOverlayHost", "heatContextCard",
+  "blueprintThermalHud", "blueprintHeatLegend", "blueprintHeatLegendButton", "thermalLoadModes", "thermalScenarioLabel",
+  "heatFlowOverlayHost", "dataLinksOverlayHost", "heatContextCard", "blueprintDesignerNotice",
   "undoBlueprintEditButton", "resetButton", "clearGridButton", "confirmModal", "confirmModalTitle",
   "confirmModalMessage", "confirmCancelButton", "confirmAcceptButton", "partPalette", "partInspector", "statsGrid",
   "blueprintCostLabel", "blueprintCostStatus", "combatStyleSelect", "saveDesignButton", "savedDesignList"];
@@ -91,13 +91,16 @@ globalThis.HTMLElement = FakeElement;
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 
 (async () => {
-  const [{ state }, storage, designer, history, paletteUi] = await Promise.all([
+  const [{ state }, storage, designer, history, paletteUi, noticeUi, savedUi] = await Promise.all([
     import("../public/src/state.js"),
     import("../public/src/design/blueprintStorage.js"),
     import("../public/src/ui/designerUi.js"),
     import("../public/src/design/blueprintEditHistory.js"),
-    import("../public/src/ui/partPaletteUi.js")
+    import("../public/src/ui/partPaletteUi.js"),
+    import("../public/src/ui/designerNoticeUi.js"),
+    import("../public/src/ui/savedBlueprintsUi.js")
   ]);
+  noticeUi.resetDesignerNoticeForTests();
   paletteUi.setPartPaletteSelectionPresentationRefresh(designer.refreshBlueprintSelectionPresentation);
   designer.setBlueprintEditHistoryUiHooksForTests({
     persistDesign: () => {},
@@ -116,6 +119,115 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
   history.clearBlueprintEditHistory();
   designer.setBlueprintView("build");
   designer.renderBuildGrid();
+
+  // Disconnected layouts remain editable. Final validation and the live UI
+  // report the invalid state without blocking the physical edit.
+  const connectedChain = [
+    { x: 7, y: 7, type: "core" },
+    { x: 6, y: 7, type: "frame" },
+    { x: 5, y: 7, type: "frame" },
+    { x: 4, y: 7, type: "armor" }
+  ];
+  state.design = connectedChain.map((part) => ({ ...part }));
+  state.selectedPart = "frame";
+  state.previewRotation = 0;
+  state.previewFlipped = false;
+  designer.renderBuildGrid();
+  designer.editCell(1, 1);
+  assert.ok(state.design.some((part) => part.type === "frame" && part.x === 1 && part.y === 1),
+    "a disconnected placement is committed for continued editing");
+  const notice = elements.get("blueprintDesignerNotice");
+  assert.equal(notice.hidden, true, "editing into a disconnected state stays quiet");
+  const saveResult = await savedUi.saveCurrentDesign();
+  assert.equal(saveResult, false, "saving a disconnected design is rejected");
+  assert.equal(notice.hidden, false, "saving an invalid design shows the designer notice");
+  assert.equal(notice.textContent, "1 disconnected component: Frame at (1, 1)",
+    "the designer notice uses the specific single-component message");
+  assert.doesNotMatch(notice.textContent, /Invalid design: disconnected parts\./,
+    "the old generic disconnected toast copy is not used");
+  const initialNoticeSequence = notice.dataset.noticeSequence;
+  assert.equal((await savedUi.saveCurrentDesign()), false,
+    "a repeated invalid save remains rejected");
+  assert.equal(notice.dataset.noticeSequence, initialNoticeSequence,
+    "repeated saves do not spam the same notice while it is visible");
+
+  state.selectedPart = "heatPipe";
+  designer.editCell(5, 7);
+  assert.equal(notice.dataset.noticeSequence, initialNoticeSequence,
+    "subsequent edits do not re-trigger the save notice");
+  assert.equal(state.design.find((part) => part.x === 5 && part.y === 7).type, "heatPipe",
+    "a replacement that strands structure is committed for continued editing");
+
+  assert.equal(designer.removeCell(5, 7), true, "removing a structural bridge is allowed");
+  assert.equal(state.design.some((part) => part.type === "heatPipe" && part.x === 5 && part.y === 7), false,
+    "the bridge removal is committed");
+
+  state.design = [
+    { x: 7, y: 7, type: "core" },
+    { x: 5, y: 7, type: "reactor" }
+  ];
+  state.selectedPart = null;
+  designer.renderBuildGrid();
+  assert.equal(designer.rotateCell(5, 7), true, "a rotation that disconnects a reactor is allowed");
+  assert.equal(state.design.find((part) => part.type === "reactor").rotation, 90,
+    "the disconnecting rotation is committed");
+
+  state.design = [
+    ...connectedChain.map((part) => ({ ...part })),
+    { x: 1, y: 1, type: "frame" }
+  ];
+  noticeUi.resetDesignerNoticeForTests();
+  designer.renderBuildGrid();
+  assert.equal(elements.get("buildGrid").querySelectorAll(".build-cell.disconnected-component").length, 1,
+    "an invalid loaded design outlines the actual disconnected component");
+  designer.renderLocalStats();
+  assert.match(elements.get("statsGrid").innerHTML, /Frame at \(1, 1\) has no structural path to the Core/,
+    "Ship Summary names the disconnected component and anchor");
+  assert.equal(notice.hidden, true,
+    "loading an already-invalid design does not continuously show a transient notice");
+  assert.equal(elements.get("buildGrid").querySelectorAll(".blueprint-validation-chip").length, 0,
+    "the disconnected validation chip is no longer rendered on the grid");
+
+  state.design = [
+    ...connectedChain.map((part) => ({ ...part })),
+    { x: 1, y: 1, type: "frame" },
+    { x: 3, y: 3, type: "armor" }
+  ];
+  designer.renderBuildGrid();
+  assert.equal(elements.get("buildGrid").querySelectorAll(".build-cell.disconnected-component").length, 2,
+    "all disconnected component anchors are highlighted");
+  assert.equal(notice.hidden, true,
+    "re-rendering an unchanged invalid design does not show a transient notice");
+
+  state.design = [{ x: 7, y: 7, type: "core" }];
+  noticeUi.resetDesignerNoticeForTests();
+  designer.renderBuildGrid();
+  assert.equal((await savedUi.saveCurrentDesign()), false,
+    "saving a design without an engine is rejected");
+  assert.equal(notice.textContent, "Invalid design: add at least one engine.",
+    "the same designer notice presents non-connectivity save errors");
+
+  // Mirroring remains an executable edit even while the design is already
+  // disconnected, and it remains undoable.
+  state.design = [
+    { x: 7, y: 7, type: "core" },
+    { x: 1, y: 1, type: "bevelArmor" }
+  ];
+  state.selectedPart = null;
+  designer.renderBuildGrid();
+  const mirrorHistoryBefore = history.blueprintEditHistorySize();
+  assert.equal(designer.flipCell(1, 1), true, "mirroring an invalid design is allowed");
+  assert.equal(history.blueprintEditHistorySize(), mirrorHistoryBefore + 1, "mirroring remains undoable while invalid");
+  assert.equal(designer.undoBlueprintEdit(), true, "undo restores the disconnected pre-mirror design");
+
+  state.design = storage.defaultDesign();
+  state.selectedPart = null;
+  state.hoveredCell = null;
+  state.selectedCell = null;
+  state.partTransformMemory = {};
+  noticeUi.resetDesignerNoticeForTests();
+  designer.renderBuildGrid();
+
 
   const indicator = elements.get("rotationIndicator");
   const select = (type) => {

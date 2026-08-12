@@ -202,6 +202,7 @@ export const SPECIAL_MECHANICS_COMPONENTS = [
   "railgun",
   "lightRailgun",
   "heavyRailgun",
+  "empCannon",
   "autocannon",
   "lightBlaster",
   "heavyBlaster",
@@ -841,6 +842,19 @@ export const COMPONENT_MECHANICS = {
     ]
   },
 
+  empCannon: {
+    specialMechanics: [
+      { label: "Maximum Shield Disruption", value: "Removes 50% of target maximum Shield per impact", detail: "Clamped to current Shield; it cannot remove more than remains." },
+      { label: "No Hull Damage", value: "Deals 0 hull damage" },
+      { label: "No Shield Impact Heat", value: "EMP disruption does not create ordinary blocked-damage Heat" },
+      { label: "Unguided Projectile", value: "Slow, wide projectile with no guidance" },
+      { label: "Shield Depletion", value: "Reaching zero uses the normal Shield restart delay" }
+    ],
+    interactions: [
+      { label: "Command Relay", value: "Shield restart modifiers still apply when EMP depletes the Shield" },
+      { label: "Targeting", value: "Uses ordinary ship weapon targeting and firing arc" }
+    ]
+  },
   proximityDemolitionCharge: {
     specialMechanics: [
       { label: "Proximity Fuse", value: "Triggers when enemy is within trigger radius", detail: "Has a trigger confirmation delay before detonating." },

@@ -64,7 +64,7 @@ for (const [id, description] of Object.entries(CANONICAL_DESCRIPTIONS)) {
 }
 assert.strictEqual(balance.movement?.authority, "public/src/shared/movementStats.js",
   "the catalogue movement note must point to the shared movement authority");
-for (const obsolete of ["requiresThrust", "noEngineMaxSpeed", "noEngineAcceleration", "effectiveThrust", "effectiveTurn", "powerEfficiency", "turnScaling", "evasion", "massClasses", "softSpeedCap", "softTurnCap", "propulsionCapacitor", "movementStyles"]) {
+for (const obsolete of ["requiresThrust", "noEngineMaxSpeed", "noEngineAcceleration", "effectiveThrust", "effectiveTurn", "powerEfficiency", "turnScaling", "evasion", "softSpeedCap", "softTurnCap", "propulsionCapacitor", "movementStyles"]) {
   assert.strictEqual(Object.hasOwn(balance.movement || {}, obsolete), false,
     `movement catalogue must not carry derived or removed field ${obsolete}`);
 }
@@ -76,8 +76,6 @@ assert.doesNotMatch(balance.movement?.effectiveThrust || "", /falloff|100%|96%/i
   "the catalogue must not duplicate numerical engine falloff prose");
 assert.doesNotMatch(balance.movement?.effectiveTurn || "", /100%|92%|85%/i,
   "the catalogue must not duplicate numerical turn stacking prose");
-assert.strictEqual("massClasses" in (balance.movement || {}), false,
-  "mass-class caps must come from shared movementStats");
 assert.strictEqual(balance.movement?.propulsionCapacitor, undefined,
   "obsolete propulsion-capacitor tuning is absent from the catalogue");
 assert.strictEqual(balance.movement?.movementStyles, undefined,

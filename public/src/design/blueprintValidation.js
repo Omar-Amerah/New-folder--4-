@@ -1,7 +1,7 @@
 // Validates structural connection rules to make sure all parts connect back to the core.
 import "../shared/structuralConnectivity.js";
 import "../shared/droneBayRules.js";
-import { PART_STATS } from "./parts.js";
+import { PART_DEFS, PART_STATS } from "./parts.js";
 import { computeStats } from "./componentStats.js";
 import { getOccupiedCells } from "./footprint.js";
 
@@ -26,6 +26,35 @@ export function disconnectedComponentIndices(parts, { assumeNoOverlap = false } 
   if (!Array.isArray(parts) || coreCount(parts) !== 1) return [];
   if (!assumeNoOverlap && isOverlapping(parts)) return [];
   return globalThis.StructuralConnectivity.disconnectedPartIndices(parts, PART_STATS, getOccupiedCells);
+}
+
+function disconnectedPartLabel(part) {
+  const name = PART_DEFS[part?.type]?.name || part?.type || "Component";
+  const x = Number.isFinite(Number(part?.x)) ? Math.trunc(Number(part.x)) : "?";
+  const y = Number.isFinite(Number(part?.y)) ? Math.trunc(Number(part.y)) : "?";
+  return `${name} at (${x}, ${y})`;
+}
+
+export function formatDisconnectedComponents(parts, indices = null) {
+  const resolved = Array.isArray(indices) ? indices : disconnectedComponentIndices(parts);
+  const details = resolved
+    .map((index) => parts?.[index])
+    .filter(Boolean)
+    .map(disconnectedPartLabel);
+  if (!details.length) return "The design has disconnected components.";
+  const count = details.length;
+  return `${count} disconnected component${count === 1 ? "" : "s"}: ${details.join("; ")}`;
+}
+
+export function formatDisconnectedComponentDetails(parts, indices = null) {
+  const resolved = Array.isArray(indices) ? indices : disconnectedComponentIndices(parts);
+  const details = resolved
+    .map((index) => parts?.[index])
+    .filter(Boolean)
+    .map(disconnectedPartLabel);
+  if (details.length === 1) return `${details[0]} has no structural path to the Core`;
+  if (details.length > 1) return `${details.length} components have no structural path to the Core: ${details.join("; ")}`;
+  return "No component has a structural path to the Core.";
 }
 
 export function validateBlueprint(parts, { requireThrust = true, stats = null, normalizationIssues = [] } = {}) {

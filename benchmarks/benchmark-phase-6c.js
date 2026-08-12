@@ -164,7 +164,7 @@ function buildRoom(config, repeatIndex = 0) {
       componentHp: design.map(() => 100),
       componentMaxHp: design.map(() => 100),
       componentPower: { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) },
-      stats: { massClass: index % 5 === 0 ? "heavy" : "medium" }
+      stats: {}
     };
     room.ships.set(ship.id, ship);
   }

@@ -2675,6 +2675,34 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
       }
 
+    } else if (family === "emp") {
+      const speed = effectiveWeapon.projectileSpeed || 550;
+      const rangeVal = effectiveWeapon.range || 800;
+      const life = rangeVal / speed;
+      const reload = weaponReloadSeconds(effectiveWeapon, activityMultiplier);
+
+      TargetingTelemetry.withSampledDuration(room, now, ship, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
+        type: "emp",
+        subtype: module.type,
+        ownerId: ship.ownerId,
+        targetId: weaponTarget.id,
+        targetComponentIndex: fireAimPoint?.componentIndex ?? -1,
+        x: muzzle.x,
+        y: muzzle.y,
+        vx: Math.cos(shotAngle) * speed,
+        vy: Math.sin(shotAngle) * speed,
+        projectileSpeed: speed,
+        damage: 0,
+        radius: effectiveWeapon.projectileRadius || effectiveWeapon.radius || 9,
+        shieldDisruptionFraction: effectiveWeapon.shieldDisruptionFraction ?? 0.5,
+        life,
+        bornAt: now
+      });
+      });
+
+      ship.weaponCooldowns[i] = reload;
+      addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
+
     } else if (family === "railgun") {
 
       // A spinal mount spends this tick charging instead of firing until the

@@ -8,7 +8,7 @@ const path = require("path");
 const EngineExhaust = require("../public/src/shared/engineExhaust.js");
 const movement = require("../public/src/shared/movementStats.js");
 const { PARTS } = require("../src/server/components");
-const { computeStats } = require("../src/server/shipStats");
+const { computeStats, summarizeStats } = require("../src/server/shipStats");
 const { initComponentState, recalcEffectiveStats, updateEngineExhaustState } = require("../src/server/componentHealth");
 const { initShipHeat, updateShipHeat } = require("../src/server/heat");
 const { applyTurnHeat, heatAdjustedMovementStats } = require("../src/server/movementCapability");
@@ -102,10 +102,15 @@ function assertMovementParity(label, design, clientComputeStats) {
     close(client[field], paper[field], tolerance, `${label} client/server ${field}`);
     close(live[field], paper[field], tolerance, `${label} paper/live ${field}`);
   }
-  assert.strictEqual(client.massClass, movement.massClassForMass(paper.mass), `${label} client mass class uses shared boundaries`);
-  assert.strictEqual(live.massClass, movement.massClassForMass(paper.mass), `${label} live mass class uses shared boundaries`);
-  close(client.turnCap, movement.turnCapForMass(paper.mass), 1e-9, `${label} client turn cap uses shared authority`);
-  close(live.turnCap, movement.turnCapForMass(paper.mass), 1e-9, `${label} live turn cap uses shared authority`);
+  for (const field of ["mass" + "Class", "turn" + "Cap"]) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(client, field), false, `${label} client has no removed movement field ${field}`);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(live, field), false, `${label} live stats have no removed movement field ${field}`);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(paper, field), false, `${label} server stats have no removed movement field ${field}`);
+  }
+  const snapshotStats = summarizeStats(paper);
+  for (const field of ["mass" + "Class", "turn" + "Cap"]) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(snapshotStats, field), false, `${label} snapshot stats have no removed field ${field}`);
+  }
   return { paper, client, ship, live };
 }
 
@@ -150,7 +155,7 @@ async function run() {
   assert.strictEqual(noAuthority.turnRateLeft, 0, "a ship without turn-producing components has no left turn rate");
   assert.strictEqual(noAuthority.turnRateRight, 0, "a ship without turn-producing components has no right turn rate");
   for (const mass of [20, 80, 160, 260]) {
-    const classOnly = movement.calculateMovementStats({
+    const massOnly = movement.calculateMovementStats({
       mass,
       thrust: 0,
       turnBonus: 0,
@@ -159,7 +164,7 @@ async function run() {
       engineThrustValues: [],
       directionalTurnInputs: { mainEngineVectorTurn: 0, gyroscopeTurn: 0, clockwiseManeuverTurn: 0, anticlockwiseManeuverTurn: 0 }
     });
-    assert.strictEqual(classOnly.turnRate, 0, `mass class at ${mass}T must not add free turn`);
+    assert.strictEqual(massOnly.turnRate, 0, `mass at ${mass}T must not add free turn`);
   }
 
   const engineTurn = movement.calculateMovementStats({
@@ -176,7 +181,7 @@ async function run() {
     / Math.pow(1 + 20 / movement.MOVEMENT_CONFIG.turn.massDivisor, movement.MOVEMENT_CONFIG.turn.massExponent);
   close(engineTurn.turnRate, expectedEngineTurn, 1e-9, "turn rate has no hidden base contribution");
 
-  const hardTurnLimit = movement.calculateMovementStats({
+  const highTurnAuthority = movement.calculateMovementStats({
     mass: 20,
     thrust: 200,
     turnBonus: 0,
@@ -186,15 +191,32 @@ async function run() {
     engineMassValues: [4],
     directionalTurnInputs: { mainEngineVectorTurn: 10, gyroscopeTurn: 10, clockwiseManeuverTurn: 10, anticlockwiseManeuverTurn: 10 }
   });
-  const lightTurnLimit = movement.turnCapForMass(20);
-  assert.strictEqual(hardTurnLimit.turnRate, lightTurnLimit, "turn rate stops at the class hard limit");
-  assert.strictEqual(hardTurnLimit.turnRateLeft, lightTurnLimit, "left turn rate stops at the class hard limit");
-  assert.strictEqual(hardTurnLimit.turnRateRight, lightTurnLimit, "right turn rate stops at the class hard limit");
+  const expectedHighTurnRate = 30 * movement.MOVEMENT_CONFIG.turn.genericScale
+    / Math.pow(1 + 20 / movement.MOVEMENT_CONFIG.turn.massDivisor, movement.MOVEMENT_CONFIG.turn.massExponent);
+  close(highTurnAuthority.turnRate, expectedHighTurnRate, 1e-9, "high turn authority follows the continuous mass formula");
+  close(highTurnAuthority.turnRateLeft, expectedHighTurnRate, 1e-9, "high left turn authority follows the continuous mass formula");
+  close(highTurnAuthority.turnRateRight, expectedHighTurnRate, 1e-9, "high right turn authority follows the continuous mass formula");
 
   const turnSourceText = fs.readFileSync(path.join(__dirname, "..", "public", "src", "shared", "movementStats.js"), "utf8");
   assert.doesNotMatch(turnSourceText, /softCap|TURN_SOFTNESS|capSoftness/, "movement turn calculation must not use a soft cap");
+  const removedMovementNames = [
+    "MASS" + "_CLASSES",
+    "mass" + "Classes",
+    "mass" + "ClassForMass",
+    "getMovement" + "ClassDefinition",
+    "formatMass" + "ClassRange",
+    "turn" + "CapForMass",
+    "clampTurn" + "Rate"
+  ];
+  for (const name of removedMovementNames) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(movement, name), false, `shared movement no longer exports ${name}`);
+    assert.strictEqual(turnSourceText.includes(name), false, `shared movement source no longer references ${name}`);
+  }
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(movement.MOVEMENT_CONFIG, "mass" + "Classes"), false,
+    "movement config has no mass-class table");
   const designerTurnSource = fs.readFileSync(path.join(__dirname, "..", "public", "src", "ui", "designerUi.js"), "utf8");
-  assert.doesNotMatch(designerTurnSource, /TurnRate = SoftCap|capSoftness/, "Blueprint turn copy must describe the hard limit");
+  assert.match(designerTurnSource, /There is no class-based turn cap\./, "Blueprint turn copy documents the uncapped movement model");
+  assert.doesNotMatch(designerTurnSource, /Turn Limit|class turn limit|TurnRate = min\(/i, "Blueprint turn copy has no removed cap language");
 
   const auraDesign = baseDesign();
   for (let index = 0; index < 8; index += 1) {
@@ -203,9 +225,11 @@ async function run() {
   const auraShip = runtimeShip(auraDesign);
   auraShip.commandAuraMultipliers = { turnRateMultiplier: 2 };
   const auraAdjusted = heatAdjustedMovementStats(auraShip, auraShip.stats);
-  assert.strictEqual(auraAdjusted.turnRate, auraAdjusted.turnCap, "live turn-rate aura cannot exceed the class hard limit");
-  assert.strictEqual(auraAdjusted.turnRateLeft, auraAdjusted.turnCap, "live left turn-rate aura cannot exceed the class hard limit");
-  assert.strictEqual(auraAdjusted.turnRateRight, auraAdjusted.turnCap, "live right turn-rate aura cannot exceed the class hard limit");
+  const auraBaselineShip = runtimeShip(auraDesign);
+  const auraBaseline = heatAdjustedMovementStats(auraBaselineShip, auraBaselineShip.stats);
+  close(auraAdjusted.turnRate, auraBaseline.turnRate * 2, 0.03, "live turn-rate aura remains uncapped");
+  close(auraAdjusted.turnRateLeft, auraBaseline.turnRateLeft * 2, 0.03, "live left turn-rate aura remains uncapped");
+  close(auraAdjusted.turnRateRight, auraBaseline.turnRateRight * 2, 0.03, "live right turn-rate aura remains uncapped");
 
   const heavyEngineTurn = movement.calculateMovementStats({
     mass: 200,
@@ -372,7 +396,7 @@ async function run() {
   const generatedBalance = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "public", "component-balance.generated.json"), "utf8"));
   assert.strictEqual(sourceBalance.movement.authority, "public/src/shared/movementStats.js", "movement metadata points to shared authority");
   assert.strictEqual(generatedBalance.movement.authority, sourceBalance.movement.authority, "generated movement metadata preserves authority");
-  for (const duplicate of ["massClasses", "maneuverThrusterLever"]) {
+  for (const duplicate of ["maneuverThrusterLever"]) {
     assert(!(duplicate in sourceBalance.movement), `movement metadata must not duplicate ${duplicate}`);
   }
   assert.strictEqual(Object.prototype.hasOwnProperty.call(movement.MOVEMENT_CONFIG.speed, "capMinimum"), false, "speed config has no soft-cap minimum");
@@ -382,10 +406,10 @@ async function run() {
   const designerUiSource = fs.readFileSync(path.join(__dirname, "..", "public", "src", "ui", "designerUi.js"), "utf8");
   assert.doesNotMatch(designerUiSource, /speed soft cap|soft speed cap/i,
     "Designer copy must not describe removed speed-cap mechanics");
-  assert.match(designerUiSource, /formatMassClassRange/,
-    "Designer class tooltip must format ranges from shared movement rules");
-  assert.doesNotMatch(designerUiSource, /Light \(<55 T\)|55-124 T|125-229 T|Capital \(230\+ T\)/,
-    "Designer must not carry a manually typed mass-class table");
+  assert.match(designerUiSource, /case "accel"[\s\S]*Acceleration shows how quickly/,
+    "Designer acceleration tooltip uses the authoritative acceleration stat");
+  assert.doesNotMatch(designerUiSource, /case "class"|formatMassClassRange|Turn Limit|massClasses/i,
+    "Designer must not carry the removed class or turn-limit presentation");
   const componentMechanics = await import("../public/src/ledger/componentMechanics.js");
   const enginePowerScaling = componentMechanics.getMechanics("engine").specialMechanics
     .find((entry) => entry.label === "Power Scaling");
@@ -424,14 +448,34 @@ async function run() {
   assert(highThrustMovement.maxSpeed > lowerThrustMovement.maxSpeed, "speed remains continuous with thrust after soft-cap removal");
   assert.strictEqual(Object.prototype.hasOwnProperty.call(computeStats(baseDesign()), "speedCap"), false, "server stats no longer expose speedCap");
   assert.strictEqual(Object.prototype.hasOwnProperty.call(computeStats(baseDesign()), "speedCapped"), false, "server stats no longer expose speedCapped");
-  for (const definition of movement.MOVEMENT_CONFIG.massClasses) {
-    assert.strictEqual(movement.turnCapForMass(definition.minMass), definition.turnCap,
-      `${definition.name} turn cap comes from its shared class definition`);
-    const expectedRange = !Number.isFinite(definition.maxMass)
-      ? `${definition.minMass}+ T`
-      : definition.minMass === 0 ? `< ${definition.maxMass} T` : `${definition.minMass}-${definition.maxMass - 1} T`;
-    assert.strictEqual(movement.formatMassClassRange(definition), expectedRange,
-      `${definition.name} mass range is formatted from numeric boundaries`);
+  const continuousTurnInputs = {
+    mainEngineVectorTurn: 1,
+    gyroscopeTurn: 0,
+    clockwiseManeuverTurn: 0,
+    anticlockwiseManeuverTurn: 0
+  };
+  const movementAtMass = (mass, authority = 1) => movement.calculateMovementStats({
+    mass,
+    thrust: 1000,
+    turnBonus: 0,
+    powerGeneration: 0,
+    powerUse: 0,
+    engineThrustValues: [1000],
+    engineMassValues: [10],
+    directionalTurnInputs: { ...continuousTurnInputs, mainEngineVectorTurn: authority }
+  });
+  for (const boundary of [54, 124, 229]) {
+    const lower = movementAtMass(boundary);
+    const higher = movementAtMass(boundary + 1);
+    const expectedLower = movement.MOVEMENT_CONFIG.turn.genericScale
+      / Math.pow(1 + boundary / movement.MOVEMENT_CONFIG.turn.massDivisor, movement.MOVEMENT_CONFIG.turn.massExponent);
+    const expectedHigher = movement.MOVEMENT_CONFIG.turn.genericScale
+      / Math.pow(1 + (boundary + 1) / movement.MOVEMENT_CONFIG.turn.massDivisor, movement.MOVEMENT_CONFIG.turn.massExponent);
+    close(lower.turnRate, expectedLower, 1e-9, `${boundary}T turn rate follows continuous mass penalty`);
+    close(higher.turnRate, expectedHigher, 1e-9, `${boundary + 1}T turn rate follows continuous mass penalty`);
+    assert(higher.turnRate < lower.turnRate, `${boundary + 1}T is slightly slower than ${boundary}T`);
+    assert((lower.turnRate - higher.turnRate) / lower.turnRate < 0.02,
+      `${boundary}T to ${boundary + 1}T has no discrete class drop`);
   }
 
   assert(Number.isFinite(movement.BRAKE_ACCEL_RATIO) && movement.BRAKE_ACCEL_RATIO > 0,
@@ -468,7 +512,6 @@ async function run() {
     turnRate: 0,
     turnRateLeft: 0,
     turnRateRight: 0,
-    turnCap: 1,
     blockedEngines: 0,
     powerGeneration: 0,
     powerUse: 0,
@@ -483,8 +526,16 @@ async function run() {
     sensorComponentCount: 0,
     directedSensorCount: 0,
     weapons: {}
-  }, { includePower: false, design: [], overheatingCount: 0 });
+  }, { includePower: true, design: [], overheatingCount: 0 });
+  assert.strictEqual(summary.overview.length, 9, "Ship Summary keeps nine headline cards");
+  const accelerationHeadline = summary.overview.find((row) => row.id === "accel");
+  assert.strictEqual(accelerationHeadline?.label, "Acceleration", "Ship Summary replaces Class with Acceleration");
+  assert.strictEqual(accelerationHeadline?.value, "20 m/s²", "Acceleration headline formats stats.accel in m/s²");
+  assert(!summary.overview.some((row) => /class|turn limit/i.test(`${row.id} ${row.label}`)),
+    "Ship Summary headline has no Class or Turn Limit");
   const mobilityRows = summary.sections.find((section) => section.id === "mobility")?.rows || [];
+  assert(!mobilityRows.some((row) => row.id === "accel" || /Turn Limit/i.test(row.label)),
+    "Mobility Details does not duplicate Acceleration or show Turn Limit");
   const brakingRow = mobilityRows.find((row) => row.id === "brakingAcceleration");
   const expectedBrakingText = String(Math.round(expectedBrakingAcceleration));
   const expectedRatioText = `${movement.BRAKE_ACCEL_RATIO}x acceleration`;

@@ -641,7 +641,7 @@ const WEAPON_ART_TYPES = new Set([
   "blaster", "autocannon", "pointDefense", "flakCannon", "missile",
   "railgun", "swarmMissile", "torpedo", "beamEmitter", "thermalInductionLance", "repairBeam",
   "aegisProjector", "interceptorPod",
-  "scatterCannon", "plasmaCannon", "fragmentationCannon", "spinalAccelerator"
+  "scatterCannon", "plasmaCannon", "fragmentationCannon", "spinalAccelerator", "empCannon"
 ]);
 
 // --- Shared weapon material system --------------------------------------------
@@ -1222,6 +1222,14 @@ export function drawStaticWeaponMount({ type, unit, tilesLong = 1, tilesCross = 
         ctx.stroke();
       }
       ctx.restore();
+    } else if (artType === "empCannon") {
+      // Low collar, not the wide bearing ring the ballistic mounts use: the EMP
+      // top carries its mass in the rear capacitor bank and only a thin coil
+      // spine crosses the pivot, so a wide ring drew an exposed black circle
+      // around that spine and read as a symbol printed on the hull.
+      drawFootprintPanel(unit, hl, hc, 0.94, 0.88, 0.09);
+      drawFootprintSeams(unit, hl, hc, tilesLong);
+      drawWeaponBase(Math.min(hl, hc) * 0.95);
     } else if (artType === "beamEmitter" || artType === "repairBeam" || artType === "thermalInductionLance") {
       // The beam family pivots on a low collar, not the wide bearing ring: at
       // this footprint the ring drew a black circle right through the middle of
@@ -1342,7 +1350,12 @@ function drawAegisEmitterRing(unit, radius) {
 // transparent background. Barrel tips line up with TurretRules.MUZZLE_TIP_TILES
 // so projectiles emerge exactly at the visible muzzle. Never draws hull
 // blocks, sockets, or recessed panels : those are static mount artwork.
-export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 1, color, chargeProgress = 0 }) {
+// `chargeProgress` is null when the caller has no live charge state to show
+// (palette icons, the blueprint grid, any still picture of a design). That is
+// not the same as zero: each charge-driven weapon decides its own resting look,
+// because "at rest" means an empty accumulator for a spinal mount but a fully
+// recovered, ready-to-fire emitter for the EMP Cannon.
+export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 1, color, chargeProgress = null }) {
   const artType = componentArtType(type);
   const size = unit;
   const hl = (Math.max(1, tilesLong) * unit) / 2;
@@ -1831,15 +1844,17 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
 //   * a run of accelerator coils that illuminate in sequence toward the muzzle,
 //   * a muzzle assembly that goes white-hot only in the last stage.
 //
-// Progress is quantised into SPINAL_CHARGE_STAGES so the renderer can bake one
+// Progress is quantised into WEAPON_CHARGE_STAGES so the renderer can bake one
 // texture per stage instead of per frame; the stage boundaries are the only
-// place that quantisation exists.
-export const SPINAL_CHARGE_STAGES = 8;
+// place that quantisation exists. The EMP Cannon's emitter uses the same stage
+// ladder for its reload telegraph, which is why the constant is named for
+// weapons in general rather than for the spinal mount that introduced it.
+export const WEAPON_CHARGE_STAGES = 8;
 
-export function spinalChargeStage(progress) {
+export function weaponChargeStage(progress) {
   const value = Number(progress);
   if (!Number.isFinite(value) || value <= 0) return 0;
-  return Math.min(SPINAL_CHARGE_STAGES - 1, Math.round(Math.min(1, value) * (SPINAL_CHARGE_STAGES - 1)));
+  return Math.min(WEAPON_CHARGE_STAGES - 1, Math.round(Math.min(1, value) * (WEAPON_CHARGE_STAGES - 1)));
 }
 
 function drawSpinalAcceleratorTop(unit, hl, hc, color, M, fine, chargeProgress = 0) {
@@ -1958,7 +1973,7 @@ function drawSpinalAcceleratorTop(unit, hl, hc, color, M, fine, chargeProgress =
   ctx.restore();
 }
 
-function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0) {
+function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = null) {
   const fine = weaponFine(unit);
   const M = weaponMetals(color);
 
@@ -2047,6 +2062,216 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = 0
     ctx.stroke();
     ctx.fillStyle = M.bore;
     ctx.fillRect(hl - unit * 0.215, -railY * 0.5, unit * 0.08, railY);
+  } else if (artType === "empCannon") {
+    // Not a gun. Read back to front: a capacitor bank with visible charge cans,
+    // a spine of induction coils, and a forked emitter whose discharge arcs
+    // across the open gap between its two horns. The old art was a ringed tube
+    // with a lit slot at the end, which is the blaster/plasma silhouette with
+    // different rings on it : this weapon fires no shell and does no hull
+    // damage, so it deliberately has no barrel and no muzzle to look down.
+    // The open fork is the whole identity: keep the gap between the horns empty.
+    //
+    // Arc colours are authored rather than pulled from M.hot because the arc has
+    // to stay near-white at its core to read as a discharge; the fuchsia ramp
+    // only surrounds it. They track the component colour in parts.js : move both
+    // together. The arc gap sits at the multi-tile muzzle point
+    // (TurretRules.muzzleTiles: hl - unit * 0.04) so the pulse leaves the gap.
+    //
+    // Everything emissive here is a function of `progress` (0 just after the
+    // pulse, 1 when the mount is ready again : see WeaponPresentationRules
+    // reloadTelegraph). The weapon used to wear a permanent white discharge
+    // across the horn tips, which said "firing" on a mount that had just fired
+    // and would not fire again for nine seconds. Now the bank fills, the charge
+    // walks forward through the coils, and only the last stage strikes the arc,
+    // so the hull itself tells an opponent how long they have. Nothing here
+    // affects when the weapon fires.
+    // No live charge state (a palette icon, a blueprint) means a mount at rest,
+    // and a mount at rest is one that has not fired: fully recovered, arc
+    // struck, ready. Only an actual reported progress can show it spent.
+    const progress = chargeProgress === null || chargeProgress === undefined
+      ? 1
+      : Math.max(0, Math.min(1, Number(chargeProgress) || 0));
+    // Fraction of a band [from, to] that `progress` has covered, 0..1.
+    const band = (from, to) => Math.max(0, Math.min(1, (progress - from) / Math.max(1e-6, to - from)));
+    const arcGlow = "#e879f9";
+    const arcCore = "#fdf4ff";
+    const bankBack = -hl + unit * 0.06;
+    const bankFront = -hl + unit * 0.82;
+    const hornRoot = hl * 0.34;
+    const hornTip = hl - unit * 0.05;
+    const hornSpread = hc * 0.62;
+    const arcRing = Math.max(fine, unit * 0.06);
+
+    // 1. Capacitor bank: the heavy mass, all of it at the rear.
+    ctx.fillStyle = M.housing;
+    roundRect(ctx, { x: bankBack, y: -hc * 0.78, width: bankFront - bankBack, height: hc * 1.56, radius: unit * 0.1 });
+    ctx.fill();
+    ctx.stroke();
+
+    // Three charge cans recessed into it. Each is a dark slot with the stored
+    // charge glowing inside : on the bare bank face the glow alone washed out.
+    // They fill bottom to top over the first two thirds of the cycle, and each
+    // keeps a dim residual ember at zero so a spent (or blueprint-static) mount
+    // still reads as an energy weapon rather than a dead casting.
+    const canInset = bankBack + unit * 0.17;
+    const canWidth = bankFront - bankBack - unit * 0.34;
+    for (const [slot, cy] of [hc * 0.46, 0, -hc * 0.46].entries()) {
+      ctx.fillStyle = M.bore;
+      roundRect(ctx, { x: bankBack + unit * 0.11, y: cy - hc * 0.15, width: bankFront - bankBack - unit * 0.22, height: hc * 0.3, radius: unit * 0.05 });
+      ctx.fill();
+      const fill = band(slot * 0.22, slot * 0.22 + 0.3);
+      ctx.save();
+      ctx.shadowColor = arcGlow;
+      ctx.shadowBlur = qualityShadowBlur(3 + 7 * fill);
+      ctx.fillStyle = mixColor(arcGlow, "#3b0764", 0.55 - 0.55 * fill);
+      roundRect(ctx, {
+        x: canInset,
+        y: cy - hc * 0.08,
+        width: Math.max(unit * 0.06, canWidth * (0.22 + 0.78 * fill)),
+        height: hc * 0.16,
+        radius: unit * 0.03
+      });
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 2. Spine from the bank forward to the fork root, carrying the coils.
+    ctx.fillStyle = weaponBodyFill(M);
+    roundRect(ctx, { x: bankFront - unit * 0.06, y: -hc * 0.26, width: hornRoot - bankFront + unit * 0.12, height: hc * 0.52, radius: unit * 0.05 });
+    ctx.fill();
+    ctx.stroke();
+
+    // 3. Induction coils: clamped collars with the charge visible in the gaps
+    //    between them, so the spine reads as a launcher stage, not a barrel.
+    const coilSpan = hornRoot - bankFront;
+    for (let i = 0; i < 3; i += 1) {
+      const cx = bankFront + coilSpan * (0.16 + i * 0.34);
+      ctx.fillStyle = M.housing;
+      roundRect(ctx, { x: cx - unit * 0.055, y: -hc * 0.4, width: unit * 0.11, height: hc * 0.8, radius: unit * 0.025 });
+      ctx.fill();
+      ctx.stroke();
+    }
+    // The charge walks forward through the coil gaps: the rear gap lights first,
+    // the forward one hands it to the fork. This is the part that reads as
+    // movement between two baked stages, so it owns the middle of the cycle.
+    for (let i = 0; i < 2; i += 1) {
+      const lit = band(0.3 + i * 0.22, 0.55 + i * 0.22);
+      if (lit <= 0) continue;
+      const cx = bankFront + coilSpan * (0.33 + i * 0.34);
+      ctx.save();
+      ctx.shadowColor = arcGlow;
+      ctx.shadowBlur = qualityShadowBlur(2 + 8 * lit);
+      ctx.strokeStyle = mixColor(arcGlow, "#ffffff", 0.45 * lit);
+      ctx.lineWidth = arcRing * (0.6 + 0.4 * lit);
+      ctx.beginPath();
+      ctx.moveTo(cx, -hc * 0.2 * (0.5 + 0.5 * lit));
+      ctx.lineTo(cx, hc * 0.2 * (0.5 + 0.5 * lit));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 4. The field gap between the horns, filled flush with no border of its
+    //    own (the railgun's open gap does the same job). Without it the two
+    //    horns closed up into a solid megaphone cone and the weapon read as a
+    //    flared muzzle : the emptiness is the whole point of a fork.
+    ctx.save();
+    ctx.fillStyle = "rgba(6,10,18,0.55)";
+    ctx.beginPath();
+    ctx.moveTo(hornRoot - unit * 0.02, -hc * 0.24);
+    ctx.lineTo(hornTip, -(hornSpread - hc * 0.16));
+    ctx.lineTo(hornTip, hornSpread - hc * 0.16);
+    ctx.lineTo(hornRoot - unit * 0.02, hc * 0.24);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 5. The horns themselves: slim tapered quads, not tubes. A rounded pair
+    //    would read as twin barrels, which is what this weapon must never be
+    //    mistaken for. Both take the lit tone with a shaded inner edge, so the
+    //    fork stays symmetric : lighting one horn and shading the other made the
+    //    dark side look like a missing piece at small tile sizes.
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = M.shell;
+      ctx.beginPath();
+      ctx.moveTo(hornRoot - unit * 0.04, side * hc * 0.2);
+      ctx.lineTo(hornRoot - unit * 0.04, side * hc * 0.5);
+      ctx.lineTo(hornTip, side * hornSpread);
+      ctx.lineTo(hornTip, side * (hornSpread - hc * 0.16));
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.save();
+      ctx.strokeStyle = M.shellDeep;
+      ctx.lineWidth = fine;
+      ctx.beginPath();
+      ctx.moveTo(hornRoot - unit * 0.02, side * hc * 0.23);
+      ctx.lineTo(hornTip - unit * 0.03, side * (hornSpread - hc * 0.13));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 6. The emitter. Three things happen here, in this order across the cycle,
+    //    and none of them exist at progress 0 : a spent fork is cold metal.
+    const nodeY = hornSpread - hc * 0.08;
+    const nodeX = hornTip - unit * 0.07;
+    const throatCharge = band(0.4, 0.78);
+    const nodeCharge = band(0.55, 0.88);
+    // Struck only in the last stretch, and only then does anything on this
+    // weapon go white: the arc is the "ready to fire" state, so it must not be
+    // confusable with any of the build-up below it.
+    const strike = band(0.86, 1);
+
+    // Charge gathering in the throat of the fork, before the horns have it.
+    if (throatCharge > 0) {
+      ctx.save();
+      ctx.shadowColor = arcGlow;
+      ctx.shadowBlur = qualityShadowBlur(3 + 9 * throatCharge);
+      ctx.fillStyle = mixColor(arcGlow, "#ffffff", 0.5 * throatCharge);
+      ctx.beginPath();
+      ctx.arc(hornRoot + unit * 0.06, 0, Math.max(0.8, unit * (0.025 + 0.045 * throatCharge)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Emitter nodes on the horn tips, brightening as the charge reaches them.
+    if (nodeCharge > 0) {
+      ctx.save();
+      ctx.shadowColor = arcGlow;
+      ctx.shadowBlur = qualityShadowBlur(3 + 9 * nodeCharge);
+      ctx.fillStyle = mixColor(arcGlow, "#ffffff", 0.25 + 0.6 * nodeCharge);
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(nodeX, side * nodeY, Math.max(0.9, unit * (0.04 + 0.04 * nodeCharge)), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // The discharge itself: a bowed strand with a zigzag inside it. The curve
+    // carries the arc at a glance, the zigzag keeps it reading as lightning when
+    // the tile is small enough that the glow is all that survives. The bow's
+    // control point stays inside hl : bowed past the footprint edge it hung the
+    // discharge over the neighbouring tile and clipped in the baked texture.
+    if (strike > 0) {
+      ctx.save();
+      ctx.shadowColor = arcGlow;
+      ctx.shadowBlur = qualityShadowBlur(6 + 12 * strike);
+      ctx.strokeStyle = arcGlow;
+      ctx.lineWidth = Math.max(fine, unit * 0.05) * (0.5 + 0.5 * strike);
+      ctx.beginPath();
+      ctx.moveTo(nodeX, -nodeY);
+      ctx.quadraticCurveTo(hornTip + unit * 0.06 * strike, 0, nodeX, nodeY);
+      ctx.stroke();
+      ctx.strokeStyle = mixColor(arcGlow, arcCore, strike);
+      ctx.lineWidth = Math.max(fine * 0.9, unit * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(hornTip - unit * 0.09, -(hornSpread - hc * 0.12));
+      ctx.lineTo(hornTip - unit * 0.2, -hc * 0.12);
+      ctx.lineTo(hornTip - unit * 0.06, hc * 0.06);
+      ctx.lineTo(hornTip - unit * 0.09, hornSpread - hc * 0.12);
+      ctx.stroke();
+      ctx.restore();
+    }
   } else if (artType === "plasmaCannon") {
     // A containment weapon, not a gun: a bottle at the breech holding the charge,
     // a short wide throat, and a flared magnetic nozzle. Deliberately built from

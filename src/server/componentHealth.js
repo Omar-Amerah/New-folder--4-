@@ -432,15 +432,15 @@ function detonateComponent(room, ship, index, radius, damage, now) {
 const EFFECTIVE_STAT_KEYS = [
   "mass", "shieldRegen", "powerGeneration", "powerUse", "power", "availablePower", "powerRatio", "powerStorageDischarge", "efficiency",
   "thrust", "effectiveThrust", "engineEfficiency", "thrustRatio", "energyStorage",
-  "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight", "massClass", "turnCap",
+  "accel", "maxSpeed", "turnRate", "turnRateLeft", "turnRateRight",
   "powerEfficiency", "powerDebuff",
-  "blaster", "missile", "railgun", "beam", "pointDefense",
+  "blaster", "missile", "railgun", "beam", "pointDefense", "emp",
   "repair", "selfRepairRateInstalled", "selfRepairSourceCount", "selfRepairRate", "repairBeamOutput", "repairBeamRate",
   "repairRateInstalled", "repairRateSourceCount", "repairRate", "repairRange",
   "coolingBonus", "captureBonus", "ecmStrength",
 
   "frontDamageReduction", "frontArc",
-  "blasterRange", "missileRange", "railgunRange", "beamRange", "beamRadius",
+  "blasterRange", "missileRange", "railgunRange", "beamRange", "empRange", "beamRadius",
   "weaponDps", "weaponDpsLabel", "weapons"
 ];
 

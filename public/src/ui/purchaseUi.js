@@ -284,18 +284,6 @@ export function updateEconomyUi({ refreshCatalogue = true } = {}) {
   }
   updateDeploymentControls();
 
-  if (mine) {
-    const status = state.phase === "design"
-      ? mine.ready ? "Ready. Waiting for the rest of the room." : "Ready up whenever you are ready. Buy a valid ship after the match starts."
-      : mine.ready
-        ? economyStatusText({ income, relays })
-        : "Waiting for ship design";
-    if (dom.buildStatus && !dom.buildStatus.className.includes("warning")) {
-      dom.buildStatus.textContent = status;
-      dom.buildStatus.className = "build-status good";
-    }
-  }
-
   if (refreshCatalogue) {
     rebuildPurchaseCatalogue();
   } else {
@@ -1094,8 +1082,9 @@ export function hidePurchaseTooltip() {
 }
 
 export function inferShipRole(stats) {
-  const weapons = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
+  const weapons = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.emp || 0);
   if (stats.repair > 0 && stats.weaponDps < 30) return "Support";
+  if ((stats.emp || 0) > 0 && stats.weaponDps < 30) return "EMP Ship";
   if ((stats.beam || 0) >= Math.max(stats.blaster, stats.missile, stats.railgun) && (stats.beam || 0) > 0) return "Beam Ship";
   if (stats.railgun >= Math.max(stats.blaster, stats.missile) && stats.railgun > 0) return "Rail Platform";
   if (stats.missile >= Math.max(stats.blaster, stats.railgun) && stats.missile > 0) return "Missile Boat";

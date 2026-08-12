@@ -90,7 +90,7 @@ async function inspectMobile(page) {
     inspector.activateDesignerInspectorTab("blueprints");
     const right = document.querySelector(".designer-right-col").getBoundingClientRect();
     const saved = [...document.querySelectorAll(".designer-right-col h2")].find((h) => h.textContent.includes("Saved Blueprints")).getBoundingClientRect();
-    const loadouts = [...document.querySelectorAll(".designer-right-col h2")].find((h) => h.textContent.includes("Loadouts")).getBoundingClientRect();
+    const loadouts = [...document.querySelectorAll(".designer-right-col .loadout-strip-label")].find((label) => label.textContent.includes("Loadout")).getBoundingClientRect();
     const activePanel = document.getElementById("designerBlueprintsPanel");
     const activePanelScrollable = activePanel.scrollHeight > activePanel.clientHeight;
     const closeButton = document.getElementById("closeBlueprintDesignerButton");
@@ -109,9 +109,9 @@ async function inspectMobile(page) {
 
   if (after.right.left < -2 || after.right.right > after.viewportWidth + 2) throw new Error("right designer column is not fully visible");
   if (after.saved.left < 0 || after.saved.right > after.viewportWidth) throw new Error("Saved Blueprints heading is not reachable");
-  if (after.loadouts.left < 0 || after.loadouts.right > after.viewportWidth) throw new Error("Loadouts heading is not reachable");
+  if (after.loadouts.left < 0 || after.loadouts.right > after.viewportWidth) throw new Error("Loadout strip is not reachable");
   if (after.close.left < 0 || after.close.right > after.viewportWidth) throw new Error("Close button is not reachable");
-  if (!after.closed) throw new Error("Close button did not close the designer");
+  await page.waitForSelector("#blueprintDesignerScreen", { state: "hidden", timeout: 5000 });
 
   return { before, after };
 }

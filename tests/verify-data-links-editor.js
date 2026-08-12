@@ -78,6 +78,24 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
 
     const links = () => page.evaluate(async () => (await import("/src/state.js")).state.dataLinks.map((l) => `${l.sourceIndex}:${l.targetIndex}`).sort());
     const hint = () => page.locator("#buildInteractionGuide").textContent();
+    const linkDetailsPresentation = () => page.evaluate(() => {
+      const section = document.querySelector('[data-data-inspector="link-details"]');
+      const heading = section?.querySelector("h5");
+      const content = section?.querySelector(".data-link-details");
+      return {
+        sectionTag: section?.tagName,
+        headingTag: heading?.tagName,
+        headingText: heading?.textContent.trim(),
+        contentHidden: content?.hidden ?? null,
+        contentDisplay: content ? getComputedStyle(content).display : null,
+        detailElements: section?.querySelectorAll("details").length ?? 0,
+        summaryElements: section?.querySelectorAll("summary").length ?? 0,
+        buttons: section?.querySelectorAll("button").length ?? 0,
+        headingRole: heading?.getAttribute("role") ?? null,
+        headingCursor: heading ? getComputedStyle(heading).cursor : null,
+        text: content?.textContent.replace(/\s+/g, " ").trim() ?? ""
+      };
+    });
 
     // Centre of a component, in page coordinates, measured from the REAL build
     // grid cells rather than from the overlay. Clicks here only land if the
@@ -293,6 +311,22 @@ const ADJACENT_SOURCE_A = 12, ADJACENT_SOURCE_B = 13;
     });
     assert.match(panel.text, /2 \/ 2 active/, "analysis reports both sources delivering");
     assert.match(panel.text, /2 \/ 2 supported/, "analysis reports both weapons supported");
+
+    const linkDetails = await linkDetailsPresentation();
+    assert.equal(linkDetails.sectionTag, "SECTION", "Link Details is a normal content section");
+    assert.equal(linkDetails.headingTag, "H5", "Link Details uses a section heading");
+    assert.equal(linkDetails.headingText, "LINK DETAILS", "Link Details heading is present");
+    assert.equal(linkDetails.contentHidden, false, "Link Details content is rendered by default");
+    assert.notEqual(linkDetails.contentDisplay, "none", "Link Details content is readable");
+    assert.equal(linkDetails.detailElements, 0, "Link Details has no collapsible details element");
+    assert.equal(linkDetails.summaryElements, 0, "Link Details has no disclosure summary");
+    assert.equal(linkDetails.buttons, 0, "Link Details heading is not rendered as a button");
+    assert.equal(linkDetails.headingRole, null, "Link Details heading has no interactive role");
+    assert.notEqual(linkDetails.headingCursor, "pointer", "Link Details heading does not imply click interaction");
+    assert.match(linkDetails.text, /Direct links\s*2/, "Link Details keeps the direct-link count");
+    assert.match(linkDetails.text, /Sources fitted\s*2/, "Link Details keeps the source count");
+    assert.match(linkDetails.text, /Weapons fitted\s*2/, "Link Details keeps the weapon count");
+    assert.match(linkDetails.text, /free and weightless/, "Link Details keeps its explanatory note");
 
     // --- link selection + Delete ---
     // Sample 25% along the 1:3 line — the two links cross at their midpoints,

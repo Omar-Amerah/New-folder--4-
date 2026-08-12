@@ -1,7 +1,7 @@
-// Validates component-balance.json before normalization so invalid balance data
+// Validates component-balance.json before normalization so malformed balance data
 // cannot be silently repaired into a different authoritative catalogue.
 
-const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense", "flak"]);
+const VALID_WEAPON_FAMILIES = new Set(["blaster", "missile", "railgun", "beam", "pointDefense", "flak", "emp"]);
 // Weapon families for which Beam burn-through carry-over is meaningful.
 const BURN_THROUGH_WEAPON_FAMILIES = new Set(["beam"]);
 const VALID_TARGET_PRIORITIES = new Set(["ship", "missile", "torpedo", "swarmMissile", "projectile", "drone", "droneFighter", "droneOther", "decoy"]);
@@ -20,7 +20,7 @@ const NUMERIC_FIELDS = [
 ];
 const WEAPON_NUMERIC_FIELDS = [
   "damage", "fireRate", "range", "radius", "projectileSpeed", "projectileLifetime", "accuracy", "tracking",
-  "trackTime", "trackingDelay", "aimSpeed", "arc", "missileHp", "shipDamageMultiplier",
+  "trackTime", "trackingDelay", "aimSpeed", "arc", "missileHp", "shipDamageMultiplier", "projectileRadius", "shieldDisruptionFraction",
   "pelletCount", "pelletSpreadDegrees",
   "shieldDamageMultiplier", "hullDamageMultiplier", "directDamage",
   "blastDamage", "blastRadius", "proximityFuseRadius", "innerFullDamageRadius",
@@ -42,6 +42,7 @@ const PELLET_WEAPON_FAMILIES = new Set(["blaster", "railgun"]);
 const IMPACT_BLAST_WEAPON_FAMILIES = new Set(["blaster", "railgun", "flak"]);
 // Charge-then-fire spinal mounts are built on the railgun firing path.
 const SPINAL_CHARGE_WEAPON_FAMILIES = new Set(["railgun"]);
+const EMP_WEAPON_FAMILIES = new Set(["emp"]);
 const SPINAL_CHARGE_NUMERIC_FIELDS = [
   "chargeSeconds", "chargeHoldSeconds", "chargeDecayMultiplier",
   "committedAimStartProgress", "committedAimTraverseFloor",
@@ -243,6 +244,32 @@ function validateSpinalCharge(charge, family, path, errors) {
   }
 }
 
+function validateEmpWeapon(weapon, family, path, errors) {
+  const customFields = ["projectileRadius", "shieldDisruptionFraction"];
+  for (const field of customFields) {
+    if (weapon[field] !== undefined && (typeof family !== "string" || !EMP_WEAPON_FAMILIES.has(family))) {
+      errors.push(`${path}.weapon.${field} is only supported for emp weapons.`);
+    }
+  }
+  if (typeof family !== "string" || !EMP_WEAPON_FAMILIES.has(family)) return;
+  if (!(Number.isFinite(weapon.damage) && weapon.damage === 0)) {
+    errors.push(`${path}.weapon.damage must be exactly 0 for emp weapons.`);
+  }
+  if (!(Number.isFinite(weapon.shieldDisruptionFraction) && weapon.shieldDisruptionFraction > 0 && weapon.shieldDisruptionFraction <= 1)) {
+    errors.push(`${path}.weapon.shieldDisruptionFraction must be greater than 0 and no more than 1 for emp weapons.`);
+  }
+  const projectileRadius = weapon.projectileRadius ?? weapon.radius;
+  if (!(Number.isFinite(projectileRadius) && projectileRadius > 0)) {
+    errors.push(`${path}.weapon.projectileRadius or radius must be greater than 0 for emp weapons.`);
+  }
+  if (weapon.tracking !== undefined && weapon.tracking !== 0) {
+    errors.push(`${path}.weapon.tracking must be 0 for unguided emp weapons.`);
+  }
+  if (!(Number.isFinite(weapon.projectileSpeed) && weapon.projectileSpeed > 0)) {
+    errors.push(`${path}.weapon.projectileSpeed must be greater than 0 for emp weapons.`);
+  }
+}
+
 // Burst cooling (Burst Cooler). The component charges from the Heat network and
 // vents its whole store at once, then runs at a fraction of its rating while it
 // recharges.
@@ -422,6 +449,7 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
           && !IMPACT_HEAT_WEAPON_FAMILIES.has(family)) {
           errors.push(`${path}.weapon.impactHeatPerDamage is only supported for ${[...IMPACT_HEAT_WEAPON_FAMILIES].join(", ")} weapons.`);
         }
+        validateEmpWeapon(component.weapon, family, path, errors);
         validatePelletFire(component.weapon, family, path, errors);
         validateImpactBlast(component.weapon, family, path, errors);
         validateSpinalCharge(component.weapon.spinalCharge, family, path, errors);

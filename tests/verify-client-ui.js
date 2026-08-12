@@ -472,7 +472,7 @@ if (rotationCycle.join(",") !== "true,90,90,true,180,180,true,270,270,true,0,0")
   throw new Error(`placed component rotation cycle regressed: ${rotationCycle.join(",")}`);
 }
 
-const hoverPreviewSize = vm.runInContext(`
+const hoverPreviewPlacement = vm.runInContext(`
   state.design = [
     { x: 5, y: 5, type: "core", rotation: 0 },
     { x: 5, y: 6, type: "blaster", rotation: 0 }
@@ -482,10 +482,11 @@ const hoverPreviewSize = vm.runInContext(`
   state.hoveredCell = { x: 5, y: 6 };
   renderHoverPreview();
   const preview = dom.grid.querySelectorAll(".build-preview")[0];
-  [Number.parseFloat(preview.style.width), Number.parseFloat(preview.style.height)];
+  [preview.style.gridColumn, preview.style.gridRow, preview.style.left, preview.style.top, preview.style.width, preview.style.height];
 `, context);
-if (!(hoverPreviewSize[0] > hoverPreviewSize[1] * 2)) {
-  throw new Error(`hover preview should keep selected rotation over occupied cells: ${hoverPreviewSize.join(",")}`);
+if (hoverPreviewPlacement[0] !== "6 / span 3" || hoverPreviewPlacement[1] !== "7 / span 1"
+  || hoverPreviewPlacement.slice(2).some(Boolean)) {
+  throw new Error(`hover preview should use the rotated CSS Grid area over occupied cells: ${hoverPreviewPlacement.join(",")}`);
 }
 
 

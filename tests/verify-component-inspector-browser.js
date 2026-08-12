@@ -282,6 +282,28 @@ async function readInspector(page) {
       assert.doesNotMatch(sensor.allText, /accuracy bonus/i, "no Accuracy bonus: None");
     });
 
+    const sensorSnapshots = {};
+    for (const type of ["smallSensor", "largeSensor", "smallDirectedSensor", "largeDirectedSensor"]) {
+      await selectComponent(page, type);
+      sensorSnapshots[type] = await readInspector(page);
+    }
+    check("Sensor components keep authored range and arc stats without stacking copy", () => {
+      for (const type of Object.keys(sensorSnapshots)) {
+        const view = sensorSnapshots[type];
+        assert.ok(view.capability.some((cell) => /range bonus/i.test(cell.label)), `${type} keeps its range bonus`);
+        assert.doesNotMatch(view.allText, /linear stack|linear stacking|stacks linearly/i,
+          `${type} omits redundant stacking wording`);
+        assert.equal(view.capability.some((cell) => /stack/i.test(cell.label)), false,
+          `${type} has no stacking capability row`);
+        if (type.includes("Directed")) {
+          assert.ok(view.capability.some((cell) => /cone width/i.test(cell.label)), `${type} keeps its sensor arc`);
+        } else {
+          assert.equal(view.capability.some((cell) => /cone width/i.test(cell.label)), false,
+            `${type} does not invent an arc for an omnidirectional sensor`);
+        }
+      }
+    });
+
     check("advanced headings are context-specific, never generic Combat or Heat details", () => {
       for (const type of REPRESENTATIVE) {
         for (const section of snapshots[type].sections) {

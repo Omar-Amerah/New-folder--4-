@@ -36,12 +36,15 @@ import { pixiBakeTexture, getPixiBakeGeneration, createPixiTextureCache, swapTex
 import {
   drawShipStructure,
   drawRotatingWeaponTop,
-  SPINAL_CHARGE_STAGES
+  WEAPON_CHARGE_STAGES
 } from "../componentArt.js";
 import { footprintLocalPlacement, shipEngineNozzles, shipLocalBounds } from "../shipGeometry.js";
 import { drawPlacedStaticComponent } from "../staticComponentComposition.js";
 import { shipLocalCoolantMasks } from "../../design/coolantLayout.js";
 import { isRotatingWeaponPart } from "../weaponAim.js";
+import "../../shared/weaponPresentationRules.js";
+
+const WeaponPresentationRules = globalThis.WeaponPresentationRules;
 
 export const SHIP_SCALE = 13;
 // Nominal zoom used when baking zoom-compensated line widths into textures.
@@ -66,11 +69,12 @@ function hullTextureKey(staticKey) {
 }
 // Turret art depends only on part type + bake scale + generation (the rotating
 // top uses the part's own colour, not the team colour).
-// A charging spinal mount lights up section by section, so its top is not one
-// static picture. Baking per frame would be ruinous; the art quantises progress
-// into SPINAL_CHARGE_STAGES discrete stages instead, and each stage is one more
-// cached texture keyed here. Every other weapon only ever asks for stage 0, so
-// nothing else pays for this.
+// A charging mount lights up section by section (the spinal accelerator filling
+// its coils, the EMP Cannon's fork crackling back to life as it reloads), so its
+// top is not one static picture. Baking per frame would be ruinous; the art
+// quantises progress into WEAPON_CHARGE_STAGES discrete stages instead, and each
+// stage is one more cached texture keyed here. Every other weapon only ever asks
+// for stage 0, so nothing else pays for this.
 function turretTextureKey(partType, bakeScale, chargeStage) {
   return `${partType}|${bakeScale}|${chargeStage}|${getPixiBakeGeneration()}`;
 }
@@ -83,10 +87,13 @@ function arrowTextureKey(bakeScale) {
 export function acquireHullLease(env, design, color, radius, staticKey) {
   return hullTextureCache.acquire(hullTextureKey(staticKey), () => bakePixiHullTexture(env, design, color, radius));
 }
-export function acquireTurretLease(env, partType, chargeStage = 0) {
-  const stage = Number.isFinite(chargeStage) ? Math.max(0, Math.trunc(chargeStage)) : 0;
+// A caller with no charge state to report (station batteries, a ship view before
+// its first snapshot) omits the stage and gets the weapon's resting art, which
+// is not the same texture as stage 0 : stage 0 is a mount that has just fired.
+export function acquireTurretLease(env, partType, chargeStage = null) {
+  const stage = Number.isFinite(chargeStage) ? Math.max(0, Math.trunc(chargeStage)) : null;
   return turretTextureCache.acquire(
-    turretTextureKey(partType, env.bakeScale, stage),
+    turretTextureKey(partType, env.bakeScale, stage === null ? "rest" : stage),
     () => bakePixiTurretTexture(env, partType, stage)
   );
 }
@@ -137,7 +144,7 @@ export function bakePixiHullTexture(env, design, color, radius) {
 // --- Turret texture -----------------------------------------------------------
 // Only the rotating weapon top, on a transparent background, centred on the
 // pivot, with local +x as weapon-forward.
-export function bakePixiTurretTexture(env, partType, chargeStage = 0) {
+export function bakePixiTurretTexture(env, partType, chargeStage = null) {
   const def = PART_DEFS[partType] || PART_DEFS.frame;
   const footprint = PART_STATS[partType]?.footprint || { width: 1, height: 1 };
   const tilesLong = Math.max(footprint.width || 1, footprint.height || 1);
@@ -145,9 +152,9 @@ export function bakePixiTurretTexture(env, partType, chargeStage = 0) {
   const multi = tilesLong > 1 || tilesCross > 1;
   // Extent must cover the elongated barrel (canonical art spans ±tilesLong/2).
   const halfExtent = SHIP_SCALE * (multi ? tilesLong * 0.62 + 1.0 : 2.1);
-  const chargeProgress = SPINAL_CHARGE_STAGES > 1
-    ? Math.max(0, Math.min(1, chargeStage / (SPINAL_CHARGE_STAGES - 1)))
-    : 0;
+  const chargeProgress = chargeStage === null || !Number.isFinite(chargeStage)
+    ? null
+    : Math.max(0, Math.min(1, WEAPON_CHARGE_STAGES > 1 ? chargeStage / (WEAPON_CHARGE_STAGES - 1) : 0));
   return pixiBakeTexture(env, halfExtent * 2, halfExtent * 2, () => {
     drawRotatingWeaponTop({ type: partType, unit: SHIP_SCALE, tilesLong, tilesCross, color: def.color, chargeProgress });
   });
@@ -464,10 +471,15 @@ export function rebuildPixiShipStatic(env, view, design, color, radius, staticKe
     sprite.__designIndex = i;
     sprite.__partType = part.type;
     sprite.__weaponStat = PART_STATS[part.type]?.weapon || null;
-    // Only a charging mount ever leaves stage 0, so this stays a no-op field for
-    // every other turret in the fleet.
-    sprite.__chargeStage = 0;
-    sprite.__charges = Boolean(PART_STATS[part.type]?.weapon?.spinalCharge);
+    // Only a charging mount ever leaves the resting texture, so this stays a
+    // no-op field for every other turret in the fleet. Both kinds of charge art
+    // qualify: the spinal accelerator's accumulator and the EMP Cannon's reload
+    // telegraph. It starts null, not 0, because the sprite is holding the
+    // resting bake : starting at 0 would make the first reported stage-0 update
+    // a no-op and leave a spent mount drawn as a ready one.
+    sprite.__chargeStage = null;
+    sprite.__charges = Boolean(sprite.__weaponStat?.spinalCharge)
+      || WeaponPresentationRules.hasReloadTelegraph(sprite.__weaponStat);
     sprite.__lease = lease;
     sprite.__baseTexture = lease.texture;
     sprite.rotation = defaultTurretAngle(part);

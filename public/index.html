@@ -567,6 +567,7 @@
                 </div>
               </div>
             </div>
+            <div id="blueprintDesignerNotice" class="blueprint-designer-notice" role="status" aria-live="polite" hidden></div>
 
             <div class="designer-workspace">
               <div id="blueprintModeContext" class="blueprint-mode-context" role="region" aria-labelledby="blueprintModeTitle">
@@ -639,30 +640,32 @@
                         <button type="button" data-thermal-load="combat" class="active" aria-pressed="true" title="Typical Combat: realistic weapon, engine, shield and repair usage">Typical Combat</button>
                         <button type="button" data-thermal-load="full" aria-pressed="false" title="Maximum Sustained Load: all major systems operating continuously">Max Load</button>
                       </div>
+                      <button id="blueprintHeatLegendButton" type="button" class="heat-legend-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="blueprintHeatLegend">Legend</button>
                     </div>
-                    <div id="heatFlowViewControls" class="heat-control-row heat-flow-row" role="group" aria-label="Heat flows">
-                      <span class="heat-control-label">Overlay</span>
-                      <small id="heatFlowHint">All heat flows shown · hover a component for its H/s values.</small>
-                    </div>
-                    <details id="blueprintHeatLegend" class="blueprint-heat-legend">
-                      <summary>Overlay Legend</summary>
-                      <div class="heat-legend-content">
-                        <section>
-                          <h4>Heat States</h4>
-                          <div class="heat-state-list"><span data-heat-state="normal">Cool / Warm: full active output</span><span data-heat-state="hot">Hot: reduced active output</span><span data-heat-state="critical">Critical: heavily reduced active output</span><span data-heat-state="overheated">Overheated: full shutdown; see the lockout recovery rule</span></div>
+                    <div id="blueprintHeatLegend" class="blueprint-heat-legend" role="dialog" aria-label="Heat legend" hidden>
+                      <div id="heatLegendContent" class="heat-legend-content">
+                        <section class="heat-legend-group" aria-labelledby="heatStatesLegendHeading">
+                          <h4 id="heatStatesLegendHeading">Heat States</h4>
+                          <div class="heat-state-list">
+                            <div class="heat-state-entry" data-heat-state="normal"><span class="heat-state-name">Cool / Warm</span><span class="heat-state-rule"></span></div>
+                            <div class="heat-state-entry" data-heat-state="hot"><span class="heat-state-name">Hot</span><span class="heat-state-rule"></span></div>
+                            <div class="heat-state-entry" data-heat-state="critical"><span class="heat-state-name">Critical</span><span class="heat-state-rule"></span></div>
+                            <div class="heat-state-entry" data-heat-state="overheated"><span class="heat-state-name">Overheated</span><span class="heat-state-rule"></span></div>
+                          </div>
                         </section>
-                        <section>
-                          <h4>Overlay Meaning</h4>
-                          <ul>
-                            <li>Arrow Direction = Heat Movement</li>
-                            <li>Thickness = Transfer Amount</li>
-                            <li>Dashed = Frame or Heat Pipe Route</li>
-                            <li>Cyan Outward Arrow = Exterior Cooling</li>
-                            <li>Percentage = Heat-Capacity Usage</li>
-                          </ul>
+                        <section class="heat-legend-group" aria-labelledby="heatOverlayLegendHeading">
+                          <h4 id="heatOverlayLegendHeading">Overlay</h4>
+                          <div class="heat-overlay-meaning-list">
+                            <div><span>Arrow</span><span>Heat movement</span></div>
+                            <div><span>Thickness</span><span>Transfer amount</span></div>
+                            <div><span>Dashed</span><span>Frame / Heat Pipe route</span></div>
+                            <div><span>Cyan arrow</span><span>External cooling</span></div>
+                            <div><span>%</span><span>Heat capacity used</span></div>
+                          </div>
+                          <p class="heat-legend-footer">Hover a component to inspect its H/s values.</p>
                         </section>
                       </div>
-                    </details>
+                    </div>
                   </div>
                 </div>
                 <section id="fullLoadThermalPanel" class="full-load-thermal-panel" hidden></section>

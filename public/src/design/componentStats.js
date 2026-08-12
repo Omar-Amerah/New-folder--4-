@@ -1,4 +1,4 @@
-// Calculations for ship statistics, mass classes, power efficiency, and builder warnings.
+// Calculations for ship statistics, continuous mass effects, power efficiency, and builder warnings.
 
 import { PART_STATS } from "./parts.js";
 import ShieldRules from "../shared/shieldRules.js";
@@ -111,6 +111,7 @@ export function computeStats(modules, options = {}) {
   let missile = 0;
   let railgun = 0;
   let beam = 0;
+  let emp = 0;
   let repair = 0;
   const selfRepairRateValues = [];
   const repairBeamRateValues = [];
@@ -133,6 +134,7 @@ export function computeStats(modules, options = {}) {
     missile: weaponAccumulator(),
     railgun: weaponAccumulator(),
     beam: weaponAccumulator(),
+    emp: weaponAccumulator(),
     pointDefense: weaponAccumulator()
   };
 
@@ -171,6 +173,7 @@ export function computeStats(modules, options = {}) {
     missile += part.missile || 0;
     railgun += part.railgun || 0;
     beam += part.beam || 0;
+    emp += part.emp || 0;
     pointDefense += part.pointDefense || 0;
     if (module.type === "droneBay") {
       droneBays += 1;
@@ -271,6 +274,7 @@ export function computeStats(modules, options = {}) {
     missile,
     railgun,
     beam,
+    emp,
     pointDefense,
     droneBays,
     droneCapacity,
@@ -316,13 +320,12 @@ export function computeStats(modules, options = {}) {
     turnRate: movement.turnRate,
     turnRateLeft: movement.turnRateLeft,
     turnRateRight: movement.turnRateRight,
-    massClass: movement.massClass,
-    turnCap: movement.turnCap,
     thrustRatio: Number(movement.thrustRatio.toFixed(2)),
     blaster,
     missile,
     railgun,
     beam,
+    emp,
     pointDefense,
     repair,
     selfRepairRateInstalled,
@@ -341,6 +344,7 @@ export function computeStats(modules, options = {}) {
     missileRange: weaponRange(weaponTotals.missile),
     railgunRange: weaponRange(weaponTotals.railgun),
     beamRange: weaponRange(weaponTotals.beam),
+    empRange: weaponRange(weaponTotals.emp),
     beamRadius: weaponTotals.beam.radius,
     weaponDps: Number(
       (
@@ -375,11 +379,13 @@ export function weaponAccumulator() {
     damage: 0,
     range: 0,
     radius: 0,
+    projectileRadius: 0,
     fireRate: 0,
     reload: 0,
     projectileSpeed: 0,
     accuracy: 0,
     tracking: 0,
+    shieldDisruptionFraction: 0,
     dps: 0,
     rateProfiles: []
   };
@@ -393,11 +399,13 @@ export function addWeaponStats(total, weapon, fireRateMultiplier = 1) {
   total.damage += weapon.damage;
   total.range = Math.max(total.range, weapon.range);
   total.radius = Math.max(total.radius, weapon.radius || 0);
+  total.projectileRadius = Math.max(total.projectileRadius, weapon.projectileRadius || weapon.radius || 0);
   total.fireRate += effectiveFireRate;
   total.reload += presentation.reloadSeconds;
   total.projectileSpeed += weapon.projectileSpeed;
   total.accuracy += weapon.accuracy;
   total.tracking += weapon.tracking || 0;
+  total.shieldDisruptionFraction += Number(weapon.shieldDisruptionFraction) || 0;
   total.dps += presentation.dps;
   total.rateProfiles.push(effectiveWeapon);
 }
@@ -456,11 +464,13 @@ export function summarizeWeaponTotals(totals) {
       damage: total.damage,
       range: total.range,
       radius: total.radius,
+      projectileRadius: total.count ? Number((total.projectileRadius / total.count).toFixed(1)) : 0,
       fireRate: Number(total.fireRate.toFixed(2)),
       reload: total.count ? Number((total.reload / total.count).toFixed(2)) : 0,
       projectileSpeed: total.count ? Math.round(total.projectileSpeed / total.count) : 0,
       accuracy: total.count ? Number((total.accuracy / total.count).toFixed(2)) : 0,
       tracking: total.count ? Number((total.tracking / total.count).toFixed(2)) : 0,
+      shieldDisruptionFraction: total.count ? Number((total.shieldDisruptionFraction / total.count).toFixed(2)) : 0,
       dps: Number(total.dps.toFixed(1)),
       dpsLabel: WeaponPresentationRules.dpsLabelForProfiles(total.rateProfiles),
       hasChargeWeapon: (Array.isArray(total.rateProfiles) ? total.rateProfiles : [])
@@ -491,10 +501,11 @@ export function shipWarnings(stats) {
     Number(stats.missile || 0) +
     Number(stats.railgun || 0) +
     Number(stats.beam || 0) +
+    Number(stats.emp || 0) +
     Number(stats.pointDefense || 0);
 
   // Keep warnings for clear, actionable problems.
-  // Softer trade-offs like "heavy", "slow", or "average mobility" should be handled by stat colour-coding.
+  // Softer trade-offs like high mass, slow speed, or average mobility should be handled by stat colour-coding.
 
   if (powerUse > availablePower + 0.0005) {
     warnings.push(`Power shortage: ${availablePower.toFixed(1)} MW available for ${powerUse.toFixed(1)} MW demand.`);
@@ -516,7 +527,7 @@ export function shipWarnings(stats) {
   }
 
   // Only warn about mobility when it is genuinely severe.
-  // Do not warn just because the ship is medium/heavy.
+  // Do not warn just because the ship has a higher mass.
   if (effectiveThrust > 0 && thrustRatio > 0 && thrustRatio < 1.2) {
     warnings.push("Severe mobility issue: thrust is very low for this ship's mass.");
   }

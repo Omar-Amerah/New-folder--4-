@@ -65,8 +65,8 @@ module.exports = Object.freeze({
   // the contact created, never the ship's own propulsion.
   FRIENDLY_PUSH_SPEED_RATIO: 0.2,
   FRIENDLY_PUSH_ABSOLUTE_CAP: 30,
-  // How far the mass ratio may swing that acceleration. A heavy hull shifts a
-  // light one easily; a light one barely moves a heavy one; neither is launched.
+  // How far the mass ratio may swing that acceleration. A higher-mass hull shifts
+  // a lower-mass one easily; a lower-mass one barely moves a higher-mass one.
   FRIENDLY_PUSH_MASS_FACTOR_MIN: 0.25,
   FRIENDLY_PUSH_MASS_FACTOR_MAX: 2,
   // Closing speed left in the pusher afterwards. Without it the pair latches to
@@ -106,7 +106,7 @@ module.exports = Object.freeze({
   DAMPING_REFERENCE_HZ: 60,
   // Cruising, under power: none. What caps a ship is its effective maximum
   // speed, and any drag at all here is subtracted from its engines -- worst for
-  // exactly the heavy, low-acceleration hulls that can least afford it. Ending
+  // exactly the higher-mass, low-acceleration hulls that can least afford it. Ending
   // a coast is UNPOWERED_DAMPING's job, and that only applies to a ship with no
   // working drive, which is the only ship actually coasting.
   TRAVEL_DAMPING: 1,
@@ -173,8 +173,8 @@ module.exports = Object.freeze({
   // A settled orbit sits slightly outside its radius, because a hull travelling
   // at its turn-limited speed cannot curve tighter than it is already curving.
   // Narrowing this band pulls the settled radius back in; past roughly this
-  // value it stops helping, since what is left is the turn limit rather than a
-  // weak correction.
+  // value it stops helping, since what is left is the available turn rate rather
+  // than a weak correction.
   ORBIT_CORRECTION_BAND: 120,
   // How hard a full correction pulls against the tangent. At 1 the desired
   // direction at maximum error is 45 degrees off the tangent -- closing briskly

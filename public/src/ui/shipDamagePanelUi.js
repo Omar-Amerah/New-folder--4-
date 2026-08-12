@@ -528,7 +528,17 @@ function drawDiagram(ship) {
         drawContext.save();
         drawContext.translate(place.cx, place.cy);
         drawContext.rotate(authoritativeWeaponAngle(ship, index, part));
-        drawRotatingWeaponTop({ type: part.type, unit: cellSize, tilesLong: place.tilesLong, tilesCross: place.tilesCross, color: def.color });
+        // This panel shows a live ship, so a charge-driven mount gets its real
+        // reported progress rather than the resting picture the palette uses.
+        const charge = ship.weaponCharge?.[index];
+        drawRotatingWeaponTop({
+          type: part.type,
+          unit: cellSize,
+          tilesLong: place.tilesLong,
+          tilesCross: place.tilesCross,
+          color: def.color,
+          chargeProgress: Number.isFinite(charge) ? charge : null
+        });
         drawContext.restore();
       }
       drawContext.translate(place.cx, place.cy);

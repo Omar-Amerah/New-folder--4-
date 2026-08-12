@@ -523,15 +523,15 @@ export function dataSupportPanelMarkup(analysis, { selectedLinkKey = null } = {}
     body += `</div>`;
   }
 
-  body += `<details class="data-details" data-data-inspector="link-details">
-    <summary aria-controls="data-link-details"><span>Link details</span></summary>
+  body += `<section class="data-details" data-data-inspector="link-details">
+    <h5 class="data-section-heading">LINK DETAILS</h5>
     <div id="data-link-details" class="data-link-details">
       <div class="data-link-row"><span>Direct links</span><strong>${(analysis?.links || []).length}</strong></div>
       <div class="data-link-row"><span>Sources fitted</span><strong>${sources.length}</strong></div>
       <div class="data-link-row"><span>Weapons fitted</span><strong>${weapons.length}</strong></div>
       <div class="data-link-note">Data links are free and weightless: they add no cost, no mass and no heat.</div>
     </div>
-  </details>`;
+  </section>`;
 
   if (selectedLinkKey) {
     const [s, t] = selectedLinkKey.split(":").map(Number);

@@ -54,6 +54,7 @@ export const PART_DEFS = {
   compactEngine: { name: "Compact Engine", color: "#38bdf8", glyph: "linear-gradient(180deg, #a5f3fc, #0ea5e9 52%, #082f49)" },
   reactor: { name: "Reactor", color: "#ffdc5e", glyph: "radial-gradient(circle, #fff7b3 0 20%, #f4c145 26% 55%, #6b4b12 60%)" },
   nuclearReactor: { name: "Nuclear Reactor", color: "#facc15", glyph: "radial-gradient(circle, #fffde7 0 12%, #fde047 14% 30%, #f97316 34% 48%, #7c2d12 54%)" },
+  auxGenerator: { name: "Aux Generator", color: "#fef08a", glyph: "linear-gradient(45deg, #422006, #eab308, #fef9c3)" },
   backupCore: { name: "Backup Command Core", color: "#c4b5fd", glyph: "radial-gradient(circle, #f5f3ff 0 18%, #8b5cf6 22% 48%, #312e81 54%)" },
   battery: { name: "Battery", color: "#7ee0ff", glyph: "linear-gradient(180deg, #d5fbff 0 20%, #47caee 22% 50%, #14536f 52%)" },
   shield: { name: "Shield", color: "#7cffa0", glyph: "radial-gradient(circle, #b9ffd0 0 18%, #39cc75 28% 54%, #114027 58%)" },
@@ -69,7 +70,6 @@ export const PART_DEFS = {
   smallReactor: { name: "Small Reactor", color: "#fde68a", glyph: "radial-gradient(circle, #fff7b3 0 18%, #f59e0b 28% 55%, #451a03 60%)" },
   heavyReactor: { name: "Heavy Reactor", color: "#fbbf24", glyph: "radial-gradient(circle, #fef3c7 0 16%, #f59e0b 27% 58%, #78350f 63%)" },
   capacitor: { name: "Capacitor", color: "#93c5fd", glyph: "linear-gradient(180deg, #dbeafe, #2563eb 52%, #172554)" },
-  auxGenerator: { name: "Aux Generator", color: "#fef08a", glyph: "linear-gradient(45deg, #422006, #eab308, #fef9c3)" },
   microThruster: { name: "Micro Thruster", color: "#67e8f9", glyph: "linear-gradient(180deg, #cffafe, #0891b2 55%, #164e63)" },
   heavyEngine: { name: "Heavy Engine", color: "#22d3ee", glyph: "linear-gradient(180deg, #a5f3fc, #0284c7 50%, #082f49)" },
   maneuverThruster: { name: "Maneuver Thruster", color: "#7dd3fc", glyph: "linear-gradient(135deg, #e0f2fe, #0369a1)" },
@@ -98,6 +98,17 @@ export const PART_DEFS = {
   scatterCannon: { name: "Scatter Cannon", color: "#fbbf77", glyph: "radial-gradient(circle at 30% 50%, #431407 0 16%, #fb923c 20% 62%, #ffedd5 66%)" },
   plasmaCannon: { name: "Plasma Cannon", color: "#5eead4", glyph: "linear-gradient(90deg, #042f2e 0 20%, #14b8a6 22% 56%, #ccfbf1 60% 78%, #0f766e 80%)" },
   fragmentationCannon: { name: "Fragmentation Cannon", color: "#facc15", glyph: "linear-gradient(90deg, #422006 0 20%, #eab308 22% 62%, #fef9c3 66%)" },
+  // Electric fuchsia, not the cyan it used to wear: that cyan was the exact
+  // colour of the Micro Thruster, Small Sensor, Drone Bay and Propulsion Command
+  // Relay, so the one weapon in the catalogue that ignores hull and eats Shield
+  // read as another piece of cyan support hardware. Magenta is unused anywhere
+  // else in the palette (the nearest thing is the pale pink Targeting Computer),
+  // so the anti-Shield mount is identifiable on a hull at a glance.
+  // The mid fuchsia rather than the lighter #e879f9: weaponMetals() derives the
+  // barrel/housing ramp from this colour, and off a near-pastel base the lit
+  // hardware landed within a few percent of the hull face and the whole tile
+  // washed into one pink block. #e879f9 stays as the weapon's emissive arc.
+  empCannon: { name: "EMP Cannon", color: "#d946ef", glyph: "radial-gradient(circle at 72% 50%, #fdf4ff 0 12%, #e879f9 15% 32%, #a21caf 34% 54%, #3b0764 58%)" },
   spinalAccelerator: { name: "Spinal Accelerator", color: "#93c5fd", glyph: "linear-gradient(90deg, #020617 0 12%, #1d4ed8 14% 34%, #93c5fd 36% 74%, #ffffff 78%)" },
   aegisProjector: { name: "Aegis Projector", color: "#6ee7b7", glyph: "radial-gradient(circle, #ecfdf5 0 18%, #34d399 30% 56%, #064e3b 64%)" },
   targetingComputer: { name: "Targeting Computer", color: "#f0abfc", glyph: "linear-gradient(135deg, #701a75, #f0abfc)" },
@@ -285,6 +296,7 @@ export function makeWeapon(type, stats) {
     reload: Number(presentation.reloadSeconds.toFixed(2)),
     range: stats.range,
     radius: Number(stats.radius) || 0,
+    projectileRadius: Number(stats.projectileRadius ?? (type === "emp" ? stats.radius : 0)) || 0,
     projectileSpeed: stats.projectileSpeed,
     accuracy: stats.accuracy,
     tracking: tracking,
@@ -299,6 +311,7 @@ export function makeWeapon(type, stats) {
     targetPriority: stats.targetPriority || [],
     shieldDamageMultiplier: Number(stats.shieldDamageMultiplier ?? 1),
     hullDamageMultiplier: Number(stats.hullDamageMultiplier ?? 1),
+    shieldDisruptionFraction: stats.shieldDisruptionFraction !== undefined ? Number(stats.shieldDisruptionFraction) : undefined,
     burnThroughCarryMultiplier: stats.burnThroughCarryMultiplier !== undefined ? Number(stats.burnThroughCarryMultiplier) : undefined,
     chargeRampSeconds: stats.chargeRampSeconds !== undefined ? Number(stats.chargeRampSeconds) : undefined,
     maxChargeDamageBonus: stats.maxChargeDamageBonus !== undefined ? Number(stats.maxChargeDamageBonus) : undefined,
@@ -400,7 +413,7 @@ export function normalizeRuntimePart(part = {}) {
     footprint: part.footprint ? { width: numberOr(part.footprint.width, 1), height: numberOr(part.footprint.height, 1) } : { width: 1, height: 1 }
   };
   if (weapon) normalized[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense", "emp"]) {
     if (part[family]) normalized[family] = numberOr(part[family], normalized[family] || 0);
   }
   return normalized;
@@ -497,7 +510,7 @@ export function normalizeBalanceComponent(component, balance = GENERATED_BALANCE
     part.droneConfig = JSON.parse(JSON.stringify(balance.drones));
   }
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense", "emp"]) {
     if (component[family]) part[family] = numberOr(component[family], part[family] || 0);
   }
   return part;

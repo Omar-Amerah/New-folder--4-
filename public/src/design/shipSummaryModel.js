@@ -17,6 +17,7 @@
 import { statRow, StatLedger, isMeaningfulValue } from "./componentInspectorModel.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatRepair, formatSpeed, formatPercent, round2 } from "./statFormatting.js";
 import { PART_STATS } from "./parts.js";
+import { formatDisconnectedComponentDetails } from "./blueprintValidation.js";
 import { sortStatusCallouts } from "./statusCalloutOrder.js";
 import { BRAKE_ACCEL_RATIO, calculateBrakingAcceleration, calculateBrakingDistanceFromDeceleration } from "../shared/movementStats.js";
 
@@ -41,6 +42,13 @@ export function turnText(stats) {
   const right = Number(stats.turnRateRight ?? stats.turnRate ?? 0);
   if (Math.abs(left - right) < 0.01) return `${degreesPerSecond(left)}°/s`;
   return `Left ${degreesPerSecond(left)}°/s · Right ${degreesPerSecond(right)}°/s`;
+}
+
+function accelerationText(value) {
+  const acceleration = Number(value) || 0;
+  return acceleration >= 1
+    ? `${Math.round(acceleration)} m/s²`
+    : `${acceleration.toFixed(1)} m/s²`;
 }
 
 /** Describe asymmetric turning as a percentage difference, or null when even. */
@@ -148,8 +156,8 @@ function maneuverTurnAuthorityText(stats) {
 function overviewRows(stats, power, ledger, includePower = true) {
   const rows = [
     statRow("cost", "Build cost", `$${Number(stats.unitCost || 0).toLocaleString()}`),
-    statRow("class", "Class", stats.massClass),
     statRow("mass", "Mass", formatMass(stats.mass)),
+    statRow("accel", "Acceleration", accelerationText(stats.accel)),
     statRow("hull", "Hull", formatHull(stats.maxHp)),
     // A real zero keeps the nine-cell grid stable between designs; "None" would
     // be filtered out and leave a hole. The status area explains the consequence.
@@ -184,8 +192,7 @@ function statusMessages(stats, power, context) {
   const add = (id, level, text) => { if (isMeaningfulValue(text)) messages.push({ id, level: LEVELS[level] || "neutral", text }); };
 
   if (Number(context.disconnectedComponentCount || 0) > 0) {
-    const count = Number(context.disconnectedComponentCount);
-    add("disconnected-components", "bad", `Unconnected components \u00b7 ${count} component${count === 1 ? "" : "s"} disconnected from the ship`);
+    add("disconnected-components", "bad", formatDisconnectedComponentDetails(design, context.disconnectedComponentIndices));
   }
 
   // Power
@@ -212,7 +219,7 @@ function statusMessages(stats, power, context) {
 
   // Survivability
   if (Number(stats.maxShield || 0) <= 0) add("no-shield", "warning", "No shield coverage");
-  if (Number(stats.weaponDps || 0) <= 0 && Number(stats.pointDefense || 0) <= 0) {
+  if (Number(stats.weaponDps || 0) <= 0 && Number(stats.pointDefense || 0) <= 0 && Number(stats.emp || 0) <= 0) {
     add("no-weapons", "bad", "No weapons installed · this ship cannot attack");
   }
 
@@ -242,18 +249,12 @@ function mobilitySection(stats, ledger) {
     ? reportedBrakingAcceleration
     : calculateBrakingAcceleration(stats.accel);
   const turns = Math.max(left, right) > 0;
-  const accelText = (value) => {
-    const v = Number(value || 0);
-    if (v <= 0) return null;
-    return v >= 1 ? `${Math.round(v)} m/s²` : `${v.toFixed(1)} m/s²`;
-  };
   const rows = [
-    statRow("accel", "Acceleration", hasThrust ? accelText(stats.accel) : null),
     statRow(
       "brakingAcceleration",
       "Braking",
       hasThrust && brakingAcceleration > 0
-        ? `${accelText(brakingAcceleration)} (${BRAKE_ACCEL_RATIO}x acceleration)`
+        ? `${accelerationText(brakingAcceleration)} (${BRAKE_ACCEL_RATIO}x acceleration)`
         : null
     ),
     statRow("thrust", "Effective Thrust", hasThrust ? formatThrust(stats.effectiveThrust) : null),
@@ -264,7 +265,6 @@ function mobilitySection(stats, ledger) {
     statRow("turn.maneuverThrusters", "Maneuver Thrusters", maneuverTurnAuthorityText(stats)),
     statRow("turnLeft", "Left Turn", turns ? `${degreesPerSecond(left)}°/s` : null),
     statRow("turnRight", "Right Turn", turns ? `${degreesPerSecond(right)}°/s` : null),
-    statRow("turnCap", "Turn Limit", Number(stats.turnCap || 0) > 0 ? `${degreesPerSecond(stats.turnCap)}°/s` : null),
     statRow("blockedEngines", "Blocked Engines", Number(stats.blockedEngines || 0) > 0 ? `${stats.blockedEngines}` : null, { tone: "warning" })
   ];
 
@@ -306,7 +306,7 @@ function powerSection(stats, power, ledger) {
   return kept.length ? { id: "power", title: "Power Details", rows: kept } : null;
 }
 
-const WEAPON_FAMILY_LABELS = { blaster: "Blaster", missile: "Missile", railgun: "Railgun", beam: "Beam" };
+const WEAPON_FAMILY_LABELS = { blaster: "Blaster", missile: "Missile", railgun: "Railgun", beam: "Beam", emp: "EMP Cannon" };
 
 function combatSection(stats, ledger, context = {}) {
   const rows = [];
@@ -319,6 +319,11 @@ function combatSection(stats, ledger, context = {}) {
   for (const [family, label] of Object.entries(WEAPON_FAMILY_LABELS)) {
     const total = weapons[family];
     if (!total || !total.count) continue;
+    if (family === "emp") {
+      rows.push(statRow(`weapons.${family}`, label,
+        `${total.count}x / ${Math.round((Number(total.shieldDisruptionFraction) || 0) * 100)}% Max Shield per hit / ${Number(total.reload || 0).toFixed(1)} s reload / ${Math.round(total.range)} m`));
+      continue;
+    }
     rows.push(statRow(`weapons.${family}`, label,
       `${total.count}× · ${total.dps} ${total.dpsLabel || "DPS"} · ${Math.round(total.range)} m`));
   }

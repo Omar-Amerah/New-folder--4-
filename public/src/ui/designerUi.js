@@ -8,7 +8,7 @@ import {
 import { PART_DEFS, PART_STATS, isRotatablePart, isFlippablePart, partIconMarkup } from "../design/parts.js";
 import { createPlacementCandidate, findPartAtCell } from "../design/placementCandidate.js";
 import { normalizeRotation, nextRotation } from "../design/rotation.js";
-import { isConnected, disconnectedComponentIndices, explainConnectionProblem, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
+import { disconnectedComponentIndices, isOutOfBounds, isOverlapping } from "../design/blueprintValidation.js";
 import { getOccupiedCells, getFootprintBounds } from "../design/footprint.js";
 import { coolantConnectionMasks, coolantNetworkAt } from "../design/coolantLayout.js";
 import { computeStats } from "../design/componentStats.js";
@@ -26,7 +26,7 @@ import { renderPartInspector } from "./partInspectorUi.js";
 import { analyzeDesignHeat, describeThermalComponent } from "../design/thermalAnalysis.js";
 import { buildHeatCardModel, heatCardMarkup } from "../design/heatCardModel.js";
 import { initDataLinksUi, renderDataLinksOverlay, refreshDataLinksPresentation, refreshDataLinksControls, dataLinksHintText, renderDataAnalysisPanel, resetDataLinksUiState } from "./dataLinksUi.js";
-import { calculateCenterOfMass, MOVEMENT_CONFIG, formatMassClassRange } from "../shared/movementStats.js";
+import { calculateCenterOfMass, MOVEMENT_CONFIG } from "../shared/movementStats.js";
 import { calculateUniversalPower } from "../shared/universalPower.js";
 import { phaseLockOverlayAnimations } from "./overlayAnimation.js";
 
@@ -215,11 +215,77 @@ function migrateHeatFlowViewState() {
   state.heatFlowView = undefined;
 }
 
-function updateHeatFlowToggleControl() {
-  migrateHeatFlowViewState();
-  const showAll = Boolean(state.showAllHeatFlows);
-  dom.showAllHeatFlows?.classList.toggle("active", showAll);
-  dom.showAllHeatFlows?.setAttribute("aria-pressed", String(showAll));
+function heatLegendIsOpen() {
+  return Boolean(dom.blueprintHeatLegend && !dom.blueprintHeatLegend.hidden);
+}
+
+function syncHeatLegendDisclosure() {
+  const button = dom.blueprintHeatLegendButton;
+  if (!button) return;
+  button.setAttribute("aria-expanded", String(heatLegendIsOpen()));
+}
+
+function positionHeatLegend() {
+  const button = dom.blueprintHeatLegendButton;
+  const legend = dom.blueprintHeatLegend;
+  if (!button || !legend || legend.hidden || typeof button.getBoundingClientRect !== "function") return;
+  const buttonRect = button.getBoundingClientRect();
+  const legendRect = legend.getBoundingClientRect?.() || { width: 360, height: 260 };
+  const viewportWidth = Number(window.innerWidth) || document.documentElement?.clientWidth || 360;
+  const viewportHeight = Number(window.innerHeight) || document.documentElement?.clientHeight || 360;
+  const margin = 8;
+  const gap = 6;
+  const width = Math.min(legendRect.width || 360, viewportWidth - margin * 2);
+  const height = Math.min(legendRect.height || 260, viewportHeight - margin * 2);
+  let left = buttonRect.right - width;
+  let top = buttonRect.bottom + gap;
+  if (top + height > viewportHeight - margin) top = buttonRect.top - height - gap;
+  left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+  top = Math.max(margin, Math.min(top, viewportHeight - height - margin));
+  legend.style.left = `${Math.round(left)}px`;
+  legend.style.top = `${Math.round(top)}px`;
+}
+
+function closeHeatLegend({ restoreFocus = false } = {}) {
+  if (!dom.blueprintHeatLegend) return;
+  dom.blueprintHeatLegend.hidden = true;
+  syncHeatLegendDisclosure();
+  if (restoreFocus) dom.blueprintHeatLegendButton?.focus();
+}
+
+function toggleHeatLegend() {
+  if (!dom.blueprintHeatLegend) return;
+  if (heatLegendIsOpen()) {
+    closeHeatLegend({ restoreFocus: true });
+    return;
+  }
+  dom.blueprintHeatLegend.hidden = false;
+  syncHeatLegendDisclosure();
+  positionHeatLegend();
+}
+
+function ensureHeatLegendDisclosureBinding() {
+  const button = dom.blueprintHeatLegendButton;
+  const legend = dom.blueprintHeatLegend;
+  if (!button || !legend) return;
+  if (document.body && legend.parentElement !== document.body) document.body.appendChild(legend);
+  if (button.dataset.hasDisclosure !== "true") {
+    button.addEventListener("click", toggleHeatLegend);
+    document.addEventListener("pointerdown", event => {
+      if (!heatLegendIsOpen()) return;
+      if (event.target === button || legend.contains?.(event.target)) return;
+      closeHeatLegend();
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key !== "Escape" || !heatLegendIsOpen()) return;
+      event.preventDefault();
+      closeHeatLegend({ restoreFocus: true });
+    });
+    window.addEventListener("resize", positionHeatLegend);
+    document.addEventListener("scroll", positionHeatLegend, true);
+    button.dataset.hasDisclosure = "true";
+  }
+  syncHeatLegendDisclosure();
 }
 
 function refreshHeatStateLegend() {
@@ -233,17 +299,21 @@ function refreshHeatStateLegend() {
   const coolOutput = output("NORMAL");
   const warmOutput = output("WARM");
   const coolWarmOutput = coolOutput === warmOutput
-    ? `${coolOutput} active output`
-    : `Cool ${coolOutput} active output; Warm ${warmOutput} active output`;
+    ? `${coolOutput} output`
+    : `Cool ${coolOutput}; Warm ${warmOutput}`;
   const entries = {
-    normal: `${labels[0]} / ${labels[1]}: ${coolWarmOutput}; ${labels[1]} starts at ${percent(rules.THRESHOLDS.warm)} Heat`,
-    hot: `${labels[2]}: starts at ${percent(rules.THRESHOLDS.hot)} Heat; ${output("HOT")} active output`,
-    critical: `${labels[3]}: starts at ${percent(rules.THRESHOLDS.critical)} Heat; ${output("CRITICAL")} active output`,
-    overheated: `${labels[4]}: enters at ${percent(rules.THRESHOLDS.overheated)} Heat; ${output("OVERHEATED")} active output; restart below ${recovery} Heat`
+    normal: { name: `${labels[0]} / ${labels[1]}`, rule: `${coolWarmOutput} \u00B7 ${labels[1]} at ${percent(rules.THRESHOLDS.warm)}` },
+    hot: { name: labels[2], rule: `${output("HOT")} output \u00B7 Starts at ${percent(rules.THRESHOLDS.hot)}` },
+    critical: { name: labels[3], rule: `${output("CRITICAL")} output \u00B7 Starts at ${percent(rules.THRESHOLDS.critical)}` },
+    overheated: { name: labels[4], rule: `${output("OVERHEATED")} output \u00B7 Starts at ${percent(rules.THRESHOLDS.overheated)} \u00B7 Restart <${recovery}` }
   };
-  for (const [key, text] of Object.entries(entries)) {
+  for (const [key, entry] of Object.entries(entries)) {
     const element = list.querySelector(`[data-heat-state="${key}"]`);
-    if (element) element.textContent = text;
+    if (!element) continue;
+    const name = element.querySelector(".heat-state-name");
+    const rule = element.querySelector(".heat-state-rule");
+    if (name) name.textContent = entry.name;
+    if (rule) rule.textContent = entry.rule;
   }
 }
 
@@ -268,7 +338,8 @@ function refreshBlueprintControls() {
   if (dom.blueprintModeDescription) dom.blueprintModeDescription.textContent = BLUEPRINT_MODE_CONTENT[state.blueprintView].description;
   refreshDataLinksControls();
   if (dom.heatToolbar) dom.heatToolbar.hidden = !heatView;
-  if (dom.blueprintHeatLegend) dom.blueprintHeatLegend.hidden = !heatView;
+  if (!heatView) closeHeatLegend();
+  ensureHeatLegendDisclosureBinding();
   refreshHeatStateLegend();
   if (dom.thermalLoadModes) {
     dom.thermalLoadModes.hidden = !heatView;
@@ -304,16 +375,13 @@ function refreshBlueprintControls() {
       : "Click the same component again or press R to rotate · F to mirror shaped structure · Right-click to remove";
   }
   if (dom.rotationIndicator) refreshRotationIndicator();
-  if (dom.heatFlowViewControls) {
-    dom.heatFlowViewControls.hidden = !heatView;
-    updateHeatFlowToggleControl();
-  }
 }
 
 export function renderBaseBlueprintGrid() {
   dom.grid.textContent = "";
   clearHeatInspectionState();
   const exhaustAnalysis = globalThis.EngineExhaustRules.analyze(state.design, PART_STATS);
+  const disconnectedIndices = new Set(disconnectedComponentIndices(state.design));
   // Heat Pipes are one non-rotatable part whose art follows its live orthogonal
   // connections, so the placed shape has to be recomputed with the design.
   const coolantMasks = coolantConnectionMasks(state.design, PART_STATS);
@@ -347,6 +415,10 @@ export function renderBaseBlueprintGrid() {
       cell.type = "button";
       cell.className = `build-cell${part ? ` occupied ${part.type}` : ""}`;
       const partIndex = part ? state.design.indexOf(part) : -1;
+      if (part && disconnectedIndices.has(partIndex)) {
+        cell.classList.add("disconnected-component");
+        cell.setAttribute("aria-invalid", "true");
+      }
 
       // Anchor stays at (x,y); the visual box is drawn from the rotated
       // footprint's top-left bound so rotated multi-tile parts extend correctly.
@@ -672,6 +744,7 @@ function ensureBlueprintGridEventHandlers() {
       renderHoverPreview();
     });
     dom.grid.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
       const cell = event.target.closest(".build-cell");
       if (!cell || !dom.grid.contains(cell)) return;
       if (!isBlueprintRemovalMode()) return;
@@ -679,7 +752,6 @@ function ensureBlueprintGridEventHandlers() {
       const x = pointed?.x ?? Number(cell.dataset.x);
       const y = pointed?.y ?? Number(cell.dataset.y);
       if (!findPartAt(x, y)) return;
-      event.preventDefault();
       removeCell(x, y);
     });
     document.addEventListener("blueprint-drone-config", (event) => { configureSelectedDroneBay(event.detail?.droneType); });
@@ -723,6 +795,7 @@ function ensureBlueprintGridEventHandlers() {
       else if (event.key === "End") { event.preventDefault(); activateTab(modeTabs.length - 1); }
       else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activateTab(index); }
     });
+    ensureHeatLegendDisclosureBinding();
     dom.thermalLoadModes?.addEventListener("click", event => {
       const button = event.target.closest("[data-thermal-load]");
       if (!button) return;
@@ -731,13 +804,6 @@ function ensureBlueprintGridEventHandlers() {
       refreshHeatPresentationSafely();
       renderLocalStats();
       renderPartInspector();
-    });
-    dom.showAllHeatFlows?.addEventListener("click", () => {
-      migrateHeatFlowViewState();
-      state.showAllHeatFlows = !state.showAllHeatFlows;
-      updateHeatFlowToggleControl();
-      refreshHeatFlowOverlay(currentHeatAnalysis());
-      updateHeatInspectionOverlay(currentHeatAnalysis(), { preserveOverlay: true });
     });
     dom.grid.dataset.hasHeatTabs = "true";
   }
@@ -778,9 +844,9 @@ export function renderHoverPreview() {
     // player sees the coolant run join up before committing the click.
     const previewMask = coolantConnectionMasks(candidate.nextDesign, PART_STATS)[candidate.nextDesign.indexOf(candidate.part)] || 0;
     preview.innerHTML = partIconMarkup(selectedType, "preview-glyph", candidate.normalizedRotation, candidate.normalizedFlipped, previewMask);
-    positionPreviewOverlay(preview, bounds.minX, bounds.minY, bounds.width, bounds.height);
+    positionGridOverlay(preview, bounds.minX, bounds.minY, bounds.width, bounds.height);
+    renderRotationPreviewBadge(candidate, preview);
     dom.grid.appendChild(preview);
-    renderRotationPreviewBadge(candidate, bounds);
     const candidateIndex = candidate.nextDesign.indexOf(candidate.part);
     const candidateStat = PART_STATS[selectedType] || {};
     if (selectedType === "maneuverThruster") {
@@ -790,15 +856,14 @@ export function renderHoverPreview() {
   }
 }
 
-function renderRotationPreviewBadge(candidate, bounds) {
+function renderRotationPreviewBadge(candidate, preview) {
   if (!candidate?.part || !isRotatablePart(candidate.part.type)) return;
   const badge = document.createElement("div");
   badge.className = `rotation-preview-badge ${candidate.ok ? "valid" : "invalid"}`;
   const mirrorMark = candidate.normalizedFlipped ? " ↔" : "";
   badge.textContent = `${normalizeRotation(candidate.normalizedRotation, PART_STATS[candidate.part.type]?.allowedRotations, candidate.part.x)}° ↻${mirrorMark}`;
   badge.setAttribute("aria-hidden", "true");
-  positionPreviewOverlay(badge, bounds.minX + Math.max(0.05, bounds.width - 0.72), bounds.minY + 0.05, 0.66, 0.32);
-  dom.grid.appendChild(badge);
+  preview.appendChild(badge);
 }
 
 function renderManeuverThrusterPreview(part, placementValid, design) {
@@ -807,7 +872,12 @@ function renderManeuverThrusterPreview(part, placementValid, design) {
   const plume = document.createElement("div");
   plume.className = `maneuver-preview-plume ${placementValid ? "valid" : "invalid"} ${nozzleSide < 0 ? "left" : "right"}`;
   plume.title = nozzleSide < 0 ? "Nozzle plume left; force right" : "Nozzle plume right; force left";
-  positionPreviewOverlay(plume, part.x + nozzleSide * 0.44, part.y + 0.28, 0.5, 0.44);
+  positionGridCellRelativeOverlay(plume, part.x, part.y, {
+    width: "50%",
+    height: "44%",
+    left: `${nozzleSide * 44}%`,
+    top: "28%"
+  });
   dom.grid.appendChild(plume);
 
   const centerOfMass = calculateCenterOfMass(Array.isArray(design) ? design : state.design, PART_STATS);
@@ -817,7 +887,12 @@ function renderManeuverThrusterPreview(part, placementValid, design) {
     weak.className = `maneuver-preview-weak ${placementValid ? "valid" : "invalid"}`;
     weak.textContent = "Weak";
     weak.title = "Weak torque near the centre of mass";
-    positionPreviewOverlay(weak, part.x + 0.06, part.y + 0.02, 0.88, 0.28);
+    positionGridCellRelativeOverlay(weak, part.x, part.y, {
+      width: "88%",
+      height: "28%",
+      left: "6%",
+      top: "2%"
+    });
     dom.grid.appendChild(weak);
   }
 }
@@ -830,7 +905,7 @@ function renderEngineExhaustPreview(design, engineIndex, placementValid) {
     const overlay = document.createElement("div");
     overlay.className = `engine-exhaust-preview ${placementValid && engine.valid ? "valid" : "invalid"}${channel.blocked ? " blocker" : ""}`;
     overlay.title = channel.blocked ? "Exhaust blocked here" : "Required clear exhaust channel";
-    positionPreviewOverlay(overlay, channel.x, channel.y, 1, 1);
+    positionGridOverlay(overlay, channel.x, channel.y, 1, 1);
     dom.grid.appendChild(overlay);
   }
   const module = design[engineIndex];
@@ -838,7 +913,7 @@ function renderEngineExhaustPreview(design, engineIndex, placementValid) {
   arrow.className = `engine-thrust-arrow ${placementValid && engine.valid ? "valid" : "invalid"}`;
   arrow.textContent = engine.thrust.y < 0 ? "↑" : engine.thrust.y > 0 ? "↓" : engine.thrust.x < 0 ? "←" : "→";
   arrow.title = "Thrust direction";
-  positionPreviewOverlay(arrow, module.x, module.y, 1, 1);
+  positionGridOverlay(arrow, module.x, module.y, 1, 1);
   dom.grid.appendChild(arrow);
 }
 
@@ -846,37 +921,36 @@ function placementRotation(type, rotation) {
   return type === "maneuverThruster" ? 0 : isRotatablePart(type) ? normalizeRotation(rotation, PART_STATS[type]?.allowedRotations) : 0;
 }
 
-function positionPreviewOverlay(preview, x, y, width, height) {
-  const rect = typeof dom.grid.getBoundingClientRect === "function" ? dom.grid.getBoundingClientRect() : null;
-  const computed = typeof window !== "undefined" && typeof window.getComputedStyle === "function"
-    ? window.getComputedStyle(dom.grid)
-    : null;
-  const gapX = cssPx(computed?.columnGap || computed?.gap, 2);
-  const gapY = cssPx(computed?.rowGap || computed?.gap, 2);
-  const paddingLeft = cssPx(computed?.paddingLeft, 8);
-  const paddingRight = cssPx(computed?.paddingRight, 8);
-  const paddingTop = cssPx(computed?.paddingTop, 8);
-  const paddingBottom = cssPx(computed?.paddingBottom, 8);
+function positionGridOverlay(overlay, x, y, width, height) {
+  overlay.classList.add("build-grid-overlay");
+  const column = gridOverlayAxisPlacement(x, width);
+  const row = gridOverlayAxisPlacement(y, height);
+  overlay.hidden = !column || !row;
+  overlay.style.gridColumn = column || "1 / 1";
+  overlay.style.gridRow = row || "1 / 1";
+  overlay.style.left = "";
+  overlay.style.top = "";
+  overlay.style.width = "";
+  overlay.style.height = "";
+  overlay.style.alignSelf = "";
+  overlay.style.justifySelf = "";
+}
 
-  if (rect && rect.width > 0 && rect.height > 0) {
-    const contentWidth = Math.max(0, rect.width - paddingLeft - paddingRight);
-    const contentHeight = Math.max(0, rect.height - paddingTop - paddingBottom);
-    const cellWidth = (contentWidth - gapX * (GRID_SIZE - 1)) / GRID_SIZE;
-    const cellHeight = (contentHeight - gapY * (GRID_SIZE - 1)) / GRID_SIZE;
-    if (Number.isFinite(cellWidth) && Number.isFinite(cellHeight) && cellWidth > 0 && cellHeight > 0) {
-      preview.style.left = `${paddingLeft + x * (cellWidth + gapX)}px`;
-      preview.style.top = `${paddingTop + y * (cellHeight + gapY)}px`;
-      preview.style.width = `${width * cellWidth + Math.max(0, width - 1) * gapX}px`;
-      preview.style.height = `${height * cellHeight + Math.max(0, height - 1) * gapY}px`;
-      return;
-    }
-  }
+function gridOverlayAxisPlacement(origin, span) {
+  if (origin >= 0 && origin + span <= GRID_SIZE) return `${origin + 1} / span ${span}`;
+  const visibleStart = Math.max(0, origin);
+  const visibleEnd = Math.min(GRID_SIZE, origin + span);
+  return visibleEnd > visibleStart ? `${visibleStart + 1} / ${visibleEnd + 1}` : null;
+}
 
-  const unit = 100 / GRID_SIZE;
-  preview.style.left = `${x * unit}%`;
-  preview.style.top = `${y * unit}%`;
-  preview.style.width = `${width * unit}%`;
-  preview.style.height = `${height * unit}%`;
+function positionGridCellRelativeOverlay(overlay, x, y, { width, height, left, top }) {
+  positionGridOverlay(overlay, x, y, 1, 1);
+  overlay.style.width = width;
+  overlay.style.height = height;
+  overlay.style.left = left;
+  overlay.style.top = top;
+  overlay.style.alignSelf = "start";
+  overlay.style.justifySelf = "start";
 }
 
 function cssPx(value, fallback) {
@@ -1093,10 +1167,7 @@ export function editCell(x, y) {
   }
 
   if (!candidate.ok) {
-    const level = candidate.reasonCode === "disconnected" ? "warning" : "error";
-    setBuildStatus(candidate.message, level);
-    if (level === "error") notify.error(candidate.message);
-    else notify.warning(candidate.message);
+    notify.error(candidate.message);
     return;
   }
 
@@ -1119,18 +1190,11 @@ export function rotateCell(x, y) {
     : candidate);
 
   if (isOutOfBounds(next)) {
-    setBuildStatus("Rotation goes outside build grid", "error");
     notify.error("Rotation goes outside build grid");
     return false;
   }
   if (isOverlapping(next)) {
-    setBuildStatus("Rotation overlaps another component", "error");
     notify.error("Rotation overlaps another component");
-    return false;
-  }
-  if (!isConnected(next)) {
-    setBuildStatus("Rotation breaks connection to core", "error");
-    notify.error("Rotation breaks connection to core");
     return false;
   }
 
@@ -1145,9 +1209,9 @@ export function rotateCell(x, y) {
   return changed;
 }
 
-// Mirrors a placed component in place. The mirrored transform is re-validated
-// exactly like a rotation is, and rejected cleanly if it would leave the grid,
-// overlap, or break the connection to the core.
+// Mirrors a placed component in place. The transformed footprint is rejected
+// only when it leaves the grid or overlaps another component. Connectivity is
+// allowed to be temporarily invalid while the blueprint is being edited.
 export function flipCell(x, y) {
   const part = state.design.find((candidate) => candidate.x === x && candidate.y === y);
   if (!part || !isFlippablePart(part.type)) return false;
@@ -1159,18 +1223,11 @@ export function flipCell(x, y) {
   const next = state.design.map((candidate) => candidate === part ? flippedPart : candidate);
 
   if (isOutOfBounds(next)) {
-    setBuildStatus("Mirrored placement goes outside build grid", "error");
     notify.error("Mirrored placement goes outside build grid");
     return false;
   }
   if (isOverlapping(next)) {
-    setBuildStatus("Mirrored placement overlaps another component", "error");
     notify.error("Mirrored placement overlaps another component");
-    return false;
-  }
-  if (!isConnected(next)) {
-    setBuildStatus("Mirrored placement breaks connection to core", "error");
-    notify.error("Mirrored placement breaks connection to core");
     return false;
   }
 
@@ -1217,12 +1274,12 @@ export function flipFocusedPart() {
 }
 
 export function removeCell(x, y) {
-  if (!isBlueprintRemovalMode()) return;
+  if (!isBlueprintRemovalMode()) return false;
   const existing = findPartAt(x, y);
-  if (!existing || existing.type === "core") return;
+  if (!existing || existing.type === "core") return false;
   const next = state.design.filter((part) => part !== existing);
   const snapshot = captureBlueprintEditSnapshot(state);
-  commitPhysicalEdit(snapshot, () => {
+  return commitPhysicalEdit(snapshot, () => {
     state.design = next;
   });
 }
@@ -1295,12 +1352,6 @@ export function closeBlueprintConfirmModalIfPending() {
   return true;
 }
 
-function designRepairWarningMessage() {
-  const first = Array.isArray(state.designNormalizationIssues) ? state.designNormalizationIssues[0] : null;
-  const reason = first?.message || "Invalid design: modules were removed during local-storage recovery.";
-  return `This locally saved design contained invalid modules and was repaired. ${reason} Review and explicitly save the repaired design before using it.`;
-}
-
 // The Ship summary leads with nine headline outcomes, follows with concise
 // status messages driven by real conditions, and keeps engineering calculations
 // in collapsed sections. Structure and value selection come from
@@ -1308,12 +1359,14 @@ function designRepairWarningMessage() {
 function renderShipSummary(stats, heat) {
   if (!dom.stats) return;
   const flow = currentPowerFlow();
+  const disconnectedIndices = disconnectedComponentIndices(state.design);
   const model = buildShipSummaryModel(stats, {
     design: state.design,
     powerSummary: flow,
     partNames: PART_DEFS,
     overheatingCount: overheatingComponentCount(heat),
-    disconnectedComponentCount: disconnectedComponentIndices(state.design).length,
+    disconnectedComponentCount: disconnectedIndices.length,
+    disconnectedComponentIndices: disconnectedIndices,
     includePower: true
   });
   const open = shipSummaryOpenSections();
@@ -1415,7 +1468,6 @@ export function renderLocalStats() {
     dom.blueprintCostStatus.textContent = "";
     dom.blueprintCostStatus.className = "";
   }
-  if (state.designNeedsAttention) setBuildStatus(designRepairWarningMessage(), "warning");
   renderShipSummary(stats, heat);
 
     renderAnalysisPanels(stats, heat);
@@ -1452,34 +1504,6 @@ function sensorSectorPath(cx, cy, radius, relativeAngle, arc) {
     `A ${radius.toFixed(2)} ${radius.toFixed(2)} 0 ${halfArc * 2 > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`,
     "Z"
   ].join(" ");
-}
-
-function sensorContributionRows(entries, stackName) {
-  if (!entries.length) {
-    return `<p class="sensor-stack-empty">No ${escapeHtml(stackName.toLowerCase())} sensor components fitted.</p>`;
-  }
-  return `<div class="sensor-stack-list">${entries.map((entry) => {
-    const partName = PART_DEFS[entry.type]?.name || entry.type || "Sensor";
-    const percent = 100;
-    const nominal = Math.round(Number(entry.nominalBonus) || 0);
-    const effective = Math.round(Number(entry.effectiveBonus) || 0);
-    const directionalDetail = stackName === "Directed"
-      ? `<span>${Math.round(Number(entry.range) || 0)} m cone · ${Math.round((Number(entry.arc) || 0) * 180 / Math.PI)}°</span>`
-      : `<span>+${effective} m added range</span>`;
-    return `<div class="sensor-stack-entry">
-      <div class="sensor-stack-entry-head">
-        <strong>${escapeHtml(partName)}</strong>
-        <b>${percent}%</b>
-      </div>
-      <div class="sensor-stack-track" aria-label="${escapeHtml(`${partName} contributes its full authored range bonus`)}">
-        <i style="width:${percent}%"></i>
-      </div>
-      <div class="sensor-stack-entry-detail">
-        <span>Contribution ${Number(entry.stackIndex) + 1} · +${nominal} m authored</span>
-        ${directionalDetail}
-      </div>
-    </div>`;
-  }).join("")}</div>`;
 }
 
 function sensorCoverageMarkup(stats) {
@@ -1555,14 +1579,6 @@ function sensorCoverageMarkup(stats) {
         <span class="base">Hull baseline</span>
       </div>
     </div>
-    <div class="sensor-stack-explanation">
-      <strong>Linear stacking</strong>
-      <span>Each live sensor contributes its full authored bonus. General and Directional sensors use separate coverage stacks.</span>
-    </div>
-    <div class="sensor-stack-groups">
-      <section><h4>General stack</h4>${sensorContributionRows(omni, "General")}</section>
-      <section><h4>Directional stack</h4>${sensorContributionRows(directed, "Directed")}</section>
-    </div>
   </section>`;
 }
 
@@ -1590,28 +1606,36 @@ function renderAnalysisPanels(stats, heat) {
     } catch (e) { /* ignore if the dummy placement cannot be computed */ }
   }
   const marginalImpact = marginalDelta.startsWith("max ")
-    ? marginalDelta.replace(/^max /, "Top speed ").replace(", accel ", " / acceleration ")
+    ? marginalDelta.replace(/^max /, "Top speed ").replace(", accel ", " / Acceleration ")
     : marginalDelta;
   const maxSpeed = Math.round(stats.maxSpeed || 0);
-  const speedScale = Math.max(1, maxSpeed);
-  const actualSpeedPosition = Math.max(0, Math.min(100, maxSpeed / speedScale * 100));
-  const hasEffectiveThrust = maxSpeed > 0 && Number(stats.effectiveThrust || 0) > 0;
-  const movementStatus = !hasEffectiveThrust ? "No thrust" : "Thrust limited";
-  const movementStatusTone = !hasEffectiveThrust ? " is-warning" : "";
-  const movementNote = !hasEffectiveThrust
-    ? "This design has no effective thrust. Add a powered engine to give it combat mobility."
-    : "Available thrust and total mass set this ship's top speed. The mass-drag curve continuously reduces speed as the ship gets heavier.";
+  const hasEffectiveThrust = Number(stats.effectiveThrust || 0) > 0;
+  const powerShortfall = Number(currentPowerFlow()?.summary?.unmetDemandMw || 0) > 0.0005;
+  const heatDeratedEngine = Number(heat?.analysis?.engineEfficiency ?? 1) < 0.999;
+  const blockedEngines = Number(stats.blockedEngines || 0);
+  const movementStatus = !hasEffectiveThrust
+    ? "No thrust"
+    : blockedEngines > 0
+      ? `${blockedEngines} blocked engine${blockedEngines === 1 ? "" : "s"}`
+      : powerShortfall
+        ? "Power shortage"
+        : heatDeratedEngine
+          ? "Heat derated"
+          : "";
+  const movementStatusTone = movementStatus ? " is-warning" : "";
   const movementMetrics = [
-    ["Acceleration", accelText(stats.accel), "Forward speed gain"],
-    ["Turn rate", turnText(stats), "Hull rotation"],
-    ["Effective thrust", formatThrust(stats.effectiveThrust), "After Power, Heat, and exhaust state"],
-    ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`, "Thrust per tonne"]
+    ["Acceleration", accelText(stats.accel)],
+    ["Turn rate", turnText(stats)],
+    ["Effective thrust", formatThrust(stats.effectiveThrust)],
+    ["Thrust-to-mass", `${round2(stats.thrustRatio)} kN/T`]
   ];
-  const movementMetricMarkup = movementMetrics.map(([label, value, hint]) => `<div>
+  const movementMetricMarkup = movementMetrics.map(([label, value]) => `<div>
     <span>${escapeHtml(label)}</span>
     <strong>${escapeHtml(String(value))}</strong>
-    <small>${escapeHtml(hint)}</small>
   </div>`).join("");
+  const movementStatusMarkup = movementStatus
+    ? `<span class="combat-movement-status${movementStatusTone}">${escapeHtml(movementStatus)}</span>`
+    : "";
   if (dom.analysisMovementPanel) {
     dom.analysisMovementPanel.innerHTML = `<section class="analysis-summary-card combat-movement-card">
       <div class="combat-movement-heading">
@@ -1619,41 +1643,22 @@ function renderAnalysisPanels(stats, heat) {
           <h3>Combat movement</h3>
           <p>Speed, handling and propulsion at full power.</p>
         </div>
-        <span class="combat-movement-status${movementStatusTone}">${escapeHtml(movementStatus)}</span>
+        ${movementStatusMarkup}
       </div>
       <div class="movement-speed-hero">
         <div class="movement-speed-primary">
           <span>Top speed</span>
           <strong>${escapeHtml(formatSpeed(maxSpeed))}</strong>
-          <small>Available in combat</small>
-        </div>
-        <div class="movement-speed-visual">
-          <div class="movement-speed-track" role="img" aria-label="${escapeHtml(`Top speed ${formatSpeed(maxSpeed)}.`)}">
-            <i style="width:${actualSpeedPosition.toFixed(2)}%"></i>
-            <em style="left:${actualSpeedPosition.toFixed(2)}%" aria-hidden="true"></em>
-          </div>
-          <div class="movement-speed-comparison">
-            <div><span>Mass-dragged top speed</span><strong>${escapeHtml(formatSpeed(maxSpeed))}</strong></div>
-          </div>
         </div>
       </div>
       <div class="movement-section-heading">Handling &amp; propulsion</div>
       <div class="movement-metric-grid">${movementMetricMarkup}</div>
-      <div class="movement-efficiency-grid">
-        <div><span>Engine efficiency</span><strong>${escapeHtml(formatPercent(stats.engineEfficiency))}</strong></div>
-        <div><span>Mass-drag effect</span><strong>Continuous</strong></div>
-      </div>
       <div class="movement-engine-impact">
         <span class="movement-engine-impact-icon" aria-hidden="true">+</span>
         <div>
           <span>Adding one engine</span>
           <strong>${escapeHtml(marginalImpact)}</strong>
-          <small>Includes the added engine's mass.</small>
         </div>
-      </div>
-      <div class="movement-limit-note">
-        <strong>What sets top speed?</strong>
-        <span>${escapeHtml(movementNote)}</span>
       </div>
     </section>${sensorCoverageMarkup(stats)}`;
   }
@@ -2187,12 +2192,6 @@ export function heatInteractionDiagnostics() {
   };
 }
 
-export function setBuildStatus(text, className) {
-  if (!dom.buildStatus) return;
-  dom.buildStatus.textContent = text;
-  dom.buildStatus.className = `build-status ${className || ""}`.trim();
-}
-
 function currentMatchMoney(mine) {
   return mine ? Number(mine.money) || 0 : state.rules.startingMoney;
 }
@@ -2303,13 +2302,14 @@ function buildStatTooltipMarkup(key, stats) {
 
 function buildStatTooltipData(key, stats) {
   switch (key) {
-    case "class":
+    case "accel": {
+      const acceleration = Number(stats.accel) || 0;
       return {
-        label: "Ship Weight Class",
-        desc: "Weight class category of this design based on mass. Mass continuously reduces speed and turn rate, while the current class supplies its hard turn limit.",
-        formula: MOVEMENT_CONFIG.massClasses.map((entry) => `${entry.name} (${formatMassClassRange(entry)})`).join(" | "),
-        breakdown: `Mass: ${stats.mass} T\nWeight Class: ${stats.massClass}`
+        label: "Acceleration",
+        desc: "Acceleration shows how quickly the ship changes velocity.",
+        breakdown: `Effective Thrust: ${stats.effectiveThrust} kN\nMass: ${stats.mass} T\nAcceleration: ${acceleration >= 1 ? Math.round(acceleration) : acceleration.toFixed(1)} m/s²`
       };
+    }
 
     case "hull": {
       let coreHp = 0, armorHp = 0, frameHp = 0, weaponHp = 0, otherHp = 0;
@@ -2361,10 +2361,10 @@ Final Speed: ${Math.round(stats.maxSpeed)} m/s`
     case "turn":
       return {
         label: "Hull Turn Rate",
-        desc: "Directional hull turn rates. Uneven values indicate manoeuvre thrusters favour one turn direction; neither direction is automatically better. The class Turn Limit is a hard ceiling: extra turn authority does not raise the rate above it.",
-        formula: `RawTurn = EffectiveTurnAuthority * ${MOVEMENT_CONFIG.turn.genericScale} * MassTurnPenalty\nTurnRate = min(RawTurn, Turn Limit)`,
+        desc: "Directional hull turn rates. Uneven values indicate manoeuvre thrusters favour one turn direction; neither direction is automatically better. Turn authority is reduced continuously by mass. There is no class-based turn cap.",
+        formula: `RawTurn = EffectiveTurnAuthority * ${MOVEMENT_CONFIG.turn.genericScale} * MassTurnPenalty\nTurnRate = RawTurn`,
         breakdown: `Reliable Turn: ${stats.turnRate.toFixed(2)} rad/s (${Math.round(stats.turnRate * (180 / Math.PI))} deg/s)\nLeft Turn: ${(stats.turnRateLeft ?? stats.turnRate).toFixed(2)} rad/s\nRight Turn: ${(stats.turnRateRight ?? stats.turnRate).toFixed(2)} rad/s
-Turn Limit: ${stats.turnCap.toFixed(2)} rad/s`
+Mass Turn Penalty: ${(1 / Math.pow(1 + Math.max(1, Number(stats.mass) || 1) / MOVEMENT_CONFIG.turn.massDivisor, MOVEMENT_CONFIG.turn.massExponent)).toFixed(3)}`
       };
 
     case "power": {
@@ -2473,8 +2473,8 @@ Acceleration index: ${stats.thrustRatio.toFixed(2)} kN/T`
       };
 
     case "weapons": {
-      const weaponsCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0);
-      const desc = `${stats.blaster} Blaster(s) / ${stats.missile} Missile(s) / ${stats.railgun} Railgun(s)` + (stats.beam ? ` / ${stats.beam} Beam(s)` : "");
+      const weaponsCount = stats.blaster + stats.missile + stats.railgun + (stats.beam || 0) + (stats.emp || 0);
+      const desc = `${stats.blaster} Blaster(s) / ${stats.missile} Missile(s) / ${stats.railgun} Railgun(s)` + (stats.beam ? ` / ${stats.beam} Beam(s)` : "") + (stats.emp ? ` / ${stats.emp} EMP Cannon(s)` : "");
       const dpsLabel = stats.weaponDpsLabel || "Weapon DPS";
       return {
         label: "Weapons loadout",

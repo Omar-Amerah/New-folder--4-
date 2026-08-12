@@ -33,7 +33,7 @@ function ensureState() {
   return ledgerState;
 }
 
-function renderArticleContent(article) {
+export function renderArticleContent(article) {
   if (!article) return "";
   const parts = [];
 
@@ -52,9 +52,9 @@ function renderArticleContent(article) {
   if (article.importantStats && article.importantStats.length) {
     tocItems.push({ id: "key-stats", label: "Key Stats" });
     const rows = article.importantStats
-      .map((s) => `<div class="ledger-stat-row"><span class="ledger-stat-label">${escapeHtml(s.label)}</span><span class="ledger-stat-value">${escapeHtml(s.value)}</span></div>`)
+      .map((s) => `<div class="ledger-key-stat-row"><dt class="ledger-key-stat-label">${escapeHtml(s.label)}</dt><dd class="ledger-key-stat-value">${escapeHtml(s.value)}</dd></div>`)
       .join("");
-    parts.push(`<section class="ledger-section" id="ledger-sec-key-stats"><h3 class="ledger-section-heading">Key Stats</h3><div class="ledger-stat-grid">${rows}</div></section>`);
+    parts.push(`<section class="ledger-section ledger-key-stats-section" id="ledger-sec-key-stats" aria-labelledby="ledger-key-stats-heading"><h3 class="ledger-section-heading" id="ledger-key-stats-heading">Key Stats</h3><dl class="ledger-key-stat-list">${rows}</dl></section>`);
   }
 
   if (article.conditionalPerformance && article.conditionalPerformance.length) {

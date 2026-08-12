@@ -109,6 +109,151 @@ async function run() {
     "blueprint validation should run against the starting design in the lobby");
   assert.ok(editor.unitCost > 0, "blueprint costing should compute in the lobby");
 
+  // Persistent blueprint validation stays in Ship Summary. The transient
+  // disconnected notice belongs to the designer shell, never the grid.
+  const validationNotice = await page.evaluate(async () => {
+    const [{ state }, { renderBuildGrid, renderLocalStats, editCell }, { saveCurrentDesign }] = await Promise.all([
+      import("/src/state.js"),
+      import("/src/ui/designerUi.js"),
+      import("/src/ui/savedBlueprintsUi.js")
+    ]);
+    const original = state.design.map((part) => ({ ...part }));
+    const grid = document.querySelector("#buildGridStage");
+    const beforeRect = grid?.getBoundingClientRect();
+    const toastCountBeforeRender = document.querySelectorAll("#toastStack .toast").length;
+    state.selectedPart = "frame";
+    state.previewRotation = 0;
+    state.previewFlipped = false;
+    state.selectedCell = null;
+    editCell(14, 14);
+    renderLocalStats();
+    const notice = document.querySelector("#blueprintDesignerNotice");
+    const summary = document.querySelector("#statsGrid");
+    const beforeSaveNotice = {
+      hidden: notice?.hidden,
+      text: notice?.textContent || ""
+    };
+    const firstSaveResult = await saveCurrentDesign();
+    const firstNoticeSequence = notice?.dataset.noticeSequence || "";
+    const firstNotice = {
+      hidden: notice?.hidden,
+      text: notice?.textContent || "",
+      position: notice ? getComputedStyle(notice).position : "",
+      parentClass: notice?.parentElement?.className || "",
+      parentId: notice?.parentElement?.id || "",
+      summaryText: summary?.textContent || "",
+      saveResult: firstSaveResult,
+      beforeSaveNotice,
+      toastCountBeforeRender,
+      toastCountAfterSave: document.querySelectorAll("#toastStack .toast").length,
+      firstNoticeSequence
+    };
+    const secondSaveResult = await saveCurrentDesign();
+    const secondNoticeSequence = notice?.dataset.noticeSequence || "";
+
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    const dismissed = {
+      hidden: notice?.hidden,
+      text: notice?.textContent || ""
+    };
+
+    state.design = original.filter((part) => part.type === "core").map((part) => ({ ...part }));
+    renderBuildGrid();
+    renderLocalStats();
+    const engineSaveResult = await saveCurrentDesign();
+    const changedNotice = {
+      hidden: notice?.hidden,
+      text: notice?.textContent || "",
+      sequence: notice?.dataset.noticeSequence || "",
+      saveResult: engineSaveResult
+    };
+    const afterRect = grid?.getBoundingClientRect();
+    const noticeRect = notice?.getBoundingClientRect();
+    const utilityRect = document.querySelector(".designer-top")?.getBoundingClientRect();
+    const forwardRect = document.querySelector(".forward-marker")?.getBoundingClientRect();
+    const overlaps = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+
+    state.design = original;
+    state.selectedPart = null;
+    renderBuildGrid();
+    renderLocalStats();
+    return {
+      firstNotice,
+      secondSaveResult,
+      secondNoticeSequence,
+      dismissed,
+      changedNotice,
+      grid: {
+        beforeWidth: beforeRect?.width || 0,
+        afterWidth: afterRect?.width || 0,
+        beforeHeight: beforeRect?.height || 0,
+        afterHeight: afterRect?.height || 0,
+        workspaceEdgeInset: noticeRect && afterRect ? afterRect.right - noticeRect.right : Infinity,
+        utilityNudge: noticeRect && utilityRect ? noticeRect.top - utilityRect.top : -Infinity,
+        outsideGrid: !overlaps(noticeRect, afterRect),
+        outsideForward: !overlaps(noticeRect, forwardRect)
+      },
+      toastStackCount: document.querySelectorAll("#toastStack .toast").length,
+      oldBannerCount: document.querySelectorAll("#buildStatus").length
+    };
+  });
+  await page.evaluate(async () => {
+    const { resetDesignerNoticeForTests } = await import("/src/ui/designerNoticeUi.js");
+    resetDesignerNoticeForTests();
+  });
+  assert.equal(validationNotice.firstNotice.beforeSaveNotice.hidden, true,
+    "editing into a disconnected state should not show the notice");
+  assert.equal(validationNotice.firstNotice.beforeSaveNotice.text, "",
+    "editing should leave no save-validation notice copy behind");
+  assert.equal(validationNotice.firstNotice.hidden, false,
+    "an invalid save should show the designer notice");
+  assert.equal(validationNotice.firstNotice.text, "1 disconnected component: Frame at (14, 14)",
+    "the designer notice should use the specific single-component message");
+  assert.doesNotMatch(validationNotice.firstNotice.text, /Invalid design: disconnected parts\./,
+    "the old generic disconnected toast copy should not be shown");
+  assert.equal(validationNotice.firstNotice.position, "absolute",
+    "the designer notice should be positioned as an overlay");
+  assert.match(validationNotice.firstNotice.parentClass, /designer-center-col/,
+    "the notice should belong to the designer shell");
+  assert.notEqual(validationNotice.firstNotice.parentId, "buildGridStage",
+    "the notice should not be mounted inside the grid stage");
+  assert.match(validationNotice.firstNotice.summaryText, /Frame at \(14, 14\) has no structural path to the Core/,
+    "Ship Summary should retain the detailed disconnected-component validation row");
+  assert.equal(validationNotice.firstNotice.toastCountAfterSave, validationNotice.firstNotice.toastCountBeforeRender,
+    "the disconnected designer notice should not create the generic toast");
+  assert.equal(validationNotice.firstNotice.saveResult, false,
+    "an invalid blueprint should still be rejected by the save action");
+  assert.equal(validationNotice.secondSaveResult, false,
+    "a repeated invalid save should remain rejected");
+  assert.equal(validationNotice.secondNoticeSequence, validationNotice.firstNotice.firstNoticeSequence,
+    "repeated invalid saves should not spam the same notice");
+  assert.equal(validationNotice.dismissed.hidden, true,
+    "the transient designer notice should auto-dismiss");
+  assert.equal(validationNotice.dismissed.text, "",
+    "auto-dismiss should clear the transient notice copy");
+  assert.equal(validationNotice.changedNotice.text, "Invalid design: add at least one engine.",
+    "the same notice should present non-connectivity save errors");
+  assert.equal(validationNotice.changedNotice.saveResult, false,
+    "a design without an engine should be rejected on save");
+  assert.ok(Number(validationNotice.changedNotice.sequence) > Number(validationNotice.firstNotice.firstNoticeSequence),
+    "a changed save validation error should re-trigger the notice");
+  assert.equal(validationNotice.grid.outsideGrid, true,
+    "the designer notice should not overlap the Blueprint grid");
+  assert.equal(validationNotice.grid.outsideForward, true,
+    "the designer notice should not cover the Forward marker");
+  assert.ok(validationNotice.grid.workspaceEdgeInset >= 8 && validationNotice.grid.workspaceEdgeInset <= 24,
+    `the designer notice should return near the Blueprint workspace edge (inset=${validationNotice.grid.workspaceEdgeInset})`);
+  assert.ok(validationNotice.grid.utilityNudge >= 5 && validationNotice.grid.utilityNudge <= 8,
+    `the designer notice should be nudged down 4-8px from its workspace-header anchor (nudge=${validationNotice.grid.utilityNudge})`);
+  assert.ok(Math.abs(validationNotice.grid.beforeWidth - validationNotice.grid.afterWidth) < 1,
+    "showing the notice should not change grid width");
+  assert.ok(Math.abs(validationNotice.grid.beforeHeight - validationNotice.grid.afterHeight) < 1,
+    "showing the notice should not change grid height");
+  assert.equal(validationNotice.toastStackCount, 0,
+    "invalid saves should use the designer notice instead of the global toast stack");
+  assert.equal(validationNotice.oldBannerCount, 0,
+    "the old in-flow build status banner should be gone");
+
   // 4. Saving a blueprint works with no match in progress -- the saved library
   //    is local storage, not match state.
   const savedCount = await page.evaluate(async () => {

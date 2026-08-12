@@ -317,6 +317,70 @@
   color: var(--text);
 }
 
+.ledger-key-stats-section {
+  margin-bottom: 32px;
+}
+
+.ledger-key-stat-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+  margin: 0;
+  padding: 2px 16px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(12, 17, 27, 0.48);
+}
+
+.ledger-key-stat-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.78fr) minmax(0, 1.42fr);
+  align-items: start;
+  gap: 6px 16px;
+  min-width: 0;
+  padding: 12px 4px;
+  border-bottom: 1px solid rgba(126, 160, 210, 0.14);
+  border-radius: 4px;
+  transition: background 100ms ease;
+}
+
+.ledger-key-stat-row:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.ledger-key-stat-row:hover {
+  background: rgba(56, 213, 255, 0.045);
+}
+
+.ledger-key-stat-label,
+.ledger-key-stat-value {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.ledger-key-stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
+.ledger-key-stat-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+#ledger-sec-practical-use {
+  margin-top: 8px;
+}
+
 .ledger-stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -346,9 +410,8 @@
   font-weight: 700;
   color: var(--muted);
   text-transform: capitalize;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   flex-shrink: 1;
   min-width: 0;
 }
@@ -577,6 +640,25 @@
 
   .ledger-stat-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ledger-key-stat-list {
+    grid-template-columns: 1fr;
+    padding-inline: 12px;
+  }
+
+  .ledger-key-stat-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding-block: 11px;
+  }
+
+  .ledger-key-stat-row:nth-last-child(-n + 2) {
+    border-bottom: 1px solid rgba(126, 160, 210, 0.14);
+  }
+
+  .ledger-key-stat-row:last-child {
+    border-bottom: 0;
   }
 
   .ledger-stat-row {

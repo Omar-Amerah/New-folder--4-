@@ -16,6 +16,7 @@
     missile: 2.4,
     railgun: 1.5,
     beam: 1.65,
+    emp: 0.9,
     pointDefense: 7.5, // fast by design: it has to swat crossing missiles
     flak: 4.5,
     default: 3.0
@@ -62,6 +63,7 @@
     scatterCannon: 0.54,
     plasmaCannon: 0.6,
     fragmentationCannon: 0.6,
+    empCannon: 0.44,
     pointDefense: 0.62,
     pointDefenseLaser: 0.62,
     flakCannon: 0.45,

@@ -52,7 +52,7 @@ import {
   acquireTurretArrowLease,
   acquireTurretLease
 } from "./pixiShipView.js";
-import { spinalChargeStage } from "../componentArt.js";
+import { weaponChargeStage } from "../componentArt.js";
 import { getEffectDensity, getCombatEffectsEnabled, getRenderQuality } from "../renderSettings.js";
 import { componentFlash, activePenetrationPath, activeCoreWarning, pruneComponentDamage, hasActiveDamageVisuals, CRITICAL_RATIO, DAMAGED_RATIO } from "../componentDamage.js";
 
@@ -654,18 +654,20 @@ function updatePixiTurrets(env, view, ship, design) {
     view.visualTurretAngles.set(i, visual);
     sprite.rotation = visual;
 
-    if (sprite.__charges) updateSpinalChargeTexture(env, view, sprite, ship, i, destroyed);
+    if (sprite.__charges) updateWeaponChargeTexture(env, view, sprite, ship, i, destroyed);
   }
 }
 
-// Swaps a spinal mount's turret texture as its charge crosses a stage boundary,
-// so an opponent can read "that gun is almost charged" off the hull itself. The
+// Swaps a charging mount's turret texture as its charge crosses a stage
+// boundary, so an opponent can read "that gun is almost charged" (spinal) or
+// "that EMP is about to pulse" (reload telegraph) off the hull itself. The
 // server owns the progress value; this only decides which cached stage texture
-// is showing. Textures are leased, so the previous stage is released only after
-// the new one is on the sprite.
-function updateSpinalChargeTexture(env, view, sprite, ship, designIndex, destroyed) {
+// is showing. A destroyed mount drops to stage 0, which is the dead, unlit art.
+// Textures are leased, so the previous stage is released only after the new one
+// is on the sprite.
+function updateWeaponChargeTexture(env, view, sprite, ship, designIndex, destroyed) {
   const progress = destroyed ? 0 : Number(ship.weaponCharge?.[designIndex]) || 0;
-  const stage = spinalChargeStage(progress);
+  const stage = weaponChargeStage(progress);
   if (stage === sprite.__chargeStage) return;
   const lease = acquireTurretLease(env, sprite.__partType, stage);
   const previous = sprite.__lease;
@@ -1026,7 +1028,7 @@ function drawPixiSelectionRing(env, gfx, ship, zoom, players) {
   gfx.stroke({ width: 1.75 / zoom, color });
 
   if (!ship.alive) return;
-  const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
+  const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0, ship.empRange || 0);
   if (maxRange <= 0) return;
 
   const dashLen = 6 / zoom;
@@ -1231,7 +1233,7 @@ export function updatePixiShips(env, now, players, bounds) {
         const selected = state.selectedShipIds.has(ship.id);
         let cullRadius = renderShip.radius || 60;
         if (selected) {
-          const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
+          const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0, ship.empRange || 0);
           cullRadius = Math.max(cullRadius, maxRange, ship.commandAuraActive ? COMMAND_AURA_RANGE : 0);
         }
         if (!isCircleVisible(renderShip.x, renderShip.y, cullRadius, bounds)) continue;
@@ -1349,7 +1351,7 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     view.root.visible = !bounds || isCircleVisible(vis.x, vis.y, ship.radius || 60, bounds);
     let cullRadius = ship.radius || 60;
     if (state.selectedShipIds.has(ship.id)) {
-      const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0);
+      const maxRange = Math.max(ship.blasterRange || 0, ship.missileRange || 0, ship.railgunRange || 0, ship.beamRange || 0, ship.empRange || 0);
       cullRadius = Math.max(cullRadius, maxRange, ship.commandAuraActive ? COMMAND_AURA_RANGE : 0);
     }
     const inView = !bounds || isCircleVisible(vis.x, vis.y, cullRadius, bounds);

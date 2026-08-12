@@ -882,6 +882,29 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         });
         });
         if (detailed) bump(room, "stationWeaponShotsCreated");
+      } else if (family === "emp") {
+        const empSpeed = weapon.projectileSpeed || 550;
+        const empRange = profile?.range ?? (weapon.range || 800);
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
+          type: "emp",
+          subtype: module.type,
+          ownerId: identity,
+          targetId: target.id,
+          targetComponentIndex: -1,
+          x: muzzleX,
+          y: muzzleY,
+          vx: Math.cos(shotAngle) * empSpeed,
+          vy: Math.sin(shotAngle) * empSpeed,
+          projectileSpeed: empSpeed,
+          damage: 0,
+          radius: weapon.projectileRadius || weapon.radius || 9,
+          shieldDisruptionFraction: weapon.shieldDisruptionFraction ?? 0.5,
+          life: empRange / empSpeed,
+          bornAt: now
+        });
+        });
+        if (detailed) bump(room, "stationWeaponShotsCreated");
+
       } else if (family === "flak") {
         TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "flak",

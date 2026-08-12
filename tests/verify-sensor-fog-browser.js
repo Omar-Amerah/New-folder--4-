@@ -125,25 +125,43 @@ try {
       await page.locator("#analysisMovementPanel .combat-movement-card h3").textContent(),
       "Combat movement"
     );
+    const movementCardText = await page.locator("#analysisMovementPanel .combat-movement-card").textContent();
     assert.match(
-      await page.locator("#analysisMovementPanel .combat-movement-card").textContent(),
-      /Top speed[\s\S]*Handling & propulsion[\s\S]*Effective thrust[\s\S]*Mass-drag effect[\s\S]*Adding one engine[\s\S]*What sets top speed\?/,
-      "Combat movement leads with the outcome, then explains the supporting engineering values"
+      movementCardText,
+      /Top speed[\s\S]*Handling & propulsion[\s\S]*Acceleration[\s\S]*Turn rate[\s\S]*Effective thrust[\s\S]*Thrust-to-mass[\s\S]*Adding one engine[\s\S]*Top speed \+\d+ m\/s \/ Acceleration \+\d+ m\/s²/,
+      "Combat movement shows the decision metrics and one-engine comparison"
     );
-    assert.match(
-      await page.locator("#analysisMovementPanel .combat-movement-status").textContent(),
-      /^(?:No thrust|Drag limited|Thrust limited)$/,
-      "Combat movement names the active speed constraint"
+    assert.doesNotMatch(
+      movementCardText,
+      /Mass-dragged top speed|Engine efficiency|Mass-drag effect|What sets top speed\?|Thrust limited/,
+      "Combat movement omits duplicated speed and explanatory status copy"
     );
+    const movementStatuses = await page.locator("#analysisMovementPanel .combat-movement-status").allTextContents();
+    assert.ok(
+      movementStatuses.every((status) => /^(?:No thrust|\d+ blocked engines?|Power shortage|Heat derated)$/.test(status)),
+      "movement badges only report real propulsion conditions"
+    );
+    assert.ok(!movementStatuses.includes("Thrust limited"),
+      "a healthy design does not receive a generic Thrust limited badge");
     assert.strictEqual(await page.locator("#analysisMovementPanel .sensor-coverage-plot").isVisible(), true,
       "Combat analysis renders the sensor coverage graphic below movement");
     assert.strictEqual(await page.locator("#analysisMovementPanel .sensor-coverage-cone").count(), 2,
       "each Directed Sensor renders its own facing cone");
+    const sensorCoverageCard = page.locator("#analysisMovementPanel .sensor-coverage-card");
     assert.deepStrictEqual(
-      await page.locator("#analysisMovementPanel .sensor-stack-entry-head b").allTextContents(),
-      ["100%", "100%", "100%", "100%"],
-      "General and Directional stacks expose full authored bonuses independently"
+      await sensorCoverageCard.locator(".sensor-coverage-legend span").allTextContents(),
+      ["General", "Directional", "Hull baseline"],
+      "sensor analysis keeps the coverage legend"
     );
+    const sensorCoverageText = await sensorCoverageCard.textContent();
+    assert.equal(await sensorCoverageCard.locator(".sensor-stack-explanation").count(), 0,
+      "sensor analysis removes the redundant stacking explanation");
+    assert.equal(await sensorCoverageCard.locator(".sensor-stack-groups").count(), 0,
+      "sensor analysis removes the per-stack breakdown");
+    assert.equal(await sensorCoverageCard.locator(".sensor-stack-entry").count(), 0,
+      "sensor analysis renders no individual contribution cards");
+    assert.doesNotMatch(sensorCoverageText, /linear stacking|general stack|directional stack|contribution \d+/i,
+      "sensor analysis renders no redundant stacking copy");
     assert.match(
       await page.locator("#analysisMovementPanel .sensor-coverage-readouts").textContent(),
       /General range[\s\S]*Directional maximum/

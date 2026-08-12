@@ -5,7 +5,7 @@
 import { PART_STATS, PART_DEFS, partCategory, partDescription } from "../design/parts.js";
 import { GENERATED_BALANCE } from "../generatedBalance.js";
 import { formatMass, formatHull, formatShield, formatThrust, formatEnergy, formatRepair, formatDistance, formatSpeed, formatDamage, formatPercent } from "../design/statFormatting.js";
-import { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG, formatMassClassRange } from "../shared/movementStats.js";
+import { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG } from "../shared/movementStats.js";
 import "../shared/heatRules.js";
 import { formatHeatEffect, formatHeatEffectValue, getHeatEffectsForComponent } from "../shared/heatEffects.js";
 import "../shared/weaponPresentationRules.js";
@@ -337,11 +337,11 @@ const MANUAL_ARTICLES_PART_1 = [
     id: "ship-summary",
     category: "building-ships",
     title: "Ship Summary Panel",
-    summary: "The Live Overview Of Build Cost, Mass, Hull, Shield, Weapons, Speed, Turn, Power, And Status Warnings.",
+    summary: "The Live Overview Of Build Cost, Mass, Acceleration, Hull, Shield, Weapons, Speed, Turn, Power, And Status Warnings.",
     keywords: ["ship summary", "overview", "stats", "status", "warnings", "mobility", "power details", "combat details", "support details"],
-    howItWorks: "The Ship Summary Shows 9 Headline Values: Build Cost, Class, Mass, Hull, Shield, Weapon DPS, Max Speed, Turn Rate, And Power. Below The Overview, Status Messages Appear In A Consistent Healthy, Caution, Then Critical Order Based On Real Conditions: Power Shortfall, Disconnected Components, No Effective Thrust, Mass Drag Limiting Speed, Asymmetric Turning, No Shield Coverage, No Weapons, Backup Command Available, Insufficient Cooling, And Overheating Components. Four Collapsible Detail Sections Provide Engineering Numbers: Mobility Details (Acceleration, Thrust-To-Mass, Engine Efficiency, Turn Rates, Blocked Engines), Power Details (Generation, Demand, Delivered, Spare, Efficiency, And Energy Storage), Combat Details (Per-Weapon-Family DPS, Range, Point Defence, Beam Radius, Shield Recharge), And Support Details (Repair Rate, Drone Capacity, Drone Squads, Capture Pressure, Cooling Bonus).",
+    howItWorks: "The Ship Summary Shows 9 Headline Values: Build Cost, Mass, Acceleration, Hull, Shield, Weapon DPS, Max Speed, Turn Rate, And Power. Below The Overview, Status Messages Appear In A Consistent Healthy, Caution, Then Critical Order Based On Real Conditions: Power Shortfall, Disconnected Components, No Effective Thrust, Mass Drag Limiting Speed, Asymmetric Turning, No Shield Coverage, No Weapons, Backup Command Available, Insufficient Cooling, And Overheating Components. Four Collapsible Detail Sections Provide Engineering Numbers: Mobility Details (Braking, Thrust-To-Mass, Engine Efficiency, Turn Sources, Turn Rates, Blocked Engines), Power Details (Generation, Demand, Delivered, Spare, Efficiency, And Energy Storage), Combat Details (Per-Weapon-Family DPS, Range, Point Defence, Beam Radius, Shield Recharge), And Support Details (Repair Rate, Drone Capacity, Drone Squads, Capture Pressure, Cooling Bonus).",
     importantStats: [
-      { label: "Overview Fields", value: "9 (Cost, Class, Mass, Hull, Shield, DPS, Speed, Turn, Power)" },
+      { label: "Overview Fields", value: "9 (Cost, Mass, Acceleration, Hull, Shield, DPS, Speed, Turn, Power)" },
       { label: "Detail Sections", value: "4 (Mobility, Power, Combat, Support)" },
       { label: "Status Levels", value: "Good, Warning, Bad, Neutral" },
       { label: "Live Updates", value: "Yes : Updates As You Build" }
@@ -388,9 +388,9 @@ const MANUAL_ARTICLES_PART_1 = [
     id: "movement",
     category: "movement",
     title: "Movement & Orders",
-    summary: "Engines, thrust, turn rate, mass classes, and issuing commands.",
+    summary: "Engines, thrust, turn rate, continuous mass effects, and issuing commands.",
     keywords: ["movement", "engine", "thrust", "turn", "speed", "mass", "orders", "command", "right-click", "rally"],
-    howItWorks: `Ships move using engine thrust. Live engines and directional actuators stack linearly: each contributes its full authored value after explicit Power, Heat, exhaust, and geometry conditions. Generic positive and negative turn modifiers from non-actuator components adjust the ship's symmetric turn rate. Maneuver thrusters provide directional torque based on their distance from the ship's centre of mass, with a lever from ${MOVEMENT.maneuverThrusterLever.minimumLever} up to ${MOVEMENT.maneuverThrusterLever.maximumLever}. Mass applies a continuous speed drag and a hard class-based turn limit. Functioning generators and available battery discharge supply one ship-wide Power pool. Each powered movement consumer receives a linear share of available Power, and surplus supply does not increase movement. Issue orders by selecting ships and right-clicking the arena. Right-click an enemy to focus fire. Set a rally point to direct newly built ships. Ships without engines cannot move. Under Backup Command, turn rate follows ${BACKUP_EFFECTIVENESS_TEXT} effectiveness.`,
+    howItWorks: `Ships move using engine thrust. Live engines and directional actuators stack linearly: each contributes its full authored value after explicit Power, Heat, exhaust, and geometry conditions. Generic positive and negative turn modifiers from non-actuator components adjust the ship's symmetric turn rate. Maneuver thrusters provide directional torque based on their distance from the ship's centre of mass, with a lever from ${MOVEMENT.maneuverThrusterLever.minimumLever} up to ${MOVEMENT.maneuverThrusterLever.maximumLever}. Mass affects movement continuously. Acceleration shows how quickly the ship changes velocity. Turn rate comes from the ship's turning systems and decreases continuously as mass increases. Functioning generators and available battery discharge supply one ship-wide Power pool. Each powered movement consumer receives a linear share of available Power, and surplus supply does not increase movement. Issue orders by selecting ships and right-clicking the arena. Right-click an enemy to focus fire. Set a rally point to direct newly built ships. Ships without engines cannot move. Under Backup Command, turn rate follows ${BACKUP_EFFECTIVENESS_TEXT} effectiveness.`,
     importantStats: [
       { label: "Engine And Actuator Stacking", value: "Linear per live component" },
       { label: "Maneuver Min Lever", value: `${MOVEMENT.maneuverThrusterLever.minimumLever}` },
@@ -398,19 +398,15 @@ const MANUAL_ARTICLES_PART_1 = [
       { label: "Maneuver Max Lever", value: `${MOVEMENT.maneuverThrusterLever.maximumLever}` },
       { label: "Maximum Speed", value: "Calculated continuously from thrust and mass" },
       { label: "Braking", value: `${BRAKE_ACCEL_RATIO}x current acceleration` },
-      { label: "Mass Turn Scaling", value: "Continuous mass penalty with hard class turn limits" },
+      { label: "Mass Turn Scaling", value: "Turn authority decreases continuously as mass increases" },
       { label: "Movement Power Scaling", value: `Linear per consumer, capped at ${Math.round(MOVEMENT.power.maximumMultiplier * 100)}%` },
-      { label: "Surplus Power", value: "Charges storage; no movement bonus" },
-      ...((MOVEMENT.massClasses || []).map((c) => ({
-        label: `${c.name} (${formatMassClassRange(c)})`,
-        value: `Turn limit ${c.turnCap} rad/s`
-      })))
+      { label: "Surplus Power", value: "Charges storage; no movement bonus" }
     ],
-    practicalUse: "Light ships are fast and agile : ideal for capture runs and flanking. Capital ships are slow but tanky and pack heavy weapons. Use maneuver thrusters for better turning without adding much straight-line speed. Position maneuver thrusters far from the centre of mass for maximum lever effect. Gyroscopes are simpler but less powerful than a well-placed pair of maneuver thrusters.",
+    practicalUse: "Mass affects movement continuously, so balance propulsion and turning systems against the hull you are building. Use maneuver thrusters for better turning without adding much straight-line speed. Position maneuver thrusters far from the centre of mass for maximum lever effect. Gyroscopes are simpler but less powerful than a well-placed pair of maneuver thrusters.",
     commonProblems: [
       "Ship not moving? Check for engines and sufficient power.",
       "Turning too slowly? Add gyroscopes or maneuver thrusters.",
-      "Ship slow despite engines? High mass reduces speed : check the Ship Summary for your mass class."
+      "Ship slow despite engines? Mass reduces speed continuously : check the Ship Summary for Mass, Acceleration, and Max Speed."
     ],
     related: ["combat-styles", "blueprint-designer", "power", "economy"]
   }
@@ -441,9 +437,9 @@ const MANUAL_ARTICLES_PART_2 = [
     category: "weapons",
     title: "Weapons",
     summary: "Overview of all weapon types and their roles in combat.",
-    keywords: ["weapon", "missile", "rail", "laser", "cannon", "beam", "torpedo", "flak", "point defence", "damage", "dps"],
-    howItWorks: "Weapons are the primary damage-dealing components. Each weapon type has distinct trade-offs: missiles track targets but can be intercepted, rails have long range and high alpha damage but slow fire rates, lasers provide continuous beam damage, cannons offer rapid fire with moderate damage, and beams melt shields. Weapon stats are auto-generated from the authoritative component balance data. Select a specific weapon from the category list to see exact damage, fire rate, range, and tracking values.",
-    practicalUse: "Mix weapon types for flexibility: missiles for burst, rails for range, point defense for anti-missile. Check the component articles for exact stats and trade-offs.",
+    keywords: ["weapon", "missile", "rail", "laser", "cannon", "beam", "torpedo", "flak", "emp", "shield disruption", "point defence", "damage", "dps"],
+    howItWorks: "Weapons are the primary damage-dealing components. Each weapon type has distinct trade-offs: missiles track targets but can be intercepted, rails have long range and high alpha damage but slow fire rates, lasers provide continuous beam damage, cannons offer rapid fire with moderate damage, and beams melt shields. EMP Cannon removes a fixed fraction of target maximum Shield without dealing hull damage. Weapon stats are auto-generated from the authoritative component balance data. Select a specific weapon from the category list to see exact damage, fire rate, range, and tracking values.",
+    practicalUse: "Mix weapon types for flexibility: missiles for burst, rails for range, point defense for anti-missile, and EMP Cannon for anti-Shield disruption. Check the component articles for exact stats and trade-offs.",
     commonProblems: [
       "Weapons not firing? Check the weapon's power state and whether it is alive and enabled.",
       "Missiles intercepted? Consider overwhelming enemy point defense with swarm missiles.",
@@ -809,8 +805,8 @@ const MANUAL_CONTENT_UPDATES = Object.freeze({
   },
   "blueprint-designer": {
     summary: "Place, rotate, flip, remove, analyse, save, and validate ship designs.",
-    howItWorks: "Select a component from the palette and click the 15 by 15 grid to place it. Right-click a component to remove it, press R to rotate the focused component, and press F to flip components that support mirroring. Ctrl+Z undoes the last physical edit. Reset Design restores the starter ship; Clear All keeps only the Core. Incomplete and disconnected layouts remain editable and saveable, so the grid never forces a construction order. Purchase performs the full validity check. The Ship Summary, Heat analysis, and Data analysis update from the current design.",
-    practicalUse: "Use warnings as design feedback, not edit restrictions. Save useful intermediate layouts, inspect weapon arcs and exposed edges, then resolve every critical warning before purchase.",
+    howItWorks: "Select a component from the palette and click the 15 by 15 grid to place it. Right-click a component to remove it, press R to rotate the focused component, and press F to flip components that support mirroring. Connectivity is design validation, not edit validation, so temporary disconnected layouts remain editable. Ctrl+Z undoes the last physical edit. Reset Design restores the starter ship; Clear All keeps only the Core. Existing invalid designs are highlighted with the affected component and anchor in Ship Summary. Purchase and save still use the full validity check. The Ship Summary, Heat analysis, and Data analysis update from the current design.",
+    practicalUse: "Use the shared connectivity feedback while building. Keep useful intermediate layouts editable, inspect weapon arcs and exposed edges, then resolve every critical warning before purchase or save.",
     commonProblems: [
       "Part will not place? Its transformed footprint overlaps another component or leaves the grid.",
       "Design saves but will not deploy? Saving permits incomplete work; purchase requires a valid ship.",
@@ -819,7 +815,7 @@ const MANUAL_CONTENT_UPDATES = Object.freeze({
   },
   "placement-rules": {
     summary: "Footprints, anchors, rotations, flips, and the limits enforced while editing.",
-    howItWorks: "Every component occupies one or more grid cells. Its x and y identify the footprint anchor; rotation and optional flipping transform the complete footprint around that anchor. Placement is rejected only when the transformed footprint leaves the grid or overlaps another component. Connectivity may be temporarily invalid while editing and is checked at purchase. Weapons and other explicitly rotatable components cycle through their allowed facings. Maneuver Thrusters choose their outward side automatically. Drone Bays keep their authored orientation because their exposed launch edge is part of the design rule.",
+    howItWorks: "Every component occupies one or more grid cells. Its x and y identify the footprint anchor; rotation and optional flipping transform the complete footprint around that anchor. Placement, replacement, removal, rotation, and mirroring reject transformed footprints that leave the grid or overlap another component, while connectivity may be temporarily invalid during editing and is checked by design validation. Weapons and other explicitly rotatable components cycle through their allowed facings. Maneuver Thrusters choose their outward side automatically. Drone Bays keep their authored orientation because their exposed launch edge is part of the design rule.",
     practicalUse: "Rotate weapons to match the intended fighting direction, not merely to make them fit. Use the placement preview for the complete footprint. Finish by checking connectivity, exhaust channels, Drone Bay launch edges, and weapon arcs.",
     commonProblems: [
       "Part faces the wrong way? Focus it and press R; only authored rotations are available.",
@@ -829,7 +825,7 @@ const MANUAL_CONTENT_UPDATES = Object.freeze({
   },
   "structural-connectivity": {
     summary: "Every deployed component needs a side-adjacent structural route to the Core.",
-    howItWorks: "Connectivity expands complete component footprints and traverses only up, down, left, and right contacts. Every component must first be physically reachable from the Core. A second traversal prevents ordinary components from using a chain of Heat Pipes as their only structural path; Heat Pipes are mounted thermal transport, not hull structure. The designer may hold a disconnected work in progress, but purchase rejects it.",
+    howItWorks: "Connectivity expands complete component footprints and traverses only up, down, left, and right contacts. Every component must first be physically reachable from the Core. A second traversal prevents ordinary components from using a chain of Heat Pipes as their only structural path; Heat Pipes are mounted thermal transport, not hull structure. The designer may hold a disconnected work in progress, while an invalid design is shown with the affected component and anchor. Purchase and save also reject disconnected designs.",
     practicalUse: "Give systems a real frame, armour, or component path back to the Core. Heat Pipes may branch from that structure and attach to hot components or cooling, but should never be the bridge supporting the far side of the ship.",
     commonProblems: [
       "Disconnected warning? Look for a gap or corner-only contact.",
@@ -896,14 +892,15 @@ const MANUAL_CONTENT_UPDATES = Object.freeze({
   },
   movement: {
     summary: "Momentum, forward thrust, turning authority, waypoints, and continuous orders.",
-     howItWorks: `Ships retain momentum and accelerate only along their forward thrust direction; there is no reverse or lateral engine thrust. Braking decelerates at ${BRAKE_ACCEL_RATIO}x normal forward acceleration. Turning creates an arc instead of snapping velocity onto a new heading. Ships have no built-in hull turn: Engines, Gyroscopes, and Maneuver Thrusters provide turn authority, and multiple live turn contributions stack directly. Ship mass reduces the resulting turn rate. Generic authored turn modifiers adjust the symmetric rate when a ship has real turn authority. Maneuver torque depends on vertical distance from centre of mass and which side the thruster faces, so left and right turn authority can differ. Each movement consumer receives a linear share of available Power; surplus Power charges storage but does not boost movement. Right-click empty space for a move order, Shift-right-click to append waypoints for one selected ship, right-click an enemy to focus it, and use a rally point for new purchases.`,
+     howItWorks: `Ships retain momentum and accelerate only along their forward thrust direction; there is no reverse or lateral engine thrust. Braking decelerates at ${BRAKE_ACCEL_RATIO}x normal forward acceleration. Turning creates an arc instead of snapping velocity onto a new heading. Ships have no built-in hull turn: Engines, Gyroscopes, and Maneuver Thrusters provide turn authority, and multiple live turn contributions stack directly. Mass affects movement continuously. Acceleration shows how quickly the ship changes velocity. Turn rate comes from the ship's turning systems and decreases continuously as mass increases. Generic authored turn modifiers adjust the symmetric rate when a ship has real turn authority. Maneuver torque depends on vertical distance from centre of mass and which side the thruster faces, so left and right turn authority can differ. Each movement consumer receives a linear share of available Power; surplus Power charges storage but does not boost movement. Right-click empty space for a move order, Shift-right-click to append waypoints for one selected ship, right-click an enemy to focus it, and use a rally point for new purchases.`,
     importantStats: [
        { label: "Engine And Actuator Stacking", value: "Linear per live component" },
        { label: "Braking", value: `${BRAKE_ACCEL_RATIO}x forward acceleration` },
        { label: "Turn Authority", value: "No built-in hull turn; Engines, Gyroscopes, and Maneuver Thrusters" },
        { label: "Maneuver Lever", value: `${MOVEMENT.maneuverThrusterLever.minimumLever} Minimum, +${MOVEMENT.maneuverThrusterLever.leverPerCell} Per Cell, ${MOVEMENT.maneuverThrusterLever.maximumLever} Maximum` },
-       { label: "Mass Classes", value: MOVEMENT.massClasses.map((entry) => `${entry.name} ${formatMassClassRange(entry)}`).join(", ") },
-       { label: "Turn Limits", value: MOVEMENT.massClasses.map((entry) => `${entry.name} ${entry.turnCap} rad/s`).join(", ") },
+       { label: "Mass", value: "Affects movement continuously" },
+       { label: "Acceleration", value: "Shows how quickly the ship changes velocity" },
+       { label: "Turn Rate", value: "Turning systems, reduced continuously by mass" },
        { label: "Movement Power Scaling", value: `Linear per consumer, capped at ${Math.round(MOVEMENT.power.maximumMultiplier * 100)}%` }
     ],
     practicalUse: `Plan braking distance and facing before contact. Ships brake at ${BRAKE_ACCEL_RATIO}x their forward acceleration, so stopping distance is much shorter than an acceleration-only estimate. Put Maneuver Thrusters above or below centre of mass and fit both turning directions unless asymmetry is deliberate. Use queued waypoints for a precise route around obstacles; use combat styles for continuing behaviour around a target.`,
@@ -1412,6 +1409,18 @@ function generateComponentArticle(partId) {
   const w = stats.weapon;
   if (w) {
     const presentation = WeaponPresentationRules.weaponCyclePresentation(w);
+    const isEmp = w.type === "emp" || w.family === "emp";
+    if (isEmp) {
+      importantStats.push({ label: "Shield Disruption", value: `${Math.round((Number(w.shieldDisruptionFraction) || 0) * 100)}% Max Shield per hit` });
+      importantStats.push({ label: "Hull Damage", value: "0" });
+      importantStats.push({ label: "Reload", value: `${presentation.reloadSeconds.toFixed(1)} s` });
+      importantStats.push({ label: "Projectile Radius", value: formatDistance(w.projectileRadius || w.radius || 0) });
+      importantStats.push({ label: "Range", value: formatDistance(w.range) });
+      importantStats.push({ label: "Projectile Speed", value: formatSpeed(w.projectileSpeed) });
+      importantStats.push({ label: "Accuracy", value: formatPercent(w.accuracy) });
+      importantStats.push({ label: "Firing Arc", value: `${w.arc} degrees` });
+    }
+    if (!isEmp) {
     if (w.family) importantStats.push({ label: "Weapon Family", value: titleCase(w.family) });
     if (w.damage) importantStats.push({ label: "Damage", value: formatDamage(w.damage) });
     if (presentation.isChargeWeapon) {
@@ -1453,6 +1462,7 @@ function generateComponentArticle(partId) {
     }
     if (presentation.isChargeWeapon && Array.isArray(w.spinalCharge?.penetrationProfile)) {
       importantStats.push({ label: "Penetration", value: w.spinalCharge.penetrationProfile.map((share) => `${Math.round(Number(share) * 100)}%`).join(" → ") });
+    }
     }
   }
 
@@ -1564,7 +1574,7 @@ function generateComponentArticle(partId) {
 
   const keywords = [name.toLowerCase(), partId.toLowerCase(), cat];
   if (def.category) keywords.push(def.category.toLowerCase());
-  if (w) keywords.push(w.family, "weapon");
+  if (w) keywords.push(w.family || w.type, "weapon");
   if (aura) keywords.push("aura", aura.type);
   if (stats.utility) keywords.push(stats.utility);
 
@@ -1574,9 +1584,10 @@ function generateComponentArticle(partId) {
 
   if (w) {
     const presentation = WeaponPresentationRules.weaponCyclePresentation(w);
+    const isEmp = w.type === "emp" || w.family === "emp";
     practicalUse = presentation.isChargeWeapon
-      ? `Damage per shot: ${formatDamage(presentation.damagePerShot)}. Charge: ${presentation.chargeSeconds.toFixed(1)} s. Reload: ${presentation.reloadSeconds.toFixed(1)} s. Ideal cycle DPS: ${presentation.dps.toFixed(1)}. `
-      : `Theoretical DPS: ${presentation.dps.toFixed(1)}. `;
+      ? (isEmp ? `Removes ${Math.round((Number(w.shieldDisruptionFraction) || 0) * 100)}% of target maximum Shield per impact, clamped to current Shield. Deals no hull damage, creates no Shield Impact Heat, and has no overflow, splash, or status effect. ` : `Damage per shot: ${formatDamage(presentation.damagePerShot)}. Charge: ${presentation.chargeSeconds.toFixed(1)} s. Reload: ${presentation.reloadSeconds.toFixed(1)} s. Ideal cycle DPS: ${presentation.dps.toFixed(1)}. `)
+      : (isEmp ? `Removes ${Math.round((Number(w.shieldDisruptionFraction) || 0) * 100)}% of target maximum Shield per impact, clamped to current Shield. Deals no hull damage, creates no Shield Impact Heat, and has no overflow, splash, or status effect. ` : `Theoretical DPS: ${presentation.dps.toFixed(1)}. `);
     if (w.family === "missile") practicalUse += "Vulnerable to point defence : overwhelm with numbers or mix with other weapons. ";
     if (w.family === "railgun") practicalUse += "Best at long range against slow or stationary targets. Narrow arc requires careful positioning. ";
     if (w.family === "beam") practicalUse += "Sustained shield-breaking : ramps up damage over 15s. Keep the beam on target. ";

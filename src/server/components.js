@@ -45,6 +45,7 @@ function makeWeapon(type, stats) {
     reload: calculateReload({ fireRate }),
     range: stats.range,
     radius: Number(stats.radius) || 0,
+    projectileRadius: Number(stats.projectileRadius ?? (type === "emp" ? stats.radius : 0)) || 0,
     projectileSpeed: stats.projectileSpeed,
     projectileLifetime: Number(stats.projectileLifetime) || 0,
     accuracy: stats.accuracy,
@@ -86,6 +87,7 @@ function makeWeapon(type, stats) {
     beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
     pelletCount: normalizePelletCount(stats.pelletCount),
     pelletSpreadDegrees: stats.pelletSpreadDegrees !== undefined ? Number(stats.pelletSpreadDegrees) : undefined,
+    shieldDisruptionFraction: stats.shieldDisruptionFraction !== undefined ? Number(stats.shieldDisruptionFraction) : undefined,
     spinalCharge
   };
 }
@@ -263,7 +265,7 @@ function normalizeBalanceComponent(component, balance = COMPONENT_BALANCE) {
   }
 
   if (weapon) part[weapon.type] = 1;
-  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense"]) {
+  for (const family of ["blaster", "missile", "railgun", "beam", "pointDefense", "emp"]) {
     if (component[family]) part[family] = toNumber(component[family], part[family] || 0);
   }
   return Object.freeze(part);

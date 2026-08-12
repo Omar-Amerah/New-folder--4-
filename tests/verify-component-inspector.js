@@ -93,6 +93,22 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     for (const row of rows) assert.doesNotMatch(row.value, /\bnone\b/i, `no "None" value survives: ${row.label}`);
   });
 
+  check("sensor components keep authored range and arc stats without stacking prose", () => {
+    for (const type of ["smallSensor", "largeSensor", "smallDirectedSensor", "largeDirectedSensor"]) {
+      const rows = allRows(build(type));
+      const range = rows.find((row) => row.id === "sensor.rangeBonus");
+      assert.ok(range, `${type} keeps its range bonus`);
+      assert.match(range.value, /^\+[\d,]+ m$/, `${type} renders an authored range value`);
+      assert.equal(rows.some((row) => row.id === "sensor.stacking"), false,
+        `${type} has no stacking row`);
+      assert.doesNotMatch(rows.map((row) => `${row.label}: ${row.value}`).join(" "),
+        /linear stack|linear stacking|stacks linearly/i,
+        `${type} omits redundant stacking wording`);
+      const arc = rows.find((row) => row.id === "sensor.arc");
+      assert.equal(Boolean(arc), type.includes("Directed"), `${type} keeps only its applicable sensor arc`);
+    }
+  });
+
   check("no rendered value is an empty or placeholder string", () => {
     for (const type of REPRESENTATIVE) {
       for (const row of allRows(build(type, { droneType: "fighter" }))) {
@@ -285,6 +301,20 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
     }
   });
 
+  check("placed structural components retain future Heat penalty previews", () => {
+    const prediction = { ratio: 0, state: HeatRules.STATE.NORMAL };
+    for (const type of ["frame", "armor"]) {
+      const thermal = build(type, { prediction }).sections.find((section) => section.id === "thermal");
+      assert.equal(thermal.rows.find((row) => row.id === "heat.state")?.value, "Cool", `${type} keeps its live state`);
+      const hot = thermal.rows.find((row) => row.id === `heat.preview.${HeatRules.STATE.HOT}`);
+      assert.match(hot?.value || "", /Damage taken: 1\.15x/, `${type} shows the Hot structural penalty`);
+      if (type === "armor") {
+        assert.match(hot.value, /Armor effectiveness: 85%; Damage Reduction: 4\.25 \/ 5/,
+          "Armor shows its heat-scaled flat reduction");
+      }
+    }
+  });
+
   // -- 8. Warnings ------------------------------------------------------------
   check("Reactor meltdown is one consolidated warning, not stat cards", () => {
     const model = build("reactor");
@@ -403,6 +433,24 @@ function check(label, fn) { fn(); passed += 1; console.log(`  ok  ${label}`); }
         assert.notEqual(title, "Key stats", `${type} replaces the Key stats card grid`);
       }
     }
+  });
+
+  check("Repair keeps the headline compact and moves stacking maths into Repair Details", () => {
+    const model = build("repair");
+    assert.deepEqual(model.capability.map((row) => [row.label, row.value]), [
+      ["Repair Rate", "8 HP/s"],
+      ["Stacking", "100% → 80% → 64% → …"]
+    ]);
+
+    const details = model.sections.find((section) => section.id === "repair");
+    assert.ok(details, "Repair has a Repair Details section");
+    assert.deepEqual(details.rows.map((row) => [row.label, row.value]), [
+      ["Rule", "Additional Repair modules contribute 80% as much as the previous one."],
+      ["Progression", "1st: 100% · 2nd: 80% · 3rd: 64% · 4th: 51.2% · 5th: 40.96%"],
+      ["Targeting", "Repairs this ship's damaged components."]
+    ]);
+    assert.equal(model.capability.some((row) => /repair stacking|stacking rule|stacking progression/i.test(row.label)), false,
+      "headline capability has no documentation-level stacking cards");
   });
 
   check("Thermal Induction Lance exposes its specialist targeting priority", () => {

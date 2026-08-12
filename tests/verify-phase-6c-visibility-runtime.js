@@ -60,7 +60,6 @@ function addShip(room, id, ownerId, x, y, options = {}) {
     componentHp: design.map(() => 100),
     componentMaxHp: design.map(() => 100),
     componentPower: { byComponentIndex: design.map(() => ({ operationalMultiplier: 1, state: "powered" })) },
-    stats: { massClass: options.massClass || "medium" }
   };
   room.ships.set(id, ship);
   return ship;

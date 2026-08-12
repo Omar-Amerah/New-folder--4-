@@ -281,10 +281,17 @@
 
 /* Component roster and delivered totals */
 .data-components-card,
-.data-delivered-card {
+.data-delivered-card,
+.data-details {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.data-details {
+  border-top: 1px solid rgba(126, 160, 210, 0.15);
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .data-section-heading {
@@ -456,41 +463,10 @@
   line-height: 1.4;
 }
 
-/* Collapsible footer detail */
-.data-details {
-  border-bottom: 1px solid rgba(126, 160, 210, 0.15);
-}
-
-.data-details > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 2px;
-  color: #bdd0ea;
-  font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-  list-style: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.data-details > summary::-webkit-details-marker { display: none; }
-
-.data-details > summary:focus-visible {
-  outline: 2px solid #ffd166;
-  outline-offset: 2px;
-}
-
 .data-link-details {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 8px;
 }
 
 .data-link-row {

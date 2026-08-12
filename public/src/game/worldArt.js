@@ -175,6 +175,7 @@ export function bulletArtExtent(bullet) {
   if (bullet?.type === "rail") {
     return bullet.subtype === "spinalAccelerator" ? { halfW: 88, halfH: 28 } : { halfW: 62, halfH: 22 };
   }
+  if (bullet?.type === "emp") return { halfW: 34, halfH: 28 };
   if (bullet?.type === "missile") return { halfW: 44, halfH: 20 };
   if (bullet?.type === "pdShot") return { halfW: 18, halfH: 12 };
   return { halfW: 26, halfH: 16 };
@@ -345,6 +346,39 @@ export function drawBulletVisual(bullet, color) {
       ctx.arc(0, 0, 2, 0, Math.PI * 2);
       ctx.fill();
     }
+  } else if (bullet.type === "emp") {
+    // A wide magenta containment pulse: pale core, luminous outer ring, and
+    // broken arcs make the shot read as a field event rather than an explosion.
+    // Fuchsia rather than cyan so the shot belongs to the EMP Cannon's own
+    // colour (parts.js empCannon) instead of the cyan engine/sensor family.
+    ctx.shadowColor = "#e879f9";
+    ctx.shadowBlur = qualityShadowBlur(24);
+    ctx.fillStyle = "#d946ef";
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#e879f9";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, -Math.PI * 0.88, -Math.PI * 0.08);
+    ctx.arc(0, 0, 12, Math.PI * 0.12, Math.PI * 0.92);
+    ctx.stroke();
+    ctx.strokeStyle = "#fae8ff";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5.2, -Math.PI * 0.55, Math.PI * 0.55);
+    ctx.stroke();
+    ctx.fillStyle = "#fdf4ff";
+    ctx.beginPath();
+    ctx.arc(2, 0, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(217,70,239,0.7)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, 0);
+    ctx.lineTo(-24, 0);
+    ctx.stroke();
   } else if (bullet.subtype === "plasmaCannon") {
     // Slow, heavy and unmistakable: a glowing orb with a short trailing wisp.
     ctx.shadowColor = color;

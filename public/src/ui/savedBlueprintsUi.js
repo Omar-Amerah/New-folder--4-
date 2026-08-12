@@ -7,6 +7,7 @@ import { formatSpeed } from "../design/statFormatting.js";
 import { normalizeDesign, normalizeDesignDetailed, persistDesign, persistSavedDesigns, persistLoadouts, MAX_SAVED_DESIGNS } from "../design/blueprintStorage.js";
 import { PART_STATS } from "../design/parts.js";
 import { notify } from "./toastUi.js";
+import { showDesignerValidationNoticeForValidation } from "./designerNoticeUi.js";
 import { renderLoadoutManager } from "./purchaseUi.js";
 import { invalidatePresentation } from "../presentationInvalidation.js";
 import { send } from "../network.js";
@@ -625,7 +626,11 @@ export async function saveCurrentDesign() {
   const stats = analysis.stats;
   const validation = analysis.validation;
   if (!validation.ok) {
-    notify.warning(validation.errors[0] || "Cannot save invalid blueprint.");
+    showDesignerValidationNoticeForValidation({
+      design: blueprint,
+      errors: validation.errors,
+      disconnectedComponentIndices: validation.disconnectedComponentIndices
+    });
     return false;
   }
   const existing = state.savedDesigns.find((design) => design.id === state.loadedEditorBlueprintId);

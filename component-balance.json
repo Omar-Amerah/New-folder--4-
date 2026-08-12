@@ -1,4 +1,4 @@
-{
+﻿{
   "notes": [
     "Active selectable component balance sheet and runtime source of truth for client and server balance.",
     "Hidden legacy size variants are intentionally omitted from this file and from the palette.",
@@ -1042,7 +1042,7 @@
       "repair": 0,
       "maxPerShip": 8,
       "sensorRole": "omniSmall",
-      "sensorRangeBonus": 240,
+      "sensorRangeBonus": 180,
       "description": "Compact omnidirectional sensor. Each live Small Sensor adds its full authored range bonus to the general coverage total.",
       "footprint": {
         "width": 1,
@@ -1068,7 +1068,7 @@
       "rotatable": true,
       "maxPerShip": 4,
       "sensorRole": "omniLarge",
-      "sensorRangeBonus": 420,
+      "sensorRangeBonus": 400,
       "description": "Powerful omnidirectional sensor. Each live Large Sensor adds its full authored range bonus to the general coverage total.",
       "footprint": {
         "width": 2,
@@ -1094,7 +1094,7 @@
       "rotatable": true,
       "maxPerShip": 8,
       "sensorRole": "directed",
-      "sensorRangeBonus": 700,
+      "sensorRangeBonus": 500,
       "sensorArc": 60,
       "description": "Compact directional sensor covering a forward cone. Each live Small Directed Sensor adds its full authored range bonus where its cone overlaps.",
       "footprint": {
@@ -1121,7 +1121,7 @@
       "rotatable": true,
       "maxPerShip": 4,
       "sensorRole": "directed",
-      "sensorRangeBonus": 1250,
+      "sensorRangeBonus": 1000,
       "sensorArc": 50,
       "description": "Long-range directional sensor covering a narrow forward cone. Each live Large Directed Sensor adds its full authored range bonus where its cone overlaps.",
       "footprint": {
@@ -1456,6 +1456,46 @@
       "footprint": {
         "width": 1,
         "height": 2
+      }
+    },
+    {
+      "id": "empCannon",
+      "name": "EMP Cannon",
+      "category": "Weapons",
+      "cost": 132,
+      "mass": 28,
+      "hull": 92,
+      "powerGeneration": 0,
+      "powerUse": 12,
+      "powerCategory": "weapons",
+      "shield": 0,
+      "shieldRegen": 0,
+      "thrust": 0,
+      "turn": -0.08,
+      "energy": 0,
+      "heatPerShot": 28,
+      "repair": 0,
+      "maxPerShip": 2,
+      "weapon": {
+        "family": "emp",
+        "damage": 0,
+        "fireRate": 0.1111111111,
+        "range": 800,
+        "radius": 9,
+        "projectileRadius": 9,
+        "projectileSpeed": 550,
+        "accuracy": 0.9,
+        "tracking": 0,
+        "arc": 120,
+        "shieldDisruptionFraction": 0.5,
+        "shieldDamageMultiplier": 0,
+        "hullDamageMultiplier": 0
+      },
+      "rotatable": true,
+      "description": "Slow, wide unguided pulse that removes 50% of a target maximum Shield per impact, clamped to its current Shield. It deals no hull damage and creates no Shield Impact Heat.",
+      "footprint": {
+        "width": 2,
+        "height": 3
       }
     },
     {

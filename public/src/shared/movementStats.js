@@ -22,21 +22,14 @@ export const BRAKE_ACCEL_RATIO = 5;
 const MOVEMENT_POWER_NO_DEMAND = 1;
 const MOVEMENT_POWER_MAX = 1;
 const MOVEMENT_POWER_MIN = 0;
-// Thrust-to-mass into px/s^2. Set so a light hull reaches cruise in about a
-// second and a half and a heavy one in three and a half, measured against the
+// Thrust-to-mass into px/s^2. Set so a lower-mass hull reaches cruise in about a
+// second and a half and a higher-mass one in three and a half, measured against the
 // hull's own maximum speed: slow enough that mass still reads as mass, quick
 // enough that a move order is answered rather than waited out. Braking is a
 // fixed multiple of this figure (see BRAKE_ACCEL_RATIO), so stopping distance
 // scales with it.
 const ACCEL_SCALE = 18.0;
 const DEFAULT_LEVER_SETTINGS = Object.freeze({ minimumLever: 0.35, leverPerCell: 0.35, maximumLever: 1.75 });
-const MASS_CLASSES = Object.freeze([
-  Object.freeze({ name: "Light", minMass: 0, maxMass: 55, turnCap: 3.42 }),
-  Object.freeze({ name: "Medium", minMass: 55, maxMass: 125, turnCap: 2.46 }),
-  Object.freeze({ name: "Heavy", minMass: 125, maxMass: 230, turnCap: 1.34 }),
-  Object.freeze({ name: "Capital", minMass: 230, maxMass: Number.POSITIVE_INFINITY, turnCap: 0.86 })
-]);
-
 // Numerical movement authority shared by the Blueprint preview and server
 // runtime. Keep player-facing descriptions out of this object; callers can
 // format these values without creating a second balance sheet.
@@ -59,8 +52,7 @@ export const MOVEMENT_CONFIG = Object.freeze({
     maximumMultiplier: MOVEMENT_POWER_MAX,
     minimumMultiplier: MOVEMENT_POWER_MIN
   }),
-  maneuverThrusterLever: DEFAULT_LEVER_SETTINGS,
-  massClasses: MASS_CLASSES
+  maneuverThrusterLever: DEFAULT_LEVER_SETTINGS
 });
 
 export function maneuverThrusterForceX(rotation) { return Number(rotation) === 270 ? -1 : 1; }
@@ -142,15 +134,6 @@ export function calculateBrakingDistanceFromDeceleration(speed, deceleration) {
   return safeDeceleration > 0 ? (safeSpeed * safeSpeed) / (2 * safeDeceleration) : 0;
 }
 
-// A class turn limit is a hard ceiling. Runtime modifiers such as command
-// auras must use this helper too, so the same limit remains authoritative after
-// the paper calculation has been adjusted for live ship state.
-export function clampTurnRate(value, cap) {
-  const rate = Math.max(0, Number(value) || 0);
-  const limit = Number(cap);
-  return Number.isFinite(limit) && limit >= 0 ? Math.min(rate, limit) : rate;
-}
-
 export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneration, powerUse, engineThrustValues, engineMassValues, turnModuleValues, directionalTurnInputs }) {
   const safeMass = Math.max(mass, 1);
   const powerRatio = calculateMovementPowerMultiplier(powerGeneration, powerUse);
@@ -165,7 +148,6 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
     : 0;
   const accel = hasEngineThrust ? (thrustRatio * MOVEMENT_CONFIG.speed.accelerationScale) : 0;
   const directional = directionalTurnInputs || { mainEngineVectorTurn: sumValues(engines.map(e=>e.thrust*MOVEMENT_CONFIG.turn.enginePerThrust)), gyroscopeTurn: sumValues(turnModuleValues || []), clockwiseManeuverTurn:0, anticlockwiseManeuverTurn:0 };
-  const mc = massClassForMass(safeMass);
   const hasTurnAuthority = (directional.mainEngineVectorTurn||0)
     + (directional.gyroscopeTurn||0)
     + (directional.clockwiseManeuverTurn||0)
@@ -174,18 +156,18 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
   const positiveTurnBonus = Math.max(0, genericTurnModifier);
   const negativeTurnDrag = Math.min(0, genericTurnModifier);
   const symmetricTurn = (directional.mainEngineVectorTurn||0)+(directional.gyroscopeTurn||0)+positiveTurnBonus;
+  // Turn authority is reduced continuously by mass. There is no class-based turn cap.
   const massTurnPenalty = 1 / Math.pow(1 + safeMass / MOVEMENT_CONFIG.turn.massDivisor, MOVEMENT_CONFIG.turn.massExponent);
-  const turnCap = turnCapForMass(safeMass);
   const toRate = positive => {
     const effectiveTurn = positive + negativeTurnDrag;
     return (hasTurnAuthority && effectiveTurn > 0)
-      ? clampTurnRate(effectiveTurn * MOVEMENT_CONFIG.turn.genericScale * massTurnPenalty, turnCap)
+      ? effectiveTurn * MOVEMENT_CONFIG.turn.genericScale * massTurnPenalty
       : 0;
   };
   const turnRateRight = toRate(symmetricTurn + (directional.clockwiseManeuverTurn || 0));
   const turnRateLeft = toRate(symmetricTurn + (directional.anticlockwiseManeuverTurn || 0));
   const turnRate = Math.min(turnRateLeft, turnRateRight);
-  return { maxSpeed, accel, brakingAcceleration: calculateBrakingAcceleration(accel), turnRate, turnRateLeft, turnRateRight, thrustRatio, effectiveThrust, engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0, powerEfficiency, powerDebuff: Math.max(0, 1 - powerRatio), turnCap, massClass: mc, directionalTurn: directional };
+  return { maxSpeed, accel, brakingAcceleration: calculateBrakingAcceleration(accel), turnRate, turnRateLeft, turnRateRight, thrustRatio, effectiveThrust, engineEfficiency: thrust > 0 ? effectiveThrust / thrust : 0, powerEfficiency, powerDebuff: Math.max(0, 1 - powerRatio), directionalTurn: directional };
 }
 // Kept as a named compatibility helper for stat/report callers. It reports the
 // same universal per-consumer allocation used by movement inputs: linear from
@@ -193,8 +175,4 @@ export function calculateMovementStats({ mass, thrust, turnBonus, powerGeneratio
 export function calculateSystemEfficiency(powerGeneration,powerUse){ return calculateMovementPowerMultiplier(powerGeneration, powerUse); }
 export function calculateMovementPowerMultiplier(powerGeneration,powerUse){ if(powerUse<=0)return MOVEMENT_CONFIG.power.noDemandMultiplier; return clamp(powerGeneration/Math.max(powerUse,1), MOVEMENT_CONFIG.power.minimumMultiplier, MOVEMENT_CONFIG.power.maximumMultiplier); }
 export function sumValues(values = []) { return (values || []).reduce((total, value) => total + (Number(value) || 0), 0); }
-export function getMovementClassDefinition(mass){ const value = Math.max(0, Number(mass) || 0); return MOVEMENT_CONFIG.massClasses.find((entry) => value >= entry.minMass && value < entry.maxMass) || MOVEMENT_CONFIG.massClasses[MOVEMENT_CONFIG.massClasses.length - 1]; }
-export function formatMassClassRange(definition){ const entry = typeof definition === "string" ? MOVEMENT_CONFIG.massClasses.find((candidate) => candidate.name === definition) : definition; if (!entry) return ""; if (!Number.isFinite(entry.maxMass)) return `${entry.minMass}+ T`; if (entry.minMass === 0) return `< ${entry.maxMass} T`; return `${entry.minMass}-${entry.maxMass - 1} T`; }
-export function massClassForMass(mass){ return getMovementClassDefinition(mass).name; }
-export function turnCapForMass(mass){ return getMovementClassDefinition(mass).turnCap; }
-if (typeof module !== "undefined" && module.exports) { module.exports = { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG, calculateBrakingAcceleration, calculateBrakingDistance, calculateBrakingDistanceFromDeceleration, clampTurnRate, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, calculateGenericTurnModifier, getMovementClassDefinition, formatMassClassRange, sumValues, massClassForMass, turnCapForMass, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }
+if (typeof module !== "undefined" && module.exports) { module.exports = { BRAKE_ACCEL_RATIO, MOVEMENT_CONFIG, calculateBrakingAcceleration, calculateBrakingDistance, calculateBrakingDistanceFromDeceleration, calculateMovementStats, calculateSystemEfficiency, calculateMovementPowerMultiplier, calculateGenericTurnModifier, sumValues, calculateCenterOfMass, calculateDirectionalTurnInputs, maneuverThrusterTorqueSign, maneuverThrusterForceX }; }

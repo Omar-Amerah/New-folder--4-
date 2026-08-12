@@ -172,7 +172,7 @@ function effectiveSensorProfile(entity, room = null) {
     return staticProfile(Number(entity.sensorRange) || 220);
   }
 
-  const base = getHullBaseSensorRange(entity.stats?.massClass || "medium");
+  const base = getHullBaseSensorRange();
   const bonuses = sensorComponentBonuses(entity);
   const auraMultiplier = Math.max(0, getCommandAuraMultiplier(entity, "sensorRangeMultiplier"));
   if (bonuses.length === 0) {
