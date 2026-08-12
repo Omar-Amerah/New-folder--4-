@@ -10,7 +10,6 @@ import {
 export const DESIGNER_NOTICE_DURATION_MS = 3200;
 const NOTICE_FADE_OUT_MS = 180;
 const SAME_NOTICE_GUARD_MS = 750;
-const NOTICE_GRID_EDGE_INSET_PX = 0;
 const GENERIC_DISCONNECTED_ERROR = /^Invalid design:\s*disconnected parts\.$/i;
 
 let dismissTimer = null;
@@ -57,55 +56,21 @@ function noticeShell(notice) {
   return notice?.parentElement || notice?.parentNode || null;
 }
 
-function intersects(a, b) {
-  if (!a || !b) return false;
-  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-}
-
-// The notice is absolutely positioned in the designer center shell. Prefer the
-// gap below the utility row, but fall back to the utility row itself when the
-// responsive layout leaves no room before the forward marker or grid.
+// The notice is absolutely positioned in the designer center shell and anchored
+// directly beneath the Undo / Reset / Clear action group.
 function positionDesignerNotice() {
   const notice = dom.blueprintDesignerNotice;
   const shell = noticeShell(notice);
   const utility = shell?.querySelector?.(".designer-top");
-  const marker = shell?.querySelector?.(".forward-marker");
-  const grid = dom.gridStage;
-  if (!notice || !shell || !utility || !grid || typeof shell.getBoundingClientRect !== "function") return;
+  const actions = utility?.querySelector?.(".designer-actions");
+  if (!notice || !shell || !utility || !actions || typeof shell.getBoundingClientRect !== "function") return;
 
   const shellRect = shell.getBoundingClientRect();
-  const utilityRect = utility.getBoundingClientRect();
-  const markerRect = marker?.getBoundingClientRect?.() || null;
-  const gridRect = grid.getBoundingClientRect?.() || null;
-  if (!gridRect) return;
+  const actionsRect = actions.getBoundingClientRect();
 
-  // Anchor the notice to the live workspace/grid edge rather than the shell's
-  // right edge, which sits against the inspector at wider desktop sizes. Keep
-  // only the live grid/shell clearance so the notice returns to its original
-  // horizontal anchor without touching the boundary.
-  const gridRightInset = Math.max(8, Math.round(shellRect.right - gridRect.right));
-  notice.style.right = `${gridRightInset + NOTICE_GRID_EDGE_INSET_PX}px`;
-  const noticeRect = notice.getBoundingClientRect?.() || null;
-  if (!noticeRect) return;
-
-  const gapTop = utilityRect.bottom - shellRect.top + 14;
-  const gridBottomLimit = gridRect.top - shellRect.top - noticeRect.height - 8;
-  let top = Math.min(gapTop, gridBottomLimit);
-  const candidateRect = {
-    left: noticeRect.left,
-    right: noticeRect.right,
-    top: shellRect.top + top,
-    bottom: shellRect.top + top + noticeRect.height
-  };
-
-  if (intersects(candidateRect, markerRect)) {
-    const belowMarker = markerRect.bottom - shellRect.top + 4;
-    top = belowMarker + noticeRect.height <= gridBottomLimit
-      ? belowMarker
-      : utilityRect.top - shellRect.top + 8;
-  }
-
-  notice.style.top = `${Math.max(0, Math.round(top))}px`;
+  const actionRightInset = Math.max(0, Math.round(shellRect.right - actionsRect.right));
+  notice.style.right = `${actionRightInset}px`;
+  notice.style.top = `${Math.max(0, Math.round(actionsRect.bottom - shellRect.top + 6))}px`;
 }
 
 function renderNotice(message, detail, signature) {

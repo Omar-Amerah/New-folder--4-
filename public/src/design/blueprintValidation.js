@@ -82,6 +82,7 @@ export function validateBlueprint(parts, { requireThrust = true, stats = null, n
   if (requireThrust) {
     const computedStats = stats || (Array.isArray(parts) ? computeStats(parts) : null);
     if (computedStats && computedStats.thrust <= 0) errors.push("Invalid design: add at least one engine.");
+    if (computedStats && computedStats.turnRate <= 0) errors.push("Invalid design: ship must be able to turn.");
   }
   return { ok: errors.length === 0, errors, disconnectedComponentIndices: disconnectedIndices };
 }

@@ -5,7 +5,7 @@ import { dom } from "./ui/dom.js";
 import { applyServerParts } from "./design/parts.js";
 import { normalizeDesign } from "./design/blueprintStorage.js";
 import { invalidateHeatAnalysisCache, renderBuildGrid, renderLocalStats } from "./ui/designerUi.js";
-import { closeBlueprintDesigner } from "./ui/designerScreenUi.js";
+import { closeBlueprintDesigner, restoreBlueprintDesignerAfterLobbyRejoin } from "./ui/designerScreenUi.js";
 import { renderPalette } from "./ui/partPaletteUi.js";
 import { renderPartInspector } from "./ui/partInspectorUi.js";
 import { renderSavedDesigns } from "./ui/savedBlueprintsUi.js";
@@ -350,7 +350,7 @@ export function handleServerMessage(message) {
     invalidatePresentation("selection");
     if (state.phase === "design" || state.phase === "active") {
       lobbyUi.hideMenuScreens();
-    } else {
+    } else if (state.phase !== "lobby" || !restoreBlueprintDesignerAfterLobbyRejoin(message.room)) {
       lobbyUi.openLobbyManagement();
     }
     return;

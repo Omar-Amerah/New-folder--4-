@@ -24,6 +24,7 @@
     "test:turret-render": "node tests/verify-turret-render.js",
     "test:live-turrets": "node tests/verify-live-turrets.js",
     "test:heat": "node tests/verify-heat.js",
+    "test:designer-heat-parity": "node tests/verify-designer-heat-runtime-parity.js",
     "test:engine-exhaust": "node tests/verify-engine-exhaust.js",
     "test:movement": "node tests/verify-movement-simplified.js && node tests/verify-movement-formations.js && node tests/verify-movement-momentum.js && node tests/verify-movement-navigation.js && node tests/verify-movement-collision.js && node tests/verify-movement-hold-facing.js && node tests/verify-movement-arrival-heading.js && node tests/verify-movement-orbit.js && node tests/verify-movement-kite.js && node tests/verify-movement-waypoint-queue.js",
     "test:movement-phase2": "node tests/verify-movement-phase2.js",

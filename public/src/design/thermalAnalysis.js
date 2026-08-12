@@ -226,27 +226,46 @@ export function simulateThermalLoad(model, load, options = {}) {
     let tickEffectiveCoolingRate = 0;
     let tickAvailableCoolingRate = 0;
     received.fill(0); transferredOut.fill(0); cooling.fill(0);
+
+    // Power generation is thermally throttled at runtime, so the Designer must
+    // solve the current source output before it predicts this tick's work. This
+    // is intentionally independent of Data Support: a design with no Data
+    // sources still needs reactor and consumer Heat to follow every reallocation.
+    const currentPowerFlow = buildPredictedPowerFlow(design, demandByIndex, states);
+    for (let i = 0; i < design.length; i += 1) {
+      const role = currentPowerFlow.byComponentIndex[i]?.role;
+      const nextMultiplier = role === "consumer"
+        ? currentPowerFlow.byComponentIndex[i]?.operationalMultiplier ?? 0
+        : 1;
+      if (Math.abs((powerMultiplier[i] ?? 1) - nextMultiplier) > 1e-9) powerReallocationCount += 1;
+      powerMultiplier[i] = nextMultiplier;
+    }
+    if (step === 0) initialPowerMultiplier = [...powerMultiplier];
+
     const dataSourceSignature = buildDataSourceSignature(design, states, powerMultiplier);
     if (dataSourceSignature !== previousDataSourceSignature) {
       dataSupport = buildPredictedDataSupport(design, load.dataLinks || [], powerMultiplier, { sourceHeatStates: Object.fromEntries(states.map((state, i) => [i, state])) });
       dataReallocationCount += 1;
       previousDataSourceSignature = dataSourceSignature;
-      generationRates = buildPredictedGenerationRates(
-        design,
-        rules,
-        load.mode,
-        load.loadMultiplier,
-        load.designExhaust,
-        dataSupport,
-        powerMultiplier,
-        buildPredictedPowerFlow(design, demandByIndex, states)
-      );
     }
+    // This is cheap for the Designer's capped blueprint size and keeps every
+    // work-specific Heat source tied to the current Power allocation. Do not
+    // gate it on Data Support changes.
+    generationRates = buildPredictedGenerationRates(
+      design,
+      rules,
+      load.mode,
+      load.loadMultiplier,
+      load.designExhaust,
+      dataSupport,
+      powerMultiplier,
+      currentPowerFlow
+    );
     for (let i = 0; i < design.length; i += 1) { powerMultiplierTotals[i] += powerMultiplier[i] ?? 0; minimumPowerMultiplier[i] = Math.min(minimumPowerMultiplier[i] ?? 1, powerMultiplier[i] ?? 0); }
     for (let i = 0; i < design.length; i += 1) {
       const performance = rules.performanceForState(states[i]);
       const stat = PART_STATS[design[i].type] || {};
-      const heatScale = (stat.powerGeneration || 0) > 0 ? (states[i] === rules.STATE.OVERHEATED ? 0 : 1) : stat.weapon ? performance : performance > 0 ? 1 : 0;
+      const heatScale = predictedHeatWorkScale(design[i], stat, states[i], rules);
       const generated = generationRates[i] * heatScale * dt;
       delta[i] += generated; generatedHeat[i] += generated; totalGeneratedHeat += generated;
       finalGeneratedRate[i] = generated / dt;
@@ -387,7 +406,8 @@ export function simulateThermalLoad(model, load, options = {}) {
     if (equilibriumTime !== null && step * dt > equilibriumTime + 5) break;
   }
   const averagePowerMultiplier = powerMultiplierTotals.map(value => simulatedSeconds > 0 ? value / Math.max(1, Math.round(simulatedSeconds / dt)) : 0);
-  return { heat, states, received, transferredOut, cooling, generatedHeat, finalGeneratedRate, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, dataReallocationCount, powerReallocationCount, dataSupport };
+  const averageGeneratedRates = generatedHeat.map(value => simulatedSeconds > 0 ? value / simulatedSeconds : 0);
+  return { heat, states, received, transferredOut, cooling, generatedHeat, averageGeneratedRates, finalGeneratedRate, timeToOverheat, peakRatios, overheatedIndices, meltdownTime, uptimeTicks, uptimeTotals, firstOverheatTime, firstOverheatIndex, equilibriumTime, heatSinkSaturationTime, radiatorRemovedTotal, totalCoolingRemoved, totalAvailableCooling, totalGeneratedHeat, peakAvailableCoolingRate, finalAvailableCoolingRate, finalEffectiveCoolingRate, averageAvailableCoolingRate: simulatedSeconds > 0 ? totalAvailableCooling / simulatedSeconds : 0, averageActualCoolingRate: simulatedSeconds > 0 ? totalCoolingRemoved / simulatedSeconds : 0, simulatedSeconds, finalFlows, dt, initialPowerMultiplier, finalPowerMultiplier: [...powerMultiplier], minimumPowerMultiplier, averagePowerMultiplier, dataReallocationCount, powerReallocationCount, dataSupport };
 }
 
 /**
@@ -445,8 +465,9 @@ export function summariseThermalResult(model, load, simulation) {
       activityHeat, totalGeneratedHeat: activityHeat
     });
   }
-  const networks = buildThermalNetworks(model, generationRates);
-  const problems = findThermalProblems(model, { ...simulation, networks }, load);
+  const effectiveGenerationRates = simulation.averageGeneratedRates || generationRates;
+  const networks = buildThermalNetworks(model, effectiveGenerationRates);
+  const problems = findThermalProblems(model, { ...simulation, networks }, { ...load, generationRates: effectiveGenerationRates });
   const actionItems = generateThermalAdvice(problems, model);
   const hottestIndex = peakRatios.reduce((best, value, i) => value > peakRatios[best] ? i : best, 0);
   const componentNetwork = design.map(() => []);
@@ -715,6 +736,26 @@ function buildPredictedPowerState(design, mode) {
   const multipliers = flow.byComponentIndex.map((entry) => entry.role === "consumer" ? entry.operationalMultiplier : 1);
   return { _design: design, _mode: mode, multipliers, activity, demandByIndex, flow };
 }
+
+// Runtime Heat is charged for component-specific delivered work. Engines and
+// turning systems burn in proportion to actual effort, Repair and Shields in
+// proportion to restored points, and weapons in proportion to firing output or
+// cadence. Their nominal scenario rates already include requested activity and
+// Power; the current thermal performance completes that work calculation.
+// Generators already use current generationUsedMw, while Drone Bays deliberately
+// keep their discrete active/production rule until they are fully Overheated.
+function predictedHeatWorkScale(module, stat, state, rules) {
+  if ((Number(stat.powerGeneration) || 0) > 0) return 1;
+  if (module.type === "droneBay") return state === rules.STATE.OVERHEATED ? 0 : 1;
+  const workScalesWithThermalOutput = (Number(stat.thrust) || 0) > 0
+    || (Number(stat.turn) || 0) > 0
+    || (Number(stat.repairRate) || 0) > 0
+    || (Number(stat.shieldRegen) || 0) > 0
+    || Boolean(stat.weapon);
+  if (workScalesWithThermalOutput) return rules.activeOutputForState(state);
+  return state === rules.STATE.OVERHEATED ? 0 : 1;
+}
+
 function buildPredictedGenerationRates(design, rules, mode, loadMultiplier, designExhaust, dataSupport, powerMultiplier, powerFlow = null) {
   const activity = design.map((module, index) => (Number(PART_STATS[module.type]?.powerUse) || 0) <= 0 ? 1 : powerMultiplier[index]);
   return design.map((module, index) => {

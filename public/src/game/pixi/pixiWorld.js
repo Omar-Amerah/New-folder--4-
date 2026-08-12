@@ -13,7 +13,6 @@ import { playerMap } from "../../ui/matchStatusUi.js";
 import { activeEngineSmoke } from "../shipDynamics.js";
 import { pixiBakeTexture, createPixiKeyedPool, createPixiTextureCache, getPixiBakeGeneration, swapTextureLease } from "./pixiBake.js";
 import { getRallyPoint } from "../../ui/sidePanelUi.js";
-import { orderQueuePath } from "../orderQueue.js";
 import { invalidatePresentation } from "../../presentationInvalidation.js";
 import { updatePixiContacts } from "./pixiSensorContacts.js";
 import { updatePixiFog } from "./pixiFog.js";
@@ -365,39 +364,9 @@ function updatePixiRelays(env, now, players, bounds) {
 
 // --- Command target -------------------------------------------------------------
 
-// The course drawn for a single selected ship: the leg it is flying, then every
-// leg queued behind it. Only ever shown for a selection of one, because that is
-// the only selection that can hold a queue -- with a fleet selected there is
-// nothing to draw that the order marker does not already say.
-//
-// This is the path of ORDERS, not the route: the detours the autopilot takes
-// around geometry between two of these points are its own business and change
-// from tick to tick.
-function drawPixiOrderCourse(gfx, now) {
-  if (state.selectedShipIds.size !== 1) return;
-  const [shipId] = state.selectedShipIds;
-  const ship = (state.snapshot?.ships || []).find((entry) => entry.id === shipId);
-  if (!ship || ship.ownerId !== state.myId) return;
-  const course = orderQueuePath(ship);
-  if (!course || course.length === 0) return;
-
-  const zoom = state.camera.zoom;
-  const pulse = 0.72 + 0.18 * Math.sin(now * 0.003);
-  gfx.moveTo(ship.x, ship.y);
-  for (const point of course) gfx.lineTo(point.x, point.y);
-  gfx.stroke({ width: 1.6 / zoom, color: "#ffca57", alpha: 0.42 });
-  for (let index = 0; index < course.length; index += 1) {
-    const point = course[index];
-    const last = index === course.length - 1;
-    gfx.circle(point.x, point.y, (last ? 7 : 4.5) / zoom + 3);
-    gfx.stroke({ width: 1.6 / zoom, color: "#ffca57", alpha: last ? pulse : 0.55 });
-  }
-}
-
 function updatePixiCommandTarget(env, now) {
   const gfx = env.layers.command;
   gfx.clear();
-  drawPixiOrderCourse(gfx, now);
   const rally = getRallyPoint();
   if (rally) {
     const pulse = (Math.sin(now * 0.004) + 1) * 0.5;

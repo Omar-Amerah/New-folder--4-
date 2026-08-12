@@ -19,6 +19,22 @@ const ship = (over = {}) => ({ id: 's1', alive: true, x: 0, y: 0, targetX: 0, ta
 
 state.orderQueues.clear();
 
+// Exact click-to-snapshot race: the current snapshot still publishes the OLD
+// destination when the user records a NEW course, and the renderer asks for the
+// path before a snapshot carrying that new destination has arrived.
+const oldSnapshotShip = ship({ id: 'race', targetX: 250, targetY: 300 });
+const newDestination = { x: 900, y: 700 };
+state.snapshot = { ships: [oldSnapshotShip] };
+recordOrderQueue('race', newDestination, false);
+assert.deepEqual(orderQueuePath(oldSnapshotShip), [newDestination],
+  'a renderer pass against the old snapshot preserves the newly issued local course');
+assert(state.orderQueues.has('race'),
+  'the old published destination must not delete the new course before its snapshot arrives');
+assert.deepEqual(orderQueuePath(ship({ id: 'race', targetX: 900, targetY: 700 })), [newDestination],
+  'the new published destination takes ownership of the recorded course');
+state.snapshot = null;
+state.orderQueues.clear();
+
 // A course is the leg being flown plus everything behind it.
 recordOrderQueue('s1', { x: 1000, y: 0 }, false);
 recordOrderQueue('s1', { x: 1000, y: 1000 }, true);

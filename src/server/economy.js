@@ -376,6 +376,9 @@ function validateBuyShip(room, player, count = 1, stats = null) {
   if (shipStats.thrust <= 0) {
     return { ok: false, code: "invalid-design", reason: "Invalid design: add at least one engine." };
   }
+  if (shipStats.turnRate <= 0) {
+    return { ok: false, code: "invalid-design", reason: "Invalid design: ship must be able to turn." };
+  }
   const requestedCount = clampNumber(count, 1, 5);
   const activeCount = activeFleetCount(player);
   if (activeCount + requestedCount > player.shipCap) {

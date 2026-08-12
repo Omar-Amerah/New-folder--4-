@@ -120,6 +120,9 @@ function validateBuildShip(room, player, stats = null) {
   if (shipStats.thrust <= 0) {
     return { ok: false, reason: "Invalid design: add at least one engine." };
   }
+  if (shipStats.turnRate <= 0) {
+    return { ok: false, reason: "Invalid design: ship must be able to turn." };
+  }
   if (shipStats.unitCost > player.money) {
     return { ok: false, reason: `Cannot build ship. Need $${shipStats.unitCost - Math.floor(player.money)} more.` };
   }

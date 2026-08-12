@@ -79,6 +79,27 @@ async function run() {
     "opening the designer from the lobby should replace the lobby panel");
   await shot(page, "02-designer-open-in-lobby");
 
+  // Refreshing replaces the browser socket and rejoins the existing lobby slot.
+  // The room-scoped, tab-scoped screen intent should put the player back in the
+  // Blueprint Designer instead of dropping them onto Lobby Management.
+  const beforeRefresh = await page.evaluate(async () => {
+    const { state } = await import("/src/state.js");
+    return { room: state.room, playerId: state.myId };
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(({ room, playerId }) => {
+    const state = window.__mfaState;
+    return window.__mfaMainLoaded === true
+      && state?.room === room
+      && state?.myId === playerId
+      && state?.phase === "lobby"
+      && state?.snapshot?.players?.length === 1;
+  }, beforeRefresh, { timeout: 15000 });
+  await page.waitForSelector("#blueprintDesignerScreen:not([hidden])", { timeout: 5000 });
+  assert.equal(await page.locator("#lobbyManagementScreen").isVisible(), false,
+    "refreshing in the lobby designer should not reopen Lobby Management over it");
+  await shot(page, "03-designer-restored-after-refresh");
+
   // 3. The designer is genuinely functional with no match running: the palette
   //    and build grid render, and blueprint analysis (cost/stats/validation)
   //    computes against the current design.
@@ -169,9 +190,7 @@ async function run() {
     };
     const afterRect = grid?.getBoundingClientRect();
     const noticeRect = notice?.getBoundingClientRect();
-    const utilityRect = document.querySelector(".designer-top")?.getBoundingClientRect();
-    const forwardRect = document.querySelector(".forward-marker")?.getBoundingClientRect();
-    const overlaps = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+    const actionsRect = document.querySelector(".designer-actions")?.getBoundingClientRect();
 
     state.design = original;
     state.selectedPart = null;
@@ -188,15 +207,14 @@ async function run() {
         afterWidth: afterRect?.width || 0,
         beforeHeight: beforeRect?.height || 0,
         afterHeight: afterRect?.height || 0,
-        workspaceEdgeInset: noticeRect && afterRect ? afterRect.right - noticeRect.right : Infinity,
-        utilityNudge: noticeRect && utilityRect ? noticeRect.top - utilityRect.top : -Infinity,
-        outsideGrid: !overlaps(noticeRect, afterRect),
-        outsideForward: !overlaps(noticeRect, forwardRect)
+        actionRightDelta: noticeRect && actionsRect ? noticeRect.right - actionsRect.right : Infinity,
+        actionBottomGap: noticeRect && actionsRect ? noticeRect.top - actionsRect.bottom : -Infinity
       },
       toastStackCount: document.querySelectorAll("#toastStack .toast").length,
       oldBannerCount: document.querySelectorAll("#buildStatus").length
     };
   });
+  await shot(page, "02-designer-notice-position");
   await page.evaluate(async () => {
     const { resetDesignerNoticeForTests } = await import("/src/ui/designerNoticeUi.js");
     resetDesignerNoticeForTests();
@@ -237,14 +255,10 @@ async function run() {
     "a design without an engine should be rejected on save");
   assert.ok(Number(validationNotice.changedNotice.sequence) > Number(validationNotice.firstNotice.firstNoticeSequence),
     "a changed save validation error should re-trigger the notice");
-  assert.equal(validationNotice.grid.outsideGrid, true,
-    "the designer notice should not overlap the Blueprint grid");
-  assert.equal(validationNotice.grid.outsideForward, true,
-    "the designer notice should not cover the Forward marker");
-  assert.ok(validationNotice.grid.workspaceEdgeInset >= 8 && validationNotice.grid.workspaceEdgeInset <= 24,
-    `the designer notice should return near the Blueprint workspace edge (inset=${validationNotice.grid.workspaceEdgeInset})`);
-  assert.ok(validationNotice.grid.utilityNudge >= 5 && validationNotice.grid.utilityNudge <= 8,
-    `the designer notice should be nudged down 4-8px from its workspace-header anchor (nudge=${validationNotice.grid.utilityNudge})`);
+  assert.ok(Math.abs(validationNotice.grid.actionRightDelta) <= 1,
+    `the designer notice should align with the right edge of the Undo / Reset / Clear controls (delta=${validationNotice.grid.actionRightDelta})`);
+  assert.ok(validationNotice.grid.actionBottomGap >= 5 && validationNotice.grid.actionBottomGap <= 7,
+    `the designer notice should sit directly below the Undo / Reset / Clear controls (gap=${validationNotice.grid.actionBottomGap})`);
   assert.ok(Math.abs(validationNotice.grid.beforeWidth - validationNotice.grid.afterWidth) < 1,
     "showing the notice should not change grid width");
   assert.ok(Math.abs(validationNotice.grid.beforeHeight - validationNotice.grid.afterHeight) < 1,
@@ -290,7 +304,9 @@ async function run() {
   await page.waitForSelector("#lobbyManagementScreen:not([hidden])", { timeout: 5000 });
   assert.equal(await page.locator("#blueprintDesignerScreen").isVisible(), false,
     "closing the designer should hide it");
-  await shot(page, "03-back-to-lobby");
+  await shot(page, "04-back-to-lobby");
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("modular-fleet-blueprint-screen-room-v1")), null,
+    "closing the designer should clear its refresh-restoration intent");
 
   // 7. Starting the design phase must not slam the designer shut on a player who
   //    is mid-build -- that is the same task the phase is asking them to do.
@@ -308,7 +324,7 @@ async function run() {
   }, null, { timeout: 15000 });
   assert.equal(await page.locator("#blueprintDesignerScreen").isVisible(), true,
     "the designer should stay open across the lobby -> design transition");
-  await shot(page, "04-designer-survives-phase-change");
+  await shot(page, "05-designer-survives-phase-change");
 
   // 8. The side-panel entry point is enabled too, and the design still readies.
   const designLength = await page.evaluate(async () => {
@@ -322,7 +338,7 @@ async function run() {
   await page.waitForTimeout(300);
   assert.equal(await page.locator("#openBlueprintDesignerButton").isDisabled(), false,
     "the side-panel designer button should be enabled in the design phase");
-  await shot(page, "05-design-phase");
+  await shot(page, "06-design-phase");
 
   console.log("Lobby designer verification passed");
   console.log(`  screenshots: ${artifactDir}`);

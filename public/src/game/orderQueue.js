@@ -24,6 +24,26 @@ const ORDER_QUEUE_MATCH_DISTANCE = 96;
 // arrival, so nothing else would ever retire it.
 const ORDER_QUEUE_ARRIVED_DISTANCE = 40;
 
+// A replacement course is recorded synchronously when the click is issued, but
+// the ship in `state.snapshot` still publishes the destination from the previous
+// server tick until the command makes the round trip. Remember that exact stale
+// destination so the renderer cannot mistake it for a conflicting order and
+// discard the new course before its first authoritative snapshot arrives.
+const awaitingPublishedDestination = new WeakMap();
+
+function publishedDestinationFor(shipId) {
+  const ship = (state.snapshot?.ships || []).find((entry) => entry.id === shipId);
+  const x = Number(ship?.targetX);
+  const y = Number(ship?.targetY);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
+function destinationsMatch(left, right) {
+  return Boolean(left && right
+    && left.x === right.x
+    && left.y === right.y);
+}
+
 // Add a leg to the course drawn for a ship, or start a new one. The first entry
 // is always the leg being flown now, so the whole list is the path from the ship
 // onwards. `append` false replaces the course outright, which is what an
@@ -31,7 +51,10 @@ const ORDER_QUEUE_ARRIVED_DISTANCE = 40;
 export function recordOrderQueue(shipId, point, append) {
   const existing = append ? state.orderQueues.get(shipId) : null;
   if (!existing) {
-    state.orderQueues.set(shipId, [point]);
+    const queue = [point];
+    const publishedDestination = publishedDestinationFor(shipId);
+    if (publishedDestination) awaitingPublishedDestination.set(queue, publishedDestination);
+    state.orderQueues.set(shipId, queue);
     return;
   }
   if (existing.length >= MAX_QUEUED_WAYPOINTS + 1) return;
@@ -75,9 +98,14 @@ export function orderQueuePath(ship) {
   const flying = queue.findIndex((point) =>
     Math.hypot(point.x - targetX, point.y - targetY) <= ORDER_QUEUE_MATCH_DISTANCE);
   if (flying < 0) {
+    const publishedDestination = { x: targetX, y: targetY };
+    if (destinationsMatch(awaitingPublishedDestination.get(queue), publishedDestination)) {
+      return queue;
+    }
     state.orderQueues.delete(ship.id);
     return null;
   }
+  awaitingPublishedDestination.delete(queue);
   // Everything before the leg being flown has been reached and is no longer part
   // of the path ahead.
   if (flying > 0) queue.splice(0, flying);

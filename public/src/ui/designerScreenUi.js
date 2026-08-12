@@ -2,14 +2,50 @@ import { dom } from "./dom.js";
 import { state } from "../state.js";
 
 let closeReturnFocus = null;
+const BLUEPRINT_SCREEN_ROOM_KEY = "modular-fleet-blueprint-screen-room-v1";
 // Set when the designer was opened over the lobby panel, so closing it puts the
 // player back where they were instead of dropping them onto the empty arena
 // behind. Every menu screen shares one z-index, so the two cannot be stacked.
 let reopenLobbyOnClose = false;
 
+function getSessionStorage() {
+  try {
+    if (typeof sessionStorage === "undefined" || !sessionStorage) return null;
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function rememberLobbyDesigner(roomCode) {
+  const storage = getSessionStorage();
+  const room = String(roomCode || "").trim().toUpperCase().slice(0, 8);
+  if (!storage || !room) return;
+  try { storage.setItem(BLUEPRINT_SCREEN_ROOM_KEY, room); } catch { /* unavailable */ }
+}
+
+function forgetLobbyDesigner() {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  try { storage.removeItem(BLUEPRINT_SCREEN_ROOM_KEY); } catch { /* unavailable */ }
+}
+
+function wasLobbyDesignerOpen(roomCode) {
+  const storage = getSessionStorage();
+  const room = String(roomCode || "").trim().toUpperCase().slice(0, 8);
+  if (!storage || !room) return false;
+  try {
+    return storage.getItem(BLUEPRINT_SCREEN_ROOM_KEY) === room;
+  } catch {
+    return false;
+  }
+}
+
 export function openBlueprintDesigner({ fromLobby = false } = {}) {
-  if (fromLobby) {
+  const openedFromLobby = fromLobby || state.phase === "lobby";
+  if (openedFromLobby) {
     reopenLobbyOnClose = true;
+    rememberLobbyDesigner(state.room);
     import("./lobbyUi.js").then((mod) => mod.hideMenuScreens?.());
   }
   if (dom.blueprintDesignerScreen) {
@@ -32,6 +68,7 @@ export function closeBlueprintDesigner() {
   if (dom.blueprintDesignerScreen) {
     dom.blueprintDesignerScreen.hidden = true;
   }
+  forgetLobbyDesigner();
   const returnToLobbyPanel = reopenLobbyOnClose;
   reopenLobbyOnClose = false;
   // Only while the room is still in the lobby: once the match has moved on, the
@@ -39,6 +76,12 @@ export function closeBlueprintDesigner() {
   if (returnToLobbyPanel && state.phase === "lobby") {
     import("./lobbyUi.js").then((mod) => mod.openLobbyManagement?.());
   }
+}
+
+export function restoreBlueprintDesignerAfterLobbyRejoin(roomCode) {
+  if (!wasLobbyDesignerOpen(roomCode)) return false;
+  openBlueprintDesigner({ fromLobby: true });
+  return true;
 }
 
 export async function requestCloseBlueprintDesigner() {
