@@ -1,6 +1,6 @@
 "use strict";
 
-// Deterministic Phase 6D benchmark. It runs equivalent canonical rooms,
+// Deterministic command-aura benchmark. It runs equivalent canonical rooms,
 // compares a checksum after every aura boundary, and reports bootstrap,
 // steady, movement, capability and lifecycle samples separately.
 
@@ -459,7 +459,7 @@ function main() {
   const definitions = scenarioDefinitions(full);
   const startedAt = performance.now();
   const results = [];
-  console.log(`Phase 6D Command Aura benchmark (${quick ? "quick" : "full"})`);
+  console.log(`Command aura runtime benchmark (${quick ? "quick" : "full"})`);
   console.log(`Range=${RANGE} cadence=150ms scenarios=${definitions.length}`);
   for (const definition of definitions) {
     const result = runScenario(definition);
@@ -479,7 +479,7 @@ function main() {
     },
     results
   };
-  const artifactPath = path.join(path.dirname(__dirname), "test-artifacts", "performance", "benchmark-phase-6d.json");
+  const artifactPath = path.join(path.dirname(__dirname), "test-artifacts", "performance", "command-aura-runtime.json");
   fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
   fs.writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(`Completed in ${fixed(performance.now() - startedAt)}ms`);

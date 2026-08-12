@@ -1,6 +1,6 @@
 "use strict";
 
-// Production-path Phase 5 benchmark.  Each sample calls broadcastSnapshot,
+// Production-path snapshot networking benchmark. Each sample calls broadcastSnapshot,
 // viewer filtering, MessagePack encoding and the outbound lifecycle.  It is
 // intentionally a workload benchmark, not a tuple-encoder microbenchmark.
 
@@ -504,7 +504,7 @@ async function main() {
     });
   }
   const output = {
-    benchmark: "phase-5-snapshot-network-scaling",
+    benchmark: "snapshot-network-scaling",
     productionPath: ["broadcastSnapshot", "viewer-specific filtering", "encodeMessage/MessagePack", "outbound lifecycle", "snapshotMerge"],
     startedAt, completedAt: new Date().toISOString(),
     cadence: { tickHz: 30, snapshotHz: 20 },
@@ -537,10 +537,10 @@ async function main() {
       "Signature-cost evidence is a controlled Node microbenchmark over representative field values; it compares structural-signature time with MessagePack encoding time and reports the field bytes omitted when a value stays unchanged, but does not attribute per-field production snapshots."
     ]
   };
-  const outputPath = path.join(path.dirname(__dirname), "test-artifacts", "performance", "benchmark-phase-5.json");
+  const outputPath = path.join(path.dirname(__dirname), "test-artifacts", "performance", "snapshot-network-scaling.json");
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
-  console.log(`Phase 5 benchmark wrote ${outputPath}`);
+  console.log(`Snapshot networking benchmark wrote ${outputPath}`);
   for (const pair of pairs.slice(0, 12)) console.log(`${pair.scenario} ${pair.count} ships/${pair.clients} clients: ${pair.payloadReductionPercent.toFixed(1)}% aggregate payload reduction`);
 }
 

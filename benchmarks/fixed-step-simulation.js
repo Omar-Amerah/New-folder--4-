@@ -16,7 +16,7 @@ function activeRoom(code) {
 }
 
 function benchmark(label, deltas) {
-  const room = activeRoom(`PH4ABENCH-${label}`);
+  const room = activeRoom(`FIXED-STEP-BENCH-${label}`);
   let t = 1_000_000;
   const durations = [];
   const samples = [];
@@ -86,7 +86,7 @@ function run() {
   // 4. Multiple independent rooms.
   const rooms = [steady, jittered, stalled];
 
-  console.log("Phase 4A fixed-step benchmark");
+  console.log("Fixed-step simulation benchmark");
   for (const r of rooms) {
     console.log(`  ${r.label}: callbacks=${r.callbacks}, fixedSteps=${r.fixedSteps}, catchUpCallbacks=${r.catchUpCallbacks}, maxCatchUp=${r.maxCatchUp}, totalDiscardedMs=${r.totalDiscardedMs.toFixed(2)}, maxDiscardedMs=${r.maxDiscardedMs.toFixed(2)}, meanStepDurationMs=${r.meanStepDurationMs.toFixed(3)}, maxStepDurationMs=${r.maxStepDurationMs.toFixed(3)}, meanCallbackUs=${r.meanCallbackUs.toFixed(1)}, maxCallbackUs=${r.maxCallbackUs.toFixed(1)}`);
   }

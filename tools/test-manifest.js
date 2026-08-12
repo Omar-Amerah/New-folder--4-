@@ -259,7 +259,7 @@ const TEST_MANIFEST = Object.freeze({
     "tests/verify-snapshot-resync.js",
     "tests/verify-network-backpressure.js",
     "tests/verify-network-soak.js",
-    "tests/verify-server-performance-pass2-benchmark.js",
+    "tests/verify-spatial-and-snapshot-performance.js",
     "tests/verify-websocket-soak.js"
   ]),
 

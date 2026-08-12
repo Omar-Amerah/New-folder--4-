@@ -16,7 +16,7 @@ const { configureOutbound } = require("../src/server/outbound");
 
 const BEFORE_PATH = path.join("test-artifacts", "performance", "server-spatial-performance-before-second-pass.json");
 const AFTER_PATH = path.join("test-artifacts", "performance", "server-spatial-performance.json");
-const OUTPUT_PATH = path.join("test-artifacts", "performance", "server-performance-pass2.json");
+const OUTPUT_PATH = path.join("test-artifacts", "performance", "spatial-and-snapshot-performance.json");
 
 function fixture() {
   const ships = [];
@@ -290,4 +290,4 @@ assert.equal(snapshotGrouped.groups, 1);
 assert.equal(snapshotPerClient.groups, 32);
 assert.ok(snapshotGrouped.encodingMs < snapshotPerClient.encodingMs);
 console.log(JSON.stringify(report, null, 2));
-console.log(`Second-pass performance benchmark passed: ${OUTPUT_PATH}`);
+console.log(`Spatial and snapshot performance benchmark passed: ${OUTPUT_PATH}`);

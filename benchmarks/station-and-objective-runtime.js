@@ -1,6 +1,6 @@
 "use strict";
 
-// Phase 6F profiling benchmark for the authoritative station-weapon runtime.
+// Profiling benchmark for authoritative station weapons and objectives.
 
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -31,7 +31,7 @@ const WARMUP_SAMPLES = 5;
 const MEASURED_SAMPLES = MODE === "full" ? 30 : 8;
 const REPEATS = MODE === "full" ? 3 : 1;
 const DT = 1 / 30;
-const OUTPUT_PATH = path.join(path.dirname(__dirname), "test-artifacts", "performance", ASSERT_PERFORMANCE ? "profile-phase-6f-acceptance.json" : "profile-phase-6f.json");
+const OUTPUT_PATH = path.join(path.dirname(__dirname), "test-artifacts", "performance", ASSERT_PERFORMANCE ? "station-and-objective-runtime-acceptance.json" : "station-and-objective-runtime.json");
 
 function resolveCommit(ref) {
   try {

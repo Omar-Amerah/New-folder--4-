@@ -1,6 +1,6 @@
 "use strict";
 
-// Deterministic short benchmark for Phase 3 targeting and Point Defence.
+// Deterministic short benchmark for targeting and Point Defence.
 // Exercises the real ship and station weapon update loops with multiple mounts
 // and an updated spatial index each tick.
 
@@ -244,7 +244,7 @@ function main() {
   results.push(runStationScenario("station-8weapons-50ships-canonical", 8, 50));
 
   const report = {
-    benchmark: "phase-3-real-combat-loop",
+    benchmark: "targeting-and-point-defence",
     warmup: WARMUP,
     measure: MEASURE,
     dt: DT,

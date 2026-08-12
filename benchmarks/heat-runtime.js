@@ -17,7 +17,7 @@ const RoomTelemetry = require("../src/server/roomTelemetry");
 const { createImmutableShipTemplate } = require("../src/server/shipTemplates");
 const { spawnShip } = require("../src/server/ships");
 
-const OUTPUT_PATH = path.join(path.dirname(__dirname), "test-artifacts", "performance", "benchmark-phase-6a.json");
+const OUTPUT_PATH = path.join(path.dirname(__dirname), "test-artifacts", "performance", "heat-runtime.json");
 const args = new Set(process.argv.slice(2));
 if (args.has("--quick") && args.has("--full")) throw new Error("Choose either --quick or --full");
 const mode = args.has("--full") ? "full" : "quick";

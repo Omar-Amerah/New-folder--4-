@@ -24,7 +24,7 @@ const files = [
   "public/src/snapshotMerge.js",
   "public/src/snapshotPresentation.js",
   "public/src/shared/snapshotEntityDelta.js",
-  "benchmarks/benchmark-phase-6f.js"
+  "benchmarks/station-and-objective-runtime.js"
 ];
 
 const forbidden = [

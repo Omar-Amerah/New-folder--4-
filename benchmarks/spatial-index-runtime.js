@@ -10,7 +10,7 @@ const {
   droneBroadPhaseRadius
 } = require("../src/server/spatialIndex");
 
-const ARTIFACT = path.join("test-artifacts", "performance", "benchmark-phase-4b.json");
+const ARTIFACT = path.join("test-artifacts", "performance", "spatial-index-runtime.json");
 
 function idNumber(id) {
   return Number.parseInt(String(id).slice(1), 10) || 0;

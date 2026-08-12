@@ -32,7 +32,7 @@ const warmups = mode === "full" ? 3 : 1;
 const profile = optionValue("profile") || "warmed-process";
 const runIndex = numericOption("run-index", 0);
 const DT = 1 / 30;
-const ARTIFACT = path.join("test-artifacts", "performance", "phase-6b-drone-runtime.json");
+const ARTIFACT = path.join("test-artifacts", "performance", "drone-and-projectile-runtime.json");
 const CHILD_RESULT_MARKER = "PHASE6B_CHILD_RESULT=";
 
 if (samples < 1) throw new Error("--samples must be at least 1");
