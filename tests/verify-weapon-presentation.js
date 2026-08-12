@@ -6,6 +6,7 @@ const WeaponPresentationRules = require("../public/src/shared/weaponPresentation
 const DataSupportRules = require("../public/src/shared/dataSupportRules.js");
 const { PARTS } = require("../src/server/components");
 const { computeStats: computeServerStats } = require("../src/server/shipStats");
+const { _test: SnapshotTest } = require("../src/server/snapshots");
 
 const close = (actual, expected, message, tolerance = 1e-9) => {
   assert(Math.abs(actual - expected) <= tolerance, `${message}: ${actual} !== ${expected}`);
@@ -46,6 +47,33 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
   close(normal.dps, 200, "ordinary weapons retain damage times fire rate");
   close(normal.reloadSeconds, 0.5, "ordinary reload remains one over fire rate");
   assert.equal(normal.dpsLabel, "DPS");
+
+  assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.railgun.weapon), true,
+    "ordinary Railguns publish their reload for the rail-light indicator");
+  assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.blaster.weapon), false,
+    "ordinary short-cycle weapons do not pay for staged reload art");
+  assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.spinalAccelerator.weapon), false,
+    "the Spinal Accelerator keeps its firing-solution charge telegraph");
+  assert.equal(WeaponPresentationRules.weaponCyclePresentation(PARTS.railgun.weapon).isChargeWeapon, false,
+    "the Railgun reload indicator does not add a pre-fire charge gate");
+
+  const railReload = 1 / PARTS.railgun.weapon.fireRate;
+  close(WeaponPresentationRules.reloadTelegraphProgress(PARTS.railgun.weapon, railReload, railReload), 0,
+    "Railgun rails go dark immediately after firing");
+  close(WeaponPresentationRules.reloadTelegraphProgress(PARTS.railgun.weapon, railReload / 2, railReload), 0.5,
+    "Railgun rails fill linearly through the authored reload");
+  close(WeaponPresentationRules.reloadTelegraphProgress(PARTS.railgun.weapon, 0, railReload), 1,
+    "Railgun rails remain full when ready");
+  close(WeaponPresentationRules.reloadTelegraphProgress(PARTS.railgun.weapon, railReload, railReload * 2), 0.5,
+    "a reduced-output Railgun fills steadily across its longer committed reload");
+
+  const reloadSnapshot = SnapshotTest.buildWeaponChargeProgress({
+    design: [{ type: "railgun" }],
+    weaponCharge: [0],
+    weaponCooldowns: [railReload],
+    weaponReloadDurations: [railReload * 2]
+  });
+  assert.deepEqual(reloadSnapshot, [0.5], "the public weaponCharge field carries authoritative Railgun reload progress");
 
   const spinal = WeaponPresentationRules.weaponCyclePresentation({
     damage: 2040,

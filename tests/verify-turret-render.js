@@ -53,9 +53,16 @@ window.__mfaTest = {
   },
   setShip(snapshot, cameraTarget) {
     const state = window.__mfaState;
+    // The renderer rebuilds structural views only when snapshotSeq changes.
+    // Synthetic snapshots must advance it just like accepted network snapshots
+    // do, otherwise a ship injected after the initial empty frame is pose-only
+    // and never receives a Pixi view.
+    window.__mfaTestSnapshotSeq = (window.__mfaTestSnapshotSeq || 0) + 1;
+    snapshot.snapshotSeq = window.__mfaTestSnapshotSeq;
     state.myId = "p1";
     state.snapshot = snapshot;
     state.snapshotReceivedAt = performance.now();
+    state.renderHistory = null;
     // Pin the interpolated visual pose to the authoritative pose so hull angle
     // is exactly what we set (no smoothing lag) for deterministic assertions.
     state.visualShips = new Map();
@@ -73,12 +80,19 @@ window.__mfaTest = {
     const state = window.__mfaState;
     const ship = state.snapshot.ships.find((s) => s.id === shipId);
     ship.angle = angle;
+    state.snapshotReceivedAt = performance.now();
+    state.renderHistory = null;
     const vis = state.visualShips.get(shipId);
     if (vis) vis.angle = angle;
   },
   setWeaponAngle(shipId, designIndex, angle) {
     const ship = window.__mfaState.snapshot.ships.find((s) => s.id === shipId);
     ship.weaponAngles[designIndex] = angle;
+  },
+  setWeaponCharge(shipId, designIndex, progress) {
+    const ship = window.__mfaState.snapshot.ships.find((s) => s.id === shipId);
+    if (!Array.isArray(ship.weaponCharge)) ship.weaponCharge = [];
+    ship.weaponCharge[designIndex] = progress;
   }
 };
 `;
@@ -295,15 +309,35 @@ async function main() {
       assert.ok(Math.abs(d) < 0.05, `barrel ${rendered.toFixed(3)} vs fire dir ${fireDir.toFixed(3)}`);
     });
 
-    // 6. Multi-cell weapon (railgun): one persistent turret at its design index.
-    await check("multi-cell railgun gets one persistent turret sprite", async () => {
+    // 6. Multi-cell Railgun: one persistent turret at its design index, with the
+    //    server-driven reload stage visibly filling its rail channels.
+    await check("multi-cell Railgun renders its staged reload indicator", async () => {
       const d = design([7, 7, "core"], [8, 7, "railgun"]);
-      await page.evaluate((snap) => window.__mfaTest.setShip(snap), snapshotWith("ship-railgun", d));
+      await page.evaluate((snap) => window.__mfaTest.setShip(snap), snapshotWith("ship-railgun", d, { weaponCharge: [0, 0] }));
       await page.evaluate(() => window.__mfaTest.frames(4));
       const info = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-railgun"));
       assert.ok(info, "no railgun debug info");
       assert.strictEqual(info.turretCount, 1, `railgun turretCount ${info.turretCount}`);
       assert.strictEqual(info.turrets[0].partType, "railgun");
+      assert.strictEqual(info.turrets[0].reloadTelegraph, true, "Railgun turret must opt into staged reload art");
+      assert.strictEqual(info.turrets[0].chargeStage, 0, "a just-fired Railgun starts with empty rail lights");
+      const spentShot = await shot(page, "railgun-reload-0.png");
+
+      await page.evaluate(() => window.__mfaTest.setWeaponCharge("ship-railgun", 1, 0.5));
+      await page.evaluate(() => window.__mfaTest.frames(3));
+      const halfInfo = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-railgun"));
+      assert(halfInfo.turrets[0].chargeStage > 0 && halfInfo.turrets[0].chargeStage < 7,
+        `half reload should use an intermediate texture stage, got ${halfInfo.turrets[0].chargeStage}`);
+      const halfShot = await shot(page, "railgun-reload-50.png");
+
+      await page.evaluate(() => window.__mfaTest.setWeaponCharge("ship-railgun", 1, 1));
+      await page.evaluate(() => window.__mfaTest.frames(3));
+      const readyInfo = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-railgun"));
+      assert.strictEqual(readyInfo.turrets[0].chargeStage, 7, "a ready Railgun uses the fully lit rail stage");
+      const readyShot = await shot(page, "railgun-reload-100.png");
+      assert.ok(pixelsDiffer(spentShot, halfShot), "half-reloaded Railgun rails must visibly differ from spent rails");
+      assert.ok(pixelsDiffer(halfShot, readyShot), "ready Railgun rails must visibly differ from half-reloaded rails");
+
       await page.evaluate(() => { window.__mfaDisableTurretSmoothing = true; });
       await page.evaluate(() => window.__mfaTest.setWeaponAngle("ship-railgun", 1, -1.2));
       await page.evaluate(() => window.__mfaTest.frames(3));

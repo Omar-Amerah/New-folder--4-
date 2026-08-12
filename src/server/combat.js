@@ -1532,6 +1532,15 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
   }
 
+  // Total cooldown committed by the last shot. Reload telegraph art compares
+  // the remaining cooldown against this value so reduced Power/thermal output
+  // produces a slower, truthful fill instead of a bar that appears stalled.
+  if (!ship.weaponReloadDurations) {
+
+    ship.weaponReloadDurations = new Array(ship.design ? ship.design.length : 0).fill(0);
+
+  }
+
   if (!ship.weaponAngles) {
 
     ship.weaponAngles = (ship.design || []).map(module => moduleRotationToRadians(normalizeRotation(module.rotation)));
@@ -2701,6 +2710,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
       });
 
       ship.weaponCooldowns[i] = reload;
+      ship.weaponReloadDurations[i] = reload;
       addComponentHeat(ship, i, HeatRules.heatPerShot(module.type, part));
 
     } else if (family === "railgun") {
@@ -2783,6 +2793,7 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     });
 
       ship.weaponCooldowns[i] = reload;
+      ship.weaponReloadDurations[i] = reload;
 
       if (spinalConfig) {
 

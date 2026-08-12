@@ -70,8 +70,9 @@ function hullTextureKey(staticKey) {
 // Turret art depends only on part type + bake scale + generation (the rotating
 // top uses the part's own colour, not the team colour).
 // A charging mount lights up section by section (the spinal accelerator filling
-// its coils, the EMP Cannon's fork crackling back to life as it reloads), so its
-// top is not one static picture. Baking per frame would be ruinous; the art
+// its coils, the EMP Cannon's fork crackling back to life, or the Railgun rails
+// filling as it reloads), so its top is not one static picture. Baking per frame
+// would be ruinous; the art
 // quantises progress into WEAPON_CHARGE_STAGES discrete stages instead, and each
 // stage is one more cached texture keyed here. Every other weapon only ever asks
 // for stage 0, so nothing else pays for this.
@@ -474,7 +475,8 @@ export function rebuildPixiShipStatic(env, view, design, color, radius, staticKe
     // Only a charging mount ever leaves the resting texture, so this stays a
     // no-op field for every other turret in the fleet. Both kinds of charge art
     // qualify: the spinal accelerator's accumulator and the EMP Cannon's reload
-    // telegraph. It starts null, not 0, because the sprite is holding the
+    // telegraph, including the Railgun's filling rail channels. It starts null,
+    // not 0, because the sprite is holding the
     // resting bake : starting at 0 would make the first reported stage-0 update
     // a no-op and leave a spent mount drawn as a ready one.
     sprite.__chargeStage = null;

@@ -610,6 +610,47 @@ function getCadencedStationWeaponTarget(room, station, i, targets, identity, now
   return picked;
 }
 
+function addStationPointDefenceShot(room, {
+  module,
+  weapon,
+  identity,
+  target,
+  pdTarget = null,
+  muzzleX,
+  muzzleY,
+  speed,
+  range,
+  spread,
+  now
+}) {
+  const flightTime = fastHypot(target.x - muzzleX, target.y - muzzleY) / Math.max(1, speed);
+  const leadAngle = Math.atan2(
+    target.y + (target.vy || 0) * flightTime - muzzleY,
+    target.x + (target.vx || 0) * flightTime - muzzleX
+  ) + spread;
+  const shot = {
+    type: "pdShot",
+    subtype: module.type,
+    ownerId: identity,
+    targetId: target.id,
+    x: muzzleX,
+    y: muzzleY,
+    vx: Math.cos(leadAngle) * speed,
+    vy: Math.sin(leadAngle) * speed,
+    damage: weapon.damage || 3,
+    shipDamageMultiplier: weapon.shipDamageMultiplier ?? 0.05,
+    shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1,
+    hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1,
+    life: range / speed,
+    bornAt: now
+  };
+  if (pdTarget) {
+    shot.pdTargetType = pdTarget.type;
+    shot.pdTargetId = target.id;
+  }
+  addBullet(room, shot);
+}
+
 function updateStationWeapons(room, stations, ships, dt, now) {
   const runtimeStartedAt = performanceNow();
   try {
@@ -808,28 +849,18 @@ function updateStationWeapons(room, stations, ships, dt, now) {
           continue;
         }
         room._pdReservations?.set(entity.id, reserved + (weapon.damage || 0));
-        const flightTime = fastHypot(entity.x - muzzleX, entity.y - muzzleY) / Math.max(1, speed);
-        const leadAngle = Math.atan2(
-          entity.y + (entity.vy || 0) * flightTime - muzzleY,
-          entity.x + (entity.vx || 0) * flightTime - muzzleX
-        ) + spread;
-        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => addBullet(room, {
-          type: "pdShot",
-          subtype: module.type,
-          ownerId: identity,
-          targetId: entity.id,
-          x: muzzleX,
-          y: muzzleY,
-          vx: Math.cos(leadAngle) * speed,
-          vy: Math.sin(leadAngle) * speed,
-          damage: weapon.damage || 3,
-          shipDamageMultiplier: weapon.shipDamageMultiplier ?? 0.05,
-          shieldDamageMultiplier: weapon.shieldDamageMultiplier ?? 1,
-          hullDamageMultiplier: weapon.hullDamageMultiplier ?? 1,
-          pdTargetType: pdTarget.type,
-          pdTargetId: entity.id,
-          life: range / speed,
-          bornAt: now
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => addStationPointDefenceShot(room, {
+          module,
+          weapon,
+          identity,
+          target: entity,
+          pdTarget,
+          muzzleX,
+          muzzleY,
+          speed,
+          range,
+          spread,
+          now
         }));
         if (detailed) bump(room, "stationWeaponShotsCreated");
         station.weaponCooldowns[i] = reload;
@@ -837,7 +868,21 @@ function updateStationWeapons(room, stations, ships, dt, now) {
         continue;
       }
 
-      if (family === "blaster" || family === "bolt") {
+      if (family === "pointDefense") {
+        TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => addStationPointDefenceShot(room, {
+          module,
+          weapon,
+          identity,
+          target,
+          muzzleX,
+          muzzleY,
+          speed,
+          range,
+          spread,
+          now
+        }));
+        if (detailed) bump(room, "stationWeaponShotsCreated");
+      } else if (family === "blaster" || family === "bolt") {
         TargetingTelemetry.withSampledDuration(room, now, station, i, "sampledWeaponFiringDuration", () => { addBullet(room, {
           type: "bolt",
           subtype: module.type,

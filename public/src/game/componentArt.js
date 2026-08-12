@@ -1672,14 +1672,46 @@ export function drawRotatingWeaponTop({ type, unit, tilesLong = 1, tilesCross = 
     ctx.restore();
     ctx.restore();
   } else if (artType === "railgun") {
+    const progress = chargeProgress === null || chargeProgress === undefined
+      ? 1
+      : Math.max(0, Math.min(1, Number(chargeProgress) || 0));
+    const railBack = -size * 0.04;
+    const railFront = size * 0.68;
     ctx.strokeStyle = M.shell;
     ctx.lineWidth = Math.max(1.2, size * 0.1);
     ctx.beginPath();
-    ctx.moveTo(-size * 0.04, -size * 0.16);
-    ctx.lineTo(size * 0.68, -size * 0.16);
-    ctx.moveTo(-size * 0.04, size * 0.16);
-    ctx.lineTo(size * 0.68, size * 0.16);
+    ctx.moveTo(railBack, -size * 0.16);
+    ctx.lineTo(railFront, -size * 0.16);
+    ctx.moveTo(railBack, size * 0.16);
+    ctx.lineTo(railFront, size * 0.16);
     ctx.stroke();
+    // A recessed light channel in each rail fills from breech to muzzle. At the
+    // default blueprint rotation that is bottom to top; rotating the mount keeps
+    // the bar aligned with the weapon instead of with the screen.
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(3,6,12,0.82)";
+    ctx.lineWidth = Math.max(0.8, size * 0.035);
+    for (const ry of [-size * 0.16, size * 0.16]) {
+      ctx.beginPath();
+      ctx.moveTo(railBack, ry);
+      ctx.lineTo(railFront, ry);
+      ctx.stroke();
+    }
+    if (progress > 0) {
+      const litFront = railBack + (railFront - railBack) * progress;
+      ctx.shadowColor = "#38bdf8";
+      ctx.shadowBlur = qualityShadowBlur(3 + 7 * progress);
+      ctx.strokeStyle = mixColor("#38bdf8", "#ffffff", 0.25 + 0.55 * progress);
+      ctx.lineWidth = Math.max(0.8, size * 0.04);
+      for (const ry of [-size * 0.16, size * 0.16]) {
+        ctx.beginPath();
+        ctx.moveTo(railBack, ry);
+        ctx.lineTo(litFront, ry);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
     ctx.fillStyle = M.hot;
     ctx.fillRect(size * 0.42, -size * 0.06, size * 0.16, size * 0.12);
     drawTurretCap(size, color, 0.15);
@@ -1986,6 +2018,9 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = n
     const railY = hc * 0.54;
     const railBack = -hl + unit * 0.44;
     const railFront = hl - unit * 0.2;
+    const progress = chargeProgress === null || chargeProgress === undefined
+      ? 1
+      : Math.max(0, Math.min(1, Number(chargeProgress) || 0));
 
     // 1. The open gap, filled flush between the rails with no border of its own.
     ctx.save();
@@ -2034,6 +2069,43 @@ function drawMultiCellWeaponTop(artType, unit, hl, hc, color, chargeProgress = n
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+    }
+    ctx.restore();
+
+    // Recessed luminous channels turn the long rails into the reload indicator.
+    // The dark channel is always visible; its cyan-white fill advances from the
+    // breech toward the muzzle and remains full while the weapon is ready.
+    const channelBack = railBack + unit * 0.04;
+    const channelFront = railFront - unit * 0.04;
+    const channelHalf = Math.max(0.55, unit * 0.026);
+    ctx.save();
+    ctx.fillStyle = "rgba(3,6,12,0.86)";
+    for (const ry of [-railY, railY]) {
+      roundRect(ctx, {
+        x: channelBack,
+        y: ry - channelHalf,
+        width: channelFront - channelBack,
+        height: channelHalf * 2,
+        radius: channelHalf
+      });
+      ctx.fill();
+    }
+    if (progress > 0) {
+      const litFront = channelBack + (channelFront - channelBack) * progress;
+      const litWidth = Math.max(channelHalf * 2, litFront - channelBack);
+      ctx.shadowColor = "#38bdf8";
+      ctx.shadowBlur = qualityShadowBlur(4 + 10 * progress);
+      ctx.fillStyle = mixColor("#38bdf8", "#ffffff", 0.22 + 0.58 * progress);
+      for (const ry of [-railY, railY]) {
+        roundRect(ctx, {
+          x: channelBack,
+          y: ry - channelHalf,
+          width: litWidth,
+          height: channelHalf * 2,
+          radius: channelHalf
+        });
+        ctx.fill();
+      }
     }
     ctx.restore();
 

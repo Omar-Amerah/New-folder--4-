@@ -107,12 +107,16 @@ export async function initPixiRenderer() {
     // The body pool is an off-screen staging container; views are reparented
     // into friendly or masked enemy layers each frame.
     shipBodyStaging: new PIXI.Container(),
+    // Allied hulls still clearing a station hangar sit beneath its cosmetic
+    // canopy. Allied ships outside a hangar remain in friendlyShipBodies above
+    // the fog, while enemy launchers stay in the masked enemy layer.
+    launchingShipBodies: new PIXI.Container(),
     friendlyShipBodies: new PIXI.Container(),
     enemyShipBodiesMasked,
     enemyVisibilityMask,
-    // Cosmetic canopy art is above ship bodies so a hull is visibly revealed
-    // from the hangar. Weapon sprites get their own layer immediately above
-    // the canopy so they remain visibly mounted over the cover.
+    // Cosmetic canopy art is above launching ship bodies so a hull is visibly
+    // revealed from the hangar. Weapon sprites get their own layer immediately
+    // above the canopy so they remain visibly mounted over the cover.
     stationCovers,
     stationWeapons,
     shipOverlays: new PIXI.Container(),
@@ -137,11 +141,14 @@ export async function initPixiRenderer() {
   // shield pixels fade continuously to zero at the authoritative range.
   worldRoot.addChild(layers.enemyShipBodiesMasked);
   worldRoot.addChild(layers.enemyVisibilityMask);
-  worldRoot.addChild(layers.fog);
-  // Friendly ships and overlays remain above the fog presentation.
-  worldRoot.addChild(layers.friendlyShipBodies);
+  worldRoot.addChild(layers.launchingShipBodies);
   worldRoot.addChild(layers.stationCovers);
   worldRoot.addChild(layers.stationWeapons);
+  worldRoot.addChild(layers.fog);
+  // Station weapons and hangar covers stay beneath fog. Ordinary friendly
+  // ships and overlays remain above it; only allied hulls still inside a
+  // hangar use the dedicated under-canopy layer above.
+  worldRoot.addChild(layers.friendlyShipBodies);
   worldRoot.addChild(layers.shipOverlays);
   worldRoot.addChild(layers.drones);
   worldRoot.addChild(layers.friendlyBullets);

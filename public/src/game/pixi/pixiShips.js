@@ -660,7 +660,8 @@ function updatePixiTurrets(env, view, ship, design) {
 
 // Swaps a charging mount's turret texture as its charge crosses a stage
 // boundary, so an opponent can read "that gun is almost charged" (spinal) or
-// "that EMP is about to pulse" (reload telegraph) off the hull itself. The
+// "that EMP is about to pulse" or "that Railgun is nearly reloaded" off the
+// hull itself. The
 // server owns the progress value; this only decides which cached stage texture
 // is showing. A destroyed mount drops to stage 0, which is the dead, unlit art.
 // Textures are leased, so the previous stage is released only after the new one
@@ -1181,8 +1182,20 @@ function syncEnemyVisibilityMask(env, bounds) {
   return sources;
 }
 
-function ensureShipBodyLayer(view, isEnemy, env) {
-  const target = isEnemy ? env.layers.enemyShipBodiesMasked : env.layers.friendlyShipBodies;
+function launchingShipIds(snapshot) {
+  const ids = new Set();
+  for (const station of snapshot?.stations || []) {
+    for (const launch of station?.launches || []) {
+      if (launch?.shipId !== undefined && launch?.shipId !== null) ids.add(launch.shipId);
+    }
+  }
+  return ids;
+}
+
+function ensureShipBodyLayer(view, isEnemy, isLaunching, env) {
+  const target = isEnemy
+    ? env.layers.enemyShipBodiesMasked
+    : (isLaunching ? env.layers.launchingShipBodies : env.layers.friendlyShipBodies);
   if (view.root.parent !== target) target.addChild(view.root);
 }
 
@@ -1204,6 +1217,7 @@ export function updatePixiShips(env, now, players, bounds) {
   if (shipOverlaysCleared) shipOverlays.removeChildren();
   const debug = turretDebugEnabled();
   const visibleShipIds = new Set();
+  const launchingIds = launchingShipIds(snap);
   const sources = syncEnemyVisibilityMask(env, bounds);
   const sensorMode = usesSensorVisibility();
   let maskedEnemyCount = 0;
@@ -1254,7 +1268,7 @@ export function updatePixiShips(env, now, players, bounds) {
         view.boundShipId = null; // force turret angle re-seed for the new static content
       }
 
-      ensureShipBodyLayer(view, isEnemy, env);
+      ensureShipBodyLayer(view, isEnemy, launchingIds.has(ship.id), env);
       shipOverlays.addChild(view.overlayRoot);
 
       view.root.position.set(renderShip.x, renderShip.y);
@@ -1337,6 +1351,7 @@ export function updatePixiShipPoses(env, now, players, bounds) {
   const overlay = env.layers.overlay;
   const shipOverlays = env.layers.shipOverlays;
   const zoom = state.camera.zoom;
+  const launchingIds = launchingShipIds(snap);
   const sources = syncEnemyVisibilityMask(env, bounds);
   const sensorMode = usesSensorVisibility();
   let maskedEnemyCount = 0;
@@ -1362,7 +1377,7 @@ export function updatePixiShipPoses(env, now, players, bounds) {
     const relation = playerTeamRelation(player);
     const isEnemy = relation === "enemy";
 
-    ensureShipBodyLayer(view, isEnemy, env);
+    ensureShipBodyLayer(view, isEnemy, launchingIds.has(ship.id), env);
     if (!view.overlayRoot.parent) shipOverlays.addChild(view.overlayRoot);
 
     view.root.position.set(vis.x, vis.y);
@@ -1448,6 +1463,8 @@ export function __pixiTurretDebugInfo(shipId) {
         localRotation: s.rotation,
         worldRotation: hullAngle + s.rotation,
         worldTransformRotation: Math.atan2(wt.b, wt.a),
+        chargeStage: s.__chargeStage,
+        reloadTelegraph: Boolean(s.__charges),
         visible: s.visible,
         alpha: s.alpha,
         parentLabel: s.parent?.label || null,

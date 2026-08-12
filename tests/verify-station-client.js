@@ -353,6 +353,11 @@ assert(rendererJs.includes('stations: new PIXI.Container()'), 'the renderer owns
 assert(rendererJs.includes('worldRoot.addChild(layers.stations)'), 'the stations layer is in the world draw order');
 assert(rendererJs.includes('worldRoot.addChild(layers.friendlyShipBodies)'), 'friendly ships have a dedicated world layer');
 assert(rendererJs.indexOf('worldRoot.addChild(layers.stations)') < rendererJs.indexOf('worldRoot.addChild(layers.friendlyShipBodies)'), 'stations draw beneath friendly ships');
+assert(rendererJs.includes('launchingShipBodies: new PIXI.Container()'), 'launching allied hulls have a dedicated under-canopy layer');
+assert(rendererJs.indexOf('worldRoot.addChild(layers.launchingShipBodies)') < rendererJs.indexOf('worldRoot.addChild(layers.stationCovers)'), 'launching hulls draw beneath hangar covers');
+assert(rendererJs.indexOf('worldRoot.addChild(layers.stationCovers)') < rendererJs.indexOf('worldRoot.addChild(layers.stationWeapons)'), 'station weapons remain mounted above hangar covers');
+assert(rendererJs.indexOf('worldRoot.addChild(layers.stationWeapons)') < rendererJs.indexOf('worldRoot.addChild(layers.fog)'), 'station weapons and hangar covers are affected by fog');
+assert(rendererJs.indexOf('worldRoot.addChild(layers.fog)') < rendererJs.indexOf('worldRoot.addChild(layers.friendlyShipBodies)'), 'ordinary friendly hulls remain above fog');
 assert(rendererJs.includes('updatePixiStations'), 'stations are updated every frame');
 assert(rendererJs.includes('destroyPixiStations'), 'the station pool is torn down with the renderer');
 

@@ -114,6 +114,7 @@ const GROUPS = {
     "tests/verify-client-order-queue.js",
     "tests/verify-adaptive-music.js",
     "tests/verify-station-infrastructure.js",
+    "tests/verify-station-point-defence.js",
     "tests/verify-relay-transfer-recovery.js",
     "tests/verify-station-single-hangar.js",
     "tests/verify-station-client.js",

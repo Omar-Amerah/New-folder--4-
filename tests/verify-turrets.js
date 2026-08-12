@@ -181,6 +181,8 @@ assertDefensiveWeaponWaitsForAlignment("interceptorPod", 0.25, 0.2);
   const longTiles = Math.max(footprint.width, footprint.height);
   const expected = (longTiles * 0.5 - 0.04) * SCALE;
   assert(Math.abs(spawnOffset - expected) < 0.01, `railgun bullet spawned ${spawnOffset.toFixed(2)}px from pivot, expected ${expected.toFixed(2)} (barrel tip)`);
+  assert(Math.abs(me.weaponReloadDurations[2] - (1 / PARTS.railgun.weapon.fireRate)) < 1e-9,
+    "the Railgun records the committed reload duration used by its visual indicator");
 }
 
 // 4b. Twin-barrel autocannon: consecutive rounds leave alternating tubes,

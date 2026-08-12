@@ -130,8 +130,8 @@ async function main() {
         const context = canvas?.getContext?.("2d") || null;
         const sample = (x, y) => {
           if (!context || !canvas || !(mask?.width > 0) || !(mask?.height > 0)) return null;
-          const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x / mask.width * canvas.width)));
-          const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y / mask.height * canvas.height)));
+          const px = Math.max(0, Math.min(canvas.width - 1, Math.round((x - mask.position.x) / mask.width * canvas.width)));
+          const py = Math.max(0, Math.min(canvas.height - 1, Math.round((y - mask.position.y) / mask.height * canvas.height)));
           return context.getImageData(px, py, 1, 1).data[3] / 255;
         };
         const overlays = env?.layers?.shipOverlays?.children || [];
@@ -186,6 +186,68 @@ async function main() {
       if (counts.overlays < 1) throw new Error(`expected ship overlay root, got ${counts.overlays}`);
     });
 
+    await check("station weapons and hangar covers stay below fog without losing launch canopy depth", async () => {
+      await page.evaluate(() => {
+        const state = window.__mfaState;
+        state.snapshot.stations = [{
+          id: "launch-station",
+          stationType: "home",
+          team: "alpha",
+          ownerId: "p1",
+          state: "operational",
+          x: 1600,
+          y: 950,
+          angle: 0,
+          radius: 100,
+          moduleScale: 56,
+          design: [],
+          hangars: [{ id: "central", index: 0, apertureHalfWidth: 30, corridorLength: 80, centreY: 0 }],
+          launches: [{ shipId: "sensor-source", bayIndex: 0, bayId: "central", progress: 0.5, doorOpen: true }],
+          productionQueue: [],
+          hp: 100,
+          maxHp: 100,
+          shield: 0,
+          maxShield: 0,
+          sensorRange: 100
+        }];
+      });
+      await page.evaluate(() => window.__mfaTest.frames(3));
+      const layered = await page.evaluate(() => {
+        const env = window.__mfaGetPixiEnv?.();
+        const world = env?.layers?.worldRoot;
+        const index = (layer) => world?.getChildIndex?.(layer) ?? -1;
+        return {
+          launching: env?.layers?.launchingShipBodies?.children?.length || 0,
+          friendly: env?.layers?.friendlyShipBodies?.children?.length || 0,
+          launchingIndex: index(env?.layers?.launchingShipBodies),
+          coverIndex: index(env?.layers?.stationCovers),
+          weaponIndex: index(env?.layers?.stationWeapons),
+          fogIndex: index(env?.layers?.fog),
+          friendlyIndex: index(env?.layers?.friendlyShipBodies)
+        };
+      });
+      if (layered.launching < 1) throw new Error(`launching friendly hull did not enter its under-canopy layer: ${JSON.stringify(layered)}`);
+      if (!(layered.launchingIndex < layered.coverIndex && layered.coverIndex < layered.weaponIndex)) {
+        throw new Error(`launch canopy/weapon depth is incorrect: ${JSON.stringify(layered)}`);
+      }
+      if (!(layered.weaponIndex < layered.fogIndex && layered.fogIndex < layered.friendlyIndex)) {
+        throw new Error(`station accessories are not fogged independently of ordinary friendly hulls: ${JSON.stringify(layered)}`);
+      }
+
+      await page.evaluate(() => { window.__mfaState.snapshot.stations[0].launches = []; });
+      await page.evaluate(() => window.__mfaTest.frames(3));
+      const released = await page.evaluate(() => {
+        const env = window.__mfaGetPixiEnv?.();
+        return {
+          launching: env?.layers?.launchingShipBodies?.children?.length || 0,
+          friendly: env?.layers?.friendlyShipBodies?.children?.length || 0
+        };
+      });
+      if (released.launching !== 0 || released.friendly < 1) {
+        throw new Error(`released hull did not return above fog: ${JSON.stringify(released)}`);
+      }
+    });
+
     await check("screenshot captured for visual review", async () => {
       const shot = path.join(ARTIFACTS, "straddler-screenshot.png");
       fs.mkdirSync(ARTIFACTS, { recursive: true });
@@ -201,7 +263,7 @@ async function main() {
     try { server.kill(); } catch {}
   }
 
-  const passed = results.filter(([, ok]) => ok).length;
+  const passed = results.filter(([ok]) => ok).length;
   const failed = results.length - passed;
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) {

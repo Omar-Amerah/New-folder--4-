@@ -147,10 +147,10 @@ function buildStationWeaponAnglePairs(station) {
 // Two kinds of mount report here, and they mean different things:
 //   * a spinal mount reports accumulated charge : it is not allowed to fire
 //     until this reaches 1, and the value is the balance telegraph itself;
-//   * a reload-telegraph mount (the EMP Cannon) reports its recovery toward
-//     being ready. It changes nothing about when the weapon fires; it is the
-//     same cooldown the mount already had, expressed so the emitter can be drawn
-//     dead after a discharge and crackling again as the next pulse comes up.
+//   * a reload-telegraph mount (EMP Cannon or ordinary Railgun) reports its
+//     recovery toward being ready. It changes nothing about when the weapon
+//     fires; it is the same cooldown the mount already had, expressed so the
+//     weapon can rebuild its emitter glow or fill its rail channels.
 // Reload progress is quantised to 5% steps because the client only ever renders
 // it as a handful of baked charge stages, and an unquantised value would put a
 // changed field on the wire every single tick for the whole reload.
@@ -168,7 +168,11 @@ function buildWeaponChargeProgress(ship) {
       return Math.round(value * 1000) / 1000;
     }
     if (!WeaponPresentationRules.hasReloadTelegraph(weapon)) return 0;
-    const value = WeaponPresentationRules.reloadTelegraphProgress(weapon, ship.weaponCooldowns?.[index]);
+    const value = WeaponPresentationRules.reloadTelegraphProgress(
+      weapon,
+      ship.weaponCooldowns?.[index],
+      ship.weaponReloadDurations?.[index]
+    );
     any = true;
     return Math.round(value * 20) / 20;
   });
@@ -378,8 +382,8 @@ function buildSharedSnapshot(room, now, sendStatic, suppressCompactDeltas = fals
       // Weapon charge progress per slot, 0..1. This is a public field on
       // purpose: the telegraph is the balance justification for the spinal shot,
       // so an opponent must be able to see a capital gun coming up to full
-      // charge, and an EMP mount visibly recovering toward its next pulse is the
-      // same kind of readable warning.
+      // charge, while EMP and Railgun mounts visibly recovering toward their
+      // next shot are the same kind of readable warning.
       weaponCharge: buildWeaponChargeProgress(ship),
       commandState: ship.commandState || "mainCore",
       emergencyReserveUntil: ship.emergencyReserveUntil || null,
@@ -1213,5 +1217,5 @@ module.exports = {
   collectEntityDeltaBaselineIds,
   canViewShipInternals,
   canViewPlayerEconomy,
-  _test: { buildRuntimePowerThermalSnapshot, finiteOrNull }
+  _test: { buildRuntimePowerThermalSnapshot, buildWeaponChargeProgress, finiteOrNull }
 };
