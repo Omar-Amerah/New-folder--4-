@@ -279,6 +279,7 @@ function addBot(room, requester) {
     ships: [],
     money: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     income: ECONOMY.baseIncome,
+    incomeRemainder: 0,
     earned: room.rules?.startingMoney ?? ECONOMY.startingMoney,
     spent: 0,
     maxMoney: ECONOMY.maxMoney,

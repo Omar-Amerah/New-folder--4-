@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { RoomSpatialIndex, buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 const {
   CONFIG,
+  DRONE_DECISION_INTERVALS_MS,
   ownerActiveCount,
   shipActiveCount,
   setDroneDestroyed,
@@ -191,7 +192,7 @@ function carrierRoom() {
   assert.equal(active.commandState, "fallback");
 }
 
-// Expensive targeting/evasion decisions run at ~8.3 Hz while steering continues
+// Expensive targeting/evasion decisions use the per-type authoritative cadence while steering continues
 // every simulation tick and reuses the cached result in between.
 {
   const { room, carrier, bay } = carrierRoom();
@@ -207,7 +208,7 @@ function carrierRoom() {
   assert.equal(fighter.targetId, firstTarget.id);
   assert.equal(fighter.evasionProjectileId, "threat-a");
   const decisionDeadline = fighter.nextDecisionAt;
-  assert.ok(decisionDeadline >= 115 && decisionDeadline <= 125);
+  assert.equal(decisionDeadline, DRONE_DECISION_INTERVALS_MS.fighter);
 
   firstTarget.x = 900;
   secondTarget.x = 530;
@@ -215,7 +216,7 @@ function carrierRoom() {
   updateDroneEntity(room, fighter, 1 / 30, 60);
   assert.equal(fighter.targetId, firstTarget.id, "target decision is cached between decision ticks");
   assert.equal(fighter.evasionProjectileId, "threat-a", "evasion decision is cached while per-tick steering continues");
-  updateDroneEntity(room, fighter, 1 / 30, 121);
+  updateDroneEntity(room, fighter, 1 / 30, DRONE_DECISION_INTERVALS_MS.fighter + 1);
   assert.equal(fighter.targetId, secondTarget.id);
   assert.equal(fighter.evasionProjectileId, "threat-b");
   room.drones.delete(secondTarget.id);
@@ -232,7 +233,8 @@ function carrierRoom() {
   updateBullets(room, 1, 1000);
   assert.equal(room.bullets.length, 0);
   assert.equal(ensureProjectileLookup(room).has(projectile.id), false);
-  assert.equal(room.spatialIndex.dynamicValid, false);
+  assert.equal(room.spatialIndex?.queryRange("projectiles", projectile.x, projectile.y, 1, []).includes(projectile) || false, false,
+    "the live index removes an expired projectile without requiring a blanket invalidation");
 }
 
 // Broad phase must preserve the earliest exact shield hit.

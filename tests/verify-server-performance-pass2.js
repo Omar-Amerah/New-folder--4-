@@ -74,6 +74,7 @@ function ship(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "frame" }]) {
     const a = ship(`a-${tick}`, "blue", 100 + tick, 100);
     const b = ship(`b-${tick}`, "red", 300, 100 + tick);
     room.ships = new Map([[a.id, a], [b.id, b]]);
+    index.invalidateDynamic();
     const rebuilt = buildRoomSpatialIndex(room, [a, b], tick);
     assert.equal(rebuilt, index);
     const ids = rebuilt.queryRange("ships", a.x, a.y, 2).map((item) => item.id);
@@ -130,7 +131,9 @@ function ship(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "frame" }]) {
 {
   const room = runtimeRoom();
   room.spatialCellSize = 64;
-  const index = buildRoomSpatialIndex(room, [], 0);
+  const defender = ship("blue-carrier", "blue", 100, 500, [{ x: 7, y: 7, type: "pointDefense" }]);
+  room.ships.set(defender.id, defender);
+  const index = buildRoomSpatialIndex(room, [defender], 0);
   const first = {
     ownerId: "red",
     type: "missile",
@@ -250,6 +253,7 @@ function ship(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "frame" }]) {
   const replacement = { id: "rock-2", x: 900, y: 900, radius: 20 };
   room.map.asteroids = [replacement];
   room.map.asteroidRevision += 1;
+  index.invalidateDynamic();
   buildRoomSpatialIndex(room, [], 30);
   assert.equal(index.asteroidBuildCount, firstBuilds + 1);
   assert.equal(index.queryRange("asteroids", 500, 500, 50).includes(rock), false);
@@ -289,6 +293,8 @@ function ship(id, ownerId, x, y, design = [{ x: 7, y: 7, type: "frame" }]) {
   targetShip.maxShield = 100;
   room.ships.set(targetShip.id, targetShip);
   addBullet(room, { ownerId: "blue", type: "bolt", x: 300, y: 500, vx: 300, vy: 0, life: 2, damage: 5 });
+  room.spatialIndex?.invalidateDynamic();
+  buildRoomSpatialIndex(room, [targetShip], 2);
   updateBullets(room, 1, 2);
   assert.equal(room.bullets.length, 0, "impact removes projectile from the live array");
   assert.equal(room.projectileById.size, 0, "impact removes projectile from lookup");

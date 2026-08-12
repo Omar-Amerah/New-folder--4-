@@ -1075,11 +1075,11 @@ function thermalSection(type, stat, ledger, context) {
   if (Number.isFinite(Number(inspectedState))) {
     const presentation = getHeatEffectsForComponent(type, stat, inspectedState, rules);
     inspectedStateIndex = presentation.stateIndex;
-    rows.push(statRow("heat.state", "Heat", presentation.state, { tone: presentation.hasPenalty ? "hot" : "condition" }));
+    rows.push(statRow("heat.state", "Heat State", presentation.state, { tone: presentation.hasPenalty ? "hot" : "condition" }));
     const penaltyEffects = presentation.effects.filter((effect) => effect.isPenalty);
     const detail = penaltyEffects.length
       ? penaltyEffects.map(formatHeatEffect).join("; ")
-      : "Direct Heat penalty: None";
+      : "No direct Heat-state penalty";
     rows.push(statRow("heat.effect", "State effect", detail, { tone: presentation.hasPenalty ? "hot" : "condition" }));
   }
 
@@ -1087,14 +1087,14 @@ function thermalSection(type, stat, ledger, context) {
   // as future state effects. Keep the inspected-state row above, then show
   // only the state transitions that have not happened yet. Without this, a
   // cool placed Armour/Frame reports
-  // "Direct Heat penalty: None" and hides the penalties that the unplaced
+  // "No direct Heat-state penalty" and hides the penalties that the unplaced
   // catalogue preview already shows.
   for (const state of [rules.STATE.HOT, rules.STATE.CRITICAL, rules.STATE.OVERHEATED]) {
     if (inspectedStateIndex !== null && state <= inspectedStateIndex) continue;
     const presentation = getHeatEffectsForComponent(type, stat, state, rules);
     const detail = presentation.effects.length
       ? presentation.effects.map(formatHeatEffect).join("; ")
-      : "Direct Heat penalty: None";
+      : "No direct Heat-state penalty";
     rows.push(statRow(`heat.preview.${state}`, `When ${presentation.state}`, detail, {
       tone: presentation.hasPenalty ? "hot" : "condition"
     }));

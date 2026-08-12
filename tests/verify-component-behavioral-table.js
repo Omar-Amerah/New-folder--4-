@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { COMPONENT_BALANCE_PATH } = require('../src/server/config');
-const { validateComponentBalance } = require('../src/server/componentSchema');
+const { validateComponentBalance, VALID_WEAPON_FAMILIES, VALID_TARGET_PRIORITIES } = require('../src/server/componentSchema');
 
 const balance = JSON.parse(fs.readFileSync(COMPONENT_BALANCE_PATH, 'utf8'));
 const result = validateComponentBalance(balance, { filePath: COMPONENT_BALANCE_PATH });
@@ -83,7 +83,6 @@ for (const component of balance.components) {
 
   // Test weapon family: if weapon exists, must have valid family
   if (component.weapon) {
-    const validFamilies = new Set(['blaster', 'missile', 'railgun', 'beam', 'pointDefense']);
     behavioralTests.push({
       id: component.id,
       test: 'weapon-family',
@@ -91,7 +90,7 @@ for (const component of balance.components) {
         if (!component.weapon.family) {
           throw new Error('Weapon missing family');
         }
-        if (!validFamilies.has(component.weapon.family)) {
+        if (!VALID_WEAPON_FAMILIES.has(component.weapon.family)) {
           throw new Error(`Invalid weapon family: ${component.weapon.family}`);
         }
         return true;
@@ -100,7 +99,6 @@ for (const component of balance.components) {
 
     // Test target-priority tokens: if targetPriority exists, must have valid tokens
     if (component.weapon.targetPriority) {
-      const validPriorities = new Set(['ship', 'missile', 'torpedo', 'swarmMissile', 'projectile', 'drone', 'droneFighter', 'droneOther']);
       behavioralTests.push({
         id: component.id,
         test: 'target-priority-tokens',
@@ -109,7 +107,7 @@ for (const component of balance.components) {
             throw new Error('targetPriority must be an array');
           }
           for (const priority of component.weapon.targetPriority) {
-            if (!validPriorities.has(priority)) {
+            if (!VALID_TARGET_PRIORITIES.has(priority)) {
               throw new Error(`Invalid target priority: ${priority}`);
             }
           }

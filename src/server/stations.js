@@ -791,8 +791,9 @@ function processStationLaunchQueue(room, station, dt, now) {
 
 // A launching hull is immovable while the station owns it, so the corridor has
 // to be opened rather than driven through. Allied ships sitting in the lane
-// immediately ahead are asked to step ASIDE -- never forwards, so a launch can
-// never shunt a parked line across the map or shove anyone into a rock.
+// immediately ahead are advanced outward as a deterministic departure column.
+// Keeping their lateral lane prevents several bays from piling parked allies
+// into the same narrow side band.
 //
 // Only allies are nudged. A hostile hull is not ours to move: the launching ship
 // is immovable to separation, so an enemy that parks in the mouth is pushed out
@@ -801,7 +802,7 @@ function processStationLaunchQueue(room, station, dt, now) {
 //
 // Returns true when the lane immediately ahead is clear enough to advance.
 const LAUNCH_LANE_LOOKAHEAD = 96;
-const LAUNCH_YIELD_SPEED = 220;
+const LAUNCH_DEPARTURE_SPEED_MULTIPLIER = 1.25;
 
 function launchYieldPointClear(room, ship, x, y, radius) {
   const { isStaticObstacleLineClear } = require("./movementNavigation");
@@ -821,8 +822,9 @@ function yieldLaunchBlockers(room, station, hangar, ship, phase, along, dt, now)
     Number(hangar.apertureHalfWidth) || 0
   );
   const nose = along + launchRadius;
-  const step = LAUNCH_YIELD_SPEED * Math.max(0, Number(dt) || 0);
-  let blocked = false;
+  const launchSpeed = Math.max(0, Number(INFRASTRUCTURE.homeStation.launchSpeed) || 0);
+  const step = launchSpeed * LAUNCH_DEPARTURE_SPEED_MULTIPLIER * Math.max(0, Number(dt) || 0);
+  const blockers = [];
 
   for (const candidate of room.ships?.values?.() || []) {
     if (!candidate?.alive || candidate.id === ship.id || candidate.launchPhase) continue;
@@ -842,37 +844,45 @@ function yieldLaunchBlockers(room, station, hangar, ship, phase, along, dt, now)
     // so a hostile parked in the mouth is pushed out by that instead.
     if (!areEntityAllies(room, ship.ownerId, candidate)) continue;
 
-    // Out the nearer side first, then the other, a bounded amount per tick, and
-    // only ever to somewhere the hull can actually sit.
-    const nearerSide = candidateAcross >= hangar.centreY ? 1 : -1;
-    const move = Math.min(step, overlap);
-    if (!(move > 0)) continue;
-    let yielded = false;
-    for (const side of [nearerSide, -nearerSide]) {
-      const nextX = candidate.x + lateral.x * side * move;
-      const nextY = candidate.y + lateral.y * side * move;
-      if (!launchYieldPointClear(room, candidate, nextX, nextY, candidateRadius)) continue;
-      candidate.x = nextX;
-      candidate.y = nextY;
-      candidate._collisionCorrectionX = (candidate._collisionCorrectionX || 0) + lateral.x * side * move;
-      candidate._collisionCorrectionY = (candidate._collisionCorrectionY || 0) + lateral.y * side * move;
-      // Take out the component of its velocity heading further into the lane, so
-      // it stops fighting the nudge, and leave the rest alone.
-      const inwardSpeed = ((candidate.vx || 0) * lateral.x + (candidate.vy || 0) * lateral.y) * side;
-      if (inwardSpeed < 0) {
-        candidate.vx -= inwardSpeed * lateral.x * side;
-        candidate.vy -= inwardSpeed * lateral.y * side;
-      }
-      bumpCounter(room, "stationLaunchBlockersYielded");
-      yielded = true;
-      break;
-    }
-    // Pinned: solid geometry on both sides. Nothing may be forced through a
-    // rock or a station wall, so the launch waits for it to move on its own.
-    if (!yielded) blocked = true;
+    blockers.push({ candidate, candidateAlong });
   }
 
-  return !blocked;
+  if (!(step > 0) || blockers.length === 0) return true;
+  blockers.sort((a, b) => b.candidateAlong - a.candidateAlong || String(a.candidate.id).localeCompare(String(b.candidate.id)));
+
+  // Validate the whole column before moving any member. A rock or world edge at
+  // the front therefore holds the launch instead of compressing the column or
+  // partially shifting it into an unrecoverable overlap.
+  const plans = blockers.map(({ candidate }) => ({
+    candidate,
+    nextX: candidate.x + normal.x * step,
+    nextY: candidate.y + normal.y * step
+  }));
+  if (plans.some(({ candidate, nextX, nextY }) => !launchYieldPointClear(
+    room,
+    candidate,
+    nextX,
+    nextY,
+    Number(candidate.physicalRadius) || Number(candidate.radius) || 26
+  ))) return false;
+
+  for (const { candidate, nextX, nextY } of plans) {
+    const dx = nextX - candidate.x;
+    const dy = nextY - candidate.y;
+    candidate.x = nextX;
+    candidate.y = nextY;
+    candidate._collisionCorrectionX = (candidate._collisionCorrectionX || 0) + dx;
+    candidate._collisionCorrectionY = (candidate._collisionCorrectionY || 0) + dy;
+    // Remove any inward velocity while retaining lateral or faster outward
+    // motion. Ordinary movement remains authoritative after this bounded nudge.
+    const outwardSpeed = (candidate.vx || 0) * normal.x + (candidate.vy || 0) * normal.y;
+    if (outwardSpeed < 0) {
+      candidate.vx -= outwardSpeed * normal.x;
+      candidate.vy -= outwardSpeed * normal.y;
+    }
+    bumpCounter(room, "stationLaunchBlockersYielded");
+  }
+  return true;
 }
 
 function finiteLaunchNumber(value) {
@@ -1165,9 +1175,9 @@ function updateStationLaunches(room, station, dt, now) {
     const previousAlong = Number.isFinite(Number(phase.along))
       ? Math.max(startAlong, Number(phase.along))
       : startAlong;
-    // Open the lane before committing to the step. If it cannot be opened, the
-    // launch holds where it is: the hull is never driven through anything, and
-    // nothing in front of it is ever pushed forwards to make room.
+    // Open the lane before committing to the step. If the outward departure
+    // column cannot advance safely, the launch holds where it is; no hull is
+    // driven through static geometry.
     const laneClear = yieldLaunchBlockers(room, station, hangar, ship, phase, previousAlong, safeDt, now);
     const along = laneClear
       ? Math.min(releaseDistance, previousAlong + speed * safeDt)

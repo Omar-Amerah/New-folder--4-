@@ -6,7 +6,8 @@ const { encode } = require("@msgpack/msgpack");
 const { createGameServer } = require("../server");
 const { WebSocketFrameParser } = require("../src/server/wsFrameParser");
 const { validateClientMessage } = require("../src/server/clientSchemas");
-const { checkRateLimit, RATE_LIMITS } = require("../src/server/messageRouter");
+const { checkRateLimit } = require("../src/server/messageRouter");
+const { getRoute } = require("../src/server/routeRegistry");
 
 function httpReq(port, lines) {
   return new Promise((resolve, reject) => {
@@ -45,8 +46,9 @@ async function wsConversation(port, frames) {
   assert.strictEqual(validateClientMessage(nested).ok, false, "deep nesting rejected");
   assert.strictEqual(validateClientMessage({ type:"command", x:1, y:2, shipIds:Array(65).fill("s") }).code, "invalid-selection");
   const client = {};
-  for (let i = 0; i < RATE_LIMITS.management.capacity; i++) assert.strictEqual(checkRateLimit(client, "addBot", 1000), true);
-  assert.strictEqual(checkRateLimit(client, "addBot", 1000), false, "management rate limit is bounded per connection");
+  const addBotLimit = getRoute("addBot").rateLimit.limit;
+  for (let i = 0; i < addBotLimit; i++) assert.strictEqual(checkRateLimit(client, "addBot", 1000), true);
+  assert.strictEqual(checkRateLimit(client, "addBot", 1000), false, "registered addBot rate limit is bounded per connection");
   assert.strictEqual(checkRateLimit(client, "command", 1000), true, "frequent gameplay bucket remains separate");
 
   const parser = new WebSocketFrameParser({ maxMessageBytes: 8 });

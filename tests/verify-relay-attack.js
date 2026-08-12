@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("assert");
-const { commandShips, createMovementIntent, updateShipMovement } = require("../src/server/movement");
+const { commandShips, updateShipMovement } = require("../src/server/movement");
 const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
@@ -84,13 +84,21 @@ for (const style of ["charge", "hold", "orbit", "kite", "static"]) {
   assert.strictEqual(ship.focusTargetId, relay.id, `${style}: relay remains the focus target`);
   assert.strictEqual(ship.combatTargetId, relay.id, `${style}: relay remains the combat target`);
   assert.strictEqual(ship.movement?.command?.targetId, relay.id, `${style}: relay attack order is retained`);
-  const intent = createMovementIntent(room, ship, ship.stats, 1000);
-  assert.strictEqual(intent.type, style === "static" ? "station" : style,
-    `${style}: relay attack uses the selected movement style`);
-  assert.strictEqual(intent.facingTargetId, relay.id, `${style}: movement faces the relay`);
+  const startingAngle = ship.angle;
+  updateShipMovement(room, ship, 1 / 30, 1000);
+  assert.strictEqual(ship.movement?.command?.targetId, relay.id, `${style}: the live movement step retains the relay target`);
+  if (style === "orbit") assert.strictEqual(ship.movement.orbitSteering, true, "orbit: live movement enters orbit steering");
+  if (style === "kite") assert.strictEqual(ship.movement.kiteSteering, true, "kite: live movement enters kite steering");
+  if (style === "charge") {
+    assert.equal(Math.round(ship.movement.destination.x), relay.x, "charge: live movement drives at the relay itself");
+    assert.equal(Math.round(ship.movement.destination.y), relay.y, "charge: live movement drives at the relay itself");
+  }
+  if (style === "hold") {
+    assert(ship.movement.destination && ship.movement.destination.x < relay.x, "hold: live movement seeks a firing position short of the relay");
+  }
   if (style === "static") {
-    const startingAngle = ship.angle;
-    for (let tick = 0; tick < 30; tick += 1) {
+    assert.strictEqual(ship.movement.holdEngaged, true, "static: live movement holds position immediately");
+    for (let tick = 1; tick < 30; tick += 1) {
       updateShipMovement(room, ship, 1 / 30, 1000 + tick * 1000 / 30);
     }
     assert(

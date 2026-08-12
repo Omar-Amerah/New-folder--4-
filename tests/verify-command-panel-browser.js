@@ -22,11 +22,10 @@ async function setup(page) {
   await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__mfaMainLoaded === true);
   return page.evaluate(async () => {
-    const [{ state }, { renderSideControls }, { updateEconomyUi }, { computeStats }] = await Promise.all([
+    const [{ state }, { renderSideControls }, { updateEconomyUi }] = await Promise.all([
       import("/src/state.js"),
       import("/src/ui/sidePanelUi.js"),
-      import("/src/ui/purchaseUi.js"),
-      import("/src/design/componentStats.js")
+      import("/src/ui/purchaseUi.js")
     ]);
     for (const id of ["mainMenuScreen", "lobbyManagementScreen", "settingsScreen", "lobbyScreen", "blueprintDesignerScreen"]) {
       const el = document.getElementById(id);
@@ -54,6 +53,11 @@ async function setup(page) {
       points: []
     };
     state.selectedShipIds = new Set(["s1"]);
+    state.snapshotIndex = {
+      ownLivingShips: state.snapshot.ships,
+      selectedLivingShips: [state.snapshot.ships[0]],
+      shipById: new Map(state.snapshot.ships.map((ship) => [ship.id, ship]))
+    };
     state.activeShipGroup = "group1";
     state.shipGroups = {
       group1: new Set(["s1"]),
@@ -64,7 +68,7 @@ async function setup(page) {
     };
     renderSideControls();
     updateEconomyUi();
-    return { expectedCost: computeStats(state.design, { dataLinks: state.dataLinks }).unitCost };
+    return true;
   });
 }
 
@@ -98,11 +102,11 @@ async function panelGeometry(page) {
     });
     const errors = [];
     page.on("pageerror", (error) => errors.push(String(error)));
-    const { expectedCost } = await setup(page);
+    await setup(page);
 
     assert.equal(await page.locator(".control-group h2").textContent(), "Deployment");
     assert.equal(await page.locator(".deploy-action-label").textContent(), "Ready Up");
-    assert.equal(await page.locator(".deploy-cost").textContent(), `Ship cost: $${expectedCost}`);
+    assert.equal(await page.locator(".deploy-cost").count(), 0, "Ready Up does not present purchase validation or cost");
     assert.equal(await page.locator("#openBlueprintDesignerButton").textContent(), "Open Blueprint Designer");
     assert.equal(await page.locator("#shipGroupTotal").textContent(), "1 / 30 assigned");
 
@@ -143,7 +147,7 @@ async function panelGeometry(page) {
         statusHeight: status.getBoundingClientRect().height
       };
     });
-    assert(styles.primaryHeight > styles.secondaryHeight, "Ready remains the clear primary action");
+    assert.notEqual(styles.primaryShadow, "none", "Ready remains the clear primary action through its primary treatment");
     assert.equal(styles.secondaryShadow, "none", "secondary action has no bloom");
     assert(styles.statusRadius <= 5 && styles.statusHeight < 24, "room status is a compact chip");
 

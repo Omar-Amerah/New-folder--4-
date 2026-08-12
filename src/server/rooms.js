@@ -258,6 +258,7 @@ function setRoomRules(room, requester, updates) {
   for (const player of room.players.values()) {
     player.money = room.rules.startingMoney;
     player.earned = room.rules.startingMoney;
+    player.incomeRemainder = 0;
     player.maxMoney = Math.max(ECONOMY.maxMoney, room.rules.startingMoney);
   }
 

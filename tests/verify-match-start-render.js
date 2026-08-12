@@ -62,7 +62,7 @@ class NetClient {
       });
     });
   }
-  send(message) { this.ws.send(JSON.stringify(message)); }
+  send(message) { this.ws.send(msgpack.encode(message)); }
   state() { return this.latest.state || null; }
   close() { try { this.ws.close(); } catch {} }
 }
@@ -131,7 +131,33 @@ async function runDensity(browser, density) {
   await shot(page, `${density}-before-match.png`);
   enemy.send({ type: "deploy", design: ENEMY_DESIGN, combatStyle: "sentry" });
   await page.click("#deployButton");
-  await until(() => page.evaluate(() => window.__mfaState.phase === "active" && window.__mfaState.snapshot?.ships?.length >= 2), 15000, "active snapshot");
+  await until(() => page.evaluate(() => window.__mfaState.phase === "active"), 15000, "active phase");
+  await page.evaluate(() => window.__mfaNetSend({
+    type: "buyShip",
+    requestId: `match-start-page-${Date.now()}`,
+    design: window.__mfaState.design,
+    dataLinks: window.__mfaState.dataLinks,
+    combatStyle: "sentry",
+    count: 1
+  }));
+  enemy.send({
+    type: "buyShip",
+    requestId: `match-start-enemy-${density}`,
+    design: enemy.latest.hello.defaultDesign,
+    dataLinks: [],
+    combatStyle: "sentry",
+    count: 1
+  });
+  try {
+    await until(() => page.evaluate(() => (
+      window.__mfaState.phase === "active"
+      && window.__mfaState.snapshot?.ships?.length >= 1
+      && window.__mfaState.snapshot?.players?.reduce((sum, player) => sum + (Number(player.activeShips) || 0), 0) >= 2
+    )), 15000, "privacy-filtered active snapshot with both fleets deployed");
+  } catch (error) {
+    const pageState = await page.evaluate(() => ({ phase: window.__mfaState.phase, players: window.__mfaState.snapshot?.players, notices: window.__mfaNetworkDiagnostics?.latestErrors }));
+    throw new Error(`${error.message}; page=${JSON.stringify(pageState)} enemyError=${JSON.stringify(enemy.latest.error || null)} purchase=${JSON.stringify(enemy.latest.purchaseResult || null)} errors=${JSON.stringify(enemy.errors)}`);
+  }
   await shot(page, `${density}-first-active.png`);
   await sleep(10000);
   await shot(page, `${density}-after-10s.png`);

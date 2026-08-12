@@ -822,10 +822,11 @@ function resolveDroneSeparation(drones, ordered = [], spatialIndex = null, movem
       : ordered;
     for (const b of candidates) {
       if (a === b || b.removed || b.destroyed || ["docking", "refueling"].includes(b.state)) continue;
-      // Use authoritative sequence for deterministic pair ordering instead of _separationOrder
-      const seqA = Number.isFinite(a.authoritativeSequence) ? a.authoritativeSequence : 0;
-      const seqB = Number.isFinite(b.authoritativeSequence) ? b.authoritativeSequence : 0;
-      if (seqB <= seqA) continue;
+      // The ordered index is authoritative-sequence-first with an ID fallback.
+      // Use that exact order for the pair gate too: legacy/recovered drones may
+      // not have a sequence, and treating both missing values as zero skips the
+      // pair entirely instead of separating it deterministically.
+      if (b._separationOrder <= a._separationOrder) continue;
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       let distance = fastHypot(dx, dy);
@@ -835,6 +836,8 @@ function resolveDroneSeparation(drones, ordered = [], spatialIndex = null, movem
       let ny;
       if (distance < 0.001) {
         // Use numeric sequence for stable tie-breaking instead of string concatenation
+        const seqA = Number.isFinite(a.authoritativeSequence) ? a.authoritativeSequence : a._separationOrder;
+        const seqB = Number.isFinite(b.authoritativeSequence) ? b.authoritativeSequence : b._separationOrder;
         const hash = (seqA + seqB) & 1;
         nx = hash === 0 ? 1 : -1;
         ny = 0;

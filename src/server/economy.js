@@ -419,14 +419,25 @@ function updateEconomy(room, dt) {
   for (const player of room.players.values()) {
     if (!player.ready || room.winner) {
       player.income = 0;
+      player.incomeRemainder = 0;
       continue;
     }
 
     const relays = ownedRelays.get(player.team) || 0;
     player.income = ECONOMY.baseIncome + relays * ECONOMY.relayIncome;
-    const gained = finiteMoney(player.income * dt);
-    player.money = Math.min(player.maxMoney || ECONOMY.maxMoney, player.money + gained);
-    player.earned += gained;
+    const accrued = finiteMoney(player.incomeRemainder) + finiteMoney(player.income * dt);
+    const wholeIncome = Math.floor(accrued + 1e-9);
+    const maxMoney = player.maxMoney || ECONOMY.maxMoney;
+    const walletRoom = Math.max(0, Math.floor(maxMoney - player.money));
+    const credited = Math.min(wholeIncome, walletRoom);
+    player.money += credited;
+    player.earned += credited;
+    // Income that reaches the wallet is always whole currency. A fractional
+    // remainder stays private until it forms the next whole unit; income above
+    // the wallet cap is discarded rather than banked invisibly.
+    player.incomeRemainder = credited < wholeIncome || walletRoom === 0
+      ? 0
+      : Math.max(0, accrued - wholeIncome);
   }
 }
 

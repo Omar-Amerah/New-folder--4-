@@ -16,6 +16,7 @@ const { addBullet } = require("./projectiles");
 const { angleDifference, fastHypot, rngRange, rotateToward, performanceNow } = require("./utils");
 const TurretRules = require("../../public/src/shared/turretRules");
 const RotationRules = require("../../public/src/shared/rotationRules");
+const ShieldRules = require("../../public/src/shared/shieldRules");
 const { moduleCentreToLocal, STATION_MODULE_SCALE } = require("./stationTemplates");
 const { isInSafeZone, isLineBlocked, areEnemies, weaponReloadSeconds, findPointDefenseTarget, _lookupPointDefenceEntity } = require("./combat");
 const { canTeamTargetEntity, invalidateVisibility } = require("./visibility");
@@ -25,7 +26,7 @@ const TargetingTelemetry = require("./targetingTelemetry");
 const { stationAttackPoint } = require("./stationCollision");
 const { bump, recordDuration, detailedProfileActive } = require("./roomTelemetry");
 
-const SHIELD_ABSORPTION = 0.95;
+const SHIELD_ABSORPTION = ShieldRules.SHIELD_ABSORPTION_FRACTION;
 
 // The shared browser/server rule. A local reimplementation here previously
 // halved every angle (`deg * PI / 180 * 0.5`), so a station battery rotated 90

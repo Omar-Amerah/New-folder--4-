@@ -174,6 +174,7 @@ function joinRoom(client, message) {
     ships: [],
     money: room.rules.startingMoney,
     income: ECONOMY.baseIncome,
+    incomeRemainder: 0,
     earned: room.rules.startingMoney,
     spent: 0,
     maxMoney: ECONOMY.maxMoney,
@@ -458,6 +459,7 @@ function resetPlayerForMatch(room, player, now) {
   const startingMoney = room.rules?.startingMoney ?? ECONOMY.startingMoney;
   player.money = startingMoney;
   player.income = ECONOMY.baseIncome;
+  player.incomeRemainder = 0;
   player.earned = player.money;
   player.spent = 0;
   player.deployedFleetCost = 0;

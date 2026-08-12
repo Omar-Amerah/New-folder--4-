@@ -298,12 +298,25 @@ function run() {
   stopShips(launchRoom, frontBlockerOwner, [frontBlocker.id]);
   const blockerStartAlong = (frontBlocker.x - launchStation.x) * launchNormal.x
     + (frontBlocker.y - launchStation.y) * launchNormal.y;
+  const blockerStartAcross = -(frontBlocker.x - launchStation.x) * launchNormal.y
+    + (frontBlocker.y - launchStation.y) * launchNormal.x;
   const launchAlong = new Map();
+  let sawOutwardDeparture = false;
   for (const ship of launchRoom.ships.values()) {
     if (ship.launchPhase) launchAlong.set(ship.id, ship.launchPhase.along);
   }
   for (let tick = 0; tick < 500 && (launchStation.activeLaunches.length || launchStation.productionQueue.length); tick += 1) {
     tickRoom(launchRoom, 1 / 30, 66 + tick * 33);
+    if (!sawOutwardDeparture) {
+      const currentAlong = (frontBlocker.x - launchStation.x) * launchNormal.x
+        + (frontBlocker.y - launchStation.y) * launchNormal.y;
+      if (currentAlong > blockerStartAlong + 1e-6) {
+        const currentAcross = -(frontBlocker.x - launchStation.x) * launchNormal.y
+          + (frontBlocker.y - launchStation.y) * launchNormal.x;
+        assert(Math.abs(currentAcross - blockerStartAcross) < 1e-6, "launch clearance preserves the ally's assigned lateral lane");
+        sawOutwardDeparture = true;
+      }
+    }
     for (const ship of launchRoom.ships.values()) {
       if (!ship.launchPhase) continue;
       const previous = launchAlong.get(ship.id);
@@ -313,6 +326,7 @@ function run() {
   }
   assert.strictEqual(launchStation.activeLaunches.length, 0, "all central launches release deterministically");
   assert.strictEqual(launchStation.productionQueue.length, 0, "all queued players eventually launch through the three hangars");
+  assert(sawOutwardDeparture, "a parked ally enters a bounded outward departure before the launch releases");
   const blockerEndAlong = (frontBlocker.x - launchStation.x) * launchNormal.x
     + (frontBlocker.y - launchStation.y) * launchNormal.y;
   assert(blockerEndAlong > blockerStartAlong, "a hull in front of the mouth is moved outward for a launch");

@@ -17,6 +17,14 @@
   });
   const DATA_SOURCE_TYPES = Object.freeze(Object.keys(DATA_SOURCE_INFO));
   const BONUS_FIELDS = Object.freeze(["rangeBonus", "accuracyBonus", "fireRateBonus"]);
+  // Accuracy is authored as a probability in the inclusive range 0.1..1.0.
+  // Perfect authored or aura-modified accuracy means zero angular spread. Data
+  // support deliberately has its own lower ceiling so it cannot create perfect
+  // accuracy on a weapon that did not already have it.
+  const MIN_ACCURACY = 0.1;
+  const PERFECT_ACCURACY = 1;
+  const DATA_SUPPORT_ACCURACY_CAP = 0.99;
+  const ACCURACY_SPREAD_SCALE = 0.22;
   const stringSort = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
   const numericSort = (a, b) => a - b;
   const modulesOf = (design) => Array.isArray(design) ? design : Array.isArray(design?.components) ? design.components : Array.isArray(design?.modules) ? design.modules : [];
@@ -44,6 +52,19 @@
     const effectiveBudget = Number.isFinite(source?.effectiveBudget) ? source.effectiveBudget : 0;
     return { connectedWeaponIndices: recipients, recipientCount: recipients.length, bonusPerWeapon: recipients.length ? effectiveBudget / recipients.length : 0 };
   }
+  function clampAccuracy(value, fallback = 0.8) {
+    const numeric = Number(value);
+    const safe = Number.isFinite(numeric) ? numeric : fallback;
+    return Math.max(MIN_ACCURACY, Math.min(PERFECT_ACCURACY, safe));
+  }
+  function applyAccuracyMultiplier(accuracy, multiplier) {
+    const safeMultiplier = Number.isFinite(Number(multiplier)) ? Math.max(0, Number(multiplier)) : 1;
+    return clampAccuracy(clampAccuracy(accuracy) * safeMultiplier);
+  }
+  function accuracySpreadRadians(weaponOrAccuracy) {
+    const value = typeof weaponOrAccuracy === "object" ? weaponOrAccuracy?.accuracy : weaponOrAccuracy;
+    return (PERFECT_ACCURACY - clampAccuracy(value)) * ACCURACY_SPREAD_SCALE;
+  }
 
   function weaponSupportForIndex(analysis, weaponIndex) {
     const value = analysis?.weaponBonusByIndex?.[weaponIndex];
@@ -57,7 +78,7 @@
     // Support may sharpen accuracy up to the shared 0.99 ceiling, but never below
     // a weapon's own base accuracy : a "cannot miss" weapon (base 1.0) keeps its
     // perfect aim rather than being clamped down to 0.99 by the support pass.
-    const accuracyCeiling = Math.max(0.99, finite(base.accuracy));
+    const accuracyCeiling = Math.max(DATA_SUPPORT_ACCURACY_CAP, clampAccuracy(base.accuracy));
     const accuracy = Math.max(0, Math.min(accuracyCeiling, finite(base.accuracy) + finite(support?.accuracyBonus)));
     const fireRate = finite(base.fireRate) * (1 + finite(support?.fireRateBonus));
     const result = { ...base, range, accuracy, fireRate };
@@ -191,6 +212,8 @@
 
   // isWeapon is part of the contract: the Data Links editor needs the same
   // "can this component receive support?" test the allocator uses.
-  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, isDataSupportSource, isWeapon, supportDescriptorForType, nominalSupportBudget,
-    normalizeSourceMultiplier, allocateSourceBudget, analyzeDirectDataSupport, normalizeDataLinks, validateDataLinks, weaponSupportForIndex, effectiveWeaponProfile };
+  return { DATA_SOURCE_INFO, DATA_SOURCE_TYPES, BONUS_FIELDS, MIN_ACCURACY, PERFECT_ACCURACY, DATA_SUPPORT_ACCURACY_CAP, ACCURACY_SPREAD_SCALE,
+    isDataSupportSource, isWeapon, supportDescriptorForType, nominalSupportBudget, normalizeSourceMultiplier, allocateSourceBudget,
+    clampAccuracy, applyAccuracyMultiplier, accuracySpreadRadians, analyzeDirectDataSupport, normalizeDataLinks, validateDataLinks,
+    weaponSupportForIndex, effectiveWeaponProfile };
 }));

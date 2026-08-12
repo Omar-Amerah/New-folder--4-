@@ -348,6 +348,9 @@ function validateComponentBalance(balance, { filePath = "component-balance.json"
     if (component.description !== undefined && typeof component.description !== "string") errors.push(`${path}.description must be a string when present.`);
     if (Object.prototype.hasOwnProperty.call(component, "heat")) errors.push(`${path}.heat is unsupported; use explicit Heat profile rules instead.`);
     validateNumberObject(component, NUMERIC_FIELDS, path, errors);
+    if (component.cost !== undefined && (!Number.isInteger(component.cost) || component.cost < 0)) {
+      errors.push(`${path}.cost must be a non-negative integer.`);
+    }
     for (const field of ["activityHeat", "heatPerShot"]) {
       if (component[field] !== undefined && !isFiniteNonNegative(component[field])) {
         errors.push(`${path}.${field} must be a finite non-negative number when present.`);
@@ -515,4 +518,4 @@ function assertValidComponentBalance(balance, options = {}) {
   return balance;
 }
 
-module.exports = { validateComponentBalance, assertValidComponentBalance, VALID_WEAPON_FAMILIES, VALID_POWER_CATEGORIES };
+module.exports = { validateComponentBalance, assertValidComponentBalance, VALID_WEAPON_FAMILIES, VALID_TARGET_PRIORITIES, VALID_POWER_CATEGORIES };

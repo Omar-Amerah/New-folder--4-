@@ -18,6 +18,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const { generateBalanceArtifacts } = require("./generate-balance");
+const { TEST_MANIFEST, SMOKE_TESTS } = require("./test-manifest");
 
 const ROOT = path.join(__dirname, "..");
 
@@ -28,210 +29,13 @@ function unique(items) {
 }
 
 const GROUPS = {
-  // Fast deterministic module/static tests: no server process, no sockets, no browser.
-  unit: [
-    "tests/verify-no-performance-rollout-branches.js",
-    "tests/verify-module-boundaries.js",
-    "tests/verify-module-imports.js",
-    "tests/verify-blueprint-storage-migration.js",
-    "tests/verify-snapshot-merge.js",
-    "tests/verify-snapshot-timeline.js",
-    "tests/verify-projectile-snapshot-clock.js",
-    "tests/verify-phase-5.js",
-    "tests/verify-phase-transition.js",
-    "tests/verify-presentation-matrix.js",
-    "tests/verify-hot-path-correctness.js",
-    "tests/verify-rotation-parity.js",
-    "tests/verify-component-flip.js",
-    "tests/verify-component-flip-ux.js",
-    "tests/verify-spawn-planner.js",
-    "tests/verify-ship-spawn-collision.js",
-    "tests/verify-component-indexes.js",
-    "tests/verify-movement-simplified.js",
-    "tests/verify-power-universal.js",
-    "tests/verify-movement-formations.js",
-    "tests/verify-movement-momentum.js",
-    "tests/verify-movement-navigation.js",
-    "tests/verify-movement-collision.js",
-    "tests/verify-movement-hold-facing.js",
-    "tests/verify-movement-orbit.js",
-    "tests/verify-movement-kite.js",
-    "tests/verify-movement-waypoint-queue.js",
-    "tests/verify-propulsion-rebalance.js",
-    "tests/verify-targeting.js",
-    "tests/verify-turrets.js",
-    "tests/verify-beam-emitter.js",
-    "tests/verify-beam-nearest-entity.js",
-     "tests/verify-projectile-footprint.js",
-     "tests/verify-hidden-mechanics.js",
-     "tests/verify-heat.js",
-    "tests/verify-thermal-topology.js",
-    "tests/verify-heat-transfer.js",
-    "tests/verify-heat-cooling.js",
-    "tests/verify-heat-thermo.js",
-    "tests/verify-heat-pipe-improvements.js",
-    "tests/verify-coolant-network.js",
-    "tests/verify-coolant-layout.js",
-    "tests/verify-heat-effects.js",
-    "tests/verify-heat-presentation.js",
-    "tests/verify-phase-6a-heat-runtime.js",
-    "tests/verify-phase-6b-drone-runtime.js",
-    "tests/verify-phase-6c-visibility-runtime.js",
-    "tests/verify-phase-6d-command-aura-runtime.js",
-    "tests/verify-phase-6f-stations-objectives.js",
-    "tests/verify-data-support.js",
-    "tests/verify-data-support-designer.js",
-    "tests/verify-data-support-stats.js",
-    "tests/verify-data-support-balance.js",
-    "tests/verify-component-health.js",
-    "tests/verify-component-hull-parity.js",
-    "tests/verify-penetration-damage.js",
-    "tests/verify-meltdown.js",
-    "tests/verify-core-reactor.js",
-    "tests/verify-combat-review.js",
-    "tests/verify-neutral-component-targeting.js",
-    "tests/verify-combat-determinism.js",
-    "tests/verify-combat-catchup.js",
-    "tests/verify-defence-weapons.js",
-    "tests/verify-backup-core-command.js",
-    "tests/verify-command-runtime.js",
-    "tests/verify-repair-target.js",
-    "tests/verify-repair-drone-targeting.js",
-    "tests/verify-engine-exhaust.js",
-    "tests/verify-maps-objectives.js",
-    "tests/verify-control-victory.js",
-    "tests/verify-snapshot-visibility.js",
-    "tests/verify-camera-transforms.js",
-    "tests/verify-render-interpolation.js",
-    "tests/verify-renderer-pools.js",
-    "tests/verify-renderer-culling.js",
-    "tests/verify-renderer-textures.js",
-    "tests/verify-renderer-quality.js",
-    "tests/verify-shield-ring-renderer.js",
-    "tests/verify-ship-identification-renderer.js",
-    "tests/verify-selection.js",
-    "tests/verify-client-selection.js",
-    "tests/verify-client-order-queue.js",
-    "tests/verify-adaptive-music.js",
-    "tests/verify-station-infrastructure.js",
-    "tests/verify-station-point-defence.js",
-    "tests/verify-relay-transfer-recovery.js",
-    "tests/verify-station-single-hangar.js",
-    "tests/verify-station-client.js",
-    "tests/verify-station-hangar.js",
-    "tests/verify-station-snapshot-performance.js",
-    "tests/verify-sensor-fog.js",
-    "tests/verify-sensor-fog-performance.js",
-    "tests/verify-economy.js",
-    "tests/verify-economy-sequence.js",
-    "tests/verify-bots.js",
-    "tests/verify-shared-parity.js",
-    "tests/verify-balance-revision.js",
-    "tests/verify-canvas-removal.js",
-      "tests/verify-components.js",
-      "tests/verify-ship-cost.js",
-      "tests/verify-new-components.js",
-      "tests/verify-emp-cannon.js",
-      "tests/verify-armor-delivery.js",
-      "tests/verify-weapon-presentation.js",
-      "tests/verify-repair-parity.js",
-      "tests/verify-shield-repair-presentation.js",
-      "tests/verify-structural-heat.js",
-      "tests/verify-authored-heat.js",
-      "tests/verify-movement-stat-parity.js",
-      "tests/verify-burn-through-schema.js",
-    "tests/verify-component-catalogue.js",
-    "tests/verify-component-copy.js",
-    "tests/verify-component-inspector.js",
-    "tests/verify-section14-security.js",
-    "tests/verify-diagnostics-gating.js",
-    "tests/verify-fleet-ledger.js",
-    "tests/verify-fleet-ledger-layout.js",
-    "tests/verify-command-auras.js",
-    "tests/verify-command-runtime.js",
-    "tests/verify-phase-one-telemetry.js",
-    "tests/verify-shield-cache.js",
-    "tests/verify-shield-capacity.js",
-    "tests/verify-shield-restart.js",
-    "tests/verify-projectile-event-replication.js",
-    "tests/verify-phase-3-targeting-pd.js",
-    "tests/verify-phase-4a.js",
-    "tests/verify-phase-4b.js",
-  ],
-
-  // Browser-free module/room/input lifecycle integration. These may use fake
-  // sockets or DOM/event doubles, but never Playwright/Chromium/WebGL.
-  integration: [
-    "tests/verify-reconnect.js",
-    "tests/verify-lobby-refresh-reconnect.js",
-    "tests/verify-lobby-recovery.js",
-    "tests/verify-connection-errors.js",
-    "tests/verify-lifecycle.js",
-    "tests/verify-input-lifecycle.js",
-    "tests/verify-renderer-structural-updates.js",
-    "tests/verify-pixi-world-layers.js",
-    "tests/verify-shield-cache-live.js"
-  ],
-
-  // Real server.js process + real WebSockets + MessagePack snapshots.
-  protocol: [
-    "tests/verify-runtime.js",
-    "tests/verify-heat-protocol.js",
-    "tests/verify-websocket-frames.js",
-    "tests/verify-protocol-schema.js",
-    "tests/verify-network-connections.js",
-    "tests/verify-network-protocol.js",
-    "tests/verify-websocket-handler-errors.js"
-  ],
-
-  // Production-path smoke: real server process and HTTP asset checks only.
-  smoke: [
-    "tests/verify-production-path.js",
-    "tests/verify-deployment-health.js"
-  ],
-
-  // Required browser gameplay/renderer coverage: real server, production
-  // frontend, Playwright Chromium, WebGL and Pixi. Missing Chromium is a hard failure.
-  browser: [
-    "tests/verify-endgame-actions-browser.js",
-    "tests/verify-deployment-controls-browser.js",
-    "tests/verify-movement-orbit-browser.js",
-    "tests/verify-movement-toggles-browser.js",
-    "tests/verify-data-links-editor.js",
-    "tests/verify-live-turrets.js",
-    "tests/verify-heat-browser.js",
-    "tests/verify-heat-analysis-toolbar-browser.js",
-    "tests/verify-fleet-ledger-layout-browser.js",
-    "tests/verify-blueprint-inspector-scroll-browser.js",
-    "tests/verify-blueprint-placement-preview-browser.js",
-    "tests/verify-renderer-input-browser.js",
-    "tests/verify-ship-hull-outline-browser.js",
-    "tests/verify-browser-websocket-payloads.js",
-    "tests/verify-browser-sequential-rooms.js",
-    "tests/verify-sensor-fog-browser.js",
-    "tests/verify-pixi-lifecycle.js",
-    "tests/verify-renderer-performance-browser.js",
-    "tests/verify-webgl-context-browser.js",
-    "tests/verify-purchase-bar-layout-browser.js"
-  ],
-
-  // Deterministic server/simulation soaks only. This group is browser-free.
-  "server-soak": [
-    "tests/verify-soak.js",
-    "tests/verify-heat-soak.js",
-    "tests/verify-resync-reason-contract.js",
-    "tests/verify-snapshot-coalescing.js",
-    "tests/verify-snapshot-contract.js",
-    "tests/verify-snapshot-resync.js",
-    "tests/verify-network-backpressure.js",
-    "tests/verify-network-soak.js"
-  ],
-
-  // Dedicated long renderer soak: real Chromium, real WebGL, real Pixi,
-  // production frontend. CI installs Chromium only in the renderer-soak job.
-  "renderer-soak": [
-    "tests/verify-renderer-soak.js"
-  ]
+  unit: TEST_MANIFEST.unit,
+  integration: TEST_MANIFEST.integration,
+  protocol: TEST_MANIFEST.protocol,
+  smoke: SMOKE_TESTS,
+  browser: TEST_MANIFEST.browser,
+  "server-soak": TEST_MANIFEST["server-soak"],
+  "renderer-soak": TEST_MANIFEST["renderer-soak"]
 };
 
 GROUPS.soak = GROUPS["server-soak"];
@@ -323,7 +127,7 @@ function main(argv) {
   }
   if (failed.length > 0) {
     console.error("FAILED:");
-    for (const result of failed) console.error(`- ${result.script} — exit code ${result.exitCode}${result.signal ? `, signal ${result.signal}` : ""}`);
+    for (const result of failed) console.error(`- ${result.script} - exit code ${result.exitCode}${result.signal ? `, signal ${result.signal}` : ""}`);
     process.exit(1);
   }
 }

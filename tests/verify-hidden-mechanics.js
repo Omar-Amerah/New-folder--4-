@@ -3,6 +3,7 @@
 const assert = require("assert");
 const { PARTS } = require("../src/server/components");
 const { weaponSpreadRadians, ACCURACY_SPREAD_SCALE } = require("../src/server/combat");
+const DataSupportRules = require("../public/src/shared/dataSupportRules");
 const { updateBullets } = require("../src/server/projectiles");
 
 function approx(actual, expected, message) {
@@ -22,6 +23,10 @@ function approx(actual, expected, message) {
   for (const family of ["missile", "blaster", "railgun", "flak", "pointDefense", "beam"]) {
     approx(weaponSpreadRadians(weapon, family), expected, `${family} uses the universal accuracy spread rule`);
   }
+  assert.strictEqual(weaponSpreadRadians({ accuracy: 1 }), 0, "100% accuracy has no angular spread");
+  assert.strictEqual(DataSupportRules.applyAccuracyMultiplier(0.95, 2), 1, "accuracy multipliers cap at the global 100% contract");
+  assert.strictEqual(DataSupportRules.effectiveWeaponProfile({ accuracy: 0.95 }, { accuracyBonus: 1 }).accuracy, 0.99, "Data support keeps its source-specific 99% ceiling");
+  assert.strictEqual(DataSupportRules.effectiveWeaponProfile({ accuracy: 1 }, { accuracyBonus: 1 }).accuracy, 1, "authored perfect accuracy stays perfect through Data support");
 }
 
 // Missile-family authored speeds have been migrated to the former in-flight

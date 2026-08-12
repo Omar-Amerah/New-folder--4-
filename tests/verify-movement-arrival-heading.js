@@ -225,9 +225,11 @@ function run() {
     updateShipMovement(room, ship, DT, 0);
     assert.ok(ship.movement.orderComplete,
       "being pushed off the point does not un-carry-out the order");
-    tick(room, [ship], 300);
+    tick(room, [ship], 900);
+    assert.ok(Math.hypot(ship.x - 5400, ship.y - 5000) < 80,
+      "the physical correction returns the displaced hull to its completed destination");
     assert.ok(Math.abs(angleDelta(settled, ship.angle)) < 0.35,
-      "and the ship does not re-derive its nose direction from the route on the way back");
+      `and the resettled ship restores its latched arrival heading (${Math.abs(angleDelta(settled, ship.angle)).toFixed(3)} rad drift)`);
   }
 
   // --- an about-face turns the way the hull turns faster ---------------------
@@ -257,6 +259,7 @@ function run() {
     moveTo(room, ship, 9200, 4000);
     tick(room, [ship, enemy], 500, () => { ship.combatTargetId = enemy.id; });
     assert.ok(ship.movement.orderComplete, "the move completed");
+    tick(room, [ship, enemy], 900, () => { ship.combatTargetId = enemy.id; });
 
     let worst = 0;
     let previous = ship.angle;
@@ -265,7 +268,7 @@ function run() {
       previous = ship.angle;
     });
     assert.ok(worst < 0.01,
-      "a parked ship holds one heading rather than alternating between route, arrival and combat answers");
+      `a parked ship holds one heading rather than alternating between route, arrival and combat answers (${worst.toFixed(4)} rad max step)`);
   }
 
   // --- orders that ARE about facing something still face it -----------------

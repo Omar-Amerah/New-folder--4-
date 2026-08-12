@@ -205,6 +205,8 @@ async function run() {
 
   assert.equal(ShieldRules.getShieldImpactHeatPerDamage(), 0.12, "Shield impact Heat remains 0.12 H per blocked damage");
   assert.equal(ShieldRules.SHIELD_RESTART_DELAY_MS, 3000, "Shield depletion restart remains 3 seconds");
+  assert.equal(ShieldRules.SHIELD_ABSORPTION_FRACTION, 0.95, "Shield absorption has one shared authority");
+  assert.equal(ShieldRules.SHIELD_LEAK_FRACTION, 0.05, "Shield leakage is derived from shared absorption");
 
   console.log("Shield capacity literality, mass independence, runtime destruction, and client/server parity passed");
 }

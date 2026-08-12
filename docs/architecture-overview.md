@@ -45,13 +45,16 @@ Netlify (static)                       Long-running Node host (Render/Railway/VP
 | `config.js` | Ports, world sizes, tick rates, economy constants, default rules, default design, MIME map |
 | `websocketServer.js` | RFC 6455 frame parse/serialize (masked client frames, 16/64-bit lengths), client registry, heartbeat pong, close frames, 64 KiB message cap |
 | `wsCodec.js` | MessagePack encode/decode for the wire (binary opcode 0x2; production text frames are rejected by the transport) |
-| `messages.js` | Outbound send/broadcast (encode-once fan-out, per-team snapshot payload caching) and the **inbound message router** (`handleMessage`): join/deploy/buyShip/command/setTeam/setRules/kick/restart/… |
+| `messages.js` | Compatibility exports for outbound sends and snapshot broadcast; it does not own inbound dispatch |
+| `routeRegistry.js` / `messageRouter.js` | Complete inbound route inventory plus centralized rate, joined-client, current-attachment, phase, and admin enforcement before route handlers run |
+| `outbound.js` / `snapshotDelivery.js` | Bounded per-client outbound queues and canonical full/entity-delta snapshot delivery with per-connection baselines |
+| `simulation.js` | Deterministic authoritative tick ordering shared by production and focused tests |
 | `rooms.js` | Room creation, room-code generation, closed-code TTL, seeded map generation (asteroids, capture points, safe zones, clouds), rules updates |
 | `players.js` | Join/leave/reconnect (10 s grace), name/team sanitisation, admin promotion, kick, phase transitions (lobby ↔ design ↔ active ↔ end) |
 | `shipDesign.js` / `validation.js` | Blueprint validation (single core, connectivity, engines, cost) and message field sanitisers |
 | `shipStats.js` | Derived ship stats from a blueprint (mass, thrust, power, cost, DPS…) |
 | `ships.js` | Ship spawning, bot players and bot behaviour, rally points |
-| `movement.js` | Ship movement integration, separation, fleet/map collision, `commandShips` order routing |
+| `movement.js` / `movementV2.js` | Command routing plus authoritative movement integration, launch-control handoff, physical separation, and map/fleet collision |
 | `combat.js` | Weapon targeting/fire control, turret traverse, beams, repair, self-destruct, destroyed-ship cleanup, turret diagnostics |
 | `projectiles.js` | Bullet simulation and hits |
 | `heat.js` | Component heat generation, conduction network, dissipation, overheat states |
@@ -133,7 +136,7 @@ user input (pointer/keys/UI)
   → client intent message            game/input.js, ui/*, network.js send()
   → WebSocket frame (MessagePack)    binary opcode 0x2; production binary only
   → server framing + decode          websocketServer.js, wsCodec.js
-  → message router                   messages.js handleMessage()
+  → route policy + message router    routeRegistry.js, messageRouter.js
   → validation/sanitisation          validation.js, shipDesign.js, economy.js
   → authoritative room mutation      players.js / movement.js / economy.js / …
   → simulation tick (30 Hz)          server.js tickRoom(): bots, economy,
@@ -142,8 +145,8 @@ user input (pointer/keys/UI)
   → snapshot build (20 Hz)           snapshots.js: shared arrays once per room,
                                      static fields only on "static" snapshots,
                                      component HP/heat deltas otherwise
-  → MessagePack broadcast            messages.js broadcastSnapshot(), one encode
-                                     per team (economy visibility)
+  → MessagePack delivery             snapshotDelivery.js + outbound.js, with
+                                     per-client privacy and entity-delta baselines
   → client decode + merge            network.js wsDecode → messages.js: re-attach
                                      cached designs/map/rules, apply chpD/heatD
   → interpolation + render           renderInterpolation.js eases visualShips;
@@ -164,9 +167,10 @@ restart or close) — driven by `players.js` and `maybeStartMatch`.
 - **R2 — Global mutable client state.** Every client module imports and freely
   mutates the single `state` object; there is no change tracking, making UI/render
   interactions hard to reason about and test in isolation.
-- **R3 — Large message-routing modules.** `src/server/messages.js:handleMessage`
-  is a single long if-chain handling every message type; `public/src/messages.js`
-  mirrors this inbound. Adding message types touches shared hot files.
+- **R3 — Route-policy inventory (resolved in Section 11A).** Every inbound type is
+  registered once in `routeRegistry.js`. `messageRouter.js` enforces the registry's
+  rate, attachment, phase, and admin policy centrally before invoking the handler;
+  registration tests fail when a route is missing or classified more than once.
 - **R4 — Late/circular requires.** Server modules resolve circular dependencies by
   `require()`ing inside functions (`messages.js` ⇄ `websocketServer.js` ⇄
   `players.js` ⇄ `rooms.js`). It works, but import order is load-bearing and easy
@@ -189,7 +193,7 @@ restart or close) — driven by `players.js` and `maybeStartMatch`.
   snapshots use per-connection epochs, sequences, baselines and privacy filtering.
   The client applies them through pure atomic merge helpers; changes to this path
   require protocol, privacy and reconnect regression coverage.
-- **R10 — Browser tests depend on Playwright binaries.** All five browser tests
+- **R10 — Browser tests depend on Playwright binaries.** Real browser tests
   need a Chromium install (portable resolution in `verify-pixi-browser-support.js`:
   `PW_CHROME` → `/opt/pw-browsers/*` → Playwright default). Without a browser the
   suite fails with an environment error — visible, but easily misread as an app
@@ -212,10 +216,11 @@ Map generation is deterministic once a per-room `mapSeed` has been created. The 
 
 ## Section 7 combat authority update
 
-Combat remains server-authoritative. Active ticks execute bot decisions, economy,
-self-destruct countdowns, destroyed-ship removal, movement, separation, map
-collisions, support/repair, weapon aiming/firing, heat, projectiles, relay capture
-and control victory in that order. Target acquisition, per-weapon fallback, point defence,
+Combat remains server-authoritative. `simulation.js` owns the exact active-tick
+sequence, including economy, lifecycle cleanup, station launch control, movement,
+component runtime state, combat, projectiles, visibility, and objectives. Tests call
+that same composition boundary instead of maintaining a parallel tick description.
+Target acquisition, per-weapon fallback, point defence,
 projectile impacts and destruction now use explicit deterministic tie-breaks and
 idempotent finalization; see [combat-targeting-weapons.md](combat-targeting-weapons.md).
 
@@ -236,7 +241,7 @@ Heat is authoritative on the server and component-index aligned with immutable s
 Runtime heat keeps immutable design indexes and physical adjacency. A Heat Sink's thermal mass belongs to the Heat Sink itself — neighbours inherit none of it, so heat has to actually reach a sink by conduction or through a Heat Pipe coolant network; a damaged sink loses its own capacity in proportion to its health, and that is the only capacity recalculated after sink destruction or repair. Whole-ship aggregates include living components only; destroyed components may retain tuple heat for display/history. Internal transfer is debugged separately from cooling/radiation so conservation checks use generated heat minus actual heat leaving the ship. Thermal updates retain normal stalled elapsed time through bounded substeps and clamp excessive backlog at 1.6 seconds.
 
 ## Networking architecture
-The transport contract is explicit: `/socket` upgrades to raw WebSocket, application data is production MessagePack only, client traffic is schema-validated before dispatch, and exact protocol-6 join negotiation gates gameplay. Full and compact entity-delta snapshots are canonical; the hand-rolled parser supports bounded fragmentation and remains dependency-light.
+The transport contract is explicit: `/socket` upgrades to raw WebSocket, application data is production MessagePack only, and `routeRegistry.js` policy is enforced before inbound dispatch. Exact protocol-6 join negotiation gates gameplay. Full and compact entity-delta snapshots are canonical; the hand-rolled parser supports bounded fragmentation and remains dependency-light.
 
 ## Section 10A renderer interaction model
 
@@ -257,7 +262,7 @@ CI now runs `npm run test:renderer-performance` and `npm run test:webgl-context`
 
 ## G. Test runner dependency boundaries
 
-The required suites now preserve runtime boundaries. Integration tests are browser-free module/lifecycle tests and do not launch Playwright. Server soak is also browser-free and covers deterministic simulation, heat, snapshot and network pressure checks. The browser group owns ordinary real-Chromium/WebGL/Pixi coverage. The renderer-soak group owns the long real-Chromium production renderer soak. `npm run test:all` is the complete umbrella and requires Chromium; `npm run test:all-non-browser` is the complete non-browser umbrella for clean server-only environments.
+`tools/test-manifest.js` classifies every `tests/verify-*.js` file exactly once as unit, integration, protocol, browser, server-soak, renderer-soak, or helper. `verify-test-manifest.js` is the registration gate, so an unclassified new verifier fails immediately. Integration and server-soak groups are browser-free; browser and renderer-soak own the real-Chromium/WebGL/Pixi checks. `npm run test:all` is the complete executable manifest and requires Chromium; `npm run test:all-non-browser` is the complete non-browser subset.
 
 
 ## Section 11A server composition notes

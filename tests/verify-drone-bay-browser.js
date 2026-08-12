@@ -263,7 +263,7 @@ async function showCombatState(page, {
     assert.equal(diagnostics.shipChromeCreated, false, "drone renderer creates no ship name, health, or selection chrome");
     assert.match(
       await page.locator("#shipDroneSummary").textContent(),
-      new RegExp(`360° drone range · ${droneBalance.types.fighter.commandRange} m`)
+      new RegExp(`360° drone range; ${droneBalance.types.fighter.commandRange} m`)
     );
     assert.match(await page.locator("#shipDroneSummary").textContent(), /63% rebuilding/);
     assert.equal(await page.locator("#shipDroneSummary .ship-drone-production").count(), 1, "parent panel shows a compact production progress bar");
@@ -320,11 +320,11 @@ async function showCombatState(page, {
     await showCombatState(page, { type: "fighter", droneStates: ["active", "active", "active"] });
     assert.equal(await page.locator("#shipDroneSummary .ship-drone-pip.is-active").count(), 3, "full squad remains obvious while replacement production is idle");
     assert.match(await page.locator("#shipDroneSummary").textContent(), /squad accounted for/i);
-    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Deployed · 3 active/);
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Deployed; 3 active/);
     assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recall squad");
 
     await page.locator(".ship-drone-command-button").click();
-    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recalling…", "command shows an immediate pending state");
+    assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Recalling...", "command shows an immediate pending state");
     assert.equal(await page.locator(".ship-drone-command-button").isDisabled(), true, "pending command cannot be duplicated");
     assert.deepEqual(await page.evaluate(() => (window.__droneCommands || []).filter((c) => c.type === "setDroneBayMode")), [{
       type: "setDroneBayMode", shipId: "carrier", componentId: "drone-bay:6,6", mode: "recalled"
@@ -339,7 +339,7 @@ async function showCombatState(page, {
       bay.slots.forEach((slot) => { slot.state = "returning"; });
       panel.renderShipDamagePanel();
     });
-    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Recalling · 3 in transit/);
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Recalling; 3 in transit/);
     assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Cancel recall", "recall can be clearly cancelled while drones are returning");
 
     await page.locator(".ship-drone-command-button").click();
@@ -359,12 +359,12 @@ async function showCombatState(page, {
     await screenshot(page, "fighter-squad-combat.png", false);
 
     await showCombatState(page, { type: "fighter", droneStates: ["stored", "stored", "stored"], mode: "recalled" });
-    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Recalled · 3 stored/);
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Recalled; 3 stored/);
     assert.equal(await page.locator(".ship-drone-command-button").textContent(), "Deploy squad");
     await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], powerFraction: 0 });
-    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused · no power/);
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused; no power/);
     await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], overheated: true });
-    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused · overheated/);
+    assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused; overheated/);
     await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], operational: false });
     assert.match(await page.locator(".ship-drone-command-state").textContent(), /Bay offline/);
     assert.equal(await page.locator(".ship-drone-command-button").isDisabled(), true, "offline bays do not offer a command they cannot execute");

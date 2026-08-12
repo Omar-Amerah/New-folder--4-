@@ -167,7 +167,7 @@ function applyEffectiveWeaponCommandAuras(profile, ship) {
   const accMult = getCommandAuraMultiplier(ship, "weaponAccuracyMultiplier");
   const trackMult = getCommandAuraMultiplier(ship, "weaponTrackingMultiplier");
   const aimMult = getCommandAuraMultiplier(ship, "turretAimSpeedMultiplier");
-  if (accMult !== 1 && Number.isFinite(modified.accuracy)) modified.accuracy = Math.min(0.999, modified.accuracy * accMult);
+  if (accMult !== 1 && Number.isFinite(modified.accuracy)) modified.accuracy = DataSupportRules.applyAccuracyMultiplier(modified.accuracy, accMult);
   if (trackMult !== 1 && Number.isFinite(modified.tracking)) modified.tracking = modified.tracking * trackMult;
   if (aimMult !== 1 && Number.isFinite(modified.aimSpeed)) modified.aimSpeed = modified.aimSpeed * aimMult;
   const family = modified.type;

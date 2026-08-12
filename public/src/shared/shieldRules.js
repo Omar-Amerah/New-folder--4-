@@ -7,6 +7,8 @@
 
   const IMPACT_HEAT_PER_BLOCKED_DAMAGE = 0.12;
   const SHIELD_RESTART_DELAY_MS = 3000;
+  const SHIELD_ABSORPTION_FRACTION = 0.95;
+  const SHIELD_LEAK_FRACTION = Number((1 - SHIELD_ABSORPTION_FRACTION).toFixed(12));
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
   function number(value, fallback = 0) { return Number.isFinite(Number(value)) ? Number(value) : fallback; }
   function getShieldRestartDelayMs(multiplier = 1) {
@@ -70,11 +72,14 @@
     return { capacity: Number.isFinite(capacity) ? capacity : 0, recharge, regeneration: recharge, capacityContributions, regenerationContributions };
   }
   function getShieldImpactHeatPerDamage() { return IMPACT_HEAT_PER_BLOCKED_DAMAGE; }
-  return Object.freeze({ IMPACT_HEAT_PER_BLOCKED_DAMAGE, SHIELD_RESTART_DELAY_MS, getShieldRestartDelayMs, getShieldImpactHeatPerDamage, calculateShieldStats, calculateShieldCapacityContributions, calculateShieldRegenerationContributions });
+  return Object.freeze({ IMPACT_HEAT_PER_BLOCKED_DAMAGE, SHIELD_RESTART_DELAY_MS, SHIELD_ABSORPTION_FRACTION, SHIELD_LEAK_FRACTION,
+    getShieldRestartDelayMs, getShieldImpactHeatPerDamage, calculateShieldStats, calculateShieldCapacityContributions, calculateShieldRegenerationContributions });
 }));
 export const SHIELD_RESTART_DELAY_MS = globalThis.ShieldRules.SHIELD_RESTART_DELAY_MS;
 export const getShieldRestartDelayMs = globalThis.ShieldRules.getShieldRestartDelayMs;
 export const IMPACT_HEAT_PER_BLOCKED_DAMAGE = globalThis.ShieldRules.IMPACT_HEAT_PER_BLOCKED_DAMAGE;
+export const SHIELD_ABSORPTION_FRACTION = globalThis.ShieldRules.SHIELD_ABSORPTION_FRACTION;
+export const SHIELD_LEAK_FRACTION = globalThis.ShieldRules.SHIELD_LEAK_FRACTION;
 export const getShieldImpactHeatPerDamage = globalThis.ShieldRules.getShieldImpactHeatPerDamage;
 export const calculateShieldStats = globalThis.ShieldRules.calculateShieldStats;
 export const calculateShieldCapacityContributions = globalThis.ShieldRules.calculateShieldCapacityContributions;

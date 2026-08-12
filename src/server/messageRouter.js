@@ -9,25 +9,53 @@ const { initializeClient } = require("./projectileReplication");
 const { getRoute } = require("./routeRegistry");
 const { invalidateRelationshipCache, isTelemetryFocusEligible, revalidateTelemetryFocusForRoom } = require("./relationships");
 
-const RATE_LIMITS = {
-  frequent: { capacity: 90, refillPerSecond: 45, types: new Set(["command", "stop", "rotate", "setCombatStyle", "setOrbitDirection", "setMovementToggles", "setTelemetryFocus", "setRallyPoint", "resetRallyPoint", "ping"]) },
-  management: { capacity: 24, refillPerSecond: 4, types: new Set(["join", "ready", "deploy", "buyShip", "destruct", "setTeam", "addBot", "setRules", "setName", "startDesign", "kick", "restart", "returnToLobby", "restartLobby", "closeLobby", "leaveLobby", "requestFullState"]) }
-};
-function bucketForType(type) {
-  if (RATE_LIMITS.frequent.types.has(type)) return "frequent";
-  if (RATE_LIMITS.management.types.has(type)) return "management";
-  return "management";
-}
-function checkRateLimit(client, type, now = Date.now()) {
+function checkRateLimit(client, routeOrType, now = Date.now()) {
+  const route = typeof routeOrType === "string" ? getRoute(routeOrType) : routeOrType;
+  const cfg = route?.rateLimit || null;
+  if (!cfg) return true;
   client.rateLimits ||= {};
-  const key = bucketForType(type);
-  const cfg = RATE_LIMITS[key];
-  const bucket = client.rateLimits[key] ||= { tokens: cfg.capacity, updatedAt: now };
-  const elapsed = Math.max(0, (now - bucket.updatedAt) / 1000);
-  bucket.tokens = Math.min(cfg.capacity, bucket.tokens + elapsed * cfg.refillPerSecond);
-  bucket.updatedAt = now;
-  if (bucket.tokens < 1) return false;
-  bucket.tokens -= 1;
+  let bucket = client.rateLimits[cfg.bucket];
+  if (!bucket || now < bucket.windowStartedAt || now - bucket.windowStartedAt >= cfg.windowMs) {
+    bucket = client.rateLimits[cfg.bucket] = { count: 0, windowStartedAt: now };
+  }
+  if (bucket.count >= cfg.limit) return false;
+  bucket.count += 1;
+  return true;
+}
+
+function enforceRoutePolicy(client, message, route, now = Date.now()) {
+  if (!checkRateLimit(client, route, now)) {
+    if (message.type === "requestFullState" && client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
+    send(client, { type: "error", code: "rate-limited", message: "Too many requests", requestId: message.requestId });
+    return false;
+  }
+
+  if (route.requiresJoin && (!client.room || !client.player)) {
+    send(client, { type: "error", code: ERROR_CODES.JOIN_REQUIRED, message: "Join a room first", requestId: message.requestId });
+    return false;
+  }
+
+  if (route.requiresCurrentAttachment) {
+    const { isCurrentAttachment } = require("./players");
+    if (!isCurrentAttachment(client)) {
+      send(client, { type: "error", code: ERROR_CODES.STALE_ATTACHMENT, message: "This connection is no longer active for that player", requestId: message.requestId });
+      return false;
+    }
+  }
+
+  if (!route.phases.includes("any") && !route.phases.includes(client.room.phase)) {
+    send(client, { type: "error", code: "wrong-phase", message: `${message.type} is not available during the ${client.room.phase} phase`, requestId: message.requestId });
+    return false;
+  }
+
+  if (route.admin) {
+    const { isAdmin } = require("./players");
+    if (!isAdmin(client.room, client.player)) {
+      send(client, { type: "error", code: "admin-required", message: "Only the room admin can do that", requestId: message.requestId });
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -44,10 +72,7 @@ function handleMessage(client, message) {
     return;
   }
 
-  if (!checkRateLimit(client, message.type)) {
-    send(client, { type: "error", code: "rate-limited", message: "Too many requests", requestId: message.requestId });
-    return;
-  }
+  if (!enforceRoutePolicy(client, message, route)) return;
 
   if (message.type === "ping") {
     send(client, { type: "pong", at: Number(message.at) || 0, clientPingNonce: message.clientPingNonce, serverTimeMs: Date.now() });
@@ -83,27 +108,7 @@ function handleMessage(client, message) {
     return;
   }
 
-  if (!client.room || !client.player) {
-    send(client, { type: "error", code: ERROR_CODES.JOIN_REQUIRED, message: "Join a room first", requestId: message.requestId });
-    return;
-  }
-
-  if (!isCurrentAttachment(client)) {
-    send(client, { type: "error", code: ERROR_CODES.STALE_ATTACHMENT, message: "This connection is no longer active for that player", requestId: message.requestId });
-    return;
-  }
-
   if (message.type === "requestFullState") {
-    const now = Date.now();
-    client.lastFullStateRequestAt ||= 0;
-    if (now - client.lastFullStateRequestAt < 1000) {
-      // Keep the recovery requirement latched even when the request itself is
-      // rate-limited. The next scheduled snapshot must promote to a full
-      // baseline instead of continuing the compact stream.
-      if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
-      return;
-    }
-    client.lastFullStateRequestAt = now;
     if (client.snapshotBaseline) client.snapshotBaseline.fullRequired = true;
     sendFullSnapshot(client, performanceNow(), message.reason || "client-request");
     return;
@@ -542,4 +547,4 @@ function handleMessage(client, message) {
 }
 
 
-module.exports = { handleMessage, checkRateLimit, RATE_LIMITS };
+module.exports = { handleMessage, checkRateLimit, enforceRoutePolicy };

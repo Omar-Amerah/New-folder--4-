@@ -806,6 +806,9 @@ function renderDroneSummary(ship) {
       const label = droneTypeLabel(bay);
       const range = Math.max(0, Math.round(Number(bay.commandRange) || 0));
       const problem = droneProblemLabel(bay.productionPausedReason);
+      const productionClass = bay.productionPausedReason === "low-power"
+        ? " is-slowed"
+        : problem ? " is-paused" : "";
       const progress = producing ? Math.max(0, Math.min(1, Number(producing.progress) || 0)) : null;
       const progressPercent = progress === null ? null : Math.round(progress * 100);
       const squadComplete = slots.length > 0 && inSpace + ready + stored === slots.length;
@@ -825,7 +828,7 @@ function renderDroneSummary(ship) {
       const targetMode = bay.mode === "recalled" ? "deployed" : "recalled";
       const actionLabel = pending ? (pending.mode === "recalled" ? "Recalling..." : "Deploying...") : command.action;
       const disabled = Boolean(pending) || !bay.operational;
-      const progressBar = progressPercent === null ? "" : "<div class=\"ship-drone-production\" role=\"progressbar\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"" + progressPercent + "\"><span style=\"width:" + progressPercent + "%\"></span></div>";
+      const progressBar = progressPercent === null ? "" : "<div class=\"ship-drone-production" + productionClass + "\" role=\"progressbar\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"" + progressPercent + "\"><span style=\"width:" + progressPercent + "%\"></span></div>";
       return "<div class=\"ship-drone-bay-row\" data-drone-command-state=\"" + escapeHtml(command.tone) + "\">"
         + "<div class=\"ship-drone-bay-info\"><div class=\"ship-drone-bay-heading\"><b>" + escapeHtml(label) + "</b><span class=\"ship-drone-command-state is-" + escapeHtml(command.tone) + "\">" + escapeHtml(command.status) + "</span></div>"
         + (range ? "<small class=\"ship-drone-range\">360° drone range; " + range + " m</small>" : "")

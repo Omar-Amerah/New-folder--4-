@@ -112,7 +112,9 @@ assert(AI_BLUEPRINTS.every((blueprint) => blueprint.name && !/^Design \d+$/i.tes
   assert.strictEqual(before.visibleEnemies.length, 0, "sensor fog hides the distant enemy from bot targeting");
   assert(before.hiddenEnemyCount > 0, "the bot still knows that an unscanned enemy may exist");
   updateBots(room, 1000);
-  assert(bot.ships.every((ship) => ship.focusTargetId !== enemy.id), "sensor-aware AI never focuses an unscanned enemy");
+  const after = buildBotBattlefieldContext(room, bot, bot.ships.filter((ship) => ship.alive), 1000, false);
+  const visibleIds = new Set(after.visibleEnemies.map((ship) => ship.id));
+  assert(bot.ships.every((ship) => !ship.focusTargetId || visibleIds.has(ship.focusTargetId)), "sensor-aware AI only focuses enemies visible after its new sensor ships deploy");
 }
 
 console.log("AI blueprint, role selection, objective, and sensor checks passed");

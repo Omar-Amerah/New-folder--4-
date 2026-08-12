@@ -21,6 +21,7 @@ function makePlayer(id, team = "blue") {
     ships: [],
     money: 1000,
     income: ECONOMY.baseIncome,
+    incomeRemainder: 0,
     earned: 1000,
     spent: 0,
     maxMoney: ECONOMY.maxMoney,
@@ -110,15 +111,25 @@ function testIncomePrecisionAndPrivacy() {
   p1.earned = 0;
   updateEconomy(room, 0.1);
   updateEconomy(room, 0.2);
-  const split = p1.money;
+  const split = { money: p1.money, remainder: p1.incomeRemainder };
   p1.money = 0;
   p1.earned = 0;
+  p1.incomeRemainder = 0;
   updateEconomy(room, 0.3);
-  assert.ok(Math.abs(p1.money - split) < 1e-9, "income should be subdivision invariant within floating tolerance");
+  assert.deepStrictEqual({ money: p1.money, remainder: p1.incomeRemainder }, split, "whole income and its private remainder are subdivision invariant");
+  p1.money = 0;
+  p1.earned = 0;
+  p1.incomeRemainder = 0;
+  updateEconomy(room, 1 / 30);
+  assert.strictEqual(p1.money, 0, "a fractional tick does not enter the authoritative wallet");
+  assert(p1.incomeRemainder > 0 && p1.incomeRemainder < 1, "a fractional tick is retained privately");
+  updateEconomy(room, 2 / 30);
+  assert.strictEqual(p1.money, 2, "accumulated passive income transfers only whole currency");
+  assert.strictEqual(Number.isInteger(p1.earned), true, "earned currency remains whole internally");
 
-  p1.money = 123.9;
-  p1.earned = 456.7;
-  p1.spent = 89.1;
+  p1.money = 123;
+  p1.earned = 456;
+  p1.spent = 89;
   const enemyView = snapshotRoom(room, 4000, p2, true);
   const p1RowForEnemy = enemyView.players.find((player) => player.id === "p1");
   assert.strictEqual(p1RowForEnemy.money, null, "enemy snapshot hides current money");
@@ -128,7 +139,7 @@ function testIncomePrecisionAndPrivacy() {
 
   const ownView = snapshotRoom(room, 4000, p1, true);
   const ownRow = ownView.players.find((player) => player.id === "p1");
-  assert.strictEqual(ownRow.money, 123, "own snapshot floors display money without exceeding authority");
+  assert.strictEqual(ownRow.money, 123, "own snapshot publishes the whole authoritative wallet");
 }
 
 function testTeamRelayIncome() {

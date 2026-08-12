@@ -44,7 +44,7 @@ assert.deepEqual(decoded, first, "Drone and bay state is MessagePack compatible"
 assert.equal(decoded.drones[0].parentShipId, ship.id);
 assert.equal(decoded.drones[0].bayComponentId, ship.droneBays[0].componentId);
 assert.equal(decoded.drones[0].fuelRemainingSeconds, 8.25);
-assert.equal(decoded.drones[0].fuelCapacitySeconds, 15);
+assert.equal(decoded.drones[0].fuelCapacitySeconds, CONFIG.types.fighter.fuelSeconds, "snapshots use the authored fighter fuel capacity");
 assert.equal(decoded.ships[0].droneBays[0].productionProgress, 0.46);
 assert.equal(decoded.ships[0].droneBays[0].productionPausedReason, "insufficient-power");
 assert.equal(decoded.ships[0].droneBays[0].powerFraction, 1);

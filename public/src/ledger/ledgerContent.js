@@ -23,6 +23,8 @@ const BACKUP_EFFECTIVENESS_TEXT = formatPercent(BackupCoreRules.ACTIVE_SYSTEM_EF
 const SHIELD_IMPACT_HEAT_TEXT = `${ShieldRules.getShieldImpactHeatPerDamage().toFixed(2)} H / damage blocked`;
 const SHIELD_RESTART_DELAY_SECONDS = (Number(ShieldRules.SHIELD_RESTART_DELAY_MS) || 0) / 1000;
 const SHIELD_RESTART_DELAY_TEXT = `${SHIELD_RESTART_DELAY_SECONDS.toFixed(1)} seconds`;
+const SHIELD_ABSORPTION_TEXT = formatPercent(ShieldRules.SHIELD_ABSORPTION_FRACTION);
+const SHIELD_LEAK_TEXT = formatPercent(ShieldRules.SHIELD_LEAK_FRACTION);
 const SHIELD_COMMAND_RELAY_AURA = PART_STATS.shieldCommandRelay?.aura || {};
 
 function signedAuraPercent(multiplier) {
@@ -700,7 +702,7 @@ const MANUAL_ARTICLES_PART_3 = [
     title: "Projectile Mechanics",
     summary: "How projectiles travel, collide, and interact with shields and hull.",
     keywords: ["projectile", "collision", "shield", "hull", "hit radius", "intercept", "missile", "rail", "impact"],
-    howItWorks: "Projectiles travel at their weapon's projectile speed toward the target. Each projectile type has a hit radius for collision detection. Missiles have a larger hit radius than rails. When a projectile hits a shield, it deals damage modified by the weapon's shield damage multiplier. Shields absorb 95% of blocked damage; 5% leaks to hull. When a projectile hits hull, it deals damage modified by the hull damage multiplier. Point defence and flak can intercept missiles within the intercept radius.",
+    howItWorks: `Projectiles travel at their weapon's projectile speed toward the target. Each projectile type has a hit radius for collision detection. Missiles have a larger hit radius than rails. When a projectile hits a shield, it deals damage modified by the weapon's shield damage multiplier. Shields absorb ${SHIELD_ABSORPTION_TEXT} of blocked damage; ${SHIELD_LEAK_TEXT} leaks to hull. When a projectile hits hull, it deals damage modified by the hull damage multiplier. Occupied grid cells define Hull collision, so tapered and clipped component artwork is cosmetic and does not cut matching corners out of the server hit geometry. Low-Shield EMP is the deliberate exception: it couples to the ship's physical electromagnetic envelope rather than requiring a living-component hit. Point defence and flak can intercept missiles within the intercept radius.`,
     importantStats: [
       { label: "Shield Hit Minimum", value: `${GENERATED_BALANCE.projectiles?.shieldHitMinimum ?? 10}` },
       { label: "Shield Collision Min Radius", value: `${GENERATED_BALANCE.projectiles?.shieldCollision?.minimumRadius ?? 30} m` },
@@ -964,10 +966,10 @@ const MANUAL_CONTENT_UPDATES_2 = Object.freeze({
   },
   defence: {
     summary: "Shield absorption and regeneration, armour behaviours, active interception, and decoys.",
-    howItWorks: `Shield capacity sources add together; Power affects regeneration, not maximum Shield Capacity. Regeneration sources add their full authored rates linearly, then delivered Power scales regeneration proportionally before Heat and aura modifiers apply. ${SHIELD_DEPLETION_TEXT} ${SHIELD_RESTART_TEXT} ${SHIELD_COMMAND_RELAY_TEXT} A shield hit blocks 95% of the shield-eligible damage it can absorb; 5% of that blocked hull damage leaks through, and shield overflow also reaches hull. Each ${SHIELD_IMPACT_HEAT_TEXT} of blocked Shield damage generates Heat in the Shield system; 100 blocked damage creates 12 H total, distributed across active Shield generators rather than added independently to each generator. Armour then contributes component durability and family-specific protection: each discrete projectile hit applies flat reduction once, while a continuous beam applies that reduction per second while it remains on the plate. Hot, Critical, and Overheated armour reduce that protection multiplier. Ablative structure offers high raw durability without flat reduction, and Refractory protection resists Heat and blocks Thermal Induction Lance transfer while intact. Point defence, flak, interceptors, and decoys act before guided threats land.`,
+    howItWorks: `Shield capacity sources add together; Power affects regeneration, not maximum Shield Capacity. Regeneration sources add their full authored rates linearly, then delivered Power scales regeneration proportionally before Heat and aura modifiers apply. ${SHIELD_DEPLETION_TEXT} ${SHIELD_RESTART_TEXT} ${SHIELD_COMMAND_RELAY_TEXT} A shield hit blocks ${SHIELD_ABSORPTION_TEXT} of the shield-eligible damage it can absorb; ${SHIELD_LEAK_TEXT} of that blocked hull damage leaks through, and shield overflow also reaches hull. Each ${SHIELD_IMPACT_HEAT_TEXT} of blocked Shield damage generates Heat in the Shield system; 100 blocked damage creates 12 H total, distributed across active Shield generators rather than added independently to each generator. Armour then contributes component durability and family-specific protection: each discrete projectile hit applies flat reduction once, while a continuous beam applies that reduction per second while it remains on the plate. Hot, Critical, and Overheated armour reduce that protection multiplier. Ablative structure offers high raw durability without flat reduction, and Refractory protection resists Heat and blocks Thermal Induction Lance transfer while intact. Point defence, flak, interceptors, and decoys act before guided threats land.`,
     importantStats: [
-      { label: "Shield Absorption", value: "95% Of Blocked Damage" },
-      { label: "Shield Leakage", value: "5% Of Blocked Hull Damage" },
+      { label: "Shield Absorption", value: `${SHIELD_ABSORPTION_TEXT} Of Blocked Damage` },
+      { label: "Shield Leakage", value: `${SHIELD_LEAK_TEXT} Of Blocked Hull Damage` },
       { label: "Shield Impact Heat", value: SHIELD_IMPACT_HEAT_TEXT },
       { label: "Impact Heat Distribution", value: "Across active Shield generators; 100 blocked damage = 12 H total" },
       { label: "Shield Regen Stacking", value: "Linear full authored rate per live source" },
@@ -979,7 +981,7 @@ const MANUAL_CONTENT_UPDATES_2 = Object.freeze({
     ],
     practicalUse: "Layer defences around the threats you expect. Shields buy renewable protection but need Power, cooling, and restart time. Remember that only complete depletion pauses regeneration. Flat-reduction armour punishes rapid low-damage fire; raw-durability armour is better against heavy hits. Use more than one interception family when missiles are a strategic threat.",
     commonProblems: [
-      "Hull takes damage with shield remaining? Five percent leakage is intentional.",
+      `Hull takes damage with shield remaining? ${SHIELD_LEAK_TEXT} leakage is intentional.`,
       "More regeneration adds less than expected? Check live shield health, Power, Heat, and aura state.",
       "Scatter fire performs poorly into armour? Each pellet encounters flat reduction separately.",
       "Shield regeneration paused? The restart delay begins only when Shield reaches exactly 0."
@@ -1155,10 +1157,10 @@ const MANUAL_CONTENT_UPDATES_3 = Object.freeze({
   },
   "projectile-mechanics": {
     summary: "Projectile travel, swept collision, shield interaction, overflow, splash, and interception.",
-    howItWorks: "Projectile weapons create authoritative moving shots that use swept collision between simulation steps. A shield interaction requires a live shield above its minimum and applies the weapon's shield multiplier. The shield absorbs up to available capacity; 95% of the blocked portion is prevented, 5% of corresponding hull damage leaks through, and any overflow continues to hull. Hull damage then applies its own weapon multiplier and local protection. Splash and pellet weapons can create several protection interactions. Interceptable guided projectiles may be destroyed by point defence, flak, interceptor systems, or Defence drones before impact.",
+    howItWorks: `Projectile weapons create authoritative moving shots that use swept collision between simulation steps. A shield interaction requires a live shield above its minimum and applies the weapon's shield multiplier. The shield absorbs up to available capacity; ${SHIELD_ABSORPTION_TEXT} of the blocked portion is prevented, ${SHIELD_LEAK_TEXT} of corresponding hull damage leaks through, and any overflow continues to hull. Hull damage then applies its own weapon multiplier and local protection. Splash and pellet weapons can create several protection interactions. Interceptable guided projectiles may be destroyed by point defence, flak, interceptor systems, or Defence drones before impact.`,
     practicalUse: "Judge a delivery system by time to impact and counterplay, not card damage alone. Saturate interception with multiple threats, use fast direct shots against agile targets, and remember that shields reduce rather than guarantee zero hull damage.",
     commonProblems: [
-      "Hull is damaged through a healthy shield? Five percent leakage is part of shield absorption.",
+      `Hull is damaged through a healthy shield? ${SHIELD_LEAK_TEXT} leakage is part of shield absorption.`,
       "Projectile vanished before impact? An active defence intercepted it or its lifetime ended.",
       "Multi-pellet shot is weak into armour? Each pellet can meet flat reduction separately."
     ]

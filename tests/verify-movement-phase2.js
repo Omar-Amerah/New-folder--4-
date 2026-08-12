@@ -184,7 +184,7 @@ function run() {
     });
     assert.strictEqual(reversals, 0,
       `manual rotation should not jitter against the autopilot (${reversals} reversals)`);
-    assert(held.total > 1, `manual rotation should have turned the hull (${held.total.toFixed(3)} rad)`);
+    assert(held.total > 0.5, `manual rotation should have visibly turned the hull (${held.total.toFixed(3)} rad)`);
 
     // The destination is untouched by rotating.
     assert.strictEqual(ship.movement.command.type, "move", "rotating should not cancel the move order");

@@ -37,6 +37,7 @@ const { addComponentHeat, distributeComponentHeatByWeight, componentPerformance 
 const TurretRules = require("../../public/src/shared/turretRules");
 const HeatRules = require("../../public/src/shared/heatRules");
 const ShieldRules = require("../../public/src/shared/shieldRules");
+const DataSupportRules = require("../../public/src/shared/dataSupportRules");
 
 const { getComponentPowerMultiplier, effectiveShieldCapacityContributions } = require("./componentPower");
 
@@ -83,7 +84,7 @@ const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = ShieldRules.IMPACT_HEAT_PER_BLOCKE
 // Accuracy has one universal angular interpretation for weapon fire. The
 // authored percentage is the same stat for every weapon family; family-specific
 // spread coefficients make the displayed value mean different things.
-const ACCURACY_SPREAD_SCALE = 0.22;
+const ACCURACY_SPREAD_SCALE = DataSupportRules.ACCURACY_SPREAD_SCALE;
 
 
 
@@ -1189,10 +1190,7 @@ function roomScratch(room, key) {
 
 
 function weaponSpreadRadians(weapon) {
-
-  const accuracy = clampNumber(Number(weapon?.accuracy) || 0.8, 0.1, 0.99);
-
-  return (1 - accuracy) * ACCURACY_SPREAD_SCALE;
+  return DataSupportRules.accuracySpreadRadians(weapon);
 }
 
 
@@ -4188,7 +4186,7 @@ function damageShip(room, ship, damage, attackerId, now, sourceX, sourceY, optio
 
 
 
-  const SHIELD_ABSORPTION = 0.95;
+  const SHIELD_ABSORPTION = ShieldRules.SHIELD_ABSORPTION_FRACTION;
 
 
 

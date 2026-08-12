@@ -241,7 +241,7 @@ async function readInspector(page) {
 
     check("thermal cards are concise, non-repetitive and use H/s units", () => {
       assert.deepEqual(snapshots.radiator.callouts.map((callout) => callout.category),
-        ["capability", "condition", "condition", "role"]);
+        ["capability", "condition", "role"]);
       assert.deepEqual(snapshots.heatVent.callouts.map((callout) => callout.category),
         ["capability", "condition", "role"]);
       assert.deepEqual(snapshots.closedCycleCooler.callouts.map((callout) => callout.category),

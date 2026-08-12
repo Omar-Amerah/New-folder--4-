@@ -33,6 +33,22 @@ function getHeatRules() {
 }
 
 function fmtPct(v) { return formatPercent(v); }
+function heatProfileValue(type, field) {
+  const value = Number(getHeatRules().profile?.(type)?.[field]);
+  return Number.isFinite(value) ? value : 0;
+}
+function fmtHeat(value) { return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
+
+function shieldLeakageMechanic(includeDetail = false) {
+  const absorbed = fmtPct(ShieldRules.SHIELD_ABSORPTION_FRACTION);
+  const leaked = fmtPct(ShieldRules.SHIELD_LEAK_FRACTION);
+  return {
+    label: "Shield Leakage",
+    value: `${leaked} of blocked damage leaks to hull`,
+    detail: includeDetail ? `Shields absorb ${absorbed} of blocked damage; ${leaked} passes through to hull.` : undefined,
+    sourceKey: "shieldRules.SHIELD_LEAK_FRACTION"
+  };
+}
 
 const MOVEMENT_POWER_MAX_TEXT = fmtPct(MOVEMENT_CONFIG.power.maximumMultiplier);
 const MANEUVER_LEVER = MOVEMENT_CONFIG.maneuverThrusterLever;
@@ -282,9 +298,9 @@ export const COMPONENT_MECHANICS = {
       { label: "Connection", value: "Automatic, orthogonal adjacency", detail: "A Heat Pipe joins every orthogonally adjacent Heat Pipe and every adjacent living component. There is no rotation, port or flow direction to configure, and diagonals never connect." }
     ],
     specialMechanics: [
-      { label: "Transport Only", value: "0 H/s cooling", detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves : the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
-      { label: "Negligible Storage", value: "10 H capacity", detail: "Pipes are conduits, not buffers: heat entering the network moves on to whatever is attached rather than being banked.", sourceKey: "heatRules.profile.heatPipe.capacity" },
-      { label: "Finite Throughput", value: "40 H/s per shared edge", detail: "Each attachment can move at most this much heat per second, so a coolant network transports quickly but never equalises attached components instantly.", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
+      { label: "Transport Only", value: `${fmtHeat(heatProfileValue("heatPipe", "cooling"))} H/s cooling`, detail: "Heat Pipes transfer heat rapidly between components on the same coolant network. They remove none of it themselves : the network needs a Heat Sink, Radiator, Heat Vent or cooler attached to it.", sourceKey: "heatRules.profile.heatPipe.cooling" },
+      { label: "Negligible Storage", value: `${fmtHeat(heatProfileValue("heatPipe", "capacity"))} H capacity`, detail: "Pipes are conduits, not buffers: heat entering the network moves on to whatever is attached rather than being banked.", sourceKey: "heatRules.profile.heatPipe.capacity" },
+      { label: "Finite Throughput", value: `${fmtHeat(getHeatRules().COOLANT_ATTACHMENT_BANDWIDTH)} H/s per shared edge`, detail: "Each attachment can move at most this much heat per second, so a coolant network transports quickly but never equalises attached components instantly.", sourceKey: "heatRules.COOLANT_ATTACHMENT_BANDWIDTH" },
       { label: "Automatic Flow Direction", value: "Hotter to colder", detail: "The coolant settles at the conductance-weighted mean of the attached components' heat ratios; anything hotter than that gives heat up, anything colder takes it." },
       { label: "Destroyed Route", value: "Splits the network when destroyed", detail: "A destroyed Heat Pipe leaves the network, splitting the coolant run into the separate networks that remain.", warning: true, sourceKey: "heatRules.CONDUCTIVITY.destroyed" }
     ],
@@ -298,8 +314,8 @@ export const COMPONENT_MECHANICS = {
 
   heatSink: {
     specialMechanics: [
-      { label: "Thermal Mass", value: "340 H capacity", detail: "Heat Sinks have large heat capacity for their size. That capacity is their own : heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
-      { label: "Low Cooling", value: "1.5 H/s", detail: "Heat Sinks store heat but remove very little themselves. They work best paired with a Radiator on the same coolant network.", sourceKey: "heatRules.profile.heatSink.cooling" },
+      { label: "Thermal Mass", value: `${fmtHeat(heatProfileValue("heatSink", "capacity"))} H capacity`, detail: "Heat Sinks have large heat capacity for their size. That capacity is their own : heat has to be transferred into the sink for the storage to be used.", sourceKey: "heatRules.profile.heatSink.capacity" },
+      { label: "Low Cooling", value: `${fmtHeat(heatProfileValue("heatSink", "cooling"))} H/s`, detail: "Heat Sinks store heat but remove very little themselves. They work best paired with a Radiator on the same coolant network.", sourceKey: "heatRules.profile.heatSink.cooling" },
       { label: "No Adjacency Bonus", value: "Neighbours gain no capacity", detail: "Sitting next to a Heat Sink does not raise a component's own heat capacity. Connect hot systems to the sink with Heat Pipes so the heat actually reaches it." },
       { label: "Destroyed Behaviour", value: "Excluded from aggregate capacity but retains stored heat", detail: "A destroyed Heat Sink stops counting toward the ship's heat capacity, but any heat already stored remains until transferred away.", warning: true }
     ],
@@ -315,7 +331,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Connection", value: "Attaches from any side", detail: "Adjacency-based like every thermal part: a Heat Vent takes heat from components it touches, or from a Heat Pipe network on any orthogonal side. No rotation needed." }
     ],
     specialMechanics: [
-      { label: "Passive Rejection", value: "4 H/s while exposed", detail: "Constant output with no Power draw and no scaling with heat state.", sourceKey: "heatRules.profile.heatVent.cooling" },
+      { label: "Passive Rejection", value: `${fmtHeat(heatProfileValue("heatVent", "cooling"))} H/s while exposed`, detail: "Constant output with no Power draw and no scaling with heat state.", sourceKey: "heatRules.profile.heatVent.cooling" },
       { label: "Weaker Than a Radiator", value: "Well below Radiator output", detail: "The Heat Vent is the cheap, compact, unpowered option for low and medium heat ships. It is not a Radiator substitute on a heavy build." },
       { label: "Fragile", value: "18 hull", detail: "Cheap and light, but it sits on the exterior where it is easy to shoot off.", warning: true }
     ],
@@ -328,8 +344,8 @@ export const COMPONENT_MECHANICS = {
   reactor: {
     specialMechanics: [
       { label: "Meltdown", value: `Explodes after ${reactorMeltdownSeconds()}s in Overheated state`, detail: `A reactor pinned at the overheat failure state for ${reactorMeltdownSeconds()} seconds melts down and detonates, dealing area damage.`, warning: true, sourceKey: "heatRules.REACTOR_MELTDOWN_SECONDS" },
-      { label: "Meltdown Damage", value: "60 damage", sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" },
-      { label: "Meltdown Radius", value: "1.9 tiles", sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" },
+      { label: "Meltdown Damage", value: `${fmtHeat(getHeatRules().REACTOR_EXPLOSION_DAMAGE)} damage`, sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" },
+      { label: "Meltdown Radius", value: `${fmtHeat(getHeatRules().REACTOR_EXPLOSION_RADIUS)} tiles`, sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" },
       { label: "Activity Heat", value: "Uses authored activityHeat while producing Power", detail: "The authored rate is scaled by the generator's actual allocated output." }
     ],
     interactions: [
@@ -352,7 +368,7 @@ export const COMPONENT_MECHANICS = {
   smallReactor: {
     specialMechanics: [
       { label: "Meltdown", value: `Explodes after ${reactorMeltdownSeconds()}s in Overheated state`, warning: true, sourceKey: "heatRules.REACTOR_MELTDOWN_SECONDS" },
-      { label: "Meltdown Damage", value: "60 damage", sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" }
+      { label: "Meltdown Damage", value: `${fmtHeat(getHeatRules().REACTOR_EXPLOSION_DAMAGE)} damage`, sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" }
     ],
     interactions: [
       { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" }
@@ -362,8 +378,8 @@ export const COMPONENT_MECHANICS = {
   heavyReactor: {
     specialMechanics: [
       { label: "Meltdown", value: `Explodes after ${reactorMeltdownSeconds()}s in Overheated state`, warning: true, sourceKey: "heatRules.REACTOR_MELTDOWN_SECONDS" },
-      { label: "Meltdown Damage", value: "60 damage", sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" },
-      { label: "Meltdown Radius", value: "1.9 tiles", sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" }
+      { label: "Meltdown Damage", value: `${fmtHeat(getHeatRules().REACTOR_EXPLOSION_DAMAGE)} damage`, sourceKey: "heatRules.REACTOR_EXPLOSION_DAMAGE" },
+      { label: "Meltdown Radius", value: `${fmtHeat(getHeatRules().REACTOR_EXPLOSION_RADIUS)} tiles`, sourceKey: "heatRules.REACTOR_EXPLOSION_RADIUS" }
     ],
     interactions: [
       { label: "Radiators", value: "Essential : an overheated reactor will melt down without adequate cooling" }
@@ -529,7 +545,7 @@ export const COMPONENT_MECHANICS = {
   shield: {
     specialMechanics: [
       shieldImpactHeatMechanics(),
-      { label: "Shield Leakage", value: "5% of blocked damage leaks to hull", detail: "Shields absorb 95% of blocked damage; 5% passes through to hull." },
+      shieldLeakageMechanic(true),
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power", detail: "Power scales Shield regeneration proportionally before Heat and aura effects: 50% delivered Power provides 50% of the authored rate." },
       { label: "Regeneration Stacking", value: "Linear", detail: "Each live shield contributes its full authored regeneration rate after Power, Heat, and aura modifiers." },
       shieldRestartMechanic()
@@ -544,7 +560,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       shieldImpactHeatMechanics(false),
       shieldRestartMechanic(),
-      { label: "Shield Leakage", value: "5% of blocked damage leaks to hull" },
+      shieldLeakageMechanic(),
       { label: "Regeneration Stacking", value: "Linear", detail: "Each live shield contributes its full authored regeneration rate after explicit modifiers." },
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power" }
     ],
@@ -557,7 +573,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       shieldImpactHeatMechanics(false),
       shieldRestartMechanic(),
-      { label: "Shield Leakage", value: "5% of blocked damage leaks to hull" },
+      shieldLeakageMechanic(),
       { label: "Regeneration Stacking", value: "Linear", detail: "Each live shield contributes its full authored regeneration rate after explicit modifiers." },
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power" }
     ],
@@ -570,7 +586,7 @@ export const COMPONENT_MECHANICS = {
     specialMechanics: [
       shieldImpactHeatMechanics(false),
       shieldRestartMechanic(),
-      { label: "Shield Leakage", value: "5% of blocked damage leaks to hull" },
+      shieldLeakageMechanic(),
       { label: "Higher Regen", value: "Faster shield regeneration than standard shields" },
       { label: "Regeneration Stacking", value: "Linear", detail: "Each live shield contributes its full authored regeneration rate after explicit modifiers." },
       { label: "Power-Dependent Regen", value: "Shield regeneration requires power" }
@@ -848,6 +864,7 @@ export const COMPONENT_MECHANICS = {
       { label: "No Hull Damage", value: "Deals 0 hull damage" },
       { label: "No Shield Impact Heat", value: "EMP disruption does not create ordinary blocked-damage Heat" },
       { label: "Unguided Projectile", value: "Slow, wide projectile with no guidance" },
+      { label: "Electromagnetic Envelope", value: "At low Shield, the pulse collides with the ship's physical envelope", detail: "Unlike a damage projectile, EMP can be consumed by a hollow or destroyed gap inside that envelope; this represents field coupling rather than a direct Hull strike." },
       { label: "Shield Depletion", value: "Reaching zero uses the normal Shield restart delay" }
     ],
     interactions: [

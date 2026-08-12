@@ -200,10 +200,10 @@ function run() {
     // Toggling a switch over a selection sits alongside stance and orders in
     // how often a player does it. In the management bucket (4/s) a couple of
     // quick changes get dropped and the panel looks broken.
-    const { RATE_LIMITS } = require("../src/server/messageRouter");
-    assert(RATE_LIMITS.frequent.types.has("setMovementToggles"),
+    const { getRoute } = require("../src/server/routeRegistry");
+    assert.strictEqual(getRoute("setMovementToggles").rateLimit.bucket, "frequent",
       "setMovementToggles belongs in the frequent bucket with setCombatStyle");
-    assert(!RATE_LIMITS.management.types.has("setMovementToggles"));
+    assert.deepStrictEqual(getRoute("setMovementToggles").rateLimit, getRoute("setCombatStyle").rateLimit);
   }
 
   // --- The message actually reaches the ship --------------------------------
