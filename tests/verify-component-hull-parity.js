@@ -32,6 +32,7 @@ function assertHullInvariant(ship, message) {
 function room() {
   return {
     effects: [],
+    players: new Map(),
     map: { safeZones: [] },
     ships: new Map(),
     spatialIndex: { remove() {} }
