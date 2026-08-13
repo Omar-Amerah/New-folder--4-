@@ -124,6 +124,10 @@ function updateShipSupport(room, ships, dt, now) {
       const delivered = repairShipComponents(room, ship, selfRepairRate * dt, now);
 
       allocateRepairHeat(ship, localRepairModules, delivered, { useRepairStack: true });
+      if (delivered > 0) {
+        const owner = room.players.get(ship.ownerId);
+        if (owner) owner.hullRepaired = (owner.hullRepaired || 0) + delivered;
+      }
 
       ship._repairIntentAt = now; // Section 7D-2: repair systems have a valid action this cycle.
 
@@ -242,6 +246,10 @@ function updateShipSupport(room, ships, dt, now) {
     const delivered = repairShipComponents(room, target, beamRepairRate * dt, now, ship);
 
     allocateRepairHeat(ship, activeRepairBeams, delivered);
+    if (delivered > 0) {
+      const owner = room.players.get(ship.ownerId);
+      if (owner) owner.hullRepaired = (owner.hullRepaired || 0) + delivered;
+    }
 
     ship._repairIntentAt = now; // Section 7D-2: a repair beam has a valid target this cycle.
 

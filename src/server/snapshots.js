@@ -1022,7 +1022,13 @@ function snapshotRoom(room, now, viewer = null, sendStatic = true, shared = null
       rallyPoint: getPlayerRallyPoint(room, player),
       rallyPointCustom: Boolean(player.rallyPoint),
       shipsBuilt: player.shipsBuilt || 0,
-      lostFleetCost: Math.floor(player.lostFleetCost || 0)
+      lostFleetCost: Math.floor(player.lostFleetCost || 0),
+      damageDealt: Math.floor(player.damageDealt || 0),
+      shieldDamageDealt: Math.floor(player.shieldDamageDealt || 0),
+      componentsDestroyed: Math.floor(player.componentsDestroyed || 0),
+      missilesIntercepted: Math.floor(player.missilesIntercepted || 0),
+      hullRepaired: Math.floor(player.hullRepaired || 0),
+      shieldRestored: Math.floor(player.shieldRestored || 0)
     };
     if (sendStatic || options?.baselinePlayerIds instanceof Set && options.baselinePlayerIds.has(player.id)) {
       packet.design = player.design;

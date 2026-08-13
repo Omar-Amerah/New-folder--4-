@@ -410,6 +410,11 @@
 
 .report-player-row {
   background: var(--report-team-tint);
+  cursor: pointer;
+}
+
+.report-player-row:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .report-player-row td:first-child {
@@ -443,6 +448,51 @@
 
 .report-row-me td {
   font-weight: 700;
+}
+
+.report-detail-row {
+  background: rgba(9, 15, 25, 0.4);
+}
+
+.report-detail-cell {
+  padding: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.report-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 18px;
+  padding: 14px 18px;
+}
+
+.report-detail-section h5 {
+  margin: 0 0 10px 0;
+  color: var(--report-team-color);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.report-detail-section dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 14px;
+  font-size: 12px;
+}
+
+.report-detail-section dt {
+  color: var(--muted);
+}
+
+.report-detail-section dd {
+  margin: 0;
+  color: #fff;
+  font-weight: 700;
+  text-align: right;
 }
 
 .report-highlights {

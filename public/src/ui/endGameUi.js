@@ -11,6 +11,7 @@ export function updateWinnerBanner() {
     dom.winner.hidden = true;
     dom.endGameScreen.hidden = true;
     if (dom.showEndGameButton) dom.showEndGameButton.hidden = true;
+    dom.endGameSummary.dataset.reportRendered = "";
     return;
   }
   dom.winner.hidden = false;
@@ -23,7 +24,11 @@ export function updateWinnerBanner() {
 
   dom.endGameTitle.textContent = `${winner.name} won`;
   dom.endGameTitle.dataset.team = winner.team || "";
-  dom.endGameSummary.innerHTML = renderBattleReport();
+  if (!dom.endGameSummary.dataset.reportRendered) {
+    dom.endGameSummary.dataset.reportRendered = "1";
+    dom.endGameSummary.innerHTML = renderBattleReport();
+    dom.endGameSummary.addEventListener("click", onReportRowClick);
+  }
   const admin = isAdmin();
   dom.endGameActions.hidden = false;
   dom.restartButton.hidden = !admin;
@@ -39,6 +44,52 @@ function formatTime(ms) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatNumber(n) {
+  return Math.floor(n || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function onReportRowClick(event) {
+  const row = event.target.closest("tr.report-player-row");
+  if (!row) return;
+  const detail = row.nextElementSibling;
+  if (detail && detail.classList.contains("report-detail-row")) {
+    detail.hidden = !detail.hidden;
+  }
+}
+
+function renderPlayerDetails(player) {
+  return `<tr class="report-detail-row" hidden>
+    <td colspan="9" class="report-detail-cell">
+      <div class="report-detail-grid">
+        <div class="report-detail-section">
+          <h5>Combat</h5>
+          <dl>
+            <dt>Damage dealt</dt><dd>${formatNumber(player.damageDealt)}</dd>
+            <dt>Shield damage</dt><dd>${formatNumber(player.shieldDamageDealt)}</dd>
+            <dt>Components destroyed</dt><dd>${formatNumber(player.componentsDestroyed)}</dd>
+            <dt>Missiles intercepted</dt><dd>${formatNumber(player.missilesIntercepted)}</dd>
+          </dl>
+        </div>
+        <div class="report-detail-section">
+          <h5>Support</h5>
+          <dl>
+            <dt>Hull repaired</dt><dd>${formatNumber(player.hullRepaired)}</dd>
+            <dt>Shield restored</dt><dd>${formatNumber(player.shieldRestored)}</dd>
+          </dl>
+        </div>
+        <div class="report-detail-section">
+          <h5>Fleet</h5>
+          <dl>
+            <dt>Ships deployed</dt><dd>${formatNumber(player.shipsBuilt)}</dd>
+            <dt>Ships lost</dt><dd>${formatNumber(player.losses)}</dd>
+            <dt>Fleet value lost</dt><dd>$${formatNumber(player.lostFleetCost)}</dd>
+          </dl>
+        </div>
+      </div>
+    </td>
+  </tr>`;
 }
 
 function teamReportClass(team) {
@@ -124,6 +175,7 @@ function renderBattleReport() {
         <td>$${player.lostFleetCost || 0}</td>
         <td>${player.captures || 0}</td>
       </tr>`;
+      html += renderPlayerDetails(player);
 
       if (!mostCaptures || player.captures > mostCaptures.captures) mostCaptures = player;
       if (!mostKills || player.kills > mostKills.kills) mostKills = player;

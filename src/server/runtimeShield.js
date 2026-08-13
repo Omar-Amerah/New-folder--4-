@@ -83,6 +83,10 @@ function updateRuntimeShield(ship, dt, now, room) {
   if (ship.shield > 0) ship._shieldDepletedAt = null;
 
   const restored = Math.max(0, ship.shield - shieldBeforeRecharge);
+  if (restored > 0) {
+    const player = room?.players?.get?.(ship.ownerId);
+    if (player) player.shieldRestored = (player.shieldRestored || 0) + restored;
+  }
   const contributions = Array.isArray(effective?.regenerationContributions)
     ? effective.regenerationContributions
     : [];

@@ -596,6 +596,8 @@ function updateBullets(room, dt, now) {
         if (entity.hp <= 0.001) {
           removeProjectileRuntime(room, entity);
           room.effects.push({ type: "spark", x: entity.x, y: entity.y, at: now });
+          const player = room.players.get(bullet.ownerId);
+          if (player) player.missilesIntercepted = (player.missilesIntercepted || 0) + 1;
         }
         flakMetrics.missileHits += 1;
       } else if (kind === "station") {
@@ -1044,6 +1046,8 @@ function updateBullets(room, dt, now) {
       room.effects.push({ type: "spark", x: earliest.x, y: earliest.y, at: now });
       if (target.hp <= 0.001) {
         target.life = 0;
+        const player = room.players.get(bullet.ownerId);
+        if (player) player.missilesIntercepted = (player.missilesIntercepted || 0) + 1;
         recordProjectileReason(target, "intercepted", earliest.x, earliest.y);
         discardBullet(room, bulletsById, target);
         interceptedPreviouslyKept = true;
