@@ -7,6 +7,86 @@ import { renderPartInspector } from "./partInspectorUi.js";
 import { PART_CATEGORIES } from "../constants.js";
 import { isPaletteBlueprintEditMode, recalledPartTransform } from "./designerUi.js";
 
+const PALETTE_PART_ORDER = Object.freeze({
+  "Heat Components": [
+    "heatPipe",
+    "heatSink",
+    "heatVent",
+    "radiator",
+    "closedCycleCooler",
+    "burstCooler"
+  ],
+  Engines: [
+    "compactEngine",
+    "engine",
+    "heavyEngine",
+    "maneuverThruster",
+    "gyroscope"
+  ],
+  Defence: [
+    "shield",
+    "aegisProjector",
+    "pointDefense",
+    "flakCannon",
+    "interceptorPod",
+    "decoyLauncher"
+  ],
+  Weapons: [
+    "blaster",
+    "autocannon",
+    "railgun",
+    "missile",
+    "swarmMissile",
+    "torpedo",
+    "beamEmitter",
+    "thermalInductionLance",
+    "plasmaCannon",
+    "scatterCannon",
+    "fragmentationCannon",
+    "empCannon",
+    "spinalAccelerator",
+    "proximityDemolitionCharge",
+    "demolitionCharge"
+  ],
+  Support: [
+    "repair",
+    "overclockedRepair",
+    "repairBeam",
+    "targetingComputer",
+    "fireControl",
+    "signalAmplifier",
+    "stabilizerNode",
+    "smallSensor",
+    "largeSensor",
+    "smallDirectedSensor",
+    "largeDirectedSensor"
+  ],
+  Command: [
+    "backupCore",
+    "fireControlCommandCentre",
+    "fleetDefenceCoordinator",
+    "shieldCommandRelay",
+    "engineeringCommandCentre",
+    "propulsionCommandRelay",
+    "electronicWarfareCommandCentre",
+    "droneBay"
+  ]
+});
+
+function paletteTypesForCategory(category) {
+  const known = PALETTE_PART_ORDER[category] || [];
+  const seen = new Set(known);
+  const result = [...known];
+  for (const type of Object.keys(PART_DEFS)) {
+    if (seen.has(type)) continue;
+    if (!isPalettePart(type)) continue;
+    if (partCategory(type) !== category) continue;
+    seen.add(type);
+    result.push(type);
+  }
+  return result;
+}
+
 let selectionPresentationRefresh = () => {};
 
 export function setPartPaletteSelectionPresentationRefresh(handler) {
@@ -33,7 +113,7 @@ export function renderPalette() {
     tab.addEventListener("click", () => {
       if (!isPaletteBlueprintEditMode()) return;
       state.selectedPartCategory = category;
-      const first = Object.keys(PART_DEFS).find((type) => isPalettePart(type) && partCategory(type) === category);
+      const first = paletteTypesForCategory(category)[0];
       if (first) {
         state.selectedPart = first;
         const transform = recalledPartTransform(first);
@@ -64,9 +144,7 @@ export function renderPalette() {
 
   const list = document.createElement("div");
   list.className = "part-category-list";
-  for (const type of Object.keys(PART_DEFS)) {
-    if (!isPalettePart(type)) continue;
-    if (partCategory(type) !== state.selectedPartCategory) continue;
+  for (const type of paletteTypesForCategory(state.selectedPartCategory)) {
     const stat = PART_STATS[type];
     const button = document.createElement("button");
     button.type = "button";

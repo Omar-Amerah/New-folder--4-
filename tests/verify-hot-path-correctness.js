@@ -22,12 +22,28 @@ function serverFiles(directory) {
   });
 }
 
-for (const file of serverFiles(path.join(path.dirname(__dirname), "src", "server"))) {
-  if (path.basename(file) === "heat.js") continue;
+const root = path.join(path.dirname(__dirname), "src", "server");
+const inputsRel = "src/server/heat/inputs.js";
+const additivePattern = /componentHeatInput\s*\[[^\]]+\]\s*(?:\+=|=\s*[^=].*\+)/g;
+
+for (const file of serverFiles(root)) {
+  const rel = path.relative(path.dirname(__dirname), file).replace(/\\/g, "/");
+  if (rel === inputsRel) continue;
   const source = fs.readFileSync(file, "utf8");
-  assert(!/componentHeatInput\s*\[[^\]]+\]\s*(?:\+=|=\s*[^=].*\+)/.test(source),
-    `${path.relative(path.dirname(__dirname), file)} writes componentHeatInput directly; use addComponentHeat()`);
+  assert(!additivePattern.test(source),
+    `${rel} writes componentHeatInput directly; use addComponentHeat()`);
 }
+
+const inputsSource = fs.readFileSync(path.join(path.dirname(__dirname), inputsRel), "utf8");
+assert(inputsSource.includes("function addComponentHeat("),
+  "canonical addComponentHeat must be defined in heat/inputs.js");
+assert(inputsSource.includes("ship.componentHeatInput[index] += amount;"),
+  "canonical additive componentHeatInput mutation must live in addComponentHeat");
+assert.strictEqual(
+  require("../src/server/heat").addComponentHeat,
+  require("../src/server/heat/inputs").addComponentHeat,
+  "public heat facade must export the canonical addComponentHeat from inputs.js"
+);
 
 const design = [
   { type: "core", x: 7, y: 7, rotation: 0 },

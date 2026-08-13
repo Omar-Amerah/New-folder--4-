@@ -186,6 +186,12 @@ function joinRoom(client, message) {
     kills: 0,
     losses: 0,
     captures: 0,
+    damageDealt: 0,
+    shieldDamageDealt: 0,
+    componentsDestroyed: 0,
+    missilesIntercepted: 0,
+    hullRepaired: 0,
+    shieldRestored: 0,
     connected: true,
     lastReadyAt: 0,
     resumeToken: makeResumeToken(),
@@ -479,6 +485,12 @@ function resetRoundPlayerStats(player) {
   player.lostFleetCost = 0;
   player.deployedFleetCost = 0;
   player.shipsBuilt = 0;
+  player.damageDealt = 0;
+  player.shieldDamageDealt = 0;
+  player.componentsDestroyed = 0;
+  player.missilesIntercepted = 0;
+  player.hullRepaired = 0;
+  player.shieldRestored = 0;
   player.lastBuildError = "";
 }
 

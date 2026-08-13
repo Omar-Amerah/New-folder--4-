@@ -10,7 +10,7 @@ const {
   REST_SPEED
 } = require("../movementTuning");
 const { physicalCollisionRadius } = require("../movementCollision");
-const { combat } = require("./combatAccess");
+const { getHoldWeaponFacingSignature, chooseHoldWeaponFacing } = require("../mainBattery");
 const { targetAttackPointFrom } = require("./engagement");
 const {
   combatStance,
@@ -78,7 +78,6 @@ function holdWeaponFacingHeading(room, ship, runtime, target) {
       (Number(target.y) || 0) - (Number(previous.targetY) || 0)
     )
     : Infinity;
-  const { getHoldWeaponFacingSignature, chooseHoldWeaponFacing } = combat();
   const signature = getHoldWeaponFacingSignature(ship);
   const due = !previous
     || previous.targetId !== targetId

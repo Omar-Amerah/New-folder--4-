@@ -13,12 +13,11 @@ const {
 const { createRoom } = require("../src/server/rooms");
 const { broadcastSnapshot } = require("../src/server/snapshotDelivery");
 const { configureOutbound } = require("../src/server/outbound");
+const { runServerSpatialPerformanceBenchmark } = require("./support/serverSpatialPerformance");
 
-const BEFORE_PATH = path.join("test-artifacts", "performance", "server-spatial-performance-before-second-pass.json");
-const AFTER_PATH = path.join("test-artifacts", "performance", "server-spatial-performance.json");
 const OUTPUT_PATH = path.join("test-artifacts", "performance", "spatial-and-snapshot-performance.json");
 
-function fixture() {
+function spatialFixture() {
   const ships = [];
   const drones = new Map();
   const bullets = [];
@@ -100,7 +99,7 @@ class LegacyStringIndex {
 function spatialMicroBenchmark() {
   const ITERATIONS = 120;
   const QUERIES = 1000;
-  const { room, ships } = fixture();
+  const { room, ships } = spatialFixture();
 
   let legacyBuildMs = 0;
   let legacyAllocations = 0;
@@ -216,14 +215,10 @@ function snapshotBenchmark(disableGrouping) {
 }
 
 configureOutbound({ writeFrame() { return true; } });
-const before = JSON.parse(fs.readFileSync(BEFORE_PATH, "utf8"));
-const after = JSON.parse(fs.readFileSync(AFTER_PATH, "utf8"));
+const { fixture, baseline, optimized } = runServerSpatialPerformanceBenchmark();
 const spatial = spatialMicroBenchmark();
 const snapshotPerClient = snapshotBenchmark(true);
 const snapshotGrouped = snapshotBenchmark(false);
-const percentChange = (current, historical) => historical > 0
-  ? +(((current - historical) / historical) * 100).toFixed(1)
-  : null;
 
 let heapDeltaBytes = null;
 if (typeof global.gc === "function") {
@@ -235,25 +230,25 @@ if (typeof global.gc === "function") {
 }
 
 const report = {
-  fixture: after.fixture,
+  fixture,
   tick: {
-    before: before.optimized.totalMs,
-    after: after.optimized.totalMs,
-    overrunsBefore: before.optimized.overruns,
-    overrunsAfter: after.optimized.overruns
+    baseline: baseline.totalMs,
+    optimized: optimized.totalMs,
+    overrunsBaseline: baseline.overruns,
+    overrunsOptimized: optimized.overruns
   },
   spatialBuild: {
-    before: before.optimized.spatialMs,
-    after: after.optimized.spatialMs
+    baseline: baseline.spatialMs,
+    optimized: optimized.spatialMs
   },
   projectileUpdate: {
-    before: before.optimized.projectileMs,
-    after: after.optimized.projectileMs
+    baseline: baseline.projectileMs,
+    optimized: optimized.projectileMs
   },
   spatialMicro: spatial,
   snapshot: {
-    beforePerClient: snapshotPerClient,
-    afterGrouped: snapshotGrouped
+    perClient: snapshotPerClient,
+    grouped: snapshotGrouped
   },
   allocationProxy: {
     retainedHeapDeltaBytesAfterGc: heapDeltaBytes,
@@ -261,28 +256,21 @@ const report = {
     bucketAllocationsAfterWarmup: spatial.after.bucketAllocationsAfterWarmup,
     avoidedStringKeyInterpolations: spatial.before.stringKeyInterpolations
   },
-  historicalComparison: {
-    note: "Historical absolute timings are reported, not used as a same-machine acceptance gate.",
-    tickP95Percent: percentChange(after.optimized.totalMs.p95, before.optimized.totalMs.p95),
-    spatialBuildP50Percent: percentChange(after.optimized.spatialMs.p50, before.optimized.spatialMs.p50)
-  },
   acceptance: {
-    tickBudgetMs: after.fixture.tickBudgetMs,
-    currentP95Ms: after.optimized.totalMs.p95,
-    currentOverruns: after.optimized.overruns,
-    sameRunBaselineP95Ms: after.baseline.totalMs.p95
+    tickBudgetMs: fixture.tickBudgetMs,
+    currentP95Ms: optimized.totalMs.p95,
+    currentOverruns: optimized.overruns,
+    sameRunBaselineP95Ms: baseline.totalMs.p95
   }
 };
 
 fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
 fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`);
 
-// Absolute timings from different runs are environment-sensitive. Preserve and
-// report their direction above, while gating the current fixture against its
-// simulation budget and the baseline measured in the same run.
-assert.ok(report.tick.after.p95 < report.fixture.tickBudgetMs);
-assert.equal(report.tick.overrunsAfter, 0);
-assert.ok(after.optimized.totalMs.p95 < after.baseline.totalMs.p95);
+// Current-run timings are gated against the same-run baseline and the tick budget.
+assert.ok(optimized.totalMs.p95 < fixture.tickBudgetMs);
+assert.equal(optimized.overruns, 0);
+assert.ok(optimized.totalMs.p95 < baseline.totalMs.p95);
 assert.equal(spatial.after.recordAllocationsAfterWarmup, 0);
 assert.equal(spatial.after.bucketAllocationsAfterWarmup, 0);
 assert.equal(spatial.after.asteroidRebuilds, 0);

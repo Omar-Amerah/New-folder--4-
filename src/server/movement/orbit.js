@@ -31,7 +31,7 @@ const {
   nearestClearPoint,
   searchPathWorld
 } = require("../movementNavigation");
-const { combat } = require("./combatAccess");
+const { mainBatteryOrbitRange } = require("../mainBattery");
 const { engagementGeometry } = require("./engagement");
 const { maxTurnRate, routeClearance } = require("./navigation");
 const { staticObstacleBrakingCeiling } = require("./obstacleAvoidance");
@@ -84,7 +84,7 @@ function orbitDirectionOf(ship, runtime) {
 // that may raise it, and it exists so a short-ranged brawler orbits around its
 // target rather than through it.
 function orbitStandoff(ship, target) {
-  const battery = Number(combat().mainBatteryOrbitRange(ship)) || 0;
+  const battery = Number(mainBatteryOrbitRange(ship)) || 0;
   const reach = battery > 0 ? battery : getMaxEffectiveWeaponRange(ship);
   const contact = engagementGeometry(ship, target).contact + ORBIT_CONTACT_PADDING;
   return Math.max(contact, reach * ORBIT_RANGE_RATIO);

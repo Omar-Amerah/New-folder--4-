@@ -6,7 +6,7 @@ const { launchChromium, startServer, waitForServer, waitForBrowserReady, uniqueP
 
 const port = uniquePort();
 const base = `http://127.0.0.1:${port}`;
-const room = uniqueRoom("purchase");
+let room;
 const { server } = startServer(port);
 let browser;
 
@@ -45,6 +45,7 @@ function makeManyDesigns(count) {
 
     // ---- Desktop layout: purchase bar contained inside arena, no overlap with panels ----
     {
+      room = uniqueRoom("purchase-desktop");
       const page = await browser.newPage({ viewport: { width: DESKTOP_W, height: DESKTOP_H } });
       page.on("pageerror", (error) => pageErrors.push(error.message));
       page.on("console", (msg) => { if (msg.type() === "error") consoleErrors.push(msg.text()); });
@@ -263,6 +264,7 @@ function makeManyDesigns(count) {
 
     // ---- Browser zoom levels: 100%, 110%, 125% ----
     for (const zoomLevel of [1.0, 1.1, 1.25]) {
+      room = uniqueRoom(`purchase-zoom${zoomLevel * 100}`);
       const page = await browser.newPage({ viewport: { width: DESKTOP_W, height: DESKTOP_H } });
       page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -322,6 +324,7 @@ function makeManyDesigns(count) {
 
     // ---- Medium screen: match panel is overlay, purchase bar still contained ----
     {
+      room = uniqueRoom("purchase-medium");
       const page = await browser.newPage({ viewport: { width: MEDIUM_W, height: MEDIUM_H } });
       page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -371,6 +374,7 @@ function makeManyDesigns(count) {
 
     // ---- Mobile screen: stacked layout with vertical scrolling ----
     {
+      room = uniqueRoom("purchase-mobile");
       const page = await browser.newPage({ viewport: { width: MOBILE_W, height: MOBILE_H } });
       page.on("pageerror", (error) => pageErrors.push(error.message));
 

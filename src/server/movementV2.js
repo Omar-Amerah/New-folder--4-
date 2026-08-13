@@ -36,7 +36,7 @@ const {
   syncMovementTarget
 } = require("./movementRuntimeV2");
 const { bumpMovementMetric } = require("./movementMetrics");
-const { combat } = require("./movement/combatAccess");
+const { mainBatteryProfile, evaluateHoldWeaponCoverage } = require("./mainBattery");
 const {
   alignmentThrottle,
   applyManualRotation,
@@ -123,7 +123,7 @@ const CHARGE_PURSUE_SPEED = 8;
 function holdCoverageShortfall(room, ship, runtime, target, now) {
   if (combatStance(ship) !== "hold") return 0;
   const heading = holdWeaponFacingHeading(room, ship, runtime, target);
-  const coverage = combat().evaluateHoldWeaponCoverage(room, ship, target, heading, now);
+  const coverage = evaluateHoldWeaponCoverage(room, ship, target, heading, now);
   const shortfall = Number(coverage?.shortfall) || 0;
   return shortfall > 0 ? shortfall : 0;
 }
@@ -194,7 +194,7 @@ function refreshEngagement(room, ship, runtime, now, stats) {
   // usable ranged weapon has nothing to kite at, so it falls through to Hold
   // rather than inventing a radius and fleeing forever.
   if (type === "attack" && combatStance(ship) === "kite"
-    && combat().mainBatteryProfile(ship).standoffRange > 0) {
+    && mainBatteryProfile(ship).standoffRange > 0) {
     runtime.holdEngaged = false;
     runtime.chargeEngaged = false;
     runtime.ramming = false;

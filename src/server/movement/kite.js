@@ -37,7 +37,7 @@ const {
   searchPathWorld
 } = require("../movementNavigation");
 const { KITE_RUNTIME_DEFAULTS } = require("../movementRuntimeV2");
-const { combat } = require("./combatAccess");
+const { mainBatteryProfile, evaluateMainBatteryFacing } = require("../mainBattery");
 const {
   currentFiringLineClear,
   engagementGeometry,
@@ -531,7 +531,7 @@ function chooseKitePlan(room, ship, runtime, target, stats, mode, context, now) 
   let best = null;
   let incumbent = null;
   for (const candidate of shortlist) {
-    const coverage = combat().evaluateMainBatteryFacing(room, ship, target, candidate.heading, now);
+    const coverage = evaluateMainBatteryFacing(room, ship, target, candidate.heading, now);
     const share = clampNumber((Number(coverage.output) || 0) / totalOutput, 0, 1);
     // Escaping outranks shooting inside the danger band, and shooting outranks
     // fine range control outside it. Both are the same two terms with the
@@ -606,7 +606,7 @@ function kiteBrakingCeiling(room, ship, stats) {
 // controller -- tests and diagnostics use it to check the band without having
 // to fly a ship to find out what it is.
 function kiteRangeBand(ship, target) {
-  const profile = combat().mainBatteryProfile(ship);
+  const profile = mainBatteryProfile(ship);
   const band = kiteRanges(profile.standoffRange, engagementGeometry(ship, target).contact);
   return { ...band, battery: profile.standoffRange };
 }
@@ -625,7 +625,7 @@ function planKite(room, ship, runtime, target, stats, now) {
   }
   runtime.kiteSteering = true;
 
-  const profile = combat().mainBatteryProfile(ship);
+  const profile = mainBatteryProfile(ship);
   const geometry = engagementGeometry(ship, target);
   const distance = geometry.distance;
   const ranges = kiteRanges(profile.standoffRange, geometry.contact);

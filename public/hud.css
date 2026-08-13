@@ -254,7 +254,7 @@
 .end-game-screen > div {
   width: min(840px, 95vw);
   max-height: calc(100vh - 48px);
-  padding: 26px;
+  padding: 18px 26px 26px;
   border: 1px solid rgba(255, 202, 87, 0.35);
   border-radius: 12px;
   background: rgba(9, 15, 25, 0.96);
@@ -263,6 +263,18 @@
   display: flex;
   flex-direction: column;
   overflow: hidden auto;
+  animation: endGamePanelIn 0.4s ease-out;
+}
+
+@keyframes endGamePanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .minimize-button {
@@ -309,7 +321,7 @@
 }
 
 .battle-report {
-  margin-top: 18px;
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -385,6 +397,15 @@
 
 .report-team-winner .report-team-heading small {
   color: #fff2c4;
+}
+
+.report-team-winner .report-team-heading th {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--report-team-color) 32%, transparent), transparent 58%);
+  border-bottom-color: color-mix(in srgb, var(--report-team-color) 60%, transparent);
+}
+
+.report-team-winner .report-player-row {
+  background: color-mix(in srgb, var(--report-team-color) 12%, transparent);
 }
 
 .report-player-row {
@@ -551,9 +572,37 @@
   line-height: 1.05;
 }
 
+#endGameTitle {
+  margin: 4px 0 0;
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+#endGameTitle[data-team="blue"] {
+  --winner-color: #38d5ff;
+  text-shadow: 0 0 18px rgba(56, 213, 255, 0.45), 0 0 40px rgba(56, 213, 255, 0.18);
+}
+
+#endGameTitle[data-team="red"] {
+  --winner-color: #ff5f7e;
+  text-shadow: 0 0 18px rgba(255, 95, 126, 0.45), 0 0 40px rgba(255, 95, 126, 0.18);
+}
+
+#endGameTitle[data-team="blue"]::after,
+#endGameTitle[data-team="red"]::after {
+  content: "✦";
+  display: inline-block;
+  margin-left: 10px;
+  color: var(--winner-color);
+  font-size: 0.55em;
+  vertical-align: top;
+  text-shadow: 0 0 8px var(--winner-color);
+}
+
 .end-game-screen p,
 #endGameSummary {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: #dce8f8;
   font-size: 13px;
   font-weight: 700;

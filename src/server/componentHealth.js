@@ -309,6 +309,10 @@ function onComponentDestroyed(room, ship, index, now) {
       at: now
     });
   }
+  if (room && ship.lastDamagedBy && ship.lastDamagedBy !== ship.ownerId && module.type !== "core") {
+    const attacker = room.players.get(ship.lastDamagedBy);
+    if (attacker) attacker.componentsDestroyed = (attacker.componentsDestroyed || 0) + 1;
+  }
   if (module.type === "core") {
     ship.coreDestroyed = true;
     requestComponentLifecycleRefresh(ship, { exposure: true, componentState: true, componentIndex: index });

@@ -6,6 +6,12 @@ const path = require("path");
 const ROOT = path.dirname(__dirname);
 const CLIENT_ROOT = path.join(ROOT, "public", "src");
 const SERVER_ROOT = path.join(ROOT, "src", "server");
+const COMBAT_FILE = path.join(SERVER_ROOT, "combat.js");
+const MOVEMENT_DIR = path.join(SERVER_ROOT, "movement");
+const MOVEMENT_FILES = new Set(["src/server/movement.js", "src/server/movementV2.js"]);
+function isMovementFile(file) {
+  return file.startsWith(MOVEMENT_DIR + path.sep) || MOVEMENT_FILES.has(rel(file));
+}
 const ALLOWED_CLIENT_ESCAPES = new Set([path.join(ROOT, "component-balance.json")]);
 const ALLOWED_SERVER_ESCAPES = [
   path.join(ROOT, "public", "src", "shared"),
@@ -66,7 +72,12 @@ function checkRoot(files, root, kind) {
           fail(`${rel(file)} imports ${dep.spec}, escaping ${rel(root)} to ${rel(resolvedReal)}`);
         }
       }
-      if (isSourceFile(resolvedReal) && set.has(resolvedReal)) deps.push(resolvedReal);
+      if (isSourceFile(resolvedReal) && set.has(resolvedReal)) {
+        if (kind === "server" && isMovementFile(file) && resolvedReal === COMBAT_FILE) {
+          fail(`${rel(file)} imports ${dep.spec}, which resolves to combat.js; movement internals must not depend on combat.js`);
+        }
+        deps.push(resolvedReal);
+      }
       if (kind === "client" && rel(resolvedReal) === "public/client.js") fail(`${rel(file)} relies on obsolete generated global bundle`);
     }
     graph.set(file, deps);
@@ -77,7 +88,12 @@ function checkRoot(files, root, kind) {
     for (const dep of graph.get(node) || []) {
       if (!seen.has(dep) && visiting.has(dep)) {
         const i = stack.indexOf(dep);
-        warn(`direct/static cycle: ${stack.slice(i).concat(dep).map(rel).join(" -> ")}`);
+        const cycle = stack.slice(i).concat(dep);
+        if (cycle.includes(COMBAT_FILE) && cycle.some(isMovementFile)) {
+          fail(`direct/static cycle crosses the combat/movement boundary: ${cycle.map(rel).join(" -> ")}`);
+        } else {
+          warn(`direct/static cycle: ${cycle.map(rel).join(" -> ")}`);
+        }
       } else if (!seen.has(dep)) dfs(dep);
     }
     visiting.delete(node); seen.add(node); stack.pop();

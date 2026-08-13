@@ -21,6 +21,9 @@ function createDamageRuntime({
     if (isInSafeZone(room, ship.x, ship.y, ship) || damage <= 0) return 0;
   
     ship.lastDamagedBy = attackerId;
+
+    const attacker = room.players.get(attackerId);
+    const trackDamage = attacker && attackerId !== ship.ownerId;
   
     if (!ship.componentHp || !isComponentAlive(ship, index)) return 0;
   
@@ -72,7 +75,10 @@ function createDamageRuntime({
   
       if (dealt > 0) markShipRepairCacheDirty(ship);
   
-      return dealt;
+      if (trackDamage && dealt > 0) {
+      attacker.damageDealt = (attacker.damageDealt || 0) + dealt;
+    }
+    return dealt;
   
     }
   
@@ -126,6 +132,9 @@ function createDamageRuntime({
   
     if (dealt > 0) markShipRepairCacheDirty(ship);
   
+    if (trackDamage && dealt > 0) {
+      attacker.damageDealt = (attacker.damageDealt || 0) + dealt;
+    }
     return dealt;
   
   }
@@ -156,6 +165,9 @@ function createDamageRuntime({
     }
   
     ship.lastDamagedBy = attackerId;
+
+    const attacker = room.players.get(attackerId);
+    const trackDamage = attacker && attackerId !== ship.ownerId;
   
   
   
@@ -218,6 +230,9 @@ function createDamageRuntime({
         );
   
         pushDamageEffect(room, ship, now, blockedShieldDamage, true);
+        if (trackDamage) {
+          attacker.shieldDamageDealt = (attacker.shieldDamageDealt || 0) + blockedShieldDamage;
+        }
   
       }
   
@@ -254,6 +269,9 @@ function createDamageRuntime({
       if (applied > 0) {
   
         pushDamageEffect(room, ship, now, applied, false);
+        if (trackDamage) {
+          attacker.damageDealt = (attacker.damageDealt || 0) + applied;
+        }
   
         markShipRepairCacheDirty(ship);
   

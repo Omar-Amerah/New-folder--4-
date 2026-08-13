@@ -50,6 +50,20 @@ const Targeting = require("./targetingEligibility");
 const { getShipComponentIndexes } = require("./componentIndexes");
 const { roomCombatRandom } = require("./combat/random");
 
+const {
+  asteroidBroadPhase,
+  roomScratch,
+  isLineBlocked,
+  isTargetInWeaponArc,
+  getWeaponTurnRate,
+  getHoldWeaponFacingSignature,
+  chooseHoldWeaponFacing,
+  evaluateHoldWeaponCoverage,
+  evaluateMainBatteryFacing,
+  mainBatteryOrbitRange,
+  mainBatteryProfile
+} = require("./mainBattery");
+
 
 
 const SHIELD_IMPACT_HEAT_PER_BLOCKED_DAMAGE = ShieldRules.IMPACT_HEAT_PER_BLOCKED_DAMAGE;
@@ -165,29 +179,7 @@ function isStableIdBefore(a, b) {
 
 // hand) still fall back to the authoritative array so no rock is ever missed.
 
-function asteroidBroadPhase(room, x1, y1, x2, y2, padding, scratch) {
-
-  const asteroids = room.map?.asteroids || [];
-
-  const index = room.spatialIndex;
-
-  if (!index || typeof index.querySweptAabbUnordered !== "function") return asteroids;
-
-  if (index.count("asteroids") !== asteroids.length) return asteroids;
-
-  return index.querySweptAabbUnordered("asteroids", x1, y1, x2, y2, padding, scratch);
-
-}
-
-
-
-function roomScratch(room, key) {
-
-  const bag = room._combatScratch || (room._combatScratch = {});
-
-  return bag[key] || (bag[key] = []);
-
-}
+// asteroidBroadPhase and roomScratch now live in mainBattery.js.
 
 
 
@@ -1743,380 +1735,35 @@ function isDamageFromFront(ship, sourceX, sourceY, frontArcDegrees) {
 
 
 
-function isTargetInWeaponArc(ship, module, target, arcRadians, hullAngle = ship.angle) {
+// isTargetInWeaponArc now lives in mainBattery.js.
 
-  if (arcRadians >= Math.PI * 2) return true;
-
-  const origin = weaponModuleWorldPosition(ship, module, hullAngle);
-
-  const weaponFacing = weaponFacingAngle(ship, module, hullAngle);
-
-  const point = targetAttackPoint(origin.x, origin.y, target);
-  const angleToTarget = Math.atan2(point.y - origin.y, point.x - origin.x);
-
-  return Math.abs(angleDifference(weaponFacing, angleToTarget)) <= arcRadians / 2;
-
-}
-
-function holdFacingAngle(angle) {
-  let normalized = Number(angle) || 0;
-  normalized %= Math.PI * 2;
-  if (normalized <= -Math.PI) normalized += Math.PI * 2;
-  if (normalized > Math.PI) normalized -= Math.PI * 2;
-  return normalized;
-}
+// hold-facing helpers now live in mainBattery.js.
 
 // This signature intentionally contains no weapon cooldowns. Cooldown affects
 // the next shot, not which hull orientation gives the best sustained coverage.
-function getHoldWeaponFacingSignature(ship) {
-  const cache = ensureEffectiveWeaponProfileCache(ship);
-  const indexes = getShipComponentIndexes(ship).weaponIndices;
-  const states = indexes.map((index) => [
-    index,
-    isComponentAlive(ship, index) ? 1 : 0,
-    Math.round((Number(getComponentPowerMultiplier(ship, index)) || 0) * 1000),
-    Math.round((Number(componentPerformance(ship, index)) || 0) * 1000)
-  ].join(":"));
-  return [
-    cache?.revision || 0,
-    ship?.designRevision || 0,
-    ship?.componentAliveRevision || 0,
-    ship?.powerRevision || 0,
-    ship?.heatStateRevision || 0,
-    states.join(",")
-  ].join("|");
-}
 
-function holdFacingWeapons(ship) {
-  const weapons = [];
-  for (const index of getShipComponentIndexes(ship).weaponIndices) {
-    const module = ship.design?.[index];
-    const part = module ? PARTS[module.type] : null;
-    if (!module || !part?.weapon || module.type === "repairBeam") continue;
-    if (!isComponentAlive(ship, index)) continue;
 
-    const power = Math.max(0, Number(getComponentPowerMultiplier(ship, index)) || 0);
-    const thermal = Math.max(0, Number(componentPerformance(ship, index)) || 0);
-    const activity = power * thermal;
-    if (!(activity > 0)) continue;
 
-    const effectiveWeapon = getEffectiveWeaponStatsInternal(ship, index) || part.weapon;
-    const family = effectiveWeapon.type || part.weapon.type || "beam";
-    // These weapons are defensive/interception systems in the firing path and
-    // should not pull an offensive Hold hull toward a defensive bearing.
-    if (family === "pointDefense" || family === "flak") continue;
-
-    const range = Number(effectiveWeapon.range) || 0;
-    const dps = Number.isFinite(Number(effectiveWeapon.combatDps))
-      ? Math.max(0, Number(effectiveWeapon.combatDps))
-      : (Number(effectiveWeapon.dps)
-        || ((Number(effectiveWeapon.damage) || 0) * (Number(effectiveWeapon.fireRate) || 0)));
-    const induction = isInductionBeam(effectiveWeapon) ? (Number(effectiveWeapon.inductionHeatMaxPerSecond) || 0) : 0;
-    const tacticalOutput = isInductionBeam(effectiveWeapon) ? induction : dps;
-    if (!(range > 0) || !(tacticalOutput > 0)) continue;
-
-    // Where the mount sits relative to the hull centre. Rotating the hull swings
-    // it, so this is what decides whether a given heading puts the gun on the
-    // near or the far side of the ship -- a difference of twice this distance in
-    // how far the gun has to shoot.
-    const local = moduleFootprintLocalPosition(module);
-    weapons.push({
-      index,
-      module,
-      range,
-      mountOffset: fastHypot(local.x, local.y),
-      mountOffsetAngle: Math.atan2(local.y, local.x),
-      arcRadians: Math.max(0, Math.min(Math.PI * 2, (Number(effectiveWeapon.arc) || 360) * Math.PI / 180)),
-      mountAngle: moduleRotationToRadians(normalizeRotation(module.rotation)),
-      expectedDps: tacticalOutput * activity
-    });
-  }
-  return weapons;
-}
 
 // `groupRange` opts in to measuring the guns that this heading brings to bear
 // but that are still short of the target. Left at Infinity nothing qualifies and
 // an out-of-range weapon is dropped as cheaply as it always was; movement passes
 // a real threshold when it needs to know how much further the hull has to come.
-function evaluateHoldFacing(room, ship, target, weapons, heading, now, groupRange = Infinity, reachMargin = 0) {
-  let score = 0;
-  let weaponCount = 0;
-  // The furthest any bearing gun of the main battery is from reaching, and how
-  // many of them are in that state. This is a distance the hull can close, so it
-  // is reported separately from the coverage the heading already has.
-  let shortfall = 0;
-  let shortfallCount = 0;
 
-  for (const weapon of weapons) {
-    const origin = weaponModuleWorldPosition(ship, weapon.module, heading);
-    const point = targetAttackPoint(origin.x, origin.y, target);
-    const distance = fastHypot(point.x - origin.x, point.y - origin.y);
-    const excess = distance - weapon.range;
-    const inGroup = weapon.range >= groupRange;
-    if (excess > 0 && !inGroup) continue;
 
-    // This is the same ordinary-weapon eligibility predicate used by firing,
-    // parameterized with the candidate hull heading. It owns relationship,
-    // visibility, range and fixed-arc details; movement only supplies LOS.
-    // Passing `distance` as the range for a gun that is merely short asks the
-    // predicate every question except the one movement is trying to answer.
-    if (!Targeting.isOrdinaryWeaponTargetValid(room, ship, target, now, excess > 0 ? distance : weapon.range, {
-      originX: origin.x,
-      originY: origin.y,
-      arcRadians: weapon.arcRadians,
-      weaponAngle: heading + weapon.mountAngle
-    })) continue;
-    if (isLineBlocked(room, origin.x, origin.y, point.x, point.y, 8)) continue;
 
-    // A gun sitting exactly on its own range boundary is one nudge from being
-    // out of it again, so movement is told to close a little past the boundary
-    // rather than onto it. Coverage below is still scored against the real
-    // range: this margin decides where to stop, not what can shoot.
-    if (inGroup && distance > weapon.range - reachMargin) {
-      shortfall = Math.max(shortfall, distance - (weapon.range - reachMargin));
-      shortfallCount += 1;
-    }
-    if (excess > 0) continue;
 
-    score += weapon.expectedDps;
-    weaponCount += 1;
-  }
 
-  return { score, weaponCount, shortfall, shortfallCount };
-}
 
-// Guns of the main offensive battery are the ones the Hold standoff is chosen
-// for. A secondary with a much shorter reach is deliberately not allowed to vote
-// on where the hull stops -- one point-blank gun should not drag a long-range
-// ship into a knife fight to satisfy itself.
-const HOLD_COVERAGE_RANGE_GROUP_RATIO = 0.9;
 
-// How far inside its own envelope a gun is asked to end up. Small and absolute:
-// enough that ordinary jostling does not push the outermost mount back out of
-// range, not so much that it changes how close Hold fights.
-const HOLD_COVERAGE_REACH_MARGIN = 12;
 
-// Can the guns actually shoot from where they are standing?
-//
-// Movement's range gate measures the hull CENTRE against the longest weapon
-// envelope, but every gun fires from its own mount, and on a long hull the
-// far-side mounts sit most of a hundred pixels behind the centre. A ship that
-// stops the instant its centre is in range therefore parks half its battery
-// outside its own range, and the hold logic -- which only ever asked about the
-// centre -- has nothing left to tell it to close the rest of the way.
-//
-// `heading` is the orientation the ship intends to hold, because rotating the
-// hull moves the mounts: coverage is a property of the heading, not just of the
-// position. Returns the coverage that heading already has plus the distance the
-// hull still has to close for the whole main battery to reach.
-function evaluateHoldWeaponCoverage(room, ship, target, heading, now) {
-  const weapons = holdFacingWeapons(ship);
-  let longest = 0;
-  for (const weapon of weapons) longest = Math.max(longest, weapon.range);
-  const evaluated = evaluateHoldFacing(
-    room,
-    ship,
-    target,
-    weapons,
-    holdFacingAngle(heading),
-    now,
-    longest * HOLD_COVERAGE_RANGE_GROUP_RATIO,
-    HOLD_COVERAGE_REACH_MARGIN
-  );
-  return {
-    usableDps: evaluated.score,
-    usableWeaponCount: evaluated.weaponCount,
-    shortfall: evaluated.shortfall,
-    shortfallWeaponCount: evaluated.shortfallCount
-  };
-}
 
-// The main offensive battery: which guns a travelling stance is allowed to
-// choose its range and its heading for, and the radius at which all of them
-// reach.
-//
-// A travelling stance cannot use the Hold coverage measurement: that one is a
-// property of a chosen hull heading, and an orbiting or kiting hull's heading
-// changes continuously. What it needs is the radius that works at ANY heading,
-// so each gun is charged the full distance its mount can be swung away from the
-// target -- the mount offset -- and the group is limited by its worst member.
-//
-// "Main battery" is the same group Hold stops for, and for the same reason: one
-// short-ranged secondary must not drag a long-ranged hull into a knife fight to
-// satisfy itself. Point Defence, Flak and repair beams are already excluded by
-// holdFacingWeapons, along with anything destroyed, unpowered, overheated or
-// with no meaningful tactical output -- including the zero-damage induction
-// weapons, which are scored on the heat they can put into a hull instead. That
-// measure is for movement and facing only; nothing shows it as DPS.
-//
-// `standoffRange` is 0 for a ship with no offensive weapon reaching anywhere,
-// which is the caller's cue to fall back on the hull's own envelope.
-//
-// Unlike the Hold coverage measurement, which movement asks for on a cadence,
-// this one is wanted by every travelling ship on every tick. Rebuilding the
-// weapon list that often is exactly the sort of per-tick allocation that has
-// shown up in server profiles before, and the answer only moves when the
-// weapons themselves do -- so it is keyed on the revisions that mark that.
-function mainBatterySignature(ship) {
-  return [
-    ensureEffectiveWeaponProfileCache(ship)?.revision || 0,
-    ship?.designRevision || 0,
-    ship?.componentAliveRevision || 0,
-    ship?.powerRevision || 0,
-    ship?.heatStateRevision || 0
-  ].join("|");
-}
 
-const EMPTY_MAIN_BATTERY = Object.freeze({
-  weapons: Object.freeze([]),
-  longestRange: 0,
-  groupRange: 0,
-  standoffRange: 0,
-  output: 0
-});
 
-function mainBatteryProfile(ship) {
-  if (!ship || typeof ship !== "object") return EMPTY_MAIN_BATTERY;
-  const signature = mainBatterySignature(ship);
-  const cached = ship._mainBatteryProfile;
-  if (cached && cached.signature === signature) return cached.profile;
 
-  const all = holdFacingWeapons(ship);
-  let profile = EMPTY_MAIN_BATTERY;
-  if (all.length) {
-    let longestRange = 0;
-    for (const weapon of all) longestRange = Math.max(longestRange, weapon.range);
-    const groupRange = longestRange * HOLD_COVERAGE_RANGE_GROUP_RATIO;
-    // Selected by range alone and in the order the design already gives them,
-    // so the same hull produces the same battery however its modules happen to
-    // be ordered.
-    const weapons = all.filter((weapon) => weapon.range >= groupRange);
-    let reach = Infinity;
-    let output = 0;
-    for (const weapon of weapons) {
-      reach = Math.min(reach, weapon.range - weapon.mountOffset);
-      output += weapon.expectedDps;
-    }
-    profile = {
-      weapons,
-      longestRange,
-      groupRange,
-      standoffRange: Number.isFinite(reach) ? Math.max(0, reach) : 0,
-      output
-    };
-  }
-  ship._mainBatteryProfile = { signature, profile };
-  return profile;
-}
 
-// The radius an orbiting ship can hold its target at and still have the whole
-// main battery bear on it. Orbit's own name for the shared measurement above.
-function mainBatteryOrbitRange(ship) {
-  return mainBatteryProfile(ship).standoffRange;
-}
 
-// What the main battery could actually do to this target from where the hull is
-// standing, if it were pointing `heading`.
-//
-// This is the same eligibility the firing path uses -- relationship, visibility,
-// range, fixed arcs, physical mount position -- parameterized with a candidate
-// hull heading, and it is what lets Kite choose a heading that runs away and
-// keeps shooting rather than one or the other. Secondaries are deliberately not
-// counted: they still fire, they just do not get a vote on where the hull looks.
-function evaluateMainBatteryFacing(room, ship, target, heading, now) {
-  const profile = mainBatteryProfile(ship);
-  if (!profile.weapons.length) {
-    return { output: 0, weaponCount: 0, totalOutput: 0 };
-  }
-  const evaluated = evaluateHoldFacing(
-    room,
-    ship,
-    target,
-    profile.weapons,
-    holdFacingAngle(heading),
-    now
-  );
-  return {
-    output: evaluated.score,
-    weaponCount: evaluated.weaponCount,
-    totalOutput: profile.output
-  };
-}
 
-// Choose a hull orientation only. This helper deliberately has no movement
-// side effects and does not alter the weapon firing state.
-//
-// Candidates are the current/previous heading, the heading that looks straight
-// at the target, the centres and edges of each fixed weapon arc, and the heading
-// that swings each mount round onto the target side. The last two families are
-// both needed: coverage changes when a gun's ARC crosses the target, and again
-// when its MOUNT crosses the range boundary. An earlier version tested arcs
-// only, which left a hull carrying wide-arc turrets with no candidate but the
-// heading it already had.
-function chooseHoldWeaponFacing(room, ship, target, now, previousHeading = null) {
-  const weapons = holdFacingWeapons(ship);
-  const currentHeading = holdFacingAngle(ship.angle || 0);
-  const preferredHeading = Number.isFinite(Number(previousHeading))
-    ? holdFacingAngle(previousHeading)
-    : currentHeading;
-  const targetPoint = targetAttackPoint(ship.x || 0, ship.y || 0, target);
-  const targetBearing = Math.atan2(targetPoint.y - (ship.y || 0), targetPoint.x - (ship.x || 0));
-  const candidates = [];
-  const addCandidate = (angle) => {
-    const candidate = holdFacingAngle(angle);
-    if (candidates.some((existing) => Math.abs(angleDifference(existing, candidate)) < 1e-6)) return;
-    candidates.push(candidate);
-  };
-
-  addCandidate(currentHeading);
-  addCandidate(preferredHeading);
-  addCandidate(targetBearing);
-  for (const weapon of weapons) {
-    if (weapon.arcRadians >= Math.PI * 2 - 1e-6) {
-      // A full-circle turret has no arc to generate candidates from, so the
-      // loop below used to produce nothing for it at all -- a hull carrying
-      // only turrets was left with the heading it already had. Its coverage
-      // still changes with heading, because rotating the hull swings the mount
-      // between the near and the far side of the target. Swing it to the near
-      // side: the closest this hull can put that gun to what it is shooting at.
-      if (weapon.mountOffset > 1e-6) addCandidate(targetBearing - weapon.mountOffsetAngle);
-      continue;
-    }
-    const centre = targetBearing - weapon.mountAngle;
-    addCandidate(centre);
-    addCandidate(centre - weapon.arcRadians / 2);
-    addCandidate(centre + weapon.arcRadians / 2);
-  }
-
-  const current = evaluateHoldFacing(room, ship, target, weapons, preferredHeading, now);
-  let best = null;
-  for (const heading of candidates) {
-    const evaluated = evaluateHoldFacing(room, ship, target, weapons, heading, now);
-    const turn = Math.min(
-      Math.abs(angleDifference(currentHeading, heading)),
-      Math.abs(angleDifference(preferredHeading, heading))
-    );
-    const candidate = { heading, ...evaluated, turn };
-    const better = !best
-      || candidate.score > best.score + 1e-6
-      || (Math.abs(candidate.score - best.score) <= 1e-6 && candidate.weaponCount > best.weaponCount)
-      || (Math.abs(candidate.score - best.score) <= 1e-6
-        && candidate.weaponCount === best.weaponCount
-        && (candidate.turn < best.turn - 1e-6
-          || (Math.abs(candidate.turn - best.turn) <= 1e-6
-            && candidate.heading < best.heading)));
-    if (better) best = candidate;
-  }
-
-  return {
-    heading: best?.heading ?? preferredHeading,
-    score: best?.score || 0,
-    weaponCount: best?.weaponCount || 0,
-    currentScore: current.score,
-    currentWeaponCount: current.weaponCount,
-    signature: getHoldWeaponFacingSignature(ship)
-  };
-}
 
 
 
@@ -2570,28 +2217,7 @@ const {
 
 
 
-// Called from inside the per-weapon and per-candidate targeting loops, so this
 
-// is one of the hottest functions on the tick. `room.points` holds capture
-
-// relays only (built from `map.relays`), never asteroids, so the old second
-
-// loop could not match and has been removed.
-
-function isLineBlocked(room, x1, y1, x2, y2, margin = 0) {
-  const candidates = asteroidBroadPhase(room, x1, y1, x2, y2, margin, roomScratch(room, "lineBlock"));
-  for (let i = 0; i < candidates.length; i += 1) {
-    const asteroid = candidates[i];
-    if (!asteroid) continue;
-    if (segmentCircleHit(x1, y1, x2, y2, asteroid.x, asteroid.y, asteroid.radius + margin)) return true;
-  }
-
-  return !isSegmentStationClear(room, x1, y1, x2, y2, margin, {
-    ignoreStationContainingEndpoint: true,
-    ignoreDoors: true
-  });
-
-}
 
 
 
@@ -2610,16 +2236,6 @@ function areEnemies(room, ownerA, ownerB) {
 }
 
 
-
-function getWeaponTurnRate(weapon) {
-
-  // Shared with the client renderer via TurretRules so the visible turret sweep
-
-  // matches the server's aim exactly.
-
-  return TurretRules.turnRateFor(weapon);
-
-}
 
 
 

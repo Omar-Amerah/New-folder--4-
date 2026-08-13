@@ -22,6 +22,7 @@ export function updateWinnerBanner() {
   }
 
   dom.endGameTitle.textContent = `${winner.name} won`;
+  dom.endGameTitle.dataset.team = winner.team || "";
   dom.endGameSummary.innerHTML = renderBattleReport();
   const admin = isAdmin();
   dom.endGameActions.hidden = false;

@@ -69,6 +69,7 @@ const TEST_MANIFEST = Object.freeze({
     "tests/verify-neutral-component-targeting.js",
     "tests/verify-combat-determinism.js",
     "tests/verify-combat-catchup.js",
+    "tests/verify-combat-movement-load-order.js",
     "tests/verify-defence-weapons.js",
     "tests/verify-backup-core-command.js",
     "tests/verify-command-runtime.js",
