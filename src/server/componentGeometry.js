@@ -282,6 +282,46 @@ function shipHullCircles(ship) {
   return circles;
 }
 
+// Centre-to-centre distance at which two hulls first reach `clearance` while
+// approaching along the line from a to b. Each occupied live hull cell is part
+// of the same circle set used by findShipHullOverlap(), so asymmetric and
+// damaged ships stop against the geometry that can actually collide rather
+// than their design-wide bounding circles.
+function shipHullApproachDistance(a, b, clearance = 0) {
+  const circlesA = shipHullCircles(a);
+  const circlesB = shipHullCircles(b);
+  const centreDx = (Number(b?.x) || 0) - (Number(a?.x) || 0);
+  const centreDy = (Number(b?.y) || 0) - (Number(a?.y) || 0);
+  const centreDistance = Math.hypot(centreDx, centreDy);
+  if (!(centreDistance > 1e-9)) {
+    return Math.max(0, Number(a?.physicalRadius) || 0)
+      + Math.max(0, Number(b?.physicalRadius) || 0)
+      + Math.max(0, Number(clearance) || 0);
+  }
+
+  const ux = centreDx / centreDistance;
+  const uy = centreDy / centreDistance;
+  const wantedClearance = Math.max(0, Number(clearance) || 0);
+  let firstContact = 0;
+  for (const ca of circlesA) {
+    const aOffsetX = ca.x - (Number(a.x) || 0);
+    const aOffsetY = ca.y - (Number(a.y) || 0);
+    for (const cb of circlesB) {
+      const offsetX = cb.x - (Number(b.x) || 0) - aOffsetX;
+      const offsetY = cb.y - (Number(b.y) || 0) - aOffsetY;
+      const along = offsetX * ux + offsetY * uy;
+      const perpendicularX = offsetX - along * ux;
+      const perpendicularY = offsetY - along * uy;
+      const combinedRadius = ca.radius + cb.radius + wantedClearance;
+      const perpendicularSquared = perpendicularX * perpendicularX + perpendicularY * perpendicularY;
+      if (perpendicularSquared > combinedRadius * combinedRadius) continue;
+      const contact = -along + Math.sqrt(Math.max(0, combinedRadius * combinedRadius - perpendicularSquared));
+      if (contact > firstContact) firstContact = contact;
+    }
+  }
+  return firstContact;
+}
+
 // Where two hulls are touching, and which way to push them apart.
 //
 // Depth is the deepest overlapping pair of cells, but the DIRECTION is the
@@ -344,6 +384,7 @@ module.exports = {
   getShipComponentCellWorldCoords,
   getShipCollisionGeometry,
   shipHullCircles,
+  shipHullApproachDistance,
   findShipHullOverlap,
   invalidateShipCollisionGeometry,
   shieldRadiusForShip,

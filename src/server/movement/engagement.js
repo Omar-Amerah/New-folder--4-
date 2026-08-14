@@ -8,6 +8,7 @@ const {
   REPAIR_STANDOFF_PAD
 } = require("../movementTuning");
 const { getMaxEffectiveWeaponRange } = require("../componentData");
+const { shipHullApproachDistance } = require("../componentGeometry");
 const {
   navigationClearanceRadius,
   physicalCollisionRadius
@@ -105,9 +106,16 @@ function radialSeparationSpeed(ship, target, distance) {
 }
 
 function engagementRanges(ship, target, type) {
-  const hull = engagementGeometry(ship, target).contact;
+  let hull = engagementGeometry(ship, target).contact;
   if (type !== "repair" && combatStance(ship) === "charge") {
-    const enter = hull + CHARGE_CONTACT_PADDING;
+    // A ship's physicalRadius encloses its entire design and therefore cannot
+    // describe where an asymmetric (or damaged) hull ends on this approach.
+    // Use the live collision cells for ship targets. Stations retain their
+    // authored surface geometry from engagementGeometry().
+    if (!targetIsStation(target)) {
+      hull = shipHullApproachDistance(ship, target, CHARGE_CONTACT_PADDING);
+    }
+    const enter = targetIsStation(target) ? hull + CHARGE_CONTACT_PADDING : hull;
     return {
       enter,
       resume: enter + CHARGE_CLING_SLACK
