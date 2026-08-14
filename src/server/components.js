@@ -109,12 +109,10 @@ function normalizeSpinalCharge(config) {
     : [];
   return Object.freeze({
     chargeSeconds: Math.max(0.05, toNumber(config.chargeSeconds, 10)),
-    chargeHoldSeconds: Math.max(0, toNumber(config.chargeHoldSeconds, 1.5)),
+    chargeHoldSeconds: Math.max(0, toNumber(config.chargeHoldSeconds, 2)),
     chargeDecayMultiplier: Math.max(0, toNumber(config.chargeDecayMultiplier, 1.5)),
     committedAimStartProgress: clamp01(toNumber(config.committedAimStartProgress, 0.5)),
     committedAimTraverseFloor: clamp01(toNumber(config.committedAimTraverseFloor, 0.05)),
-    hullTurnPenaltyStartProgress: clamp01(toNumber(config.hullTurnPenaltyStartProgress, 0.8)),
-    hullTurnPenaltyMultiplier: clamp01(toNumber(config.hullTurnPenaltyMultiplier, 0.5)),
     penetrationProfile: Object.freeze(profile.length ? profile : [1])
   });
 }

@@ -1607,17 +1607,15 @@
         "hullDamageMultiplier": 1.5,
         "spinalCharge": {
           "chargeSeconds": 8,
-          "chargeHoldSeconds": 1.5,
+          "chargeHoldSeconds": 2,
           "chargeDecayMultiplier": 1.6,
           "committedAimStartProgress": 0.5,
           "committedAimTraverseFloor": 0.06,
-          "hullTurnPenaltyStartProgress": 0.8,
-          "hullTurnPenaltyMultiplier": 0.45,
           "penetrationProfile": [1, 0.7, 0.45, 0.25]
         }
       },
       "rotatable": true,
-      "description": "Capital-scale spinal kinetic weapon limited to one per ship. Charges visibly before firing a devastating penetrating shot, while gradually restricting weapon traverse and hull turning.",
+      "description": "Capital-scale spinal kinetic weapon limited to one per ship. Charges visibly before firing a devastating penetrating shot, progressively restricting only its own weapon traverse while leaving hull turning unaffected.",
       "footprint": {
         "width": 3,
         "height": 6

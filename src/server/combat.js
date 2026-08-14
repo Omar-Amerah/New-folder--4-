@@ -313,8 +313,7 @@ const {
   spinalChargeProgress,
   decaySpinalCharge,
   clearSpinalCharge,
-  spinalTraverseScale,
-  spinalHullTurnScale
+  spinalTraverseScale
 } = require("./combat/spinal");
 
 function updateShipWeapons(room, ship, ships, dt, now) {
@@ -326,7 +325,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     if (ship.weaponComponentTargetIds) ship.weaponComponentTargetIds.fill(null);
     if (ship.weaponCharge) ship.weaponCharge.fill(0);
     if (ship.weaponChargeIdle) ship.weaponChargeIdle.fill(0);
-    ship.spinalTurnPenalty = 1;
     return;
   }
 
@@ -429,12 +427,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     ship.weaponChargeIdle = new Array(ship.design ? ship.design.length : 0).fill(0);
 
   }
-
-  // Rebuilt from scratch each tick by the charging weapons themselves, so a
-  // destroyed, unpowered or discharged mount stops penalising the hull.
-  let spinalTurnPenalty = 1;
-
-
 
   // Per-tick map of how much damage has already been committed to each fragile
   // target by point-defense weapons on this ship. It resets every tick so
@@ -551,11 +543,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
     const spinalProgress = spinalConfig ? decaySpinalCharge(ship, i, spinalConfig, dt) : 0;
     let spinalActivityHeatApplied = false;
-
-    if (spinalConfig && spinalProgress > 0) {
-      spinalTurnPenalty = Math.min(spinalTurnPenalty, spinalHullTurnScale(spinalConfig, spinalProgress));
-    }
-
 
 
     const arcRadians = (effectiveWeapon.arc || 360) * Math.PI / 180;
@@ -1540,8 +1527,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
 
         if (progress < 1) {
 
-          spinalTurnPenalty = Math.min(spinalTurnPenalty, spinalHullTurnScale(spinalConfig, progress));
-
           return;
 
         }
@@ -1616,10 +1601,6 @@ function updateShipWeapons(room, ship, ships, dt, now) {
     }
 
   });
-
-  // Published for movementCapability: the hull's turn rate this tick is scaled
-  // by the most committed spinal mount aboard. 1 means no mount is charging.
-  ship.spinalTurnPenalty = spinalTurnPenalty;
 
 }
 
@@ -2511,7 +2492,6 @@ module.exports = {
   isInductionBlockedByHeatShield,
   spinalChargeProgress,
   spinalTraverseScale,
-  spinalHullTurnScale,
 
   applyBeamHullDamage,
 
@@ -2549,8 +2529,6 @@ module.exports = {
   ACCURACY_SPREAD_SCALE
 
 };
-
-
 
 
 
