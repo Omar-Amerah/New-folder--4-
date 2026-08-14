@@ -786,7 +786,6 @@ function weaponDetailRows(type, stat) {
     const charge = weapon.spinalCharge;
     rows.push(statRow("weapon.spinalHold", "Charge Retention", `${Number(charge.chargeHoldSeconds) || 0}s after losing the target, then bleeds away`));
     rows.push(statRow("weapon.spinalCommit", "Committed Aim", `Traverse falls to ${Math.round((Number(charge.committedAimTraverseFloor) || 0) * 100)}% past ${Math.round((Number(charge.committedAimStartProgress) || 0) * 100)}% charge`));
-    rows.push(statRow("weapon.spinalHull", "Hull Commitment", `Ship turns at ${Math.round((Number(charge.hullTurnPenaltyMultiplier) || 1) * 100)}% past ${Math.round((Number(charge.hullTurnPenaltyStartProgress) || 0) * 100)}% charge`));
     if (Array.isArray(charge.penetrationProfile) && charge.penetrationProfile.length) {
       rows.push(statRow("weapon.spinalPenetration", "Penetration", charge.penetrationProfile.map((share) => `${Math.round(share * 100)}%`).join(" → ")));
     }

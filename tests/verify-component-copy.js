@@ -29,7 +29,7 @@ const CANONICAL_DESCRIPTIONS = Object.freeze({
   plasmaCannon: "Fires a slow plasma projectile that deals direct damage and injects substantial Heat into the component it strikes. Powerful against thermal-sensitive systems, but easier to dodge at long range.",
   fragmentationCannon: "Impact shell that combines a modest direct hit with an area fragmentation burst. Effective against exposed components and clustered light ships, but weak against shields.",
   scatterCannon: "Short-range spread weapon that fires six low-damage pellets per shot. Strong against lightly protected hull, but flat armour reduction applies separately to every pellet.",
-  spinalAccelerator: "Capital-scale spinal kinetic weapon limited to one per ship. Charges visibly before firing a devastating penetrating shot, while gradually restricting weapon traverse and hull turning.",
+  spinalAccelerator: "Capital-scale spinal kinetic weapon limited to one per ship. Charges visibly before firing a devastating penetrating shot, progressively restricting only its own weapon traverse while leaving hull turning unaffected.",
   swarmMissile: "Rapid guided-missile pod that fires frequent lightweight missiles with strong tracking. Pressures point defence through sustained volume rather than heavy individual hits.",
   torpedo: "Heavy long-range missile with poor tracking and very high hull damage. Slow and vulnerable to interception, but dangerous against large or sluggish ships.",
   heatPipe: "Rapidly transfers Heat between components on the same coolant network. It provides no cooling and stores almost no Heat. Pipes connect automatically to orthogonal neighbours and need no rotation.",

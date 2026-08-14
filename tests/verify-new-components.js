@@ -17,9 +17,10 @@ const { updateBullets } = require("../src/server/projectiles");
 const {
   updateShipWeapons,
   isInductionBlockedByHeatShield,
-  spinalTraverseScale,
-  spinalHullTurnScale
+  spinalTraverseScale
 } = require("../src/server/combat");
+const { decaySpinalCharge } = require("../src/server/combat/spinal");
+const { heatAdjustedMovementStats } = require("../src/server/movementCapability");
 const HeatRules = require("../public/src/shared/heatRules");
 const TurretRules = require("../public/src/shared/turretRules");
 
@@ -394,10 +395,26 @@ function ok(message) {
   assert(spinalTraverseScale(config, 0.9) < 0.5, "traverse collapses in the late charge");
   assert(Math.abs(spinalTraverseScale(config, 1) - config.committedAimTraverseFloor) < 1e-9,
     "and bottoms out at the configured floor");
-  assert.strictEqual(spinalHullTurnScale(config, 0.5), 1, "the hull is unaffected until the last stage");
-  assert.strictEqual(spinalHullTurnScale(config, 1), config.hullTurnPenaltyMultiplier,
-    "and is committed at full charge");
-  ok("Spinal aim commitment ramps exactly as configured");
+  ok("Spinal mount traverse commitment ramps exactly as configured");
+}
+
+// Charge changes only mount traverse. It never changes the live movement
+// envelope produced by an otherwise identical hull.
+{
+  const ship = makeShip("turn-rate", "p1", 0, 0, [
+    { type: "core", x: 7, y: 10, rotation: 0 },
+    { type: "spinalAccelerator", x: 6, y: 2, rotation: 0 },
+    { type: "gyroscope", x: 5, y: 10, rotation: 0 }
+  ]);
+  const baseStats = { mass: 300, thrust: 0, powerGeneration: 100, powerUse: 30 };
+  const chargeSeconds = PARTS.spinalAccelerator.weapon.spinalCharge.chargeSeconds;
+  const rates = [0, 0.5, 0.8, 0.99].map((progress) => {
+    ship.weaponCharge = [0, progress * chargeSeconds, 0];
+    return heatAdjustedMovementStats(ship, baseStats).turnRate;
+  });
+  assert(rates[0] > 0, "fixture has real hull turn authority");
+  rates.forEach((rate) => assert.strictEqual(rate, rates[0]));
+  ok("Spinal charge leaves hull turn rate unchanged at 0%, 50%, 80% and near-full charge");
 }
 
 {
@@ -420,26 +437,25 @@ function ok(message) {
   let now = 1000;
   let fired = false;
   let sawPartialCharge = false;
-  let sawTurnPenalty = false;
   const chargeSeconds = PARTS.spinalAccelerator.weapon.spinalCharge.chargeSeconds;
   for (let step = 0; step < Math.ceil((chargeSeconds + 2) / dt); step += 1) {
     updateShipWeapons(room, attacker, [attacker, target], dt, now);
     now += dt * 1000;
     const progress = attacker.weaponCharge[1] / chargeSeconds;
     if (progress > 0.1 && progress < 0.95) sawPartialCharge = true;
-    if (attacker.spinalTurnPenalty < 1) sawTurnPenalty = true;
     if (room.bullets.length > 0) { fired = true; break; }
   }
 
   assert(sawPartialCharge, "the mount visibly charges instead of firing immediately");
-  assert(sawTurnPenalty, "and commits the hull in its final stage");
   assert(fired, "and eventually launches its lance");
   const lance = room.bullets[0];
   assert.strictEqual(lance.type, "rail");
   assert(Array.isArray(lance.penetrationProfile) && lance.penetrationProfile.length > 1,
     "the launched round carries its penetration profile");
   assert.strictEqual(attacker.weaponCharge[1], 0, "and the accumulator is spent");
-  ok("A Spinal Accelerator charges, commits, fires a penetrating lance and resets");
+  assert.strictEqual(Object.hasOwn(attacker, "spinalTurnPenalty"), false,
+    "charging does not publish a movement-side hull penalty");
+  ok("A Spinal Accelerator charges, commits its mount, fires a penetrating lance and resets");
 }
 
 // A mount that loses its firing solution keeps its charge briefly, then bleeds.
@@ -452,19 +468,79 @@ function ok(message) {
   const attacker = makeShip("spinal2", "p1", 0, 0, design);
   initShipHeat(attacker);
   room.ships.set(attacker.id, attacker);
-  const hold = PARTS.spinalAccelerator.weapon.spinalCharge.chargeHoldSeconds;
+  const config = PARTS.spinalAccelerator.weapon.spinalCharge;
+  const hold = config.chargeHoldSeconds;
+  assert.strictEqual(hold, 2, "the configured retention window is exactly two seconds");
   let now = 1000;
   // No target in the room at all, so every tick is an idle tick. The first tick
   // also allocates the per-slot charge arrays.
   updateShipWeapons(room, attacker, [attacker], 0.001, now);
   attacker.weaponCharge[1] = 5;
   attacker.weaponChargeIdle[1] = 0;
-  updateShipWeapons(room, attacker, [attacker], hold * 0.5, now);
-  assert.strictEqual(attacker.weaponCharge[1], 5, "charge survives a brief loss of the solution");
-  now += hold * 500;
-  updateShipWeapons(room, attacker, [attacker], hold, now);
-  assert(attacker.weaponCharge[1] < 5, "and bleeds away once the hold window passes");
-  ok("Spinal charge is retained through a short target loss and decays after it");
+  updateShipWeapons(room, attacker, [attacker], 1.9, now);
+  assert.strictEqual(attacker.weaponCharge[1], 5, "charge is unchanged through a 1.9 second loss");
+
+  // Reacquisition resets idle time and continues from the retained value.
+  attacker.weaponChargeIdle[1] = 0;
+  attacker.weaponCharge[1] += 0.1;
+  assert.strictEqual(attacker.weaponCharge[1], 5.1, "reacquisition resumes from retained charge");
+
+  // A tick that crosses the boundary decays only its post-grace portion.
+  attacker.weaponCharge[1] = 5;
+  attacker.weaponChargeIdle[1] = 1.9;
+  decaySpinalCharge(attacker, 1, config, 0.2);
+  const expected = 5 - 0.1 * config.chargeDecayMultiplier;
+  assert(Math.abs(attacker.weaponCharge[1] - expected) < 1e-9,
+    "decay starts after two seconds and uses the configured decay multiplier");
+  ok("Spinal charge retains for two seconds, resumes on reacquisition, then decays at the existing rate");
+}
+
+// Regression for an orbit-style target. The target's bearing advances quickly
+// enough that the former late-charge 45% hull scale could not keep up, while
+// this hull's real turn authority can. The mount must therefore finish its
+// eight-second charge rather than repeatedly losing and reacquiring the arc.
+{
+  const room = makeRoom();
+  const design = [
+    { type: "core", x: 7, y: 10, rotation: 0 },
+    { type: "spinalAccelerator", x: 6, y: 2, rotation: 0 },
+    { type: "gyroscope", x: 5, y: 10, rotation: 0 },
+    { type: "gyroscope", x: 9, y: 10, rotation: 0 }
+  ];
+  const attacker = makeShip("tracking-spinal", "p1", 0, 0, design);
+  const target = makeShip("orbiting-target", "p2", 900, 0, [
+    { type: "core", x: 7, y: 7, rotation: 0 }
+  ]);
+  initShipHeat(attacker);
+  initShipHeat(target);
+  room.ships.set(attacker.id, attacker);
+  room.ships.set(target.id, target);
+
+  const baseStats = { mass: 300, thrust: 0, powerGeneration: 100, powerUse: 30 };
+  const normalTurnRate = heatAdjustedMovementStats(attacker, baseStats).turnRate;
+  assert(normalTurnRate > 0, "tracking fixture has real turn authority");
+  const targetAngularRate = normalTurnRate * 0.75;
+  const dt = 0.05;
+  let bearing = 0;
+  let now = 1000;
+  let minimumObservedTurnRate = Infinity;
+  const maxSteps = Math.ceil(10 / dt);
+  for (let step = 0; step < maxSteps && room.bullets.length === 0; step += 1) {
+    bearing += targetAngularRate * dt;
+    target.x = Math.cos(bearing) * 900;
+    target.y = Math.sin(bearing) * 900;
+    updateShipWeapons(room, attacker, [attacker, target], dt, now);
+    const effectiveTurnRate = heatAdjustedMovementStats(attacker, baseStats).turnRate;
+    minimumObservedTurnRate = Math.min(minimumObservedTurnRate, effectiveTurnRate);
+    const error = Math.atan2(Math.sin(bearing - attacker.angle), Math.cos(bearing - attacker.angle));
+    attacker.angle += Math.sign(error) * Math.min(Math.abs(error), effectiveTurnRate * dt);
+    now += dt * 1000;
+  }
+
+  assert.strictEqual(minimumObservedTurnRate, normalTurnRate,
+    "hull tracks at its normal rate throughout the rising charge");
+  assert(room.bullets.length > 0, "the Spinal reaches full charge and fires at the orbiting target");
+  ok("Fast-turn Spinal tracks an orbit-style target at full hull authority and fires");
 }
 
 console.log(`\nNew component verification passed (${passed} checks)`);

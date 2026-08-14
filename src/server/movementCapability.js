@@ -96,16 +96,6 @@ function heatAdjustedMovementStats(ship, baseStats) {
     movement.turnRateLeft *= turnMultiplier;
     movement.turnRateRight *= turnMultiplier;
   }
-  // A spinal mount in its final charge stage physically commits the hull: the
-  // whole ship becomes part of the aim, so it turns sluggishly until the shot
-  // goes. combat.js sets the penalty each tick and clears it the moment the
-  // charge is spent or lost, so a ship that is not charging is never affected.
-  const spinalTurnPenalty = Number(ship?.spinalTurnPenalty);
-  if (Number.isFinite(spinalTurnPenalty) && spinalTurnPenalty > 0 && spinalTurnPenalty < 1) {
-    movement.turnRate *= spinalTurnPenalty;
-    movement.turnRateLeft *= spinalTurnPenalty;
-    movement.turnRateRight *= spinalTurnPenalty;
-  }
   return { ...baseStats, ...movement };
 }
 

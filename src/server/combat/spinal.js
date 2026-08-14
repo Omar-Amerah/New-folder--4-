@@ -19,11 +19,13 @@ function spinalChargeProgress(ship, index, config) {
 // no target, blocked line of fire) bleeds the charge without each one having to
 // remember to.
 function decaySpinalCharge(ship, index, config, dt) {
-  const idle = (ship.weaponChargeIdle[index] || 0) + dt;
+  const previousIdle = ship.weaponChargeIdle[index] || 0;
+  const idle = previousIdle + dt;
   ship.weaponChargeIdle[index] = idle;
   const hold = Math.max(0, finiteOr(config.chargeHoldSeconds, 0));
   if (idle > hold && (ship.weaponCharge[index] || 0) > 0) {
-    ship.weaponCharge[index] = Math.max(0, ship.weaponCharge[index] - dt * Math.max(0, finiteOr(config.chargeDecayMultiplier, 1)));
+    const decaySeconds = Math.max(0, idle - hold) - Math.max(0, previousIdle - hold);
+    ship.weaponCharge[index] = Math.max(0, ship.weaponCharge[index] - decaySeconds * Math.max(0, finiteOr(config.chargeDecayMultiplier, 1)));
   }
   return spinalChargeProgress(ship, index, config);
 }
@@ -44,18 +46,10 @@ function spinalTraverseScale(config, progress) {
   return 1 + (floor - 1) * t;
 }
 
-// In the final stage the hull itself is part of the aim and turns sluggishly.
-function spinalHullTurnScale(config, progress) {
-  const start = clampNumber(finiteOr(config.hullTurnPenaltyStartProgress, 0.8), 0, 1);
-  if (progress < start) return 1;
-  return clampNumber(finiteOr(config.hullTurnPenaltyMultiplier, 1), 0.05, 1);
-}
-
 module.exports = {
   finiteOr,
   spinalChargeProgress,
   decaySpinalCharge,
   clearSpinalCharge,
-  spinalTraverseScale,
-  spinalHullTurnScale
+  spinalTraverseScale
 };

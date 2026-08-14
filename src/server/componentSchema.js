@@ -45,8 +45,7 @@ const SPINAL_CHARGE_WEAPON_FAMILIES = new Set(["railgun"]);
 const EMP_WEAPON_FAMILIES = new Set(["emp"]);
 const SPINAL_CHARGE_NUMERIC_FIELDS = [
   "chargeSeconds", "chargeHoldSeconds", "chargeDecayMultiplier",
-  "committedAimStartProgress", "committedAimTraverseFloor",
-  "hullTurnPenaltyStartProgress", "hullTurnPenaltyMultiplier"
+  "committedAimStartProgress", "committedAimTraverseFloor"
 ];
 
 function isFiniteNumber(value) {
@@ -222,7 +221,7 @@ function validateSpinalCharge(charge, family, path, errors) {
   if (!(Number.isFinite(charge.chargeSeconds) && charge.chargeSeconds > 0)) {
     errors.push(`${chargePath}.chargeSeconds must be a finite number greater than zero.`);
   }
-  for (const field of ["committedAimStartProgress", "committedAimTraverseFloor", "hullTurnPenaltyStartProgress", "hullTurnPenaltyMultiplier"]) {
+  for (const field of ["committedAimStartProgress", "committedAimTraverseFloor"]) {
     if (charge[field] !== undefined && isFiniteNonNegative(charge[field]) && charge[field] > 1) {
       errors.push(`${chargePath}.${field} must be from 0 to 1.`);
     }
