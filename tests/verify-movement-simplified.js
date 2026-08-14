@@ -17,7 +17,11 @@ const { computeStats } = require("../src/server/shipStats");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
-const { computeDesignCollisionRadius, findShipHullOverlap } = require("../src/server/componentGeometry");
+const {
+  computeDesignCollisionRadius,
+  findShipHullOverlap,
+  shipHullCircles
+} = require("../src/server/componentGeometry");
 const { getMaxEffectiveWeaponRange } = require("../src/server/componentData");
 
 const DT = 1 / 30;
@@ -115,6 +119,16 @@ function tick(room, ships, count, start = 0, onTick = null) {
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function hullClearance(a, b) {
+  let clearance = Infinity;
+  for (const ca of shipHullCircles(a)) {
+    for (const cb of shipHullCircles(b)) {
+      clearance = Math.min(clearance, Math.hypot(cb.x - ca.x, cb.y - ca.y) - ca.radius - cb.radius);
+    }
+  }
+  return clearance;
 }
 
 function assertNoLegacyMovementState() {
@@ -323,6 +337,73 @@ function run() {
     assert(ships.every((ship) => distance(ship, target)
       <= physicalCollisionRadius(ship) + physicalCollisionRadius(target) + 18),
     "Charge ships should approach from their current sides and reach contact");
+  }
+
+  // Charge contact is measured against the live directional hull, not the one
+  // bounding circle dictated by this target's long, wide nose. Exercise every
+  // cardinal and diagonal approach so using that circle cannot pass unnoticed.
+  {
+    const asymmetricTarget = [
+      { x: 7, y: 7, type: "core" },
+      { x: 7, y: 6, type: "frame" },
+      { x: 7, y: 5, type: "frame" },
+      { x: 7, y: 4, type: "frame" },
+      { x: 7, y: 3, type: "frame" },
+      { x: 4, y: 2, type: "frame" },
+      { x: 5, y: 2, type: "frame" },
+      { x: 6, y: 2, type: "frame" },
+      { x: 7, y: 2, type: "frame" },
+      { x: 8, y: 2, type: "frame" },
+      { x: 9, y: 2, type: "frame" },
+      { x: 10, y: 2, type: "frame" },
+      { x: 7, y: 8, type: "frame" },
+      { x: 7, y: 9, type: "frame" }
+    ];
+    const directions = [
+      [1, 0], [Math.SQRT1_2, Math.SQRT1_2], [0, 1], [-Math.SQRT1_2, Math.SQRT1_2],
+      [-1, 0], [-Math.SQRT1_2, -Math.SQRT1_2], [0, -1], [Math.SQRT1_2, -Math.SQRT1_2]
+    ];
+    for (let index = 0; index < directions.length; index += 1) {
+      const [dx, dy] = directions[index];
+      const target = makeShip({
+        id: `directional-target-${index}`,
+        x: 2100,
+        y: 1500,
+        ownerId: "p2",
+        team: "B",
+        design: asymmetricTarget,
+        combatStyle: "hold"
+      });
+      const charger = makeShip({
+        id: `directional-charge-${index}`,
+        x: target.x + dx * 900,
+        y: target.y + dy * 900,
+        design: BASE,
+        combatStyle: "charge"
+      });
+      const room = makeRoom([charger], [], target);
+      commandShips(room, player(room), target.x, target.y, {
+        shipIds: [charger.id],
+        targetId: target.id
+      });
+      let overlapSeen = false;
+      let correctionSeen = false;
+      let pushSeen = false;
+      tick(room, [charger], 1200, 0, () => {
+        overlapSeen ||= Boolean(findShipHullOverlap(charger, target));
+        correctionSeen ||= Math.hypot(charger._collisionCorrectionX || 0, charger._collisionCorrectionY || 0) > 1e-6;
+        pushSeen ||= Math.hypot(target.vx || 0, target.vy || 0) > 1e-6;
+      });
+      const clearance = hullClearance(charger, target);
+      assert(charger.movement.chargeEngaged, `approach ${index}: Charge should settle`);
+      assert(clearance >= 6 && clearance <= 10,
+        `approach ${index}: live hull clearance should be about 8px, got ${clearance.toFixed(2)}px`);
+      assert(!overlapSeen, `approach ${index}: hulls must never overlap`);
+      assert(!correctionSeen, `approach ${index}: collision correction must not stop Charge`);
+      assert(!pushSeen, `approach ${index}: Charge must not add push velocity to the Hold target`);
+      assert(Math.hypot(target.x - 2100, target.y - 1500) <= 1e-6,
+        `approach ${index}: the Hold target centre must remain fixed`);
+    }
   }
 
   assertNoLegacyMovementState();
