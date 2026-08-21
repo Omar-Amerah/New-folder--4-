@@ -9,8 +9,9 @@ const {
   initializeDroneBays,
   bayPowerRequest,
   bayWorldPose,
+  buildBaySnapshots,
   updateDroneBays,
-  _test: { advanceBayProduction }
+  _test: { advanceBayProduction, spawnDrone }
 } = require("../src/server/drones");
 
 function makeRoomAndShip(type = "fighter") {
@@ -57,6 +58,14 @@ for (const [power, label] of [[0.5, "50%"], [0.05, "5%"], [0.01, "1%"]]) {
   assert.equal(positive.room.drones.size, 1, `${label} Bay Power still permits launch`);
 }
 
+const destroyedLaunch = makeRoomAndShip();
+destroyedLaunch.ship.componentHp[0] = 0;
+assert.equal(
+  spawnDrone(destroyedLaunch.room, destroyedLaunch.ship, destroyedLaunch.bay, destroyedLaunch.bay.slots[0], 0),
+  null,
+  "the authoritative spawn path rejects a destroyed Drone Bay"
+);
+
 const spawnCase = makeRoomAndShip();
 spawnCase.room.map.safeZones = [{
   id: "spawn-blue",
@@ -97,6 +106,41 @@ updateDroneBays(fuelCase.room, [fuelCase.ship], 0.01, 2200);
 assert.equal(fueledDrone.state, "launching", "the drone relaunches after two seconds of refueling");
 assert.equal(fueledDrone.fuelRemainingSeconds, CONFIG.types.fighter.fuelSeconds, "refueling restores the selected drone type's full fuel supply");
 
+const destroyedDock = makeRoomAndShip();
+updateDroneBays(destroyedDock.room, [destroyedDock.ship], 0.05, 0);
+const orphanedDrone = [...destroyedDock.room.drones.values()][0];
+const destroyedPose = bayWorldPose(destroyedDock.ship, destroyedDock.bay);
+destroyedDock.bay.nextLaunchAt = Infinity;
+orphanedDrone.state = "returning";
+orphanedDrone.returnReason = "fuel";
+orphanedDrone.x = destroyedPose.x;
+orphanedDrone.y = destroyedPose.y;
+orphanedDrone.vx = 0;
+orphanedDrone.vy = 0;
+destroyedDock.bay.slots[0].state = "returning";
+destroyedDock.ship.componentHp[0] = 0;
+const orphanedAt = 1000;
+updateDroneBays(destroyedDock.room, [destroyedDock.ship], 0.01, orphanedAt);
+assert.equal(orphanedDrone.state, "orphaned", "destroying a Drone Bay orphans its deployed drones");
+assert.equal(destroyedDock.bay.slots[0].state, "orphaned", "the destroyed Bay no longer presents the drone as dockable");
+assert.equal(orphanedDrone.refuelStartedAt, null, "a returning drone touching a destroyed Bay cannot dock");
+assert.equal(destroyedDock.room.drones.has(orphanedDrone.id), true, "the configured orphan lifetime is not skipped");
+updateDroneBays(
+  destroyedDock.room,
+  [destroyedDock.ship],
+  0.01,
+  orphanedAt + CONFIG.orphanLifetimeSeconds * 1000 - 1
+);
+assert.equal(destroyedDock.room.drones.has(orphanedDrone.id), true, "an orphan survives until the configured lifetime elapses");
+updateDroneBays(
+  destroyedDock.room,
+  [destroyedDock.ship],
+  0.01,
+  orphanedAt + CONFIG.orphanLifetimeSeconds * 1000
+);
+assert.equal(destroyedDock.room.drones.has(orphanedDrone.id), false, "a destroyed Bay's orphan dies at the configured lifetime");
+assert.equal(destroyedDock.bay.slots[0].state, "destroyed", "the expired orphan leaves an empty replacement slot");
+
 const queue = makeRoomAndShip("fighter").bay;
 queue.slots[0] = { slot: 0, state: "destroyed", droneId: null, productionProgress: 0, pauseReason: null };
 queue.slots[1] = { slot: 1, state: "destroyed", droneId: null, productionProgress: 0, pauseReason: null };
@@ -123,11 +167,17 @@ advanceBayProduction(queue, 9, 1, false);
 assert.equal(queue.slots[0].state, "ready", "production resumes to completion");
 assert.equal(queue.slots[1].state, "destroyed", "second empty slot waits for a later production cycle");
 
-const disabled = makeRoomAndShip().bay;
-disabled.slots[0] = { slot: 0, state: "producing", droneId: null, productionProgress: 0.4, pauseReason: null };
-advanceBayProduction(disabled, 10, 1, false, false);
-assert.equal(disabled.slots[0].productionProgress, 0.4);
-assert.equal(disabled.slots[0].pauseReason, "bay-destroyed");
+const disabled = makeRoomAndShip();
+disabled.bay.slots[0] = { slot: 0, state: "producing", droneId: null, productionProgress: 0.4, pauseReason: null };
+disabled.ship.componentHp[0] = 0;
+updateDroneBays(disabled.room, [disabled.ship], 10, 1000);
+assert.equal(disabled.bay.slots[0].state, "destroyed", "Bay destruction cancels the active production state");
+assert.equal(disabled.bay.slots[0].productionProgress, 0.4, "Bay destruction does not advance production");
+assert.equal(disabled.bay.slots[0].pauseReason, "bay-destroyed");
+const disabledSnapshot = buildBaySnapshots(disabled.ship)[0];
+assert.equal(disabledSnapshot.producingSlot, null, "a destroyed Bay snapshot exposes no production job");
+assert.equal(disabledSnapshot.productionProgress, null, "a destroyed Bay snapshot exposes no production progress bar");
+assert.equal(disabledSnapshot.slots.some((slot) => slot.state === "producing"), false);
 
 const independentA = makeRoomAndShip("fighter").bay;
 const independentB = makeRoomAndShip("repair").bay;

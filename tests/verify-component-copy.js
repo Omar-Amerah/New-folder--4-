@@ -148,6 +148,10 @@ globalThis.HeatRules = require("../public/src/shared/heatRules");
     "unknown components must use only the generic fallback");
   assert.strictEqual(parts.PART_STATS.demolitionCharge.proximityCharge.triggerRadius, 75,
     "demolition trigger metadata must flow from the catalogue into the inspector stats");
+  assert.strictEqual(parts.PART_STATS.proximityDemolitionCharge.cost, 120,
+    "the generated client catalogue must expose the Siege Charge premium cost");
+  assert.strictEqual(parts.PART_DEFS.proximityDemolitionCharge.name, "Siege Charge",
+    "the palette must expose the renamed large charge");
   assert.strictEqual(parts.PART_STATS.droneBay.category, "Command");
   assert.strictEqual(parts.partCategory("droneBay"), "Command");
   for (const id of ["core", "auxGenerator", "reactor", "nuclearReactor"]) {

@@ -281,6 +281,7 @@ function updateProductionBars(env, now, bounds) {
   for (const ship of state.snapshot?.ships || []) {
     if (!selected.has(ship.id) && state.camera.zoom < 1.05) continue;
     for (const bay of ship.droneBays || []) {
+      if (bay.operational === false) continue;
       const slot = bay.slots?.find((candidate) => candidate.state === "producing");
       if (!slot || (bounds && !isCircleVisible(bay.x, bay.y, 24, bounds))) continue;
       // "low-power" means the bay is still building, just slowly, so it reads as

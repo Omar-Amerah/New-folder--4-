@@ -179,6 +179,9 @@ function holdRangeOf(ship) {
 }
 
 function run() {
+  assert.equal(HOLD_RANGE_RATIO, 0.8,
+    "Hold must stop at 80% of its authoritative maximum weapon range");
+
   // --- there is exactly one formation --------------------------------------
   {
     assert.deepEqual([...FORMATION_TYPES], ["clump"], "clump is the only formation");

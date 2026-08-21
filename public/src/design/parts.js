@@ -134,7 +134,7 @@ export const PART_DEFS = {
   engineeringCommandCentre: { name: "Engineering Command Centre", color: "#93c5fd", glyph: "radial-gradient(circle, #eff6ff 0 18%, #3b82f6 28% 55%, #172554 60%)" },
   propulsionCommandRelay: { name: "Propulsion Command Relay", color: "#67e8f9", glyph: "radial-gradient(circle, #ecfeff 0 18%, #06b6d4 28% 55%, #164e63 60%)" },
   electronicWarfareCommandCentre: { name: "Electronic Warfare Command Centre", color: "#d8b4fe", glyph: "radial-gradient(circle, #faf5ff 0 18%, #a855f7 28% 55%, #3b0764 60%)" },
-  proximityDemolitionCharge: { name: "Proximity Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" },
+  proximityDemolitionCharge: { name: "Siege Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" },
   demolitionCharge: { name: "Demolition Charge", color: "#fb7185", glyph: "repeating-linear-gradient(45deg, #facc15 0 8%, #1a1a1a 8% 16%)" },
 };
 
@@ -272,7 +272,11 @@ export function makeWeapon(type, stats) {
   const spinalCharge = stats.spinalCharge && typeof stats.spinalCharge === "object" && !Array.isArray(stats.spinalCharge)
     ? { ...stats.spinalCharge }
     : undefined;
-  const presentation = WeaponPresentationRules.weaponCyclePresentation({ damage, fireRate, spinalCharge });
+  const authoredPelletCount = Math.round(Number(stats.pelletCount));
+  const pelletCount = Number.isFinite(authoredPelletCount) && authoredPelletCount >= 2
+    ? authoredPelletCount
+    : undefined;
+  const presentation = WeaponPresentationRules.weaponCyclePresentation({ damage, fireRate, pelletCount, spinalCharge });
   
   let tracking = stats.tracking || 0;
   // aimSpeed is an optional override of the shared TurretRules traverse rate.
@@ -327,7 +331,7 @@ export function makeWeapon(type, stats) {
     beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
     // Multi-pellet fire and the spinal charge cycle are preview-only here: the
     // server owns the firing simulation, the inspector only reports them.
-    pelletCount: Number.isFinite(Number(stats.pelletCount)) && Number(stats.pelletCount) >= 2 ? Math.round(Number(stats.pelletCount)) : undefined,
+    pelletCount,
     pelletSpreadDegrees: stats.pelletSpreadDegrees !== undefined ? Number(stats.pelletSpreadDegrees) : undefined,
     blastDamage: stats.blastDamage !== undefined ? Number(stats.blastDamage) : undefined,
     blastRadius: stats.blastRadius !== undefined ? Number(stats.blastRadius) : undefined,

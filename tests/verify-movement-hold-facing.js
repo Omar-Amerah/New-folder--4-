@@ -241,7 +241,7 @@ function run() {
   // without waiting for a formation or firing-rank transition.
   {
     const attacker = makeShip(2000, 2000, [...BASE, BLASTER], "p1");
-    const target = makeShip(2450, 2000, UNARMED, "p2");
+    const target = makeShip(2440, 2000, UNARMED, "p2");
     const room = makeRoom(attacker, target);
     attacker.focusTargetId = target.id;
     attacker.combatTargetId = target.id;

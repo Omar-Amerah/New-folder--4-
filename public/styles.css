@@ -1809,6 +1809,11 @@ h2 {
   border-color: #fbbf24;
   background: conic-gradient(#fbbf24 0 var(--drone-production-progress, 0%), rgba(15, 23, 42, .86) var(--drone-production-progress, 0%) 100%);
 }
+.ship-drone-pip.is-orphaned {
+  border-color: #fbbf24;
+  background: rgba(120, 53, 15, .55);
+  box-shadow: 0 0 5px rgba(251, 191, 36, .4);
+}
 .ship-drone-pip.is-destroyed,
 .ship-drone-pip.is-unavailable {
   border-color: rgba(251, 113, 133, .72);

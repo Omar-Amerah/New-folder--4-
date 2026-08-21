@@ -23,7 +23,8 @@ function makeWeapon(type, stats) {
   const fireRate = Number(stats.fireRate) || 1;
   const damage = Number(stats.damage) || 0;
   const spinalCharge = normalizeSpinalCharge(stats.spinalCharge);
-  const presentation = WeaponPresentationRules.weaponCyclePresentation({ damage, fireRate, spinalCharge });
+  const pelletCount = normalizePelletCount(stats.pelletCount);
+  const presentation = WeaponPresentationRules.weaponCyclePresentation({ damage, fireRate, pelletCount, spinalCharge });
   
   let tracking = stats.tracking || 0;
   // aimSpeed is an optional traverse-rate override. Keep only real finite
@@ -55,9 +56,10 @@ function makeWeapon(type, stats) {
     aimSpeed: aimSpeed !== undefined ? Number(aimSpeed) : undefined,
     arc: Number(stats.arc) || 360,
     dps: presentation.dps,
-    // Combat-facing heuristics retain their historical direct cadence. The
-    // public dps field is presentation-only and includes Spinal charge time.
-    combatDps: damage * fireRate,
+    // Combat-facing heuristics retain their direct firing cadence, but one
+    // multi-pellet trigger pull contributes every independently fired pellet.
+    // The public dps field is presentation-only and includes Spinal charge time.
+    combatDps: presentation.damagePerShot * fireRate,
     missileHp: Number(stats.missileHp) || 0,
     antiMissile: Boolean(stats.antiMissile),
     shipDamageMultiplier: Number(stats.shipDamageMultiplier) || 1,
@@ -85,7 +87,7 @@ function makeWeapon(type, stats) {
     inductionSecondHopFraction: stats.inductionSecondHopFraction !== undefined ? Number(stats.inductionSecondHopFraction) : undefined,
     inductionContactGraceSeconds: stats.inductionContactGraceSeconds !== undefined ? Number(stats.inductionContactGraceSeconds) : undefined,
     beamStyle: typeof stats.beamStyle === "string" ? stats.beamStyle : undefined,
-    pelletCount: normalizePelletCount(stats.pelletCount),
+    pelletCount,
     pelletSpreadDegrees: stats.pelletSpreadDegrees !== undefined ? Number(stats.pelletSpreadDegrees) : undefined,
     shieldDisruptionFraction: stats.shieldDisruptionFraction !== undefined ? Number(stats.shieldDisruptionFraction) : undefined,
     spinalCharge

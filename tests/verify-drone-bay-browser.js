@@ -62,16 +62,17 @@ async function showCombatState(page, {
     }
     const labels = { fighter: "Fighter", defence: "Defence", repair: "Repair" };
     const commandRange = GENERATED_BALANCE.drones.types[type].commandRange;
+    const productionPauseReason = !operational ? "bay-destroyed" : paused ? "insufficient-power" : null;
     const slots = droneStates.map((droneState, index) => ({
       state: droneState,
       droneId: ["active", "launching", "returning"].includes(droneState) ? `${type}-${index}` : null,
       progress: droneState === "producing" ? 0.63 : 1,
-      pauseReason: droneState === "producing" && paused ? "insufficient-power" : null
+      pauseReason: droneState === "producing" ? productionPauseReason : null
     }));
     if (producing && !slots.some((slot) => slot.state === "producing")) {
       slots[replacement ? 2 : 1] = {
         state: "producing", droneId: null, progress: 0.63,
-        pauseReason: paused ? "insufficient-power" : null
+        pauseReason: productionPauseReason
       };
     }
     const bay = {
@@ -80,7 +81,7 @@ async function showCombatState(page, {
       mode, operational, powerFraction, overheated, runtimePowerMw: producing ? 11 : 7,
       producingSlot: producing ? (replacement ? 2 : 1) : null,
       productionProgress: producing ? 0.63 : null,
-      productionPausedReason: paused ? "insufficient-power" : null,
+      productionPausedReason: productionPauseReason,
       launchState: droneStates.includes("launching") ? "launching" : "idle",
       x: 500, y: 400, slots
     };
@@ -365,9 +366,13 @@ async function showCombatState(page, {
     assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused; no power/);
     await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], overheated: true });
     assert.match(await page.locator(".ship-drone-command-state").textContent(), /Launch paused; overheated/);
-    await showCombatState(page, { type: "fighter", droneStates: ["ready", "ready", "ready"], operational: false });
+    await showCombatState(page, { type: "fighter", droneStates: ["active", "producing", "active"], producing: true, operational: false });
+    diagnostics = await page.evaluate(async () => (await import("/src/game/pixi/pixiDrones.js")).droneRenderDiagnostics());
     assert.match(await page.locator(".ship-drone-command-state").textContent(), /Bay offline/);
     assert.equal(await page.locator(".ship-drone-command-button").isDisabled(), true, "offline bays do not offer a command they cannot execute");
+    assert.equal(diagnostics.productionBars, 0, "an offline Bay never draws a map production bar");
+    assert.equal(await page.locator("#shipDroneSummary .ship-drone-production").count(), 0, "an offline Bay never draws a panel production bar");
+    assert.match(await page.locator("#shipDroneSummary").textContent(), /production unavailable: bay offline/);
 
     await showCombatState(page, { type: "defence", droneStates: ["active", "active", "active"] });
     diagnostics = await page.evaluate(async () => (await import("/src/game/pixi/pixiDrones.js")).droneRenderDiagnostics());

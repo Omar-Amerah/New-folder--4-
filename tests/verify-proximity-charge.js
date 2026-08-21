@@ -12,6 +12,12 @@ const { initComponentState, initProximityChargeState, onComponentDestroyed } = r
 const { PARTS } = require("../src/server/components");
 const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 
+assert.equal(PARTS.proximityDemolitionCharge.name, "Siege Charge", "Large charge uses its distinct catalogue name");
+assert.equal(PARTS.proximityDemolitionCharge.cost, 120, "Siege Charge uses its authored premium cost");
+assert.ok(PARTS.proximityDemolitionCharge.cost > PARTS.demolitionCharge.cost, "Siege Charge costs more than Demolition Charge");
+assert.equal(PARTS.demolitionCharge.proximityCharge.splashCentreDamage, 1500, "Small charge uses its reduced splash damage");
+assert.equal(PARTS.demolitionCharge.proximityCharge.directContactHullDamage, 3750, "Small charge derives reduced direct-contact damage");
+
 function makePlayers() {
   return new Map([
     ["blue", { id: "blue", team: "a" }],

@@ -48,8 +48,18 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
   close(normal.reloadSeconds, 0.5, "ordinary reload remains one over fire rate");
   assert.equal(normal.dpsLabel, "DPS");
 
+  const scatterCycle = WeaponPresentationRules.weaponCyclePresentation({ damage: 5, fireRate: 1.1, pelletCount: 6 });
+  close(scatterCycle.damagePerImpact, 5, "Scatter keeps authored damage per pellet");
+  assert.equal(scatterCycle.projectileCount, 6, "Scatter counts every pellet in one firing event");
+  close(scatterCycle.damagePerShot, 30, "Scatter damage per shot includes the full six-pellet volley");
+  close(scatterCycle.dps, 33, "Scatter DPS includes every pellet fired each second");
+
   assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.railgun.weapon), true,
     "ordinary Railguns publish their reload for the rail-light indicator");
+  assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.torpedo.weapon, "torpedo"), true,
+    "Torpedoes publish their reload for the warhead charge animation");
+  assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.missile.weapon, "missile"), false,
+    "other missile-family weapons do not inherit the Torpedo animation");
   assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.blaster.weapon), false,
     "ordinary short-cycle weapons do not pay for staged reload art");
   assert.equal(WeaponPresentationRules.hasReloadTelegraph(PARTS.spinalAccelerator.weapon), false,
@@ -74,6 +84,16 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
     weaponReloadDurations: [railReload * 2]
   });
   assert.deepEqual(reloadSnapshot, [0.5], "the public weaponCharge field carries authoritative Railgun reload progress");
+
+  const torpedoReload = 1 / PARTS.torpedo.weapon.fireRate;
+  const torpedoReloadSnapshot = SnapshotTest.buildWeaponChargeProgress({
+    design: [{ type: "torpedo" }],
+    weaponCharge: [0],
+    weaponCooldowns: [torpedoReload * 0.75],
+    weaponReloadDurations: [torpedoReload]
+  });
+  assert.deepEqual(torpedoReloadSnapshot, [0.25],
+    "the public weaponCharge field carries authoritative Torpedo reload progress");
 
   const spinal = WeaponPresentationRules.weaponCyclePresentation({
     damage: 2040,
@@ -111,10 +131,13 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
 
   close(PARTS.blaster.weapon.dps, PARTS.blaster.weapon.damage * PARTS.blaster.weapon.fireRate, "server Blaster DPS remains ordinary");
   close(PARTS.railgun.weapon.dps, PARTS.railgun.weapon.damage * PARTS.railgun.weapon.fireRate, "server Railgun DPS remains ordinary");
+  close(PARTS.scatterCannon.weapon.dps, 33, "server Scatter Cannon DPS includes all six pellets");
+  close(PARTS.scatterCannon.weapon.combatDps, 33, "server Scatter Cannon combat output includes all six pellets");
   close(PARTS.spinalAccelerator.weapon.dps, 170, "server Spinal weapon record is charge-aware");
   close(PARTS.spinalAccelerator.weapon.combatDps, 510, "server combat-facing cadence remains unchanged");
   close(PART_STATS.blaster.weapon.dps, Number((PART_STATS.blaster.weapon.damage * PART_STATS.blaster.weapon.fireRate).toFixed(1)), "client Blaster DPS remains ordinary");
   close(PART_STATS.railgun.weapon.dps, Number((PART_STATS.railgun.weapon.damage * PART_STATS.railgun.weapon.fireRate).toFixed(1)), "client Railgun DPS remains ordinary");
+  close(PART_STATS.scatterCannon.weapon.dps, 33, "client Scatter Cannon DPS includes all six pellets");
   close(PART_STATS.spinalAccelerator.weapon.dps, 170, "client Spinal weapon record is charge-aware");
 
   const design = [
@@ -131,10 +154,37 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
   assert.equal(serverStats.weaponDpsLabel, "Weapon DPS (ideal charge cycle)");
   assert.equal(clientStats.weaponDpsLabel, "Weapon DPS (ideal charge cycle)");
 
+  const scatterDesign = [
+    { x: 0, y: 0, type: "core" },
+    { x: 2, y: 0, type: "scatterCannon" }
+  ];
+  const serverScatterStats = computeServerStats(scatterDesign);
+  const clientScatterStats = computeClientStats(scatterDesign);
+  close(serverScatterStats.weapons.blaster.dps, 33, "server aggregate counts the full Scatter volley");
+  close(clientScatterStats.weapons.blaster.dps, 33, "client aggregate counts the full Scatter volley");
+  close(serverScatterStats.weaponDps, 33, "server ship DPS includes all Scatter pellets");
+  close(clientScatterStats.weaponDps, 33, "client ship DPS includes all Scatter pellets");
+
   const supported = DataSupportRules.effectiveWeaponProfile(PARTS.spinalAccelerator.weapon, { fireRateBonus: 1 });
   close(supported.reload, 2000, "supported Spinal reload uses effective fire rate");
   close(supported.dps, 204, "supported Spinal cycle DPS uses effective fire rate");
   close(supported.combatDps, 1020, "supported combat-facing cadence remains direct fire-rate based");
+
+  const supportedScatter = DataSupportRules.effectiveWeaponProfile(PARTS.scatterCannon.weapon, { fireRateBonus: 1 });
+  close(supportedScatter.dps, 66, "Data-supported Scatter DPS includes every pellet at the effective fire rate");
+  close(supportedScatter.combatDps, 66, "Data-supported Scatter combat output includes every pellet");
+
+  const scatterModel = Inspector.buildComponentInspectorModel("scatterCannon", PART_STATS.scatterCannon, {
+    name: "Scatter Cannon",
+    description: PART_STATS.scatterCannon.description,
+    category: "Weapons",
+    effectiveCost: "$36"
+  });
+  const scatterHeadline = scatterModel.capability.find((row) => row.id === "weapon.dps");
+  const scatterShot = scatterModel.sections.flatMap((section) => section.rows)
+    .find((row) => row.id === "weapon.pelletDamage");
+  assert.equal(scatterHeadline.value, "33.0", "component inspector reports full-volley Scatter DPS");
+  assert.equal(scatterShot.value, "30 dmg across 6 separate impacts", "component inspector retains per-shot pellet delivery detail");
 
   const model = Inspector.buildComponentInspectorModel("spinalAccelerator", PART_STATS.spinalAccelerator, {
     name: "Spinal Accelerator",
@@ -171,7 +221,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
       `${relative} uses the shared weapon presentation authority`);
   }
 
-  console.log("PASS: weapon presentation uses ordinary DPS for normal weapons and charge-aware ideal cycles for Spinal Accelerator");
+  console.log("PASS: weapon presentation counts multi-pellet volleys and uses charge-aware ideal cycles for Spinal Accelerator");
 })().catch((error) => {
   console.error(error.stack || error);
   process.exitCode = 1;

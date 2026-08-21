@@ -85,7 +85,7 @@
     const presentation = weaponPresentationRules.weaponCyclePresentation(result);
     result.reload = presentation.reloadSeconds * 1000;
     result.dps = presentation.dps;
-    result.combatDps = Math.max(0, finite(result.damage)) * Math.max(0, fireRate);
+    result.combatDps = presentation.damagePerShot * Math.max(0, fireRate);
     return result;
   }
   function normalizeDataLinks(design, dataLinks, catalogue) {

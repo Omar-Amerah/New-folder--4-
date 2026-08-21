@@ -659,9 +659,9 @@ function updatePixiTurrets(env, view, ship, design) {
 }
 
 // Swaps a charging mount's turret texture as its charge crosses a stage
-// boundary, so an opponent can read "that gun is almost charged" (spinal) or
-// "that EMP is about to pulse" or "that Railgun is nearly reloaded" off the
-// hull itself. The
+// boundary, so an opponent can read "that gun is almost charged" (spinal),
+// "that EMP is about to pulse", "that Railgun is nearly reloaded", or "that
+// Torpedo is nearly ready" off the hull itself. The
 // server owns the progress value; this only decides which cached stage texture
 // is showing. A destroyed mount drops to stage 0, which is the dead, unlit art.
 // Textures are leased, so the previous stage is released only after the new one

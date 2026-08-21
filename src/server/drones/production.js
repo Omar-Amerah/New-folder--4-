@@ -189,6 +189,10 @@ function advanceBayProduction(bay, dt, power, overheated, operational = true) {
   }
   if (!producing) return null;
   if (!operational) {
+    // A destroyed Bay has no active production job. Keep the accumulated
+    // progress on the empty slot so a later component repair can resume it,
+    // but expose the slot as destroyed while the Bay is offline.
+    producing.state = "destroyed";
     producing.pauseReason = "bay-destroyed";
     return producing;
   }

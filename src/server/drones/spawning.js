@@ -10,6 +10,7 @@ const { bayWorldPose } = require("./production");
 const { ownerActiveCount, shipActiveCount, adjustDroneCount } = require("./limits");
 
 function spawnDrone(room, ship, bay, slot, now) {
+  if (!ship || ship.alive === false || !bay || (ship.componentHp?.[bay.componentIndex] ?? 0) <= 0) return null;
   if (shipActiveCount(room, ship.id) >= CONFIG.maxActivePerShip) return null;
   if (ownerActiveCount(room, ship.ownerId) >= CONFIG.maxActivePerPlayer) return null;
   const typeConfig = CONFIG.types[bay.droneType];

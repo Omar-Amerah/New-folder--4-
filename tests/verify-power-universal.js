@@ -40,10 +40,10 @@ function makeShip(design) {
 {
   const design = [{ type: "core" }, { type: "beamEmitter" }];
   const flow = UniversalPower.calculateUniversalPower(design, PARTS);
-  close(flow.summary.availableGenerationMw, 4, "Core supply");
+  close(flow.summary.availableGenerationMw, 2, "Core supply");
   close(flow.summary.demandMw, 7.5, "Beam demand");
-  close(flow.summary.powerRatio, 4 / 7.5, "shortage ratio");
-  close(flow.byComponentIndex[1].allocatedMw, 4, "shared consumer allocation");
+  close(flow.summary.powerRatio, 2 / 7.5, "shortage ratio");
+  close(flow.byComponentIndex[1].allocatedMw, 2, "shared consumer allocation");
   assert.strictEqual(flow.byComponentIndex[1].state, "underpowered");
 }
 
@@ -52,12 +52,12 @@ function makeShip(design) {
 {
   const design = [{ type: "core" }, { type: "battery" }, { type: "beamEmitter" }];
   const flow = UniversalPower.calculateUniversalPower(design, PARTS);
-  close(flow.summary.generatorOutputMw, 4, "generator output");
-  close(flow.summary.storageDischargeMw, 3.5, "battery discharge supply");
-  close(flow.summary.availableGenerationMw, 7.5, "battery-backed supply");
-  close(flow.summary.powerRatio, 1, "battery-backed ratio");
-  close(flow.summary.usedGenerationMw, 7.5, "battery plus generator delivered supply");
-  assert.strictEqual(flow.byComponentIndex[2].state, "powered");
+  close(flow.summary.generatorOutputMw, 2, "generator output");
+  close(flow.summary.storageDischargeMw, 4, "battery discharge supply");
+  close(flow.summary.availableGenerationMw, 6, "battery-backed supply");
+  close(flow.summary.powerRatio, 6 / 7.5, "battery-backed ratio");
+  close(flow.summary.usedGenerationMw, 6, "battery plus generator delivered supply");
+  assert.strictEqual(flow.byComponentIndex[2].state, "underpowered");
 
   const advanced = UniversalPower.calculateUniversalPower(design, PARTS, {
     componentStorageChargeByIndex: [0, 80, 0],
@@ -65,7 +65,7 @@ function makeShip(design) {
     availabilitySeconds: 1,
     advanceStorage: true
   });
-  close(advanced.storageCharges[1], 80 - 3.5 / PARTS.battery.dischargeEfficiency, "battery MJ discharge");
+  close(advanced.storageCharges[1], 80 - 4 / PARTS.battery.dischargeEfficiency, "battery MJ discharge");
 }
 
 // Storage order is not a priority system. Identical storage units split both
@@ -136,8 +136,8 @@ function makeShip(design) {
 {
   const design = [{ type: "core" }, { type: "beamEmitter" }];
   const stats = computeStats(design);
-  close(stats.availablePower, 4, "server static available Power");
-  close(stats.powerRatio, 0.53, "server static Power ratio");
+  close(stats.availablePower, 2, "server static available Power");
+  close(stats.powerRatio, 0.27, "server static Power ratio");
   assert(stats.powerDebuff > 0, "server movement is penalized by a real shortage");
 }
 
@@ -147,7 +147,7 @@ function makeShip(design) {
   const before = ship.componentStorageCharge[1];
   componentPower.updateShipPower(ship, 1);
   assert(ship.componentStorageCharge[1] < before, "runtime battery discharges over time");
-  assert.strictEqual(ship.powerAnalysis.summary.powerRatio, 1, "battery keeps the active consumer powered");
+  close(ship.powerAnalysis.summary.powerRatio, 6 / 7.5, "battery-backed runtime ratio");
 }
 
 {
@@ -155,12 +155,12 @@ function makeShip(design) {
   const hot = makeShip(design);
   hot.componentHeatState[1] = HeatRules.STATE.OVERHEATED;
   componentPower.reallocateShipPower(hot, "power-test", { skipDataRefresh: true, skipRuntimeStats: true });
-  close(hot.powerAnalysis.summary.generatorOutputMw, 4, "overheated reactor is removed from supply");
-  close(hot.powerAnalysis.summary.powerRatio, 4 / 7.5, "overheated reactor shortage ratio");
+  close(hot.powerAnalysis.summary.generatorOutputMw, 2, "overheated reactor is removed from supply");
+  close(hot.powerAnalysis.summary.powerRatio, 2 / 7.5, "overheated reactor shortage ratio");
 
   hot.componentHp[1] = 0;
   componentPower.reallocateShipPower(hot, "power-test-destroyed", { skipDataRefresh: true, skipRuntimeStats: true });
-  close(hot.powerAnalysis.summary.generatorOutputMw, 4, "destroyed reactor does not remove the Core");
+  close(hot.powerAnalysis.summary.generatorOutputMw, 2, "destroyed reactor does not remove the Core");
   assert.strictEqual(hot.componentPower.byComponentIndex[1].state, "destroyed");
 }
 

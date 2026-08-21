@@ -15,7 +15,10 @@ const THRUST_SPEED_SQRT_SCALE = 28.8;
 const MASS_SPEED_DIV = 150;
 const MASS_DRAG_EXP = 0.45;
 const MASS_TURN_DIV = 100;
-const MASS_TURN_EXP = 0.70;
+// Keep turn authority useful on compact hulls while making rotational mass
+// decisive on very large ships. This stays continuous: there are no size
+// classes, caps, or per-component stacking penalties hidden in the curve.
+const MASS_TURN_EXP = 1.30;
 const ENGINE_TURN_PER_THRUST = 0.001;
 const TURN_GENERIC_SCALE = 3.12;
 export const BRAKE_ACCEL_RATIO = 5;

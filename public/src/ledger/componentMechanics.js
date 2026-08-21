@@ -493,7 +493,7 @@ export const COMPONENT_MECHANICS = {
       { label: "Fuel", value: `${droneTypeSummary("fuelSeconds", "s")} fuel; drones must return to refuel` },
       { label: "Projectile Evasion", value: droneProjectileEvasionSummary(), detail: droneProjectileEvasionDetail() },
       { label: "Rebuild", value: "Destroyed drones are rebuilt over time" },
-      { label: "Parent Destruction", value: "Orphaned drones survive briefly then are lost", warning: true }
+      { label: "Parent or Bay Destruction", value: "Orphaned drones cannot dock and are lost after the configured lifetime", warning: true }
     ],
     interactions: [
       { label: "Power", value: "Standby, active, and production power modes" },

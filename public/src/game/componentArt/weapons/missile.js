@@ -289,6 +289,12 @@ export function drawMissileWeaponTop(artType, size, color, M) {
 
 export function drawMissileMultiWeaponTop(artType, unit, hl, hc, color, chargeProgress, M, fine) {
   if (artType === "torpedo") {
+    // No live progress means palette/blueprint art, which should show the loaded
+    // round in its ready state. A live mount reports 0 immediately after firing
+    // and climbs to 1 across the authoritative reload.
+    const progress = chargeProgress === null || chargeProgress === undefined
+      ? 1
+      : Math.max(0, Math.min(1, Number(chargeProgress) || 0));
     // The loaded torpedo (finned tail, banded body, glowing warhead) rotates;
     // the launch trough stays on the hull as part of the mount. The stern is
     // cut flat around an engine nozzle so the tail can never be misread as a
@@ -340,6 +346,39 @@ export function drawMissileMultiWeaponTop(artType, unit, hl, hc, color, chargePr
     }
     ctx.restore();
 
+    // A narrow recessed conductor makes the reload legible as motion rather
+    // than a generic brightness change. Its hot front advances from the motor
+    // toward the warhead across the real cooldown, while the finished trace
+    // remains lit to communicate that the round is ready.
+    const chargeStart = -hl * 0.5;
+    const chargeEnd = hl * 0.43;
+    const chargeFront = chargeStart + (chargeEnd - chargeStart) * progress;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = M.bore;
+    ctx.lineWidth = Math.max(fine * 1.8, unit * 0.075);
+    ctx.beginPath();
+    ctx.moveTo(chargeStart, 0);
+    ctx.lineTo(chargeEnd, 0);
+    ctx.stroke();
+    if (progress > 0) {
+      ctx.shadowColor = M.hot;
+      ctx.shadowBlur = qualityShadowBlur(3 + 5 * progress);
+      ctx.strokeStyle = mixColor(M.hot, "#ffffff", 0.18 + 0.42 * progress);
+      ctx.lineWidth = Math.max(fine * 0.75, unit * 0.032);
+      ctx.beginPath();
+      ctx.moveTo(chargeStart, 0);
+      ctx.lineTo(chargeFront, 0);
+      ctx.stroke();
+      if (progress < 1) {
+        ctx.fillStyle = mixColor(M.hot, "#ffffff", 0.65);
+        ctx.beginPath();
+        ctx.arc(chargeFront, 0, Math.max(fine * 0.9, unit * 0.045), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
     // Engine nozzle in the flat stern, with a contained warm glow : heat in the
     // bell, deliberately no exhaust plume (the round is sitting in its cradle).
     ctx.save();
@@ -352,8 +391,9 @@ export function drawMissileMultiWeaponTop(artType, unit, hl, hc, color, chargePr
       radius: unit * 0.03
     });
     ctx.fill();
+    ctx.globalAlpha = 0.28 + progress * 0.72;
     ctx.shadowColor = M.hot;
-    ctx.shadowBlur = qualityShadowBlur(5);
+    ctx.shadowBlur = qualityShadowBlur(2 + 3 * progress);
     ctx.fillStyle = M.hot;
     ctx.fillRect(stern - unit * 0.005, -hc * 0.08, unit * 0.04, hc * 0.16);
     ctx.restore();
@@ -364,9 +404,10 @@ export function drawMissileMultiWeaponTop(artType, unit, hl, hc, color, chargePr
     ctx.fillRect(hl * 0.47, -hc * 0.31, unit * 0.055, hc * 0.62);
 
     ctx.save();
+    ctx.globalAlpha = 0.24 + progress * 0.76;
     ctx.shadowColor = M.hot;
-    ctx.shadowBlur = qualityShadowBlur(6);
-    ctx.fillStyle = M.hot;
+    ctx.shadowBlur = qualityShadowBlur(2 + 6 * progress);
+    ctx.fillStyle = mixColor(M.hot, "#ffffff", progress * 0.32);
     ctx.beginPath();
     ctx.moveTo(hl * 0.88, 0);
     ctx.lineTo(hl * 0.6, -hc * 0.24);

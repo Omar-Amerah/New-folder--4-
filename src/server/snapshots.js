@@ -147,10 +147,11 @@ function buildStationWeaponAnglePairs(station) {
 // Two kinds of mount report here, and they mean different things:
 //   * a spinal mount reports accumulated charge : it is not allowed to fire
 //     until this reaches 1, and the value is the balance telegraph itself;
-//   * a reload-telegraph mount (EMP Cannon or ordinary Railgun) reports its
-//     recovery toward being ready. It changes nothing about when the weapon
+//   * a reload-telegraph mount (EMP Cannon, ordinary Railgun, or Torpedo) reports
+//     its recovery toward being ready. It changes nothing about when the weapon
 //     fires; it is the same cooldown the mount already had, expressed so the
-//     weapon can rebuild its emitter glow or fill its rail channels.
+//     weapon can rebuild its emitter glow, fill its rail channels, or advance its
+//     warhead charge pulse.
 // Reload progress is quantised to 5% steps because the client only ever renders
 // it as a handful of baked charge stages, and an unquantised value would put a
 // changed field on the wire every single tick for the whole reload.
@@ -159,7 +160,8 @@ function buildWeaponChargeProgress(ship) {
   if (!Array.isArray(charge) || !charge.length) return null;
   let any = false;
   const progress = charge.map((seconds, index) => {
-    const weapon = PARTS[ship.design?.[index]?.type]?.weapon;
+    const componentType = ship.design?.[index]?.type;
+    const weapon = PARTS[componentType]?.weapon;
     const config = weapon?.spinalCharge;
     if (config) {
       const chargeSeconds = Math.max(0.05, Number(config.chargeSeconds) || 10);
@@ -167,7 +169,7 @@ function buildWeaponChargeProgress(ship) {
       if (value > 0) any = true;
       return Math.round(value * 1000) / 1000;
     }
-    if (!WeaponPresentationRules.hasReloadTelegraph(weapon)) return 0;
+    if (!WeaponPresentationRules.hasReloadTelegraph(weapon, componentType)) return 0;
     const value = WeaponPresentationRules.reloadTelegraphProgress(
       weapon,
       ship.weaponCooldowns?.[index],

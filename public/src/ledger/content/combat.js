@@ -43,7 +43,7 @@ export const COMBAT_CONTENT = Object.freeze({
       keywords: ["combat", "style", "hold", "charge", "orbit", "kite", "static", "behavior", "ai", "stance"],
       howItWorks: "Each ship follows one of five combat movement styles. Charge pursues continuously, leads a moving target, and drives through weapon range to contact without braking. Hold approaches when outside preferred weapon range, then fires from an established position without retreating from closer targets. Orbit flies a ring at its intended radius with a stable direction and continuous radial correction. Kite holds its target near the far edge of its main battery: it runs when the range collapses or a fast attacker is about to collapse it, eases back in when it drifts too far out, and closes only when the target leaves that battery's reach. There is no reverse thrust, so a kiting ship picks a hull heading that both opens the range and keeps guns bearing -- a rear-mounted railgun keeps firing while the ship accelerates away, while a nose gun loses coverage during the turn and gets it back once the range is safe. It routes around asteroids and stations and turns away from the map edge instead of grinding along it. Static never repositions for combat at all: it holds the ground it is standing on and turns to face whatever it is shooting. Ships acquire another nearby enemy when their current target becomes invalid. A move order you issue by hand overrides all of this until you give the ship another command.",
       importantStats: [
-        { label: "Hold Range Ratio", value: "90% Of Max Weapon Range" },
+        { label: "Hold Range Ratio", value: "80% Of Max Weapon Range" },
         { label: "Charge Stop", value: "Contact Distance" },
         { label: "Orbit Range Ratio", value: "75% Of Max Weapon Range" },
         { label: "Kite Preferred Range", value: "90% Of Main Battery Reach" },
@@ -150,9 +150,9 @@ export const COMBAT_CONTENT = Object.freeze({
     },
     "combat-styles": {
       summary: "Charge, Hold, Orbit, Kite, and Static control movement around the current target.",
-      howItWorks: "Charge drives to contact and is the natural style for proximity-charge ramming ships. Hold approaches until it has a usable firing solution near 92% of battery reach, then maintains position without backing away from close targets. Orbit continuously flies a ring near 85% of reach and can reverse orbit direction. Kite prefers 90% of main-battery reach, retreats below 78%, and closes above 96%; because ships cannot thrust backward, rear-facing guns keep firing most reliably during retreat. Static never repositions for combat, though it can turn to aim. Auto Engage controls automatic target acquisition. Pursue controls whether a non-explicit target may pull a ship back into range; an explicit attack order remains authoritative.",
+      howItWorks: "Charge drives to contact and is the natural style for proximity-charge ramming ships. Hold approaches until it has a usable firing solution near 80% of maximum weapon reach, then maintains position without backing away from close targets. Orbit continuously flies a ring near 85% of reach and can reverse orbit direction. Kite prefers 90% of main-battery reach, retreats below 78%, and closes above 96%; because ships cannot thrust backward, rear-facing guns keep firing most reliably during retreat. Static never repositions for combat, though it can turn to aim. Auto Engage controls automatic target acquisition. Pursue controls whether a non-explicit target may pull a ship back into range; an explicit attack order remains authoritative.",
       importantStats: [
-        { label: "Hold Enter", value: "92% Of Usable Battery Reach" },
+        { label: "Hold Enter", value: "80% Of Max Weapon Range" },
         { label: "Hold Resume", value: "105%" },
         { label: "Orbit", value: "85%" },
         { label: "Kite", value: "90% Preferred, 78% Retreat, 96% Close" },

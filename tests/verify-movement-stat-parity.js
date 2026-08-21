@@ -464,6 +464,10 @@ async function run() {
     engineMassValues: [10],
     directionalTurnInputs: { ...continuousTurnInputs, mainEngineVectorTurn: authority }
   });
+  const largeTurnSpecialist = movementAtMass(960.1, 11.1);
+  const largeTurnDegrees = largeTurnSpecialist.turnRate * 180 / Math.PI;
+  assert(largeTurnDegrees > 90 && largeTurnDegrees < 100,
+    `a 960.1 T high-authority hull turns at a capital-scale rate, got ${largeTurnDegrees.toFixed(2)} deg/s`);
   for (const boundary of [54, 124, 229]) {
     const lower = movementAtMass(boundary);
     const higher = movementAtMass(boundary + 1);

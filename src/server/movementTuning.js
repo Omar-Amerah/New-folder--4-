@@ -135,10 +135,10 @@ module.exports = Object.freeze({
   MAX_MOVEMENT_DT: 0.25,
 
   // --- Combat stance ------------------------------------------------------
-  // Hold enters at the first usable firing envelope. This is an approach
-  // threshold, not a station: once inside it the ship does not correct its range
-  // and does not back away from anything.
-  HOLD_RANGE_RATIO: 0.92,
+  // Hold closes to 80% of maximum weapon range before engaging. This is an
+  // approach threshold, not a station: once inside it the ship does not correct
+  // its range and does not back away from anything.
+  HOLD_RANGE_RATIO: 0.8,
   // Resume only after the target has opened beyond the usable range. The gap is
   // deliberate hysteresis, not a preferred combat distance.
   HOLD_RESUME_RATIO: 1.05,

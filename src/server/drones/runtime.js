@@ -25,6 +25,23 @@ const { fighterProjectileEvasion, steerFighterDrone } = require("./evasion");
 const { setDroneDestroyed, removeActiveDrone } = require("./lifecycle");
 const { performDroneAction } = require("./combat");
 
+function updateOrphanedDrone(room, drone, bay, dt, now) {
+  if (!Number.isFinite(drone.orphanedAt)) drone.orphanedAt = now;
+  drone.state = "orphaned";
+  drone.commandState = "orphaned";
+  const slot = bay?.slots?.[drone.slot];
+  if (slot?.droneId === drone.id) slot.state = "orphaned";
+  const movementStart = performanceNow();
+  drone.vx *= Math.max(0, 1 - dt * 0.8);
+  drone.vy *= Math.max(0, 1 - dt * 0.8);
+  drone.x += drone.vx * dt;
+  drone.y += drone.vy * dt;
+  recordDuration(room, "droneMovementMs", movementStart);
+  if (now - drone.orphanedAt >= CONFIG.orphanLifetimeSeconds * 1000) {
+    setDroneDestroyed(room, drone, now, "orphaned");
+  }
+}
+
 function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) {
   const parent = room.ships.get(drone.parentShipId);
   const effective = effectiveDroneConfig(parent, drone);
@@ -33,15 +50,7 @@ function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) 
   bump(room, "dronePhysicalUpdates");
 
   if (!parent?.alive) {
-    drone.orphanedAt ||= now;
-    drone.state = "orphaned";
-    const movementStart = performanceNow();
-    drone.vx *= Math.max(0, 1 - dt * 0.8);
-    drone.vy *= Math.max(0, 1 - dt * 0.8);
-    drone.x += drone.vx * dt;
-    drone.y += drone.vy * dt;
-    recordDuration(room, "droneMovementMs", movementStart);
-    if (now - drone.orphanedAt >= CONFIG.orphanLifetimeSeconds * 1000) setDroneDestroyed(room, drone, now, "orphaned");
+    updateOrphanedDrone(room, drone, null, dt, now);
     return;
   }
 
@@ -53,6 +62,13 @@ function updateDroneEntity(room, drone, dt, now, bayState = null, members = []) 
   }
 
   const bayOperational = state ? state.operational : Boolean(bay && (parent.componentHp?.[bay.componentIndex] ?? 0) > 0);
+  // Destroying a Bay permanently severs its live drones from that Bay. This
+  // branch precedes recall, fuel return and refuelling, so an orphan can never
+  // dock even if it was already touching the launch point.
+  if (!bayOperational || Number.isFinite(drone.orphanedAt)) {
+    updateOrphanedDrone(room, drone, bay, dt, now);
+    return;
+  }
   const bayPower = state ? state.powerMultiplier : (bayOperational && getComponentPowerMultiplier(parent, bay.componentIndex));
   const bayPowered = bayOperational && bayPower > 0;
   const fallback = !bayOperational || !bayPowered;

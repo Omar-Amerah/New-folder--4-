@@ -757,7 +757,7 @@ function droneProblemLabel(reason) {
     "low-power": "rebuilding slowly: low power",
     "insufficient-power": "rebuild paused: no power",
     "bay-overheated": "rebuild paused: overheated",
-    "bay-destroyed": "rebuild paused: bay offline",
+    "bay-destroyed": "production unavailable: bay offline",
     "parent-destroyed": "parent ship destroyed",
     "invalid-configuration": "invalid bay configuration"
   }[reason] || (reason ? String(reason).replaceAll("-", " ") : null);
@@ -800,7 +800,8 @@ function renderDroneSummary(ship) {
       const returning = slots.filter((slot) => ["returning", "docking"].includes(slot.state)).length;
       const refueling = slots.filter((slot) => slot.state === "refueling").length;
       const inSpace = active + returning + refueling;
-      const producing = slots.find((slot) => slot.state === "producing");
+      const producing = bay.operational === false ? null : slots.find((slot) => slot.state === "producing");
+      const orphaned = slots.filter((slot) => slot.state === "orphaned").length;
       const ready = slots.filter((slot) => slot.state === "ready").length;
       const stored = slots.filter((slot) => slot.state === "stored").length;
       const label = droneTypeLabel(bay);
@@ -832,9 +833,9 @@ function renderDroneSummary(ship) {
       return "<div class=\"ship-drone-bay-row\" data-drone-command-state=\"" + escapeHtml(command.tone) + "\">"
         + "<div class=\"ship-drone-bay-info\"><div class=\"ship-drone-bay-heading\"><b>" + escapeHtml(label) + "</b><span class=\"ship-drone-command-state is-" + escapeHtml(command.tone) + "\">" + escapeHtml(command.status) + "</span></div>"
         + (range ? "<small class=\"ship-drone-range\">360° drone range; " + range + " m</small>" : "")
-        + "<div class=\"ship-drone-squad-pips\" aria-label=\"" + active + " active, " + returning + " returning, " + refueling + " refueling, " + stored + " stored out of " + slots.length + " drones\">" + pips + "</div>"
+        + "<div class=\"ship-drone-squad-pips\" aria-label=\"" + active + " active, " + returning + " returning, " + refueling + " refueling, " + orphaned + " orphaned, " + stored + " stored out of " + slots.length + " drones\">" + pips + "</div>"
         + "<small>" + active + " active; " + ready + " ready; " + stored + " stored; " + (Number(bay.runtimePowerMw) || 0) + " MW"
-        + (producing ? "; " + progressPercent + "% rebuilding" : squadComplete ? "; squad accounted for" : "; replacement pending")
+        + (orphaned ? "; " + orphaned + " orphaned; self-destructing" : producing ? "; " + progressPercent + "% rebuilding" : squadComplete ? "; squad accounted for" : "; replacement pending")
         + (problem ? "; " + escapeHtml(problem) : "") + "</small>" + progressBar + "</div>"
         + "<button type=\"button\" class=\"ship-drone-command-button is-" + escapeHtml(command.tone) + "\" data-drone-bay-id=\"" + escapeHtml(bay.componentId) + "\" data-drone-bay-mode=\"" + targetMode + "\" aria-label=\"" + escapeHtml(actionLabel + " for " + label + " Drone Bay") + "\"" + (pending ? " aria-busy=\"true\"" : "") + (disabled ? " disabled" : "") + ">" + escapeHtml(actionLabel) + "</button></div>";
     }).join("") + "</section>";

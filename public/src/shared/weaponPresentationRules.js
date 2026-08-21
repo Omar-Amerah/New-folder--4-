@@ -14,19 +14,29 @@
     return Boolean(weapon?.spinalCharge && typeof weapon.spinalCharge === "object" && !Array.isArray(weapon.spinalCharge));
   }
 
+  function projectileCountPerShot(weapon) {
+    const count = Math.round(finiteOr(weapon?.pelletCount, 1));
+    return count >= 2 ? count : 1;
+  }
+
   // Weapons whose art is authored as a function of charge, but which do NOT have
   // a spinal charge cycle: they fire the instant their reload ends, and the
   // artwork simply shows the mount recovering toward that moment. The EMP Cannon
-  // rebuilds its emitter arc, while an ordinary Railgun fills the illuminated
-  // channels along its rails. This is presentation only and must never gate
-  // firing; combat owns that.
+  // rebuilds its emitter arc, an ordinary Railgun fills its illuminated channels,
+  // and the Torpedo carries a charge pulse toward its warhead. This is
+  // presentation only and must never gate firing; combat owns that.
   const RELOAD_TELEGRAPH_FAMILIES = new Set(["emp", "railgun"]);
+  const RELOAD_TELEGRAPH_COMPONENT_TYPES = new Set(["torpedo"]);
 
-  function hasReloadTelegraph(weapon) {
+  function hasReloadTelegraph(weapon, componentType = null) {
     if (!weapon || isSpinalChargeWeapon(weapon)) return false;
     // Authored data spells the family as `family`, the runtime weapon objects as
-    // `type`; both reach this rule, so both are checked.
-    return RELOAD_TELEGRAPH_FAMILIES.has(weapon.family) || RELOAD_TELEGRAPH_FAMILIES.has(weapon.type);
+    // `type`; both reach this rule, so both are checked. Component identity is
+    // also accepted for one member of a shared family, such as the Torpedo among
+    // missile-family weapons.
+    return RELOAD_TELEGRAPH_FAMILIES.has(weapon.family)
+      || RELOAD_TELEGRAPH_FAMILIES.has(weapon.type)
+      || RELOAD_TELEGRAPH_COMPONENT_TYPES.has(componentType);
   }
 
   // 0 immediately after the shot, 1 when the mount is ready again. The server
@@ -45,13 +55,17 @@
   /**
    * Resolve the cadence facts that may be shown for one weapon.
    *
-   * Ordinary weapons retain the catalogue's theoretical damage * fire rate.
+   * Ordinary weapons use the full trigger-pull damage * fire rate. Most trigger
+   * pulls create one projectile; multi-pellet weapons create pelletCount
+   * independent projectiles, each carrying the authored damage.
    * A spinal weapon must spend chargeSeconds before its shot, so its ideal
    * uninterrupted cycle is chargeSeconds + one ordinary reload interval.
    * This is presentation/stat arithmetic only; combat still owns firing.
    */
   function weaponCyclePresentation(weapon = {}) {
-    const damagePerShot = Math.max(0, finiteOr(weapon.damage, 0));
+    const damagePerImpact = Math.max(0, finiteOr(weapon.damage, 0));
+    const projectileCount = projectileCountPerShot(weapon);
+    const damagePerShot = damagePerImpact * projectileCount;
     const fireRate = Math.max(0, finiteOr(weapon.fireRate, 0));
     const reloadSeconds = fireRate > 0 ? 1 / fireRate : 0;
 
@@ -59,6 +73,8 @@
       return Object.freeze({
         kind: "normal",
         isChargeWeapon: false,
+        damagePerImpact,
+        projectileCount,
         damagePerShot,
         chargeSeconds: 0,
         reloadSeconds,
@@ -75,6 +91,8 @@
     return Object.freeze({
       kind: "spinalCharge",
       isChargeWeapon: true,
+      damagePerImpact,
+      projectileCount,
       damagePerShot,
       chargeSeconds,
       reloadSeconds,

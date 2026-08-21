@@ -9,7 +9,6 @@ const { updateBullets } = require("../src/server/projectiles");
 const { buildRoomSpatialIndex } = require("../src/server/spatialIndex");
 const { ensureVisibilityRuntime, ensureTeamVisibility, invalidateVisibility } = require("../src/server/visibilityRuntime");
 const HeatRules = require("../public/src/shared/heatRules");
-const { repairShipComponents } = require("../src/server/componentHealth");
 
 function makeShip(id, ownerId, team, x, y, bayId = `${id}:bay`, droneType = "fighter") {
   return {
@@ -418,10 +417,19 @@ for (const [type, interval] of Object.entries(Drones.DRONE_DECISION_INTERVALS_MS
   runCanonicalTick(room, 1000);
   parent.componentHp[0] = 0;
   runCanonicalTick(room, 1033);
-  assert.equal(first.state, "fallback", "Bay destruction puts a live drone in fallback");
-  repairShipComponents(room, parent, 100, 1066);
-  runCanonicalTick(room, 1066);
-  assert.equal(first.state, "active", "repairing the destroyed Bay resumes the drone");
+  assert.equal(first.state, "orphaned", "Bay destruction immediately orphans its live drones");
+  assert.equal(parent.droneBays[0].slots[first.slot].state, "orphaned", "the orphan cannot dock with its destroyed Bay");
+  runCanonicalTick(room, 1033 + Drones.CONFIG.orphanLifetimeSeconds * 1000 - 1);
+  assert.equal(room.drones.has(first.id), true, "the orphan remains until its configured lifetime");
+  runCanonicalTick(room, 1033 + Drones.CONFIG.orphanLifetimeSeconds * 1000);
+  assert.equal(room.drones.has(first.id), false, "the orphan is removed when its configured lifetime expires");
+}
+
+{
+  const room = makeRoleRoom("fighter");
+  const parent = room.ships.get("carrier");
+  const first = firstDrone(room);
+  runCanonicalTick(room, 1000);
   parent.componentPower.byComponentIndex[0].operationalMultiplier = 0.01;
   runCanonicalTick(room, 1080);
   assert.equal(first.state, "active", "positive low Bay Power keeps a living drone under command");

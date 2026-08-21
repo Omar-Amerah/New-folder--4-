@@ -345,6 +345,36 @@ async function main() {
       assert.ok(Math.abs(after.turrets[0].localRotation + 1.2) < EPS, `railgun turret did not rotate: ${after.turrets[0].localRotation}`);
     });
 
+    // 6b. The Torpedo uses the same authoritative reload stages for a small
+    //     rear-to-nose charge animation; it does not introduce a firing gate.
+    await check("multi-cell Torpedo visibly charges toward its warhead", async () => {
+      const d = design([7, 7, "core"], [8, 7, "torpedo"]);
+      await page.evaluate((snap) => window.__mfaTest.setShip(snap), snapshotWith("ship-torpedo", d, { weaponCharge: [0, 0] }));
+      await page.evaluate(() => window.__mfaTest.frames(4));
+      const spentInfo = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-torpedo"));
+      assert.ok(spentInfo, "no torpedo debug info");
+      assert.strictEqual(spentInfo.turretCount, 1, `torpedo turretCount ${spentInfo.turretCount}`);
+      assert.strictEqual(spentInfo.turrets[0].partType, "torpedo");
+      assert.strictEqual(spentInfo.turrets[0].reloadTelegraph, true, "Torpedo must opt into staged charge art");
+      assert.strictEqual(spentInfo.turrets[0].chargeStage, 0, "a just-fired Torpedo starts with an empty charge trace");
+      const spentShot = await shot(page, "torpedo-charge-0.png");
+
+      await page.evaluate(() => window.__mfaTest.setWeaponCharge("ship-torpedo", 1, 0.5));
+      await page.evaluate(() => window.__mfaTest.frames(3));
+      const halfInfo = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-torpedo"));
+      assert(halfInfo.turrets[0].chargeStage > 0 && halfInfo.turrets[0].chargeStage < 7,
+        `half charge should use an intermediate texture stage, got ${halfInfo.turrets[0].chargeStage}`);
+      const halfShot = await shot(page, "torpedo-charge-50.png");
+
+      await page.evaluate(() => window.__mfaTest.setWeaponCharge("ship-torpedo", 1, 1));
+      await page.evaluate(() => window.__mfaTest.frames(3));
+      const readyInfo = await page.evaluate(() => window.__mfaTurretDebugInfo("ship-torpedo"));
+      assert.strictEqual(readyInfo.turrets[0].chargeStage, 7, "a ready Torpedo uses the fully lit charge stage");
+      const readyShot = await shot(page, "torpedo-charge-100.png");
+      assert.ok(pixelsDiffer(spentShot, halfShot), "half-charged Torpedo must visibly differ from its spent state");
+      assert.ok(pixelsDiffer(halfShot, readyShot), "ready Torpedo must visibly differ from its half-charged state");
+    });
+
     // 7. Destroyed turret: freezes and dims (does not vanish or re-track).
     await check("destroyed turret dims and freezes", async () => {
       const d = design([7, 7, "core"], [8, 7, "blaster"]);
