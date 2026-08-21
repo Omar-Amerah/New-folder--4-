@@ -265,19 +265,26 @@ function run() {
       "the wire schema accepts kite");
   }
 
-  // --- The client still offers exactly one Kite button --------------------
+  // --- Every live stance is exposed by both client controls ----------------
   {
     const fs = require("fs");
     const path = require("path");
     const root = path.dirname(__dirname);
     const panel = fs.readFileSync(path.join(root, "public", "src", "ui", "sidePanelUi.js"), "utf8");
     const descriptions = fs.readFileSync(path.join(root, "public", "src", "ui", "section13bUi.js"), "utf8");
+    const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
     assert.ok(/id:\s*"kite"/.test(panel), "the selected-ship stance list must offer Kite");
     for (const invented of ["kite-left", "kite-right", "\"retreat\"", "\"skirmish\""]) {
       assert.ok(!panel.includes(invented),
         `Kite is one stance: the client must not invent ${invented}`);
     }
     assert.ok(/kite:\s*"/.test(descriptions), "Kite needs a tooltip like every other stance");
+    for (const stance of ["charge", "hold", "orbit", "kite", "static"]) {
+      assert.equal((html.match(new RegExp(`data-combat-style="${stance}"`, "g")) || []).length, 1,
+        `the selected-ship controls must expose exactly one ${stance} stance`);
+      assert.equal((html.match(new RegExp(`<option value="${stance}"`, "g")) || []).length, 1,
+        `the blueprint selector must expose exactly one ${stance} stance`);
+    }
   }
 
   // --- The band comes from the main battery -------------------------------

@@ -8,6 +8,7 @@ const fs = require("fs");
 const { movementTestTick } = require("../tools/movementTestTick");
 const {
   commandShips,
+  SUPPORTED_MOVEMENT_TYPES,
   maxFriendlyCorrectionPerTick,
   physicalCollisionRadius,
   resolveMapCollision,
@@ -159,6 +160,9 @@ function assertNoLegacyMovementState() {
 }
 
 function run() {
+  assert.deepEqual(SUPPORTED_MOVEMENT_TYPES, ["move", "stop", "attack", "repair"],
+    "the runtime exposes exactly the movement order types it can execute");
+
   // Ordinary group movement: one fixed formation slot per ship, resolved once.
   {
     const ships = Array.from({ length: 10 }, (_, index) => makeShip({
@@ -232,6 +236,52 @@ function run() {
     assert.equal(ship.movement.arrivalRadius, 16);
     tick(room, [ship], 600);
     assert(distance(ship, { x: 1300, y: 400 }) <= 20, "a single ship should reach a clear destination");
+  }
+
+  // Static is a combat stance rather than a missing movement implementation:
+  // an explicit attack keeps the hull planted while still turning it to fight.
+  {
+    const ship = makeShip({ x: 800, y: 700, design: GUNSHIP, combatStyle: "static", angle: Math.PI / 2 });
+    const target = makeShip({ x: 2200, y: 700, ownerId: "p2" });
+    const room = makeRoom([ship], [], target);
+    const before = { x: ship.x, y: ship.y };
+    const result = commandShips(room, player(room), target.x, target.y, {
+      shipIds: [ship.id],
+      targetId: target.id
+    });
+    assert.equal(result.code, "attack");
+    tick(room, [ship, target], 180);
+    assert(Math.hypot(ship.x - before.x, ship.y - before.y) < 1e-6,
+      "Static must never reposition for combat, even when its target is far away");
+    assert(Math.abs(ship.angle) < 0.05,
+      "Static still turns toward its explicit target when automatic turning is enabled");
+    assert.equal(ship.movement.command.type, "attack", "Static retains the attack order");
+    assert.equal(ship.combatTargetId, target.id, "Static retains the combat target");
+  }
+
+  // Repair is an executable movement order, not just a command label. A repair
+  // ship closes on a distant ally and settles once its beam can work.
+  {
+    const medic = makeShip({
+      x: 600,
+      y: 2200,
+      design: [...BASE, { x: 6, y: 7, type: "repairBeam", rotation: 0 }]
+    });
+    const patient = makeShip({ x: 2100, y: 2200 });
+    const room = makeRoom([medic, patient]);
+    const initialDistance = distance(medic, patient);
+    const result = commandShips(room, player(room), patient.x, patient.y, {
+      shipIds: [medic.id],
+      targetId: patient.id
+    });
+    assert.equal(result.code, "repair");
+    tick(room, [medic, patient], 900);
+    assert(distance(medic, patient) < initialDistance - 300,
+      "a repair order must physically close on an out-of-range ally");
+    assert.equal(medic.movement.command.type, "repair", "the repair order remains authoritative");
+    assert.equal(medic.repairTargetId, patient.id, "the repair target remains assigned");
+    assert.equal(medic.movement.holdEngaged, true, "the repair ship settles when it reaches working range");
+    assert(Math.hypot(medic.vx, medic.vy) < 8, "the repair ship brakes rather than overshooting its ally");
   }
 
   // A route around one static obstacle remains an ordinary move order.

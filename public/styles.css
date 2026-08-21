@@ -1076,6 +1076,11 @@ h2 {
   border-bottom: 1px solid transparent;
 }
 
+.combat-style-controls button:nth-child(5):last-child {
+  grid-column: 1 / -1;
+  border-right: 1px solid transparent;
+}
+
 .combat-style-controls button.active {
   border: 1px solid rgba(255, 202, 87, 0.64);
   background: rgba(74, 53, 18, 0.68);

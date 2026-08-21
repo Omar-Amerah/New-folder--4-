@@ -28,6 +28,7 @@ const {
 } = require("../src/server/movementTuning");
 const { getMovementContactPairs } = require("../src/server/movementContactPairs");
 const { computeStats } = require("../src/server/shipStats");
+const { validateDesign } = require("../src/server/shipDesign");
 const { initComponentState } = require("../src/server/componentHealth");
 const { initializeComponentPower } = require("../src/server/componentPower");
 const { initShipHeat } = require("../src/server/heat");
@@ -38,6 +39,14 @@ const BASE = [
   { x: 7, y: 7, type: "core" },
   { x: 8, y: 7, type: "reactor" },
   { x: 7, y: 8, type: "engine" }
+];
+// A valid, deliberately fast edge-on hull. At its real top speed two opposing
+// copies travel farther than one hull-cell diameter relative to one another in
+// a 30 Hz tick, which is the case a final-overlap-only solver can tunnel.
+const FAST_THIN = [
+  { x: 2, y: 6, type: "core" },
+  { x: 0, y: 6, type: "reactor" },
+  ...Array.from({ length: 15 }, (_, x) => ({ x, y: 7, type: "engine", rotation: 0 }))
 ];
 
 let sequence = 0;
@@ -118,6 +127,110 @@ function run() {
       "overlapping bounding circles alone are not a contact");
     assert.equal(a.x, 1000, "no correction is applied");
     assert.equal(a.vx, 0, "and no impulse is applied");
+  }
+
+  // --- fast hulls cannot cross completely between ticks -------------------
+  {
+    const a = makeShip({ id: "swept-a", x: 1000, y: 1000, design: FAST_THIN, angle: 0 });
+    const b = makeShip({
+      id: "swept-b",
+      x: 1050,
+      y: 1000,
+      design: FAST_THIN,
+      angle: Math.PI,
+      ownerId: "p2"
+    });
+    const room = makeRoom([a, b]);
+    commandShipsToDestination(room, [a], { x: 7000, y: 1000 }, { prefix: "swept-a" });
+    commandShipsToDestination(room, [b], { x: 100, y: 1000 }, { prefix: "swept-b" });
+    a.vx = a.stats.maxSpeed;
+    b.vx = -b.stats.maxSpeed;
+    assert.equal(validateDesign(FAST_THIN).ok, true, "sanity: this speed is reachable by a legal blueprint");
+    assert(a.stats.maxSpeed * DT * 2 > 2 * 13 * Math.SQRT2,
+      "sanity: relative travel can clear an entire hull cell in one tick");
+    assert.equal(findShipHullOverlap(a, b), null, "sanity: the fast hulls begin clear");
+
+    const safety = movementTestTick(room, [a, b], DT, 0);
+    assert(getMovementContactPairs(room).some((pair) => pair.a === a && pair.b === b),
+      "the swept broad phase must retain the crossing pair");
+    assert(a.x < b.x,
+      `continuous hull contact must preserve ship order (${a.x.toFixed(2)} < ${b.x.toFixed(2)})`);
+    const afterOverlap = findShipHullOverlap(a, b);
+    assert(!afterOverlap || afterOverlap.penetration < 2,
+      `the clipped hulls finish with at most the solver's resting sliver (${afterOverlap?.penetration || 0})`);
+    assert(Math.abs(a.vx) < a.stats.maxSpeed * 0.1 && Math.abs(b.vx) < b.stats.maxSpeed * 0.1,
+      "a head-on swept contact removes the closing velocity without a bounce");
+    assert.equal(room.spawnCollisionDiagnostics.shipSweptCollisionPairs, 1,
+      "one crossing is resolved once even though separation has two passes");
+    assert.deepEqual(new Set(safety.modifiedShipIds), new Set([a.id, b.id]),
+      "both clipped hulls cross the final static-safety boundary");
+    assert(Math.abs((a.x - 1000) - a._integratedMovementX - (a._collisionCorrectionX || 0)) < 1e-6,
+      "clipping updates A's authoritative integration accounting");
+    assert(Math.abs((b.x - 1050) - b._integratedMovementX - (b._collisionCorrectionX || 0)) < 1e-6,
+      "clipping updates B's authoritative integration accounting");
+    for (let index = 1; index <= 90; index += 1) {
+      movementTestTick(room, [a, b], DT, index * DT * 1000);
+      assert(a.x < b.x, `sustained opposing thrust cannot cross the hulls at tick ${index}`);
+      const overlap = findShipHullOverlap(a, b);
+      assert(!overlap || overlap.penetration < 8,
+        `sustained contact remains physically bounded at tick ${index} (${overlap?.penetration || 0})`);
+    }
+  }
+
+  // The same crossing can end the frame in an overlap after the centres have
+  // already swapped sides. Resolving only that final overlap would push both
+  // hulls farther through; the recorded sweep must win in this branch too.
+  {
+    const a = makeShip({ id: "swept-reversed-a", x: 1000, y: 1500, design: FAST_THIN, angle: 0 });
+    const b = makeShip({
+      id: "swept-reversed-b",
+      x: 1080,
+      y: 1500,
+      design: FAST_THIN,
+      angle: Math.PI,
+      ownerId: "p2"
+    });
+    const room = makeRoom([a, b]);
+    commandShipsToDestination(room, [a], { x: 7000, y: a.y }, { prefix: "swept-reversed-a" });
+    commandShipsToDestination(room, [b], { x: 100, y: b.y }, { prefix: "swept-reversed-b" });
+    a.vx = a.stats.maxSpeed;
+    b.vx = -b.stats.maxSpeed;
+
+    movementTestTick(room, [a, b], DT, 0);
+    assert(a.x < b.x, "an end-overlap cannot make crossed centres authoritative");
+    const overlap = findShipHullOverlap(a, b);
+    assert(!overlap || overlap.penetration < 2,
+      `the reversed-centre contact settles to the ordinary resting sliver (${overlap?.penetration || 0})`);
+    assert.equal(room.spawnCollisionDiagnostics.shipSweptCollisionPairs, 1,
+      "the reversed-centre branch resolves at its earlier swept contact");
+  }
+
+  // The continuous pass is still hull-exact. Two fast, parallel thin hulls may
+  // cross inside their bounding circles when the live cells themselves miss.
+  {
+    const a = makeShip({ id: "swept-miss-a", x: 1000, y: 1000, design: FAST_THIN, angle: 0 });
+    const b = makeShip({
+      id: "swept-miss-b",
+      x: 1050,
+      y: 1201,
+      design: FAST_THIN,
+      angle: Math.PI,
+      ownerId: "p2"
+    });
+    const room = makeRoom([a, b]);
+    commandShipsToDestination(room, [a], { x: 7000, y: a.y }, { prefix: "swept-miss-a" });
+    commandShipsToDestination(room, [b], { x: 100, y: b.y }, { prefix: "swept-miss-b" });
+    a.vx = a.stats.maxSpeed;
+    b.vx = -b.stats.maxSpeed;
+    assert.equal(findShipHullOverlap(a, b), null, "sanity: the near-miss hulls begin clear");
+
+    movementTestTick(room, [a, b], DT, 0);
+    assert(getMovementContactPairs(room).some((pair) => pair.a === a && pair.b === b),
+      "sanity: bounding geometry retains the near-miss pair");
+    assert(a.x > b.x, "empty space inside the swept bounding circles must remain traversable");
+    assert.equal(findShipHullOverlap(a, b), null, "the fast near miss finishes clear as well");
+    assert.equal(room.spawnCollisionDiagnostics.shipSweptCollisionPairs, undefined,
+      "a hull-cell near miss must not produce a collision response");
   }
 
   // --- the friendly shove --------------------------------------------------
@@ -484,6 +597,33 @@ function run() {
       `no single tick may teleport the hull (${worstStep.toFixed(2)} px)`);
   }
 
+  // Exact asteroid centres use a stable fallback normal rather than producing
+  // NaN or choosing a fresh random escape direction on every tick.
+  {
+    const recover = () => {
+      const asteroid = { id: "centred-rock", x: 2400, y: 2100, radius: 220 };
+      const ship = makeShip({ id: "centred-hull", x: asteroid.x, y: asteroid.y });
+      const room = makeRoom([ship], [asteroid]);
+      let ticks = 0;
+      let worstStep = 0;
+      while (Math.hypot(ship.x - asteroid.x, ship.y - asteroid.y)
+        < asteroid.radius + physicalCollisionRadius(ship) - 0.5 && ticks < 400) {
+        const before = { x: ship.x, y: ship.y };
+        ship._staticCollisionCorrectionDistance = 0;
+        resolveMapCollision(room, ship);
+        const step = Math.hypot(ship.x - before.x, ship.y - before.y);
+        worstStep = Math.max(worstStep, step);
+        assert(Number.isFinite(ship.x) && Number.isFinite(ship.y), "centre recovery stays finite");
+        ticks += 1;
+      }
+      assert(ticks > 1 && ticks < 400, "a hull at the exact centre is recovered gradually");
+      assert(worstStep <= STATIC_COLLISION_MAX_TICK_CORRECTION + 1e-9,
+        "exact-centre recovery obeys the static correction budget");
+      return { x: ship.x, y: ship.y, ticks };
+    };
+    assert.deepEqual(recover(), recover(), "exact-centre recovery is deterministic for a stable ship id");
+  }
+
   // --- station solids honour the same ceiling ------------------------------
   {
     const station = {
@@ -513,6 +653,88 @@ function run() {
     resolveMapCollision(room, ship);
     assert(Math.hypot(ship.x - afterFirst.x, ship.y - afterFirst.y) < 1e-9,
       "a spent tick budget yields no further correction");
+  }
+
+  // A shallow contact with a rotated station face removes only inward normal
+  // speed and preserves the tangent, using the same bounded recovery as rocks.
+  {
+    const angle = Math.PI / 4;
+    const normal = { x: Math.cos(angle), y: Math.sin(angle) };
+    const tangent = { x: -normal.y, y: normal.x };
+    const station = {
+      id: "rotated-wall",
+      x: 3200,
+      y: 2400,
+      radius: 400,
+      collisionPieces: [{ x: 3200, y: 2400, halfWidth: 240, halfHeight: 90, angle }]
+    };
+    const radius = 30;
+    const offset = 240 + radius - 4;
+    const ship = makeShip({
+      id: "rotated-contact",
+      x: station.x + normal.x * offset,
+      y: station.y + normal.y * offset,
+      vx: -normal.x * 100 + tangent.x * 35,
+      vy: -normal.y * 100 + tangent.y * 35,
+      design: [],
+      physicalRadius: radius
+    });
+    const room = makeRoom([ship], [], [station]);
+    const before = { x: ship.x, y: ship.y };
+
+    assert(resolveMapCollision(room, ship), "the rotated station face registers the shallow contact");
+    const applied = Math.hypot(ship.x - before.x, ship.y - before.y);
+    const normalSpeed = ship.vx * normal.x + ship.vy * normal.y;
+    const tangentSpeed = ship.vx * tangent.x + ship.vy * tangent.y;
+    assert(applied > 0 && applied <= STATIC_COLLISION_MAX_TICK_CORRECTION + 1e-9,
+      `rotated station recovery stays bounded (${applied.toFixed(2)} px)`);
+    assert(Math.abs(normalSpeed) < 1e-9, "velocity into a rotated station face is removed");
+    assert(Math.abs(tangentSpeed - 35) < 1e-9, "velocity along a rotated station face survives");
+  }
+
+  // --- world edges and corners are independent collision planes -----------
+  {
+    const corner = makeShip({ id: "world-corner", x: 0, y: 0, vx: -120, vy: -90 });
+    const room = makeRoom([corner]);
+    const before = { x: corner.x, y: corner.y };
+    assert(resolveMapCollision(room, corner), "an out-of-bounds corner registers a contact");
+    const applied = Math.hypot(corner.x - before.x, corner.y - before.y);
+    assert.equal(corner.vx, 0, "the left face removes leftward velocity");
+    assert.equal(corner.vy, 0, "the top face removes upward velocity");
+    assert(applied <= STATIC_COLLISION_MAX_TICK_CORRECTION + 1e-9,
+      "corner recovery shares one bounded correction budget");
+    assert(Math.abs(corner._staticCollisionCorrectionDistance - applied) < 1e-9,
+      "world-edge correction is included in the tick budget");
+    assert(Math.abs(room._roomTelemetry.staticCollisionCorrectionDistance - applied) < 1e-9,
+      "world-edge correction is included in room telemetry");
+
+    const glancing = makeShip({ id: "world-glance", x: 0, y: 0, vx: -120, vy: 45 });
+    const glancingRoom = makeRoom([glancing]);
+    resolveMapCollision(glancingRoom, glancing);
+    assert.equal(glancing.vx, 0, "the active left face removes only its inward component");
+    assert.equal(glancing.vy, 45, "motion back into the world survives a corner contact");
+
+    const opposite = makeShip({
+      id: "world-opposite-corner",
+      x: room.world.width,
+      y: room.world.height,
+      vx: 120,
+      vy: 90
+    });
+    const oppositeRoom = makeRoom([opposite]);
+    resolveMapCollision(oppositeRoom, opposite);
+    assert.equal(opposite.vx, 0, "the right face removes rightward velocity");
+    assert.equal(opposite.vy, 0, "the bottom face removes downward velocity");
+
+    for (const [label, x, y, vx, vy] of [
+      ["top-right", room.world.width, 0, 120, -90],
+      ["bottom-left", 0, room.world.height, -120, 90]
+    ]) {
+      const ship = makeShip({ id: `world-${label}`, x, y, vx, vy });
+      resolveMapCollision(makeRoom([ship]), ship);
+      assert.equal(ship.vx, 0, `${label} removes velocity through its vertical face`);
+      assert.equal(ship.vy, 0, `${label} removes velocity through its horizontal face`);
+    }
   }
 
   // --- a launch-phase hull belongs to the station --------------------------

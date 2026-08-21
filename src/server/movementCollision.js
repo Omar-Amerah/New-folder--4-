@@ -3,7 +3,7 @@
 const { clampNumber, compareEntityIds, fastHypot, hashString } = require("./utils");
 const { WORLD } = require("./config");
 const { bump } = require("./roomTelemetry");
-const { findShipHullOverlap } = require("./componentGeometry");
+const { findShipHullOverlap, findSweptShipHullContact } = require("./componentGeometry");
 const {
   ASTEROID_QUERY_PAD,
   FRIENDLY_COMPRESSION_SPEED,
@@ -174,19 +174,21 @@ function resolveMapCollision(room, ship) {
   const edgeDx = clampedX - beforeEdgeX;
   const edgeDy = clampedY - beforeEdgeY;
   if (edgeDx || edgeDy) {
-    const normalX = edgeDx > 0 ? 1 : edgeDx < 0 ? -1 : 0;
-    const normalY = edgeDy > 0 ? 1 : edgeDy < 0 ? -1 : 0;
-    const inwardSpeed = (ship.vx || 0) * normalX + (ship.vy || 0) * normalY;
-    if (inwardSpeed < 0) {
-      ship.vx -= inwardSpeed * normalX;
-      ship.vy -= inwardSpeed * normalY;
-    }
+    // A corner has two independent axis normals. Treating (1, 1) as one normal
+    // without normalising it projects the velocity twice and can turn an impact
+    // into a faster bounce. Remove only motion through each active face; motion
+    // back into the world, including a glancing component, survives.
+    if ((edgeDx > 0 && (ship.vx || 0) < 0) || (edgeDx < 0 && (ship.vx || 0) > 0)) ship.vx = 0;
+    if ((edgeDy > 0 && (ship.vy || 0) < 0) || (edgeDy < 0 && (ship.vy || 0) > 0)) ship.vy = 0;
     const length = fastHypot(edgeDx, edgeDy);
     const amount = Math.min(length, staticCorrectionBudget(ship));
     if (amount > 0 && length > 0) {
-      ship.x = beforeEdgeX + edgeDx * amount / length;
-      ship.y = beforeEdgeY + edgeDy * amount / length;
-      recordStaticCorrection(ship, edgeDx * amount / length, edgeDy * amount / length);
+      const correctionX = edgeDx * amount / length;
+      const correctionY = edgeDy * amount / length;
+      ship.x = beforeEdgeX + correctionX;
+      ship.y = beforeEdgeY + correctionY;
+      correctionDistance += amount;
+      recordStaticCorrection(ship, correctionX, correctionY);
     }
     hit = true;
   }
@@ -369,6 +371,92 @@ function addFriendlyCorrection(room, ship, dx, dy) {
   return applied;
 }
 
+function previousContactPose(room, ship) {
+  const stepId = room?._movementContactPairStepId;
+  if (stepId === null || stepId === undefined || ship?._movementContactPreviousStep !== stepId) return null;
+  return {
+    x: finiteNumber(ship._movementContactPreviousX, ship.x),
+    y: finiteNumber(ship._movementContactPreviousY, ship.y),
+    angle: finiteNumber(ship._movementContactPreviousAngle, ship.angle)
+  };
+}
+
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : (Number(fallback) || 0);
+}
+
+function sweptCentresMayContact(a, b, previousA, previousB, bound) {
+  if (!previousA || !previousB) return false;
+  const startX = previousB.x - previousA.x;
+  const startY = previousB.y - previousA.y;
+  const endX = (Number(b.x) || 0) - (Number(a.x) || 0);
+  const endY = (Number(b.y) || 0) - (Number(a.y) || 0);
+  const travelX = endX - startX;
+  const travelY = endY - startY;
+  const travelSquared = travelX * travelX + travelY * travelY;
+  const angleTravelA = Math.atan2(
+    Math.sin((Number(a.angle) || 0) - previousA.angle),
+    Math.cos((Number(a.angle) || 0) - previousA.angle)
+  );
+  const angleTravelB = Math.atan2(
+    Math.sin((Number(b.angle) || 0) - previousB.angle),
+    Math.cos((Number(b.angle) || 0) - previousB.angle)
+  );
+  // Identical translation with no rotation leaves every relative hull circle
+  // exactly where it was. Avoid the cell-pair sweep for stationary formations
+  // and fleets cruising together in lockstep.
+  if (travelSquared <= 1e-12 && Math.abs(angleTravelA) <= 1e-9 && Math.abs(angleTravelB) <= 1e-9) return false;
+  const time = travelSquared > 1e-12
+    ? clampNumber(-(startX * travelX + startY * travelY) / travelSquared, 0, 1)
+    : 0;
+  const closestX = startX + travelX * time;
+  const closestY = startY + travelY * time;
+  return closestX * closestX + closestY * closestY < bound * bound;
+}
+
+function clipIntegratedMovementToContact(ship, previous, time, immovable) {
+  if (immovable || !previous) return 0;
+  const oldX = Number(ship.x) || 0;
+  const oldY = Number(ship.y) || 0;
+  const fraction = clampNumber(time, 0, 1);
+  const nextX = previous.x + (oldX - previous.x) * fraction;
+  const nextY = previous.y + (oldY - previous.y) * fraction;
+  const deltaX = nextX - oldX;
+  const deltaY = nextY - oldY;
+  ship.x = nextX;
+  ship.y = nextY;
+  // This is integration being clipped at time of impact, not a positional
+  // recovery. Keep the movement accounting equal to the distance the ship
+  // actually travelled and do not spend either correction budget on it.
+  ship._integratedMovementX = (Number(ship._integratedMovementX) || 0) + deltaX;
+  ship._integratedMovementY = (Number(ship._integratedMovementY) || 0) + deltaY;
+  return fastHypot(deltaX, deltaY);
+}
+
+function resolveSweptSeparation(room, a, b, previousA, previousB, contact, dt) {
+  const immovableA = immovableInContact(a);
+  const immovableB = immovableInContact(b);
+  const clippedA = clipIntegratedMovementToContact(a, previousA, contact.time, immovableA);
+  const clippedB = clipIntegratedMovementToContact(b, previousB, contact.time, immovableB);
+  const normal = { x: contact.normalX, y: contact.normalY };
+  resolveFriendlyPush(a, b, normal, immovableA, immovableB, dt);
+
+  const modified = room._shipSeparationModified || (room._shipSeparationModified = new Set());
+  if (!immovableA) modified.add(a.id);
+  if (!immovableB) modified.add(b.id);
+  bump(room, "separationSweptContactsResolved");
+  collisionBump(room, "shipSweptCollisionPairs");
+  return {
+    penetration: 0,
+    correctionApplied: 0,
+    movementClipped: Math.max(clippedA, clippedB),
+    swept: true,
+    time: contact.time,
+    modified: true
+  };
+}
+
 // Ships are solid to each other regardless of team. What differs between an
 // allied and a hostile contact is nothing at all here: both are pushed apart,
 // both keep their tangential motion, and neither takes damage from touching.
@@ -378,20 +466,37 @@ function addFriendlyCorrection(room, ship, dx, dy) {
 // drawn around a long hull covers a great deal of empty space, and stopping
 // ships on it is what makes them halt with visible daylight between them. Pairs
 // that pass it are resolved against the hull cells themselves.
-function resolveSeparationPair(room, a, b, dt = DEFAULT_SEPARATION_DT) {
+function resolveSeparationPair(room, a, b, dt = DEFAULT_SEPARATION_DT, options = null) {
   if (!a || !b || a === b || a.alive === false || b.alive === false) return null;
   if (immovableInContact(a) && immovableInContact(b)) return null;
   bump(room, "separationPairsExamined");
   const centreDx = (b.x || 0) - (a.x || 0);
   const centreDy = (b.y || 0) - (a.y || 0);
   const bound = physicalCollisionRadius(a) + physicalCollisionRadius(b);
-  if (centreDx * centreDx + centreDy * centreDy >= bound * bound) {
+  const currentBroadPhase = centreDx * centreDx + centreDy * centreDy < bound * bound;
+  const previousA = previousContactPose(room, a);
+  const previousB = previousContactPose(room, b);
+  const sweptBroadPhase = sweptCentresMayContact(a, b, previousA, previousB, bound);
+  if (!currentBroadPhase && !sweptBroadPhase) {
     bump(room, "separationBroadPhaseRejected");
     return null;
   }
 
-  bump(room, "separationNarrowPhaseChecks");
-  const overlap = findShipHullOverlap(a, b);
+  let overlap = null;
+  if (currentBroadPhase) {
+    bump(room, "separationNarrowPhaseChecks");
+    overlap = findShipHullOverlap(a, b);
+  }
+  const previousCentreDx = previousA && previousB ? previousB.x - previousA.x : centreDx;
+  const previousCentreDy = previousA && previousB ? previousB.y - previousA.y : centreDy;
+  const centresReversed = previousCentreDx * centreDx + previousCentreDy * centreDy < 0;
+  if ((!overlap || centresReversed) && sweptBroadPhase && options?.allowSwept !== false) {
+    bump(room, "separationSweptPhaseChecks");
+    const contact = findSweptShipHullContact(a, b, previousA, previousB, {
+      includeInitialOverlaps: centresReversed
+    });
+    if (contact) return resolveSweptSeparation(room, a, b, previousA, previousB, contact, dt);
+  }
   if (!overlap) {
     bump(room, "separationHullPhaseRejected");
     return null;
@@ -474,7 +579,10 @@ function updateShipSeparation(room, shipList, dt, now = 0) {
     bump(room, "separationIterations");
     let resolved = 0;
     for (const pair of pairs) {
-      const result = resolveSeparationPair(room, pair.a, pair.b, stepDt);
+      const result = resolveSeparationPair(room, pair.a, pair.b, stepDt, {
+        allowSwept: pair.sweptResolvedStep !== stepId
+      });
+      if (result?.swept) pair.sweptResolvedStep = stepId;
       if (result) resolved += 1;
     }
     if (!resolved) break;

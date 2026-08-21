@@ -39,6 +39,7 @@ function clearPair(pair) {
   pair.bId = null;
   pair.orderA = 0;
   pair.orderB = 0;
+  pair.sweptResolvedStep = null;
 }
 
 function clearMovementContactPairs(room) {
@@ -66,6 +67,7 @@ function beginMovementContactStep(room, ships, now = 0) {
     if (!isLiveShip(room, ship)) continue;
     ship._movementContactPreviousX = finiteNumber(ship.x, 0);
     ship._movementContactPreviousY = finiteNumber(ship.y, 0);
+    ship._movementContactPreviousAngle = finiteNumber(ship.angle, 0);
     ship._movementContactPreviousStep = state._movementContactPairStepId;
     state._movementContactPairPreviousShips.push(ship);
   }

@@ -322,6 +322,133 @@ function shipHullApproachDistance(a, b, clearance = 0) {
   return firstContact;
 }
 
+function shortestAngleDelta(from, to) {
+  let delta = to - from;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  return delta;
+}
+
+// Build the endpoints of every live hull cell over one authoritative movement
+// tick. Translation is linear between the recorded poses. A rotating cell
+// follows an arc rather than that chord, so `padding` is the arc's maximum
+// sagitta: expanding the swept circle by it keeps the chord test conservative
+// without subdividing every contact candidate.
+function sweptHullCells(ship, previousPose) {
+  const geometry = getShipCollisionGeometry(ship);
+  const scratch = ship._shipHullSweepScratch || (ship._shipHullSweepScratch = []);
+  const previousX = Number.isFinite(Number(previousPose?.x))
+    ? Number(previousPose.x)
+    : (Number(ship.x) || 0);
+  const previousY = Number.isFinite(Number(previousPose?.y))
+    ? Number(previousPose.y)
+    : (Number(ship.y) || 0);
+  const previousAngle = Number.isFinite(Number(previousPose?.angle))
+    ? Number(previousPose.angle)
+    : (Number(ship.angle) || 0);
+  const angleDelta = shortestAngleDelta(previousAngle, Number(ship.angle) || 0);
+  const previousCos = Math.cos(previousAngle);
+  const previousSin = Math.sin(previousAngle);
+  const halfTurnCos = Math.cos(Math.abs(angleDelta) / 2);
+  let count = 0;
+
+  for (const componentIndex of geometry.liveComponentIndices) {
+    const localCells = geometry.localCells[componentIndex] || [];
+    const worldCells = geometry.worldCells[componentIndex] || [];
+    for (let index = 0; index < localCells.length; index += 1) {
+      const local = localCells[index];
+      const current = worldCells[index];
+      const entry = scratch[count] || (scratch[count] = {});
+      entry.startX = previousX + local.x * previousCos - local.y * previousSin;
+      entry.startY = previousY + local.x * previousSin + local.y * previousCos;
+      entry.endX = current.x;
+      entry.endY = current.y;
+      entry.radius = SHIP_HULL_CELL_COLLISION_RADIUS;
+      entry.padding = Math.hypot(local.x, local.y) * (1 - halfTurnCos);
+      count += 1;
+    }
+  }
+
+  if (count === 0) {
+    const entry = scratch[0] || (scratch[0] = {});
+    entry.startX = previousX;
+    entry.startY = previousY;
+    entry.endX = Number(ship.x) || 0;
+    entry.endY = Number(ship.y) || 0;
+    entry.radius = Math.max(18, Number(ship.physicalRadius) || 18);
+    entry.padding = 0;
+    count = 1;
+  }
+  scratch.length = count;
+  return scratch;
+}
+
+// Earliest hull-cell contact between two recorded poses. This is deliberately
+// only the narrow phase: movementContactPairs supplies the deterministic swept
+// bounding-box superset, while movementCollision decides when a continuous
+// check is necessary and owns the response.
+function findSweptShipHullContact(a, b, previousA, previousB, options = null) {
+  const circlesA = sweptHullCells(a, previousA);
+  const circlesB = sweptHullCells(b, previousB);
+  const includeInitialOverlaps = options?.includeInitialOverlaps === true;
+  let best = null;
+
+  for (let i = 0; i < circlesA.length; i += 1) {
+    const ca = circlesA[i];
+    for (let j = 0; j < circlesB.length; j += 1) {
+      const cb = circlesB[j];
+      const startX = cb.startX - ca.startX;
+      const startY = cb.startY - ca.startY;
+      const relativeX = (cb.endX - cb.startX) - (ca.endX - ca.startX);
+      const relativeY = (cb.endY - cb.startY) - (ca.endY - ca.startY);
+      const actualRadius = ca.radius + cb.radius;
+      const sweptRadius = actualRadius + ca.padding + cb.padding + 1e-6;
+      const startDistanceSquared = startX * startX + startY * startY;
+      const startsOverlapping = startDistanceSquared < actualRadius * actualRadius - 1e-9;
+      if (startsOverlapping && !includeInitialOverlaps) continue;
+
+      const speedSquared = relativeX * relativeX + relativeY * relativeY;
+      const startOffset = startDistanceSquared - sweptRadius * sweptRadius;
+      let time = null;
+      if (startOffset <= 0) {
+        // A padded chord may begin just inside its conservative envelope. It is
+        // only an impact if relative motion is carrying the cells farther in;
+        // an already separating pair must be allowed to leave.
+        if (startX * relativeX + startY * relativeY < -1e-9) time = 0;
+      } else if (speedSquared > 1e-12) {
+        const projection = startX * relativeX + startY * relativeY;
+        const discriminant = projection * projection - speedSquared * startOffset;
+        if (discriminant >= 0) {
+          const candidate = (-projection - Math.sqrt(discriminant)) / speedSquared;
+          if (candidate >= 0 && candidate <= 1) time = candidate;
+        }
+      }
+      if (time === null || (best && time >= best.time)) continue;
+
+      let normalX = startX + relativeX * time;
+      let normalY = startY + relativeY * time;
+      let normalLength = Math.hypot(normalX, normalY);
+      if (!(normalLength > 1e-9)) {
+        normalX = -relativeX;
+        normalY = -relativeY;
+        normalLength = Math.hypot(normalX, normalY);
+      }
+      if (!(normalLength > 1e-9)) {
+        normalX = String(a?.id ?? "") <= String(b?.id ?? "") ? 1 : -1;
+        normalY = 0;
+        normalLength = 1;
+      }
+      best = {
+        time,
+        normalX: normalX / normalLength,
+        normalY: normalY / normalLength,
+        startsOverlapping
+      };
+    }
+  }
+  return best;
+}
+
 // Where two hulls are touching, and which way to push them apart.
 //
 // Depth is the deepest overlapping pair of cells, but the DIRECTION is the
@@ -385,6 +512,7 @@ module.exports = {
   getShipCollisionGeometry,
   shipHullCircles,
   shipHullApproachDistance,
+  findSweptShipHullContact,
   findShipHullOverlap,
   invalidateShipCollisionGeometry,
   shieldRadiusForShip,
